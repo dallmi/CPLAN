@@ -316,7 +316,7 @@ COLUMN_MAP = {
     "Strategic Objectives":     "strategic_objectives",
     "Campaign":                 "campaign",
     "Campaign LTID":            "campaign_ltid",
-    "BOD":                      "bod_geb",
+    "BOD*GEB":                  "bod_geb",
     "Communication pack":       "communication_pack",
     "Communication":            "communication_ref",
     "Created":                  "created",
@@ -380,9 +380,18 @@ def transform(df, source_type):
         for label in labels_sorted:
             if label in claimed_labels:
                 continue
-            # 1) Exact match on raw name
-            # 2) Exact match on decoded name
-            # 3) Decoded name starts with label (handles SP suffixes)
+            # 1) Wildcard label "PREFIX*SUFFIX" — decoded must start with PREFIX
+            #    and contain SUFFIX (e.g. "BOD*GEB")
+            # 2) Exact match on raw name
+            # 3) Exact match on decoded name
+            # 4) Decoded name starts with label (handles SP suffixes)
+            if "*" in label:
+                prefix, suffix = label.split("*", 1)
+                if decoded.startswith(prefix) and suffix in decoded:
+                    rename_map[col] = COLUMN_MAP[label]
+                    claimed_labels.add(label)
+                    break
+                continue
             if col == label or decoded == label or decoded.startswith(label):
                 rename_map[col] = COLUMN_MAP[label]
                 claimed_labels.add(label)
@@ -544,6 +553,13 @@ def print_column_comparison(raw_columns, files):
             decoded = decode_sp_column_name(col).strip()
             for label in labels_sorted:
                 if label in claimed:
+                    continue
+                if "*" in label:
+                    prefix, suffix = label.split("*", 1)
+                    if decoded.startswith(prefix) and suffix in decoded:
+                        raw_to_clean[col] = COLUMN_MAP[label]
+                        claimed.add(label)
+                        break
                     continue
                 if col == label or decoded == label or decoded.startswith(label):
                     raw_to_clean[col] = COLUMN_MAP[label]
