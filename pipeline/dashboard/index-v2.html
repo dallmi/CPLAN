@@ -12,9 +12,6 @@
         window.dispatchEvent(new Event('duckdb-ready'));
     </script>
 
-    <!-- SheetJS for XLSX export -->
-    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-
     <style>
         :root {
             --primary: #E60000;
@@ -133,7 +130,7 @@
             color: var(--medium-gray);
         }
 
-        .date-filter input[type="date"] {
+        .date-filter input[type="text"] {
             padding: 0.35rem 0.5rem;
             border: 1px solid var(--light-gray);
             border-radius: 4px;
@@ -141,7 +138,7 @@
             font-family: var(--font);
         }
 
-        .date-filter input[type="date"]:focus {
+        .date-filter input[type="text"]:focus {
             outline: none;
             border-color: var(--primary);
         }
@@ -179,24 +176,6 @@
             white-space: nowrap;
         }
 
-        .btn-export-header {
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-            padding: 0.35rem 0.75rem;
-            background: var(--black);
-            color: var(--white);
-            border: none;
-            border-radius: 4px;
-            font-size: 0.75rem;
-            font-weight: 500;
-            cursor: pointer;
-            font-family: var(--font);
-            transition: background 0.15s;
-        }
-
-        .btn-export-header:hover { background: var(--dark-gray); }
-
         /* ── Horizontal Nav Tabs ── */
         .nav-tabs {
             display: flex;
@@ -231,6 +210,41 @@
             color: var(--black);
             border-bottom-color: var(--primary);
         }
+
+        /* ── Sub-tabs (within a page) ── */
+        .sub-tabs {
+            display: flex;
+            gap: 0;
+            border-bottom: 1px solid var(--light-gray);
+            margin-bottom: 1rem;
+        }
+
+        .sub-tab {
+            padding: 0.5rem 1rem;
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            font-size: 0.8rem;
+            font-weight: 500;
+            color: var(--medium-gray);
+            border-bottom: 2px solid transparent;
+            margin-bottom: -1px;
+            transition: all 0.15s;
+            white-space: nowrap;
+            font-family: var(--font);
+        }
+
+        .sub-tab:hover {
+            color: var(--dark-gray);
+        }
+
+        .sub-tab.active {
+            color: var(--black);
+            border-bottom-color: var(--dark-gray);
+        }
+
+        .sub-page { display: none; }
+        .sub-page.active { display: block; }
 
         /* ── Container ── */
         .container {
@@ -840,49 +854,6 @@
         .lead-warning { background: var(--warning); }
         .lead-danger { background: var(--danger); }
 
-        /* ── Export ── */
-        .btn-export {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 5px 14px;
-            background: var(--white);
-            border: 1px solid var(--light-gray);
-            border-radius: 5px;
-            font-size: 12px;
-            font-weight: 600;
-            color: var(--dark-gray);
-            cursor: pointer;
-            font-family: var(--font);
-            transition: background 0.15s, border-color 0.15s;
-        }
-
-        .btn-export:hover { background: var(--surface); border-color: var(--gray-ii); }
-        .btn-export:active { background: var(--light-gray); }
-        .btn-export .export-icon { font-size: 14px; line-height: 1; }
-
-        .export-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-            gap: 16px;
-            padding: 20px 18px;
-        }
-
-        .export-card {
-            background: var(--white);
-            border: 1px solid var(--light-gray);
-            border-radius: 8px;
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-
-        .export-card .export-card-title { font-size: 14px; font-weight: 700; color: var(--black); }
-        .export-card .export-card-desc { font-size: 12px; color: var(--medium-gray); line-height: 1.4; flex: 1; }
-        .export-card .export-card-meta { font-size: 11px; color: var(--gray-iii); margin-top: 4px; }
-        .export-card .btn-export { align-self: flex-start; margin-top: 8px; }
-
         /* ── Loading / Empty ── */
         .loading {
             display: flex;
@@ -958,27 +929,21 @@
                     <button class="date-preset active" data-range="all">All</button>
                 </div>
                 <label>From</label>
-                <input type="date" id="date-from">
+                <input type="text" id="date-from" placeholder="DD.MM.YYYY" maxlength="10" style="width:100px">
                 <label>To</label>
-                <input type="date" id="date-to">
+                <input type="text" id="date-to" placeholder="DD.MM.YYYY" maxlength="10" style="width:100px">
             </div>
-            <button class="btn-export-header" onclick="exportAllToWorkbook()">&darr; Export All</button>
             <span class="status-text"><span class="status-dot loading" id="status-dot"></span><span id="status-label">Loading...</span></span>
         </div>
     </header>
 
     <!-- ── Tab Navigation ── -->
     <nav class="nav-tabs">
-        <button class="nav-tab active" data-page="executive">Executive Summary</button>
-        <button class="nav-tab" data-page="dashboard">Operational</button>
-        <button class="nav-tab" data-page="calendar">Calendar</button>
-        <button class="nav-tab" data-page="planning">Planning Board</button>
-        <button class="nav-tab" data-page="internal">Internal</button>
-        <button class="nav-tab" data-page="external">External</button>
-        <button class="nav-tab" data-page="strategic">Strategic</button>
-        <button class="nav-tab" data-page="resource">Resources</button>
+        <button class="nav-tab active" data-page="executive">Executive</button>
+        <button class="nav-tab" data-page="operations">Operations</button>
+        <button class="nav-tab" data-page="planning">Planning</button>
+        <button class="nav-tab" data-page="activities">Activities</button>
         <button class="nav-tab" data-page="analytics">Analytics</button>
-        <button class="nav-tab" data-page="export">Export</button>
     </nav>
 
     <!-- ── Main Content ── -->
@@ -1030,83 +995,6 @@
             </div>
         </div>
 
-        <!-- STRATEGIC ALIGNMENT -->
-        <div class="page" id="page-strategic">
-            <div class="page-section-header">
-                <p>How communication activities map to strategic objectives</p>
-            </div>
-
-            <div class="kpi-grid" id="strategic-stats"></div>
-
-            <div class="charts-grid">
-                <div class="chart-card">
-                    <div class="chart-card-header">Objective Coverage by Channel</div>
-                    <div class="chart-card-body" id="strategic-objective-chart"><div class="loading">Loading...</div></div>
-                </div>
-                <div class="chart-card">
-                    <div class="chart-card-header">Objective &times; Division Matrix</div>
-                    <div class="chart-card-body" id="strategic-matrix"><div class="loading">Loading...</div></div>
-                </div>
-            </div>
-
-            <div class="charts-grid">
-                <div class="chart-card full-width">
-                    <div class="chart-card-header">Objective Trend (Monthly)</div>
-                    <div class="chart-card-body chart-card-body-padded" id="strategic-trend"><div class="loading">Loading...</div></div>
-                </div>
-            </div>
-
-            <div class="charts-grid">
-                <div class="chart-card full-width">
-                    <div class="chart-card-header">
-                        <span>Unaligned Activities</span>
-                        <button class="btn-export" onclick="exportSingleTable('unaligned')"><span class="export-icon">&darr;</span> .xlsx</button>
-                    </div>
-                    <div class="chart-card-body" id="strategic-unaligned"><div class="loading">Loading...</div></div>
-                </div>
-            </div>
-        </div>
-
-        <!-- RESOURCE & COORDINATION -->
-        <div class="page" id="page-resource">
-            <div class="page-section-header">
-                <p>Team workload, cross-team collaboration, and overlap detection</p>
-            </div>
-
-            <div class="kpi-grid" id="resource-stats"></div>
-
-            <div class="charts-grid">
-                <div class="chart-card">
-                    <div class="chart-card-header">Team Workload</div>
-                    <div class="chart-card-body" id="resource-workload"><div class="loading">Loading...</div></div>
-                </div>
-                <div class="chart-card">
-                    <div class="chart-card-header">Team &times; Channel Mix</div>
-                    <div class="chart-card-body" id="resource-team-channel"><div class="loading">Loading...</div></div>
-                </div>
-            </div>
-
-            <div class="charts-grid">
-                <div class="chart-card full-width">
-                    <div class="chart-card-header">
-                        <span>Campaign Scorecard</span>
-                        <button class="btn-export" onclick="exportSingleTable('campaigns')"><span class="export-icon">&darr;</span> .xlsx</button>
-                    </div>
-                    <div class="chart-card-body" id="resource-campaigns"><div class="loading">Loading...</div></div>
-                </div>
-            </div>
-
-            <div class="charts-grid">
-                <div class="chart-card full-width">
-                    <div class="chart-card-header">
-                        <span>Overlap Detector</span>
-                        <button class="btn-export" onclick="exportSingleTable('overlaps')"><span class="export-icon">&darr;</span> .xlsx</button>
-                    </div>
-                    <div class="chart-card-body" id="resource-overlaps"><div class="loading">Loading...</div></div>
-                </div>
-            </div>
-        </div>
-
         <!-- PLANNING BOARD -->
         <div class="page" id="page-planning">
             <div class="page-section-header">
@@ -1153,197 +1041,253 @@
                 <div class="chart-card full-width">
                     <div class="chart-card-header">
                         <span>Upcoming Pipeline</span>
-                        <button class="btn-export" onclick="exportSingleTable('upcoming')"><span class="export-icon">&darr;</span> .xlsx</button>
                     </div>
                     <div class="chart-card-body" id="planning-pipeline"><div class="loading">Loading...</div></div>
                 </div>
             </div>
         </div>
 
-        <!-- OPERATIONAL DASHBOARD -->
-        <div class="page" id="page-dashboard">
-            <div class="page-section-header">
-                <p>Last data refresh: <span id="last-refresh">&mdash;</span></p>
+        <!-- OPERATIONS (Dashboard + Calendar) -->
+        <div class="page" id="page-operations">
+            <div class="sub-tabs" id="operations-sub-tabs">
+                <button class="sub-tab active" data-sub="ops-dashboard">Dashboard</button>
+                <button class="sub-tab" data-sub="ops-calendar">Calendar</button>
             </div>
 
-            <div class="kpi-grid" id="dashboard-stats"></div>
+            <div class="sub-page active" id="sub-ops-dashboard">
+                <div class="page-section-header">
+                    <p>Last data refresh: <span id="last-refresh">&mdash;</span></p>
+                </div>
 
-            <div class="charts-grid">
-                <div class="chart-card">
-                    <div class="chart-card-header">Upcoming Activities (Next 30 Days)</div>
-                    <div class="chart-card-body" id="upcoming-list"><div class="loading">Loading...</div></div>
-                </div>
-                <div class="chart-card">
-                    <div class="chart-card-header">Channel Breakdown</div>
-                    <div class="chart-card-body" id="channel-chart"><div class="loading">Loading...</div></div>
-                </div>
-            </div>
+                <div class="kpi-grid" id="dashboard-stats"></div>
 
-            <div class="charts-grid">
-                <div class="chart-card">
-                    <div class="chart-card-header">Business Division</div>
-                    <div class="chart-card-body" id="division-chart"><div class="loading">Loading...</div></div>
+                <div class="charts-grid">
+                    <div class="chart-card">
+                        <div class="chart-card-header">Upcoming Activities (Next 30 Days)</div>
+                        <div class="chart-card-body" id="upcoming-list"><div class="loading">Loading...</div></div>
+                    </div>
+                    <div class="chart-card">
+                        <div class="chart-card-header">Channel Breakdown</div>
+                        <div class="chart-card-body" id="channel-chart"><div class="loading">Loading...</div></div>
+                    </div>
                 </div>
-                <div class="chart-card">
-                    <div class="chart-card-header">Priority Distribution</div>
-                    <div class="chart-card-body" id="priority-chart"><div class="loading">Loading...</div></div>
-                </div>
-            </div>
 
-            <div class="charts-grid">
-                <div class="chart-card full-width">
-                    <div class="chart-card-header">
-                        Monthly Activity Trend
-                        <div class="card-actions">
-                            <div class="pill-group" id="trend-toggle">
-                                <button class="active" data-mode="all">All</button>
-                                <button data-mode="internal">Internal</button>
-                                <button data-mode="external">External</button>
+                <div class="charts-grid">
+                    <div class="chart-card">
+                        <div class="chart-card-header">Business Division</div>
+                        <div class="chart-card-body" id="division-chart"><div class="loading">Loading...</div></div>
+                    </div>
+                    <div class="chart-card">
+                        <div class="chart-card-header">Priority Distribution</div>
+                        <div class="chart-card-body" id="priority-chart"><div class="loading">Loading...</div></div>
+                    </div>
+                </div>
+
+                <div class="charts-grid">
+                    <div class="chart-card full-width">
+                        <div class="chart-card-header">
+                            Monthly Activity Trend
+                            <div class="card-actions">
+                                <div class="pill-group" id="trend-toggle">
+                                    <button class="active" data-mode="all">All</button>
+                                    <button data-mode="internal">Internal</button>
+                                    <button data-mode="external">External</button>
+                                </div>
                             </div>
                         </div>
+                        <div class="chart-card-body chart-card-body-padded" id="trend-chart"><div class="loading">Loading...</div></div>
                     </div>
-                    <div class="chart-card-body chart-card-body-padded" id="trend-chart"><div class="loading">Loading...</div></div>
                 </div>
-            </div>
 
-            <div class="charts-grid">
-                <div class="chart-card full-width">
-                    <div class="chart-card-header">Recent Activities</div>
-                    <div class="chart-card-body" id="recent-table"><div class="loading">Loading...</div></div>
-                </div>
-            </div>
-        </div>
-
-        <!-- CALENDAR -->
-        <div class="page" id="page-calendar">
-            <div class="charts-grid">
-                <div class="chart-card full-width">
-                    <div class="chart-card-header">
-                        <span>Calendar</span>
-                        <div class="calendar-nav">
-                            <button id="cal-prev">&larr;</button>
-                            <span class="month-label" id="cal-month-label"></span>
-                            <button id="cal-next">&rarr;</button>
-                            <button id="cal-today">Today</button>
-                        </div>
-                    </div>
-                    <div class="chart-card-body chart-card-body-padded">
-                        <div class="calendar-grid" id="calendar-grid"></div>
+                <div class="charts-grid">
+                    <div class="chart-card full-width">
+                        <div class="chart-card-header">Recent Activities</div>
+                        <div class="chart-card-body" id="recent-table"><div class="loading">Loading...</div></div>
                     </div>
                 </div>
             </div>
 
-            <div class="charts-grid">
-                <div class="chart-card full-width">
-                    <div class="chart-card-header">Upcoming Events</div>
-                    <div class="chart-card-body" id="calendar-upcoming"></div>
-                </div>
-            </div>
-        </div>
-
-        <!-- INTERNAL -->
-        <div class="page" id="page-internal">
-            <div class="kpi-grid" id="internal-stats"></div>
-
-            <div class="charts-grid">
-                <div class="chart-card full-width">
-                    <div class="chart-card-header">
-                        <span>Internal Activities</span>
-                        <button class="btn-export" onclick="exportSingleTable('internal')"><span class="export-icon">&darr;</span> .xlsx</button>
-                    </div>
-                    <div class="chart-card-body">
-                        <div style="padding:12px 18px 0">
-                            <div class="filter-bar">
-                                <input type="text" placeholder="Search activities..." id="internal-search">
-                                <select id="internal-channel-filter"><option value="">All Channels</option></select>
-                                <select id="internal-priority-filter"><option value="">All Priorities</option></select>
+            <div class="sub-page" id="sub-ops-calendar">
+                <div class="charts-grid">
+                    <div class="chart-card full-width">
+                        <div class="chart-card-header">
+                            <span>Calendar</span>
+                            <div class="calendar-nav">
+                                <button id="cal-prev">&larr;</button>
+                                <span class="month-label" id="cal-month-label"></span>
+                                <button id="cal-next">&rarr;</button>
+                                <button id="cal-today">Today</button>
                             </div>
                         </div>
-                        <div id="internal-table"><div class="loading">Loading...</div></div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- EXTERNAL -->
-        <div class="page" id="page-external">
-            <div class="kpi-grid" id="external-stats"></div>
-
-            <div class="charts-grid">
-                <div class="chart-card full-width">
-                    <div class="chart-card-header">
-                        <span>External Activities</span>
-                        <button class="btn-export" onclick="exportSingleTable('external')"><span class="export-icon">&darr;</span> .xlsx</button>
-                    </div>
-                    <div class="chart-card-body">
-                        <div style="padding:12px 18px 0">
-                            <div class="filter-bar">
-                                <input type="text" placeholder="Search activities..." id="external-search">
-                                <select id="external-channel-filter"><option value="">All Channels</option></select>
-                                <select id="external-priority-filter"><option value="">All Priorities</option></select>
-                            </div>
+                        <div class="chart-card-body chart-card-body-padded">
+                            <div class="calendar-grid" id="calendar-grid"></div>
                         </div>
-                        <div id="external-table"><div class="loading">Loading...</div></div>
+                    </div>
+                </div>
+
+                <div class="charts-grid">
+                    <div class="chart-card full-width">
+                        <div class="chart-card-header">Upcoming Events</div>
+                        <div class="chart-card-body" id="calendar-upcoming"></div>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- ANALYTICS -->
+        <!-- ACTIVITIES (Internal / External / All) -->
+        <div class="page" id="page-activities">
+            <div class="sub-tabs" id="activities-sub-tabs">
+                <button class="sub-tab active" data-sub="act-internal">Internal</button>
+                <button class="sub-tab" data-sub="act-external">External</button>
+            </div>
+
+            <div class="sub-page active" id="sub-act-internal">
+                <div class="kpi-grid" id="internal-stats"></div>
+
+                <div class="charts-grid">
+                    <div class="chart-card full-width">
+                        <div class="chart-card-header">Internal Activities</div>
+                        <div class="chart-card-body">
+                            <div style="padding:12px 18px 0">
+                                <div class="filter-bar">
+                                    <input type="text" placeholder="Search activities..." id="internal-search">
+                                    <select id="internal-channel-filter"><option value="">All Channels</option></select>
+                                    <select id="internal-priority-filter"><option value="">All Priorities</option></select>
+                                </div>
+                            </div>
+                            <div id="internal-table"><div class="loading">Loading...</div></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sub-page" id="sub-act-external">
+                <div class="kpi-grid" id="external-stats"></div>
+
+                <div class="charts-grid">
+                    <div class="chart-card full-width">
+                        <div class="chart-card-header">External Activities</div>
+                        <div class="chart-card-body">
+                            <div style="padding:12px 18px 0">
+                                <div class="filter-bar">
+                                    <input type="text" placeholder="Search activities..." id="external-search">
+                                    <select id="external-channel-filter"><option value="">All Channels</option></select>
+                                    <select id="external-priority-filter"><option value="">All Priorities</option></select>
+                                </div>
+                            </div>
+                            <div id="external-table"><div class="loading">Loading...</div></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ANALYTICS (Overview / Strategic / Resources) -->
         <div class="page" id="page-analytics">
-            <div class="kpi-grid" id="analytics-stats"></div>
-
-            <div class="charts-grid">
-                <div class="chart-card">
-                    <div class="chart-card-header">Activities by Lead Team</div>
-                    <div class="chart-card-body" id="lead-team-chart"></div>
-                </div>
-                <div class="chart-card">
-                    <div class="chart-card-header">Activities by Region</div>
-                    <div class="chart-card-body" id="region-chart"></div>
-                </div>
+            <div class="sub-tabs" id="analytics-sub-tabs">
+                <button class="sub-tab active" data-sub="ana-overview">Overview</button>
+                <button class="sub-tab" data-sub="ana-strategic">Strategic</button>
+                <button class="sub-tab" data-sub="ana-resources">Resources</button>
             </div>
 
-            <div class="charts-grid">
-                <div class="chart-card">
-                    <div class="chart-card-header">Target Audience Breakdown</div>
-                    <div class="chart-card-body" id="audience-chart"></div>
-                </div>
-                <div class="chart-card">
-                    <div class="chart-card-header">Strategic Objectives</div>
-                    <div class="chart-card-body" id="objectives-chart"></div>
-                </div>
-            </div>
+            <div class="sub-page active" id="sub-ana-overview">
+                <div class="kpi-grid" id="analytics-stats"></div>
 
-            <div class="charts-grid">
-                <div class="chart-card">
-                    <div class="chart-card-header">Top Leads by Activity Count</div>
-                    <div class="chart-card-body" id="leads-chart"></div>
-                </div>
-                <div class="chart-card">
-                    <div class="chart-card-header">Campaign Distribution</div>
-                    <div class="chart-card-body" id="campaign-chart"></div>
-                </div>
-            </div>
-
-            <div class="charts-grid">
-                <div class="chart-card full-width">
-                    <div class="chart-card-header">News Digest Inclusion</div>
-                    <div class="chart-card-body chart-card-body-padded" id="digest-stats"></div>
-                </div>
-            </div>
-        </div>
-
-        <!-- EXPORT CENTER -->
-        <div class="page" id="page-export">
-            <div class="charts-grid">
-                <div class="chart-card full-width">
-                    <div class="chart-card-header">
-                        <span>Available Exports</span>
-                        <button class="btn-export" onclick="exportAllToWorkbook()"><span class="export-icon">&darr;</span> Export All (Multi-Sheet)</button>
+                <div class="charts-grid">
+                    <div class="chart-card">
+                        <div class="chart-card-header">Activities by Lead Team</div>
+                        <div class="chart-card-body" id="lead-team-chart"></div>
                     </div>
-                    <div class="chart-card-body">
-                        <div class="export-grid" id="export-grid"></div>
+                    <div class="chart-card">
+                        <div class="chart-card-header">Activities by Region</div>
+                        <div class="chart-card-body" id="region-chart"></div>
+                    </div>
+                </div>
+
+                <div class="charts-grid">
+                    <div class="chart-card">
+                        <div class="chart-card-header">Target Audience Breakdown</div>
+                        <div class="chart-card-body" id="audience-chart"></div>
+                    </div>
+                    <div class="chart-card">
+                        <div class="chart-card-header">Strategic Objectives</div>
+                        <div class="chart-card-body" id="objectives-chart"></div>
+                    </div>
+                </div>
+
+                <div class="charts-grid">
+                    <div class="chart-card">
+                        <div class="chart-card-header">Top Leads by Activity Count</div>
+                        <div class="chart-card-body" id="leads-chart"></div>
+                    </div>
+                    <div class="chart-card">
+                        <div class="chart-card-header">Campaign Distribution</div>
+                        <div class="chart-card-body" id="campaign-chart"></div>
+                    </div>
+                </div>
+
+                <div class="charts-grid">
+                    <div class="chart-card full-width">
+                        <div class="chart-card-header">News Digest Inclusion</div>
+                        <div class="chart-card-body chart-card-body-padded" id="digest-stats"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sub-page" id="sub-ana-strategic">
+                <div class="kpi-grid" id="strategic-stats"></div>
+
+                <div class="charts-grid">
+                    <div class="chart-card">
+                        <div class="chart-card-header">Objective Coverage by Channel</div>
+                        <div class="chart-card-body" id="strategic-objective-chart"><div class="loading">Loading...</div></div>
+                    </div>
+                    <div class="chart-card">
+                        <div class="chart-card-header">Objective &times; Division Matrix</div>
+                        <div class="chart-card-body" id="strategic-matrix"><div class="loading">Loading...</div></div>
+                    </div>
+                </div>
+
+                <div class="charts-grid">
+                    <div class="chart-card full-width">
+                        <div class="chart-card-header">Objective Trend (Monthly)</div>
+                        <div class="chart-card-body chart-card-body-padded" id="strategic-trend"><div class="loading">Loading...</div></div>
+                    </div>
+                </div>
+
+                <div class="charts-grid">
+                    <div class="chart-card full-width">
+                        <div class="chart-card-header">Unaligned Activities</div>
+                        <div class="chart-card-body" id="strategic-unaligned"><div class="loading">Loading...</div></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sub-page" id="sub-ana-resources">
+                <div class="kpi-grid" id="resource-stats"></div>
+
+                <div class="charts-grid">
+                    <div class="chart-card">
+                        <div class="chart-card-header">Team Workload</div>
+                        <div class="chart-card-body" id="resource-workload"><div class="loading">Loading...</div></div>
+                    </div>
+                    <div class="chart-card">
+                        <div class="chart-card-header">Team &times; Channel Mix</div>
+                        <div class="chart-card-body" id="resource-team-channel"><div class="loading">Loading...</div></div>
+                    </div>
+                </div>
+
+                <div class="charts-grid">
+                    <div class="chart-card full-width">
+                        <div class="chart-card-header">Campaign Scorecard</div>
+                        <div class="chart-card-body" id="resource-campaigns"><div class="loading">Loading...</div></div>
+                    </div>
+                </div>
+
+                <div class="charts-grid">
+                    <div class="chart-card full-width">
+                        <div class="chart-card-header">Overlap Detector</div>
+                        <div class="chart-card-body" id="resource-overlaps"><div class="loading">Loading...</div></div>
                     </div>
                 </div>
             </div>
@@ -1508,11 +1452,11 @@
                 break;
         }
 
-        // Update date inputs
+        // Update date inputs (DD.MM.YYYY format)
         const fromEl = document.getElementById('date-from');
         const toEl = document.getElementById('date-to');
-        fromEl.value = globalDateFrom ? globalDateFrom.toISOString().slice(0, 10) : '';
-        toEl.value = globalDateTo ? globalDateTo.toISOString().slice(0, 10) : '';
+        fromEl.value = globalDateFrom ? fmtDateEU(globalDateFrom) : '';
+        toEl.value = globalDateTo ? fmtDateEU(globalDateTo) : '';
     }
 
     function refreshAllPages() {
@@ -1527,7 +1471,6 @@
         renderStrategicAlignment(data);
         renderResourceCoordination(data);
         renderAnalytics(data);
-        renderExportCenter();
     }
 
     // -------------------------------------------------------------------------
@@ -1543,6 +1486,21 @@
     function parseDate(val) {
         if (!val) return null;
         const d = new Date(val);
+        return isNaN(d.getTime()) ? null : d;
+    }
+
+    function fmtDateEU(d) {
+        if (!d) return '';
+        const dd = String(d.getDate()).padStart(2, '0');
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        return `${dd}.${mm}.${d.getFullYear()}`;
+    }
+
+    function parseDateEU(str) {
+        if (!str) return null;
+        const m = str.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+        if (!m) return null;
+        const d = new Date(parseInt(m[3]), parseInt(m[2]) - 1, parseInt(m[1]));
         return isNaN(d.getTime()) ? null : d;
     }
 
@@ -3463,224 +3421,6 @@
     }
 
     // -------------------------------------------------------------------------
-    // XLSX Export
-    // -------------------------------------------------------------------------
-
-    function exportDate(val) {
-        if (!val) return '';
-        const d = new Date(val);
-        if (isNaN(d.getTime())) return String(val);
-        return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-    }
-
-    function downloadXlsx(wb, filename) {
-        if (typeof XLSX === 'undefined') {
-            alert('XLSX library not loaded. Please check your internet connection.');
-            return;
-        }
-        XLSX.writeFile(wb, filename);
-    }
-
-    function rowsToSheet(rows, columns, headers) {
-        const data = [headers || columns.map(c => c.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()))];
-        for (const r of rows) {
-            data.push(columns.map(col => {
-                let val = r[col];
-                if (col.includes('date') || col === 'created' || col === 'modified') {
-                    val = exportDate(val);
-                }
-                if (val === null || val === undefined || val === 'None' || val === 'null') return '';
-                if (typeof val === 'boolean') return val ? 'Yes' : 'No';
-                return val;
-            }));
-        }
-        const ws = XLSX.utils.aoa_to_sheet(data);
-        ws['!cols'] = columns.map((col, i) => {
-            const maxLen = Math.max(
-                (headers ? headers[i] : col).length,
-                ...data.slice(1).map(row => String(row[i] || '').length)
-            );
-            return { wch: Math.min(Math.max(maxLen, 8), 40) };
-        });
-        return ws;
-    }
-
-    function getExportDefinitions() {
-        const rows = DATA ? getFilteredRows(DATA.rows) : [];
-        const now = new Date();
-        const futureRows = rows.filter(r => { const d = parseDate(r.start_date); return d && d >= now; })
-            .sort((a, b) => new Date(a.start_date) - new Date(b.start_date));
-
-        const activityCols = ['activity_name', 'source_type', 'channel', 'start_date', 'end_date',
-            'priority', 'lead', 'lead_team', 'business_division', 'region',
-            'target_audience', 'strategic_objectives', 'campaign', 'news_digest',
-            'planning_lead_days', 'tracking_id'];
-
-        const pipelineCols = ['activity_name', 'source_type', 'channel', 'start_date', 'end_date',
-            'priority', 'lead_team', 'target_audience', 'planning_lead_days', 'campaign'];
-
-        return [
-            {
-                id: 'all-activities', title: 'All Activities',
-                description: 'Complete dataset of all internal and external communication activities.',
-                rows: rows, columns: activityCols, filename: 'cplan_all_activities.xlsx', sheetName: 'All Activities', count: rows.length,
-            },
-            {
-                id: 'internal', title: 'Internal Activities',
-                description: 'Internal communication activities only.',
-                rows: rows.filter(r => r.source_type === 'internal'), columns: activityCols,
-                filename: 'cplan_internal_activities.xlsx', sheetName: 'Internal',
-                count: rows.filter(r => r.source_type === 'internal').length,
-            },
-            {
-                id: 'external', title: 'External Activities',
-                description: 'External communication activities only.',
-                rows: rows.filter(r => r.source_type === 'external'), columns: activityCols,
-                filename: 'cplan_external_activities.xlsx', sheetName: 'External',
-                count: rows.filter(r => r.source_type === 'external').length,
-            },
-            {
-                id: 'upcoming', title: 'Upcoming Pipeline',
-                description: 'Future activities sorted by start date.',
-                rows: futureRows, columns: pipelineCols,
-                filename: 'cplan_upcoming_pipeline.xlsx', sheetName: 'Pipeline', count: futureRows.length,
-            },
-            {
-                id: 'campaigns', title: 'Campaign Scorecard',
-                description: 'Campaign-level rollup with channel diversity and date range.',
-                rows: null,
-                compute: function() {
-                    const campaigns = {};
-                    for (const r of rows) {
-                        const c = r.campaign;
-                        if (!c || c === 'None') continue;
-                        const parts = String(c).split(/[;,]/).map(s => s.trim()).filter(Boolean);
-                        for (const p of parts) {
-                            if (!campaigns[p]) campaigns[p] = { name: p, count: 0, channels: new Set(), divisions: new Set(), audiences: new Set(), objectives: new Set(), minDate: null, maxDate: null };
-                            campaigns[p].count++;
-                            if (r.channel && r.channel !== 'None') String(r.channel).split(/[;,]/).map(s=>s.trim()).filter(Boolean).forEach(v => campaigns[p].channels.add(v));
-                            if (r.business_division && r.business_division !== 'None') String(r.business_division).split(/[;,]/).map(s=>s.trim()).filter(Boolean).forEach(v => campaigns[p].divisions.add(v));
-                            if (r.target_audience && r.target_audience !== 'None') String(r.target_audience).split(/[;,]/).map(s=>s.trim()).filter(Boolean).forEach(v => campaigns[p].audiences.add(v));
-                            if (r.strategic_objectives && r.strategic_objectives !== 'None') String(r.strategic_objectives).split(/[;,]/).map(s=>s.trim()).filter(Boolean).forEach(v => campaigns[p].objectives.add(v));
-                            const sd = parseDate(r.start_date); const ed = parseDate(r.end_date);
-                            if (sd && (!campaigns[p].minDate || sd < campaigns[p].minDate)) campaigns[p].minDate = sd;
-                            if (ed && (!campaigns[p].maxDate || ed > campaigns[p].maxDate)) campaigns[p].maxDate = ed;
-                        }
-                    }
-                    return Object.values(campaigns).sort((a, b) => b.count - a.count).map(c => ({
-                        campaign: c.name, activities: c.count,
-                        channels: c.channels.size, channel_list: [...c.channels].join(', '),
-                        divisions: c.divisions.size, audiences: c.audiences.size,
-                        objectives: c.objectives.size, objective_list: [...c.objectives].join(', '),
-                        start_date: c.minDate ? exportDate(c.minDate) : '', end_date: c.maxDate ? exportDate(c.maxDate) : ''
-                    }));
-                },
-                columns: ['campaign', 'activities', 'channels', 'channel_list', 'divisions', 'audiences', 'objectives', 'objective_list', 'start_date', 'end_date'],
-                headers: ['Campaign', 'Activities', 'Channels', 'Channel List', 'Divisions', 'Audiences', 'Objectives', 'Objective List', 'First Start', 'Last End'],
-                filename: 'cplan_campaign_scorecard.xlsx', sheetName: 'Campaigns',
-                count: new Set(rows.map(r => r.campaign).filter(c => c && c !== 'None')).size,
-            },
-            {
-                id: 'unaligned', title: 'Unaligned Activities',
-                description: 'Activities with no strategic objective assigned.',
-                rows: rows.filter(r => !r.strategic_objectives || r.strategic_objectives === 'None' || !String(r.strategic_objectives).trim()),
-                columns: ['activity_name', 'source_type', 'business_division', 'lead_team', 'channel', 'start_date', 'campaign'],
-                filename: 'cplan_unaligned_activities.xlsx', sheetName: 'Unaligned',
-                count: rows.filter(r => !r.strategic_objectives || r.strategic_objectives === 'None' || !String(r.strategic_objectives).trim()).length,
-            },
-            {
-                id: 'overlaps', title: 'Audience Overlaps',
-                description: 'Weeks with multiple activities targeting the same audience on the same channel.',
-                rows: null,
-                compute: function() {
-                    const weekMap = {};
-                    const sixMonthsAgo = new Date(now); sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-                    for (const r of rows) {
-                        const sd = parseDate(r.start_date); const ed = parseDate(r.end_date) || sd;
-                        if (!sd || sd < sixMonthsAgo) continue;
-                        const ch = r.channel; const aud = r.target_audience;
-                        if (!ch || ch === 'None' || !aud || aud === 'None') continue;
-                        const chParts = String(ch).split(/[;,]/).map(s=>s.trim()).filter(Boolean);
-                        const audParts = String(aud).split(/[;,]/).map(s=>s.trim()).filter(Boolean);
-                        for (const c of chParts) { for (const a of audParts) {
-                            const ws = new Date(sd); ws.setDate(ws.getDate() - ws.getDay() + 1);
-                            const wk = `${ws.getFullYear()}-${String(ws.getMonth()+1).padStart(2,'0')}-${String(ws.getDate()).padStart(2,'0')}`;
-                            const key = `${wk}|||${a}|||${c}`;
-                            if (!weekMap[key]) weekMap[key] = { week: wk, audience: a, channel: c, activities: [] };
-                            weekMap[key].activities.push(r.activity_name || 'Untitled');
-                        }}
-                    }
-                    return Object.values(weekMap).filter(g => g.activities.length > 1)
-                        .sort((a, b) => b.activities.length - a.activities.length)
-                        .map(g => ({ week: g.week, audience: g.audience, channel: g.channel, count: g.activities.length, activities: g.activities.join('; ') }));
-                },
-                columns: ['week', 'audience', 'channel', 'count', 'activities'],
-                headers: ['Week', 'Audience', 'Channel', 'Overlap Count', 'Activities'],
-                filename: 'cplan_audience_overlaps.xlsx', sheetName: 'Overlaps', count: null,
-            },
-        ];
-    }
-
-    function exportSingleTable(defId) {
-        const defs = getExportDefinitions();
-        const def = defs.find(d => d.id === defId);
-        if (!def) return;
-
-        const dataRows = def.compute ? def.compute() : def.rows;
-        if (!dataRows || !dataRows.length) {
-            alert('No data to export.');
-            return;
-        }
-
-        const wb = XLSX.utils.book_new();
-        const ws = rowsToSheet(dataRows, def.columns, def.headers);
-        XLSX.utils.book_append_sheet(wb, ws, def.sheetName);
-        downloadXlsx(wb, def.filename);
-    }
-
-    function exportAllToWorkbook() {
-        const defs = getExportDefinitions();
-        const wb = XLSX.utils.book_new();
-        let sheetsAdded = 0;
-
-        for (const def of defs) {
-            const dataRows = def.compute ? def.compute() : def.rows;
-            if (!dataRows || !dataRows.length) continue;
-            const ws = rowsToSheet(dataRows, def.columns, def.headers);
-            XLSX.utils.book_append_sheet(wb, ws, def.sheetName);
-            sheetsAdded++;
-        }
-
-        if (sheetsAdded === 0) {
-            alert('No data to export.');
-            return;
-        }
-
-        const today = new Date().toISOString().slice(0, 10);
-        downloadXlsx(wb, `cplan_export_${today}.xlsx`);
-    }
-
-    function renderExportCenter() {
-        const el = document.getElementById('export-grid');
-        const defs = getExportDefinitions();
-
-        let html = '';
-        for (const def of defs) {
-            const dataRows = def.compute ? def.compute() : def.rows;
-            const count = dataRows ? dataRows.length : (def.count || 0);
-            html += `<div class="export-card">
-                <div class="export-card-title">${esc(def.title)}</div>
-                <div class="export-card-desc">${esc(def.description)}</div>
-                <div class="export-card-meta">${count} rows &middot; ${def.columns.length} columns</div>
-                <button class="btn-export" onclick="exportSingleTable('${def.id}')">
-                    <span class="export-icon">&darr;</span> Download .xlsx
-                </button>
-            </div>`;
-        }
-        el.innerHTML = html;
-    }
-
-    // -------------------------------------------------------------------------
     // Navigation — horizontal tabs
     // -------------------------------------------------------------------------
 
@@ -3699,6 +3439,23 @@
         tab.addEventListener("click", () => {
             const page = tab.dataset.page;
             if (page) switchPage(page);
+        });
+    });
+
+    // Sub-tab navigation
+    document.querySelectorAll(".sub-tabs").forEach(container => {
+        container.addEventListener("click", e => {
+            const btn = e.target.closest(".sub-tab");
+            if (!btn) return;
+            const subId = btn.dataset.sub;
+            // Deactivate siblings
+            container.querySelectorAll(".sub-tab").forEach(t => t.classList.remove("active"));
+            btn.classList.add("active");
+            // Show/hide sub-pages within the same parent page
+            const parentPage = container.parentElement;
+            parentPage.querySelectorAll(".sub-page").forEach(sp => sp.classList.remove("active"));
+            const target = document.getElementById(`sub-${subId}`);
+            if (target) target.classList.add("active");
         });
     });
 
@@ -3751,20 +3508,19 @@
         });
     });
 
-    // Custom date inputs
-    document.getElementById('date-from').addEventListener('change', () => {
-        const val = document.getElementById('date-from').value;
-        globalDateFrom = val ? new Date(val + 'T00:00:00') : null;
+    // Custom date inputs (DD.MM.YYYY)
+    function onDateInputChange() {
+        const fromVal = document.getElementById('date-from').value;
+        const toVal = document.getElementById('date-to').value;
+        globalDateFrom = parseDateEU(fromVal);
+        globalDateTo = parseDateEU(toVal);
+        if (globalDateTo) globalDateTo.setHours(23, 59, 59);
         document.querySelectorAll('.date-preset').forEach(b => b.classList.remove('active'));
         refreshAllPages();
-    });
+    }
 
-    document.getElementById('date-to').addEventListener('change', () => {
-        const val = document.getElementById('date-to').value;
-        globalDateTo = val ? new Date(val + 'T23:59:59') : null;
-        document.querySelectorAll('.date-preset').forEach(b => b.classList.remove('active'));
-        refreshAllPages();
-    });
+    document.getElementById('date-from').addEventListener('change', onDateInputChange);
+    document.getElementById('date-to').addEventListener('change', onDateInputChange);
 
     // -------------------------------------------------------------------------
     // Init
@@ -3794,8 +3550,7 @@
             renderStrategicAlignment(data);
             renderResourceCoordination(data);
             renderAnalytics(data);
-            renderExportCenter();
-        } catch (err) {
+            } catch (err) {
             console.error("Init error:", err);
             dot.className = 'status-dot error';
             label.textContent = 'Error';
