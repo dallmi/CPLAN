@@ -142,10 +142,11 @@ def read_csv_auto(path):
     log(f"  Reading {path.name} (delimiter={repr(sep)})")
     df = pd.read_csv(path, sep=sep)
     # Drop @odata.type companion columns — they only contain the SP type string
-    odata_cols = [c for c in df.columns if "@odata.type" in c]
-    if odata_cols:
-        df = df.drop(columns=odata_cols)
-        log(f"  Dropped {len(odata_cols)} @odata.type columns")
+    # Drop #WssId columns — internal SharePoint lookup IDs, not useful for reporting
+    drop_cols = [c for c in df.columns if "@odata.type" in c or c.endswith("#WssId")]
+    if drop_cols:
+        df = df.drop(columns=drop_cols)
+        log(f"  Dropped {len(drop_cols)} @odata.type / #WssId columns")
     return df
 
 
