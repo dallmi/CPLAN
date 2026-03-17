@@ -285,6 +285,7 @@ COLUMN_MAP = {
     "Business Area":            "business_area",
     "Region":                   "region",
     "Channel":                  "channel",
+    "Partner Team":             "partner_team",
     "Lead Team":                "lead_team",
     "Lead":                     "lead",
     "Start date":               "start_date",
@@ -304,8 +305,8 @@ COLUMN_MAP = {
 SP_LOOKUP_COLUMNS = {
     "target_audience", "extended_audience", "business_division",
     "business_area", "region", "channel", "lead", "lead_team",
-    "priority", "strategic_objectives", "communication_ref",
-    "communication_pack", "author", "audience",
+    "partner_team", "priority", "strategic_objectives",
+    "communication_ref", "communication_pack", "author", "audience",
 }
 
 # Columns where we also want to extract the email from Claims
