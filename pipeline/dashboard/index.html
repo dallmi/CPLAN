@@ -256,6 +256,8 @@
             text-overflow: ellipsis;
             white-space: nowrap;
         }
+        td.group-name { font-weight: 600; vertical-align: top; border-bottom: 1px solid var(--light-gray); }
+        tr.grouped-row td:first-child { border-top: none; }
 
         /* Badges */
         .badge {
@@ -1249,30 +1251,55 @@
             return;
         }
 
+        // Group rows by activity_name to consolidate channels
+        const grouped = [];
+        const byName = {};
+        for (const row of rows) {
+            const name = row.activity_name || "";
+            if (!byName[name]) {
+                byName[name] = { key: name, rows: [] };
+                grouped.push(byName[name]);
+            }
+            byName[name].rows.push(row);
+        }
+
+        // Columns excluding channel (shown inline) and activity_name (shown as group header)
+        const detailCols = columns.filter(c => c !== "activity_name" && c !== "channel");
+
         let html = "<table><thead><tr>";
-        for (const col of columns) {
+        html += `<th>activity name</th><th>channel</th>`;
+        for (const col of detailCols) {
             html += `<th>${esc(col.replace(/_/g, " "))}</th>`;
         }
         html += "</tr></thead><tbody>";
 
-        for (const row of rows) {
-            html += "<tr>";
-            for (const col of columns) {
-                let val = row[col];
-                if (col === "start_date" || col === "end_date" || col === "created" || col === "modified") {
-                    val = fmtDate(parseDate(val));
+        for (const group of grouped) {
+            group.rows.forEach((row, ri) => {
+                html += ri === 0 ? "<tr>" : '<tr class="grouped-row">';
+                // Activity name: show on first row, span if multiple
+                if (ri === 0) {
+                    const rs = group.rows.length > 1 ? ` rowspan="${group.rows.length}"` : "";
+                    html += `<td${rs} title="${esc(group.key)}" class="group-name">${esc(group.key || "—")}</td>`;
                 }
-                if (col === "source_type") {
-                    const cls = val === "internal" ? "badge-source-internal" : "badge-source-external";
-                    html += `<td><span class="badge ${cls}">${esc(String(val || ""))}</span></td>`;
-                } else if (col === "priority") {
-                    const color = PRIORITY_COLORS[val] || "var(--medium-gray)";
-                    html += `<td><span class="badge" style="background:${color}20;color:${color}">${esc(String(val || "—"))}</span></td>`;
-                } else {
-                    html += `<td title="${esc(String(val ?? ""))}">${esc(String(val ?? "—"))}</td>`;
+                // Channel
+                html += `<td>${esc(String(row.channel || "—"))}</td>`;
+                for (const col of detailCols) {
+                    let val = row[col];
+                    if (col === "start_date" || col === "end_date" || col === "created" || col === "modified") {
+                        val = fmtDate(parseDate(val));
+                    }
+                    if (col === "source_type") {
+                        const cls = val === "internal" ? "badge-source-internal" : "badge-source-external";
+                        html += `<td><span class="badge ${cls}">${esc(String(val || ""))}</span></td>`;
+                    } else if (col === "priority") {
+                        const color = PRIORITY_COLORS[val] || "var(--medium-gray)";
+                        html += `<td><span class="badge" style="background:${color}20;color:${color}">${esc(String(val || "—"))}</span></td>`;
+                    } else {
+                        html += `<td title="${esc(String(val ?? ""))}">${esc(String(val ?? "—"))}</td>`;
+                    }
                 }
-            }
-            html += "</tr>";
+                html += "</tr>";
+            });
         }
         html += "</tbody></table>";
         el.innerHTML = html;
