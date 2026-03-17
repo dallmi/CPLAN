@@ -461,6 +461,28 @@ def transform(df, source_type):
     # Tag source
     df["source_type"] = source_type
 
+    # Parse tracking_id into components
+    # Format: CLUSTER-PACKNUM-YYMMDD-ACTNUM-CHANNEL
+    # e.g.    QRREP-0000058-240709-0000060-EMI
+    if "tracking_id" in df.columns:
+        parts = df["tracking_id"].str.split("-", expand=True)
+        if parts.shape[1] >= 5:
+            df["tracking_cluster_id"] = parts[0]
+            df["tracking_pack_number"] = parts[1]
+            df["tracking_pub_date"] = parts[2]
+            df["tracking_activity_number"] = parts[3]
+            df["tracking_channel_abbr"] = parts[4]
+            # Communication pack ID = cluster + pack number
+            df["tracking_pack_id"] = parts[0] + "-" + parts[1]
+        elif parts.shape[1] >= 1:
+            # Partial tracking IDs — extract what we can
+            df["tracking_cluster_id"] = parts[0]
+            if parts.shape[1] >= 2:
+                df["tracking_pack_number"] = parts[1]
+                df["tracking_pack_id"] = parts[0] + "-" + parts[1]
+            if parts.shape[1] >= 5:
+                df["tracking_channel_abbr"] = parts[4]
+
     # Computed columns for executive dashboard
     if "start_date" in df.columns and "created" in df.columns:
         df["planning_lead_days"] = (
