@@ -524,12 +524,40 @@ def write_table(df, table_name, parquet_name, full_refresh=False):
     log(f"Wrote dashboard JSON to {json_path}")
 
 
-def transform_packs(df):
-    """Transform CommunicationPacks CSV — light processing.
+PACKS_COLUMN_MAP = {
+    "LTID":                     "cpid",
+    "Business Division":        "business_division",
+    "Region":                   "region",
+    "Campaing":                 "lead",
+    "Campaign":                 "lead",
+    "Lead Team":                "lead_team",
+    "Lead team":                "lead_team",
+    "Objective":                "strategic_objective",
+    "Start date":               "start_date",
+    "Date of launch":           "launch_date",
+    "Long Term":                "communication_pack_lookup",
+    "Brief":                    "short_description",
+    "Partner team":             "partner_team",
+    "Partner Team":             "partner_team",
+    "Created":                  "created",
+    "Modified":                 "modified",
+}
 
-    Applies the same noise column removal and SP lookup parsing
-    but keeps all remaining columns (schema TBD).
-    """
+PACKS_LOOKUP_COLUMNS = {
+    "business_division", "region", "lead", "lead_team",
+    "strategic_objective", "communication_pack_lookup",
+    "partner_team",
+}
+
+PACKS_PERSON_COLUMNS = {"lead"}
+
+PACKS_DATE_COLUMNS = {"start_date", "launch_date", "created", "modified"}
+
+PACKS_HTML_COLUMNS = {"short_description"}
+
+
+def transform_packs(df):
+    """Transform CommunicationPacks CSV with explicit column mapping."""
     df.columns = [c.strip() for c in df.columns]
 
     # Drop noise columns
@@ -538,22 +566,73 @@ def transform_packs(df):
         df = df.drop(columns=drop_cols)
         log(f"  Dropped {len(drop_cols)} noise columns")
 
-    # Decode SP column names for readability
-    rename = {}
+    log(f"  Columns after cleanup: {list(df.columns)}")
+
+    # Same matching logic as activities: decode, then longest-label-first
+    labels_sorted = sorted(PACKS_COLUMN_MAP.keys(), key=len, reverse=True)
+    rename_map = {}
+    claimed_labels = set()
+
     for col in df.columns:
         decoded = decode_sp_column_name(col).strip()
-        clean = decoded.lower().replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
-        rename[col] = clean
-    df = df.rename(columns=rename)
+        for label in labels_sorted:
+            if label in claimed_labels:
+                continue
+            if col == label or decoded == label or decoded.startswith(label):
+                rename_map[col] = PACKS_COLUMN_MAP[label]
+                claimed_labels.add(label)
+                break
 
-    # Parse any SP lookup JSON values across all columns
-    for col in df.columns:
-        if df[col].dtype == object:
-            sample = df[col].dropna().head(5)
-            if sample.astype(str).str.startswith("{").any() or sample.astype(str).str.startswith("[").any():
-                df[col] = df[col].apply(parse_sp_lookup)
+    df = df.rename(columns=rename_map)
 
-    log(f"  Packs columns: {list(df.columns)}")
+    # Keep only mapped columns
+    keep = [c for c in rename_map.values() if c in df.columns]
+    df = df[keep]
+
+    log(f"  Mapped columns: {list(df.columns)}")
+
+    # Extract person emails before lookup parsing
+    for col in PACKS_PERSON_COLUMNS:
+        if col in df.columns:
+            df[f"{col}_email"] = df[col].apply(parse_sp_person_email)
+
+    # Parse SP lookup JSON fields
+    for col in PACKS_LOOKUP_COLUMNS:
+        if col in df.columns:
+            df[col] = df[col].apply(parse_sp_lookup)
+
+    # Strip HTML from rich text fields
+    for col in PACKS_HTML_COLUMNS:
+        if col in df.columns:
+            df[col] = df[col].apply(_strip_html)
+
+    # Parse dates with CET conversion
+    CET = "Europe/Zurich"
+    for col in PACKS_DATE_COLUMNS:
+        if col in df.columns:
+            raw = df[col].copy()
+
+            def _parse_date(val):
+                if pd.isna(val) or not isinstance(val, str) or not val.strip():
+                    return pd.NaT
+                s = val.strip()
+                for fmt in ("%d.%m.%Y %H:%M", "%d.%m.%Y %H:%M:%S", "%d.%m.%Y"):
+                    try:
+                        dt = pd.Timestamp(datetime.strptime(s, fmt))
+                        return dt.tz_localize(CET)
+                    except ValueError:
+                        continue
+                try:
+                    dt = pd.Timestamp(s)
+                    if dt.tz is not None:
+                        return dt.tz_convert(CET)
+                    else:
+                        return dt.tz_localize(CET)
+                except Exception:
+                    return pd.NaT
+
+            df[col] = raw.apply(_parse_date)
+
     return df
 
 
