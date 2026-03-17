@@ -13,6 +13,9 @@
     </script>
     <!-- SheetJS for XLSX export -->
     <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+    <!-- Flatpickr date picker -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
 
     <style>
         :root {
@@ -147,18 +150,25 @@
             color: var(--medium-gray);
         }
 
-        .date-filter input[type="date"] {
+        .date-filter input[type="text"] {
             padding: 0.35rem 0.5rem;
             border: 1px solid var(--light-gray);
             border-radius: 4px;
             font-size: 0.8rem;
             font-family: var(--font);
+            width: 100px;
+            cursor: pointer;
         }
 
-        .date-filter input[type="date"]:focus {
+        .date-filter input[type="text"]:focus {
             outline: none;
             border-color: var(--primary);
         }
+
+        /* Flatpickr brand overrides */
+        .flatpickr-day.selected, .flatpickr-day.selected:hover { background: var(--primary); border-color: var(--primary); }
+        .flatpickr-day.today { border-color: var(--primary); }
+        .flatpickr-day:hover { background: var(--surface); }
 
         /* Status indicator */
         .status-dot {
@@ -946,9 +956,9 @@
                     <button class="date-preset active" data-range="all">All</button>
                 </div>
                 <label>From</label>
-                <input type="date" id="date-from">
+                <input type="text" id="date-from" placeholder="dd.MM.yyyy" readonly>
                 <label>To</label>
-                <input type="date" id="date-to">
+                <input type="text" id="date-to" placeholder="dd.MM.yyyy" readonly>
             </div>
             <button class="export-btn" id="export-xlsx" title="Export all activities to Excel">&#11123; Export XLSX</button>
             <span class="status-text"><span class="status-dot loading" id="status-dot"></span><span id="status-label">Loading...</span></span>
@@ -1486,8 +1496,8 @@
         // Update date inputs (DD.MM.YYYY format)
         const fromEl = document.getElementById('date-from');
         const toEl = document.getElementById('date-to');
-        fromEl.value = globalDateFrom ? fmtDateISO(globalDateFrom) : '';
-        toEl.value = globalDateTo ? fmtDateISO(globalDateTo) : '';
+        if (fpFrom) fpFrom.setDate(globalDateFrom || '', false);
+        if (fpTo) fpTo.setDate(globalDateTo || '', false);
     }
 
     function refreshAllPages() {
@@ -1533,17 +1543,11 @@
         return n.toLocaleString('de-CH');
     }
 
-    function fmtDateISO(d) {
+    function fmtDateEU(d) {
         if (!d) return '';
         const dd = String(d.getDate()).padStart(2, '0');
         const mm = String(d.getMonth() + 1).padStart(2, '0');
-        return `${d.getFullYear()}-${mm}-${dd}`;
-    }
-
-    function parseDateInput(str) {
-        if (!str) return null;
-        const d = new Date(str + 'T00:00:00');
-        return isNaN(d.getTime()) ? null : d;
+        return `${dd}.${mm}.${d.getFullYear()}`;
     }
 
     function fmtDate(d) {
@@ -3554,19 +3558,20 @@
         });
     });
 
-    // Custom date inputs (DD.MM.YYYY)
-    function onDateInputChange() {
-        const fromVal = document.getElementById('date-from').value;
-        const toVal = document.getElementById('date-to').value;
-        globalDateFrom = parseDateInput(fromVal);
-        globalDateTo = parseDateInput(toVal);
-        if (globalDateTo) globalDateTo.setHours(23, 59, 59);
-        document.querySelectorAll('.date-preset').forEach(b => b.classList.remove('active'));
-        refreshAllPages();
-    }
-
-    document.getElementById('date-from').addEventListener('change', onDateInputChange);
-    document.getElementById('date-to').addEventListener('change', onDateInputChange);
+    // Flatpickr date pickers (dd.MM.yyyy format)
+    const fpOpts = {
+        dateFormat: 'd.m.Y',
+        allowInput: false,
+        onChange() {
+            globalDateFrom = fpFrom.selectedDates[0] || null;
+            globalDateTo = fpTo.selectedDates[0] || null;
+            if (globalDateTo) globalDateTo.setHours(23, 59, 59);
+            document.querySelectorAll('.date-preset').forEach(b => b.classList.remove('active'));
+            refreshAllPages();
+        }
+    };
+    const fpFrom = flatpickr('#date-from', fpOpts);
+    const fpTo = flatpickr('#date-to', fpOpts);
 
     // Export to XLSX
     document.getElementById('export-xlsx').addEventListener('click', () => {
