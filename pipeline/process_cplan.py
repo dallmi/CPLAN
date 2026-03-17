@@ -54,6 +54,7 @@ INPUT_FILES = {
     "packs": "CommunicationPacks*.csv",
     "internal_channels": "InternalChannels*.csv",
     "external_channels": "ExternalChannels*.csv",
+    "clusters": "TrackingCluster*.csv",
 }
 
 
@@ -708,6 +709,32 @@ def transform_channels(df):
     return df
 
 
+def transform_clusters(df):
+    """Transform TrackingCluster CSV.
+
+    Keeps: ID -> cluster_id, Title -> cluster_name, Abbreviation -> cluster_abbr.
+    The cluster_abbr matches tracking_cluster_id (e.g. QRREP).
+    """
+    df.columns = [c.strip() for c in df.columns]
+
+    rename = {}
+    for col in df.columns:
+        lower = col.lower().strip()
+        if lower == "id":
+            rename[col] = "cluster_id"
+        elif lower == "title":
+            rename[col] = "cluster_name"
+        elif lower == "abbreviation":
+            rename[col] = "cluster_abbr"
+
+    df = df.rename(columns=rename)
+    keep = [c for c in ("cluster_id", "cluster_name", "cluster_abbr") if c in df.columns]
+    df = df[keep]
+
+    log(f"  Clusters: {len(df)} rows, columns: {list(df.columns)}")
+    return df
+
+
 # ---------------------------------------------------------------------------
 # Pretty-print helpers for --preview
 # ---------------------------------------------------------------------------
@@ -980,6 +1007,23 @@ def main():
             print(channels_df.to_string(index=False))
         else:
             write_table(channels_df, "channels", "channels", full_refresh=full_refresh)
+
+    # --- Tracking clusters lookup ---
+    if "clusters" in files:
+        log("Processing TrackingClusters...")
+        clusters_df = read_csv_auto(files["clusters"])
+        log(f"  clusters: {len(clusters_df)} rows, {len(clusters_df.columns)} columns")
+        clusters_df = transform_clusters(clusters_df)
+
+        if preview:
+            print()
+            print("=" * 80)
+            print(f"  CLUSTERS PREVIEW  ({len(clusters_df)} rows)")
+            print("=" * 80)
+            print()
+            print(clusters_df.to_string(index=False))
+        else:
+            write_table(clusters_df, "clusters", "clusters", full_refresh=full_refresh)
 
     if not preview:
         log("Done.")
