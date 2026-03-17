@@ -1185,8 +1185,10 @@
         renderDonut("division-chart", topN(countBy(rows, "business_division"), 8));
 
         // Priority chart
-        renderDonut("priority-chart", topN(countBy(rows, "priority"), 6),
-            (label) => PRIORITY_COLORS[label] || "#8E8D83");
+        const priorityEntries = topN(countBy(rows, "priority"), 6);
+        let priFallbackIdx = 0;
+        renderDonut("priority-chart", priorityEntries,
+            (label) => PRIORITY_COLORS[label] || CHART_COLORS[priFallbackIdx++ % CHART_COLORS.length]);
 
         // Trend
         renderTrend(rows, "all");
