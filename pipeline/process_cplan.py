@@ -1085,6 +1085,19 @@ def main():
         combined = pd.concat(frames, ignore_index=True)
         log(f"Combined activities: {len(combined)} rows")
 
+        # Deduplicate: active + archive lists can overlap.
+        # Keep the most recently modified row per tracking_id.
+        if "tracking_id" in combined.columns:
+            before = len(combined)
+            sort_col = "modified" if "modified" in combined.columns else None
+            if sort_col:
+                combined = combined.sort_values(sort_col, ascending=False, na_position="last")
+            combined = combined.drop_duplicates(subset=["tracking_id"], keep="first")
+            combined = combined.reset_index(drop=True)
+            dupes = before - len(combined)
+            if dupes:
+                log(f"  Removed {dupes} duplicate rows (by tracking_id)")
+
         if preview:
             print_column_comparison(raw_columns, activity_files)
             print_data_preview(combined)
