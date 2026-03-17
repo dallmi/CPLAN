@@ -1,0 +1,3815 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CPLAN — Communications Dashboard</title>
+
+    <!-- DuckDB WASM -->
+    <script type="module">
+        import * as duckdb from 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.28.0/+esm';
+        window.duckdb = duckdb;
+        window.dispatchEvent(new Event('duckdb-ready'));
+    </script>
+
+    <!-- SheetJS for XLSX export -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+    <style>
+        :root {
+            --primary: #E60000;
+            --primary-dark: #8A000A;
+            --danger: #BD000C;
+            --warning: #E4A911;
+            --success: #6F7A1A;
+            --info: #0C7EC6;
+            --black: #000000;
+            --dark-gray: #404040;
+            --medium-gray: #7A7870;
+            --light-gray: #CCCABC;
+            --gray-ii: #B8B3A2;
+            --gray-iii: #8E8D83;
+            --gray-v: #5A5D5C;
+            --surface: #ECEBE4;
+            --surface-alt: #F5F0E1;
+            --row-alt: #F8F7F2;
+            --white: #FFFFFF;
+
+            --bronze-i: #B98E2C;
+            --bronze-ii: #946F29;
+            --lagoon: #00759E;
+            --kiwi: #879420;
+            --aubergine: #4B2D58;
+            --sage: #469A6C;
+            --plum: #4972AC;
+            --blush: #AD3E4A;
+            --lavender: #8489BD;
+            --lake: #0C7EC6;
+            --mint: #45999C;
+            --chocolate: #785E4A;
+
+            --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: var(--font);
+            background: var(--surface);
+            color: var(--black);
+            line-height: 1.5;
+        }
+
+        /* ── Sticky Header ── */
+        .header {
+            background: var(--white);
+            color: var(--black);
+            padding: 0.75rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--light-gray);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header h1 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            padding-left: 0.75rem;
+            border-left: 3px solid var(--primary);
+            white-space: nowrap;
+        }
+
+        .header h1 span { color: var(--primary); }
+
+        .header-controls {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        .date-filter {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .date-filter.loading {
+            opacity: 0.4;
+            pointer-events: none;
+        }
+
+        .date-presets {
+            display: flex;
+            gap: 0;
+            border: 1px solid var(--light-gray);
+            border-radius: 4px;
+            overflow: hidden;
+            margin-right: 0.5rem;
+        }
+
+        .date-preset {
+            padding: 0.35rem 0.6rem;
+            background: var(--white);
+            border: none;
+            border-right: 1px solid var(--light-gray);
+            cursor: pointer;
+            font-size: 0.75rem;
+            color: var(--medium-gray);
+            white-space: nowrap;
+            transition: all 0.15s;
+            font-family: var(--font);
+        }
+
+        .date-preset:last-child { border-right: none; }
+        .date-preset:hover { background: var(--surface); color: var(--dark-gray); }
+        .date-preset.active { background: var(--primary); color: var(--white); }
+
+        .date-filter label {
+            font-size: 0.8rem;
+            color: var(--medium-gray);
+        }
+
+        .date-filter input[type="date"] {
+            padding: 0.35rem 0.5rem;
+            border: 1px solid var(--light-gray);
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-family: var(--font);
+        }
+
+        .date-filter input[type="date"]:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+
+        /* Status indicator */
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 6px;
+        }
+
+        .status-dot.loading {
+            background: var(--warning);
+            animation: pulse 1s ease-in-out infinite;
+        }
+
+        .status-dot.ready {
+            background: var(--success);
+        }
+
+        .status-dot.error {
+            background: var(--danger);
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        .status-text {
+            font-size: 0.75rem;
+            color: var(--medium-gray);
+            white-space: nowrap;
+        }
+
+        .btn-export-header {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 0.35rem 0.75rem;
+            background: var(--black);
+            color: var(--white);
+            border: none;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            cursor: pointer;
+            font-family: var(--font);
+            transition: background 0.15s;
+        }
+
+        .btn-export-header:hover { background: var(--dark-gray); }
+
+        /* ── Horizontal Nav Tabs ── */
+        .nav-tabs {
+            display: flex;
+            gap: 0;
+            background: var(--white);
+            border-bottom: 2px solid var(--light-gray);
+            overflow-x: auto;
+            padding: 0 2rem;
+        }
+
+        .nav-tab {
+            padding: 0.75rem 1.25rem;
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--medium-gray);
+            border-bottom: 2px solid transparent;
+            margin-bottom: -2px;
+            transition: all 0.2s;
+            white-space: nowrap;
+            font-family: var(--font);
+        }
+
+        .nav-tab:hover {
+            color: var(--dark-gray);
+            background: var(--surface);
+        }
+
+        .nav-tab.active {
+            color: var(--black);
+            border-bottom-color: var(--primary);
+        }
+
+        /* ── Container ── */
+        .container {
+            max-width: 1800px;
+            margin: 0 auto;
+            padding: 1rem 2rem;
+        }
+
+        /* Page visibility */
+        .page { display: none; }
+        .page.active { display: block; }
+
+        /* ── KPI / Stat Cards ── */
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .kpi-card {
+            background: var(--white);
+            border: 1px solid var(--light-gray);
+            border-radius: 6px;
+            padding: 16px 18px;
+            position: relative;
+        }
+
+        .kpi-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            border-radius: 6px 6px 0 0;
+            background: var(--light-gray);
+        }
+
+        .kpi-card.highlight::before { background: var(--primary); }
+        .kpi-card.success::before { background: var(--success); }
+        .kpi-card.warning::before { background: var(--warning); }
+        .kpi-card.danger::before { background: var(--danger); }
+        .kpi-card.info::before { background: var(--info); }
+
+        .kpi-card .kpi-label {
+            font-size: 11px;
+            color: var(--medium-gray);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            margin-bottom: 4px;
+        }
+
+        .kpi-card .kpi-row {
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            gap: 8px;
+        }
+
+        .kpi-card .kpi-value {
+            font-size: 26px;
+            font-weight: 700;
+            color: var(--black);
+            line-height: 1;
+        }
+
+        .kpi-card .kpi-unit {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--medium-gray);
+            margin-left: 2px;
+        }
+
+        .kpi-card .kpi-delta {
+            font-size: 11px;
+            font-weight: 600;
+            margin-top: 4px;
+        }
+
+        .kpi-delta.positive { color: var(--success); }
+        .kpi-delta.negative { color: var(--danger); }
+        .kpi-delta.neutral { color: var(--medium-gray); }
+
+        .kpi-card .kpi-sparkline {
+            position: absolute;
+            bottom: 12px;
+            right: 14px;
+        }
+
+        .kpi-card .kpi-sub {
+            font-size: 11px;
+            color: var(--medium-gray);
+            margin-top: 2px;
+        }
+
+        /* ── Chart Cards ── */
+        .charts-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .chart-card {
+            background: var(--white);
+            border-radius: 6px;
+            border: 1px solid var(--light-gray);
+            overflow: hidden;
+        }
+
+        .chart-card.full-width {
+            grid-column: 1 / -1;
+        }
+
+        .chart-card-header {
+            padding: 12px 18px;
+            border-bottom: 1px solid var(--surface);
+            font-weight: 600;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .chart-card-header .card-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .chart-card-body { padding: 0; }
+        .chart-card-body-padded { padding: 16px 18px; }
+
+        /* ── Tables ── */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        thead th {
+            text-align: left;
+            padding: 10px 14px;
+            font-weight: 600;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: var(--medium-gray);
+            border-bottom: 2px solid var(--light-gray);
+            background: var(--surface);
+            white-space: nowrap;
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+
+        tbody tr { border-bottom: 1px solid var(--surface); }
+        tbody tr:nth-child(even) td { background: var(--row-alt); }
+        tbody tr:hover td { background: var(--surface); }
+
+        tbody td {
+            padding: 8px 14px;
+            color: var(--dark-gray);
+            max-width: 250px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        thead th.sortable {
+            cursor: pointer;
+            user-select: none;
+        }
+
+        thead th.sortable:hover { color: var(--dark-gray); }
+        thead th.sortable::after { content: " \2195"; font-size: 10px; opacity: 0.4; }
+
+        /* ── Badges ── */
+        .badge {
+            display: inline-block;
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .badge-success { background: #e8ecd0; color: var(--success); }
+        .badge-warning { background: #fdf3d7; color: #8a6800; }
+        .badge-danger  { background: #f5d0d3; color: var(--danger); }
+        .badge-info    { background: #d4eaf8; color: #065a96; }
+        .badge-default { background: var(--surface); color: var(--medium-gray); }
+        .badge-source-internal { background: #d4eaf8; color: #065a96; }
+        .badge-source-external { background: #e8ecd0; color: var(--success); }
+
+        /* ── Bar Charts (CSS-only) ── */
+        .bar-chart { padding: 16px 18px; }
+
+        .bar-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+            gap: 10px;
+        }
+
+        .bar-label {
+            width: 140px;
+            flex-shrink: 0;
+            font-size: 13px;
+            color: var(--dark-gray);
+            text-align: right;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .bar-track {
+            flex: 1;
+            height: 22px;
+            background: var(--surface);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .bar-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.4s ease;
+            min-width: 2px;
+        }
+
+        .bar-value {
+            width: 42px;
+            flex-shrink: 0;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--dark-gray);
+        }
+
+        /* ── Donut Chart (SVG) ── */
+        .donut-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 24px;
+            padding: 20px;
+        }
+
+        .donut-legend { font-size: 13px; }
+
+        .donut-legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 6px;
+        }
+
+        .donut-legend-swatch {
+            width: 12px;
+            height: 12px;
+            border-radius: 3px;
+            flex-shrink: 0;
+        }
+
+        /* ── Calendar ── */
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 1px;
+            background: var(--light-gray);
+            border: 1px solid var(--light-gray);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .calendar-header-cell {
+            padding: 8px;
+            text-align: center;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: var(--medium-gray);
+            background: var(--surface-alt);
+        }
+
+        .calendar-cell {
+            min-height: 100px;
+            padding: 6px;
+            background: var(--white);
+            vertical-align: top;
+        }
+
+        .calendar-cell.other-month { background: var(--surface); }
+        .calendar-cell.today { background: #fdf3d7; }
+
+        .calendar-day {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--dark-gray);
+            margin-bottom: 4px;
+        }
+
+        .calendar-cell.other-month .calendar-day { color: var(--gray-ii); }
+
+        .calendar-event {
+            font-size: 11px;
+            padding: 2px 5px;
+            margin-bottom: 2px;
+            border-radius: 3px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            cursor: default;
+        }
+
+        .calendar-event.internal { background: #d4eaf8; color: #065a96; }
+        .calendar-event.external { background: #e8ecd0; color: var(--success); }
+        .calendar-event.more { background: var(--surface); color: var(--medium-gray); font-style: italic; }
+
+        .calendar-nav {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .calendar-nav button {
+            background: var(--surface);
+            border: 1px solid var(--light-gray);
+            border-radius: 4px;
+            padding: 4px 12px;
+            cursor: pointer;
+            font-size: 13px;
+            color: var(--dark-gray);
+            font-family: var(--font);
+        }
+
+        .calendar-nav button:hover { background: var(--light-gray); }
+
+        .calendar-nav .month-label {
+            font-weight: 600;
+            font-size: 15px;
+            min-width: 160px;
+            text-align: center;
+        }
+
+        /* ── Upcoming List ── */
+        .event-item {
+            display: flex;
+            gap: 14px;
+            padding: 12px 18px;
+            border-bottom: 1px solid var(--surface);
+            align-items: flex-start;
+        }
+
+        .event-item:last-child { border-bottom: none; }
+
+        .event-date-box {
+            width: 48px;
+            height: 48px;
+            border-radius: 6px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            font-weight: 700;
+        }
+
+        .event-date-box .day { font-size: 18px; line-height: 1; }
+        .event-date-box .month { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; }
+
+        .event-details { flex: 1; min-width: 0; }
+        .event-title { font-weight: 600; font-size: 14px; color: var(--black); }
+        .event-meta { font-size: 12px; color: var(--medium-gray); margin-top: 2px; }
+
+        /* ── Pill Toggle ── */
+        .pill-group {
+            display: inline-flex;
+            background: var(--surface);
+            border-radius: 6px;
+            padding: 2px;
+        }
+
+        .pill-group button {
+            padding: 4px 14px;
+            border: none;
+            background: transparent;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--medium-gray);
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: var(--font);
+        }
+
+        .pill-group button.active {
+            background: var(--white);
+            color: var(--black);
+            box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+        }
+
+        /* ── Search / Filter Bar ── */
+        .filter-bar {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+
+        .filter-bar input,
+        .filter-bar select {
+            padding: 6px 12px;
+            border: 1px solid var(--light-gray);
+            border-radius: 6px;
+            font-size: 13px;
+            font-family: var(--font);
+            background: var(--white);
+            color: var(--dark-gray);
+        }
+
+        .filter-bar input:focus,
+        .filter-bar select:focus {
+            outline: none;
+            border-color: var(--info);
+        }
+
+        .filter-bar input { width: 240px; }
+
+        /* ── Heatmap ── */
+        .heatmap-wrapper {
+            overflow-x: auto;
+            padding: 16px 18px;
+        }
+
+        .heatmap {
+            display: inline-grid;
+            gap: 2px;
+            font-size: 11px;
+        }
+
+        .heatmap-cell {
+            width: 100%;
+            min-width: 36px;
+            min-height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 3px;
+            font-weight: 600;
+            font-size: 11px;
+        }
+
+        .heatmap-label {
+            display: flex;
+            align-items: center;
+            padding: 0 8px;
+            font-size: 12px;
+            color: var(--dark-gray);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 140px;
+        }
+
+        .heatmap-col-label {
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            font-size: 10px;
+            color: var(--medium-gray);
+            font-weight: 600;
+            text-transform: uppercase;
+            padding-bottom: 4px;
+        }
+
+        /* ── Alert Cards ── */
+        .alert-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            padding: 16px 18px;
+        }
+
+        .alert-card {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            padding: 12px 16px;
+            border-radius: 6px;
+            border-left: 4px solid;
+            background: var(--white);
+            border-color: var(--light-gray);
+        }
+
+        .alert-card.alert-red { border-left-color: var(--danger); background: #f5d0d310; }
+        .alert-card.alert-amber { border-left-color: var(--warning); background: #fdf3d710; }
+        .alert-card.alert-green { border-left-color: var(--success); background: #e8ecd010; }
+
+        .alert-icon {
+            flex-shrink: 0;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--white);
+        }
+
+        .alert-red .alert-icon { background: var(--danger); }
+        .alert-amber .alert-icon { background: var(--warning); }
+        .alert-green .alert-icon { background: var(--success); }
+
+        .alert-text { font-size: 13px; color: var(--dark-gray); line-height: 1.4; }
+        .alert-text strong { font-weight: 600; }
+
+        /* ── Gantt Chart ── */
+        .gantt-wrapper {
+            overflow-x: auto;
+            padding: 0 0 12px;
+        }
+
+        .gantt {
+            display: grid;
+            min-width: 700px;
+            font-size: 12px;
+        }
+
+        .gantt-header-cell {
+            padding: 8px 4px;
+            text-align: center;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: var(--medium-gray);
+            background: var(--surface-alt);
+            border-bottom: 2px solid var(--light-gray);
+            white-space: nowrap;
+        }
+
+        .gantt-group-label {
+            grid-column: 1 / -1;
+            padding: 8px 16px;
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--dark-gray);
+            background: var(--surface);
+            border-bottom: 1px solid var(--light-gray);
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+
+        .gantt-row-label {
+            padding: 4px 12px;
+            font-size: 11px;
+            color: var(--dark-gray);
+            border-bottom: 1px solid var(--surface);
+            display: flex;
+            align-items: center;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            background: var(--white);
+            min-height: 28px;
+        }
+
+        .gantt-cell {
+            border-bottom: 1px solid var(--surface);
+            border-left: 1px solid var(--surface);
+            position: relative;
+            background: var(--white);
+            min-height: 28px;
+        }
+
+        .gantt-cell.today-col { background: #fdf3d720; }
+
+        .gantt-bar {
+            position: absolute;
+            top: 4px;
+            bottom: 4px;
+            border-radius: 3px;
+            min-width: 4px;
+            opacity: 0.85;
+            cursor: default;
+        }
+
+        .gantt-bar.internal { background: var(--info); }
+        .gantt-bar.external { background: var(--success); }
+
+        .load-threshold { stroke: var(--danger); stroke-width: 1.5; stroke-dasharray: 6 3; }
+
+        .lead-indicator {
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            margin-right: 6px;
+            flex-shrink: 0;
+        }
+
+        .lead-good { background: var(--success); }
+        .lead-warning { background: var(--warning); }
+        .lead-danger { background: var(--danger); }
+
+        /* ── Export ── */
+        .btn-export {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 14px;
+            background: var(--white);
+            border: 1px solid var(--light-gray);
+            border-radius: 5px;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--dark-gray);
+            cursor: pointer;
+            font-family: var(--font);
+            transition: background 0.15s, border-color 0.15s;
+        }
+
+        .btn-export:hover { background: var(--surface); border-color: var(--gray-ii); }
+        .btn-export:active { background: var(--light-gray); }
+        .btn-export .export-icon { font-size: 14px; line-height: 1; }
+
+        .export-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 16px;
+            padding: 20px 18px;
+        }
+
+        .export-card {
+            background: var(--white);
+            border: 1px solid var(--light-gray);
+            border-radius: 8px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .export-card .export-card-title { font-size: 14px; font-weight: 700; color: var(--black); }
+        .export-card .export-card-desc { font-size: 12px; color: var(--medium-gray); line-height: 1.4; flex: 1; }
+        .export-card .export-card-meta { font-size: 11px; color: var(--gray-iii); margin-top: 4px; }
+        .export-card .btn-export { align-self: flex-start; margin-top: 8px; }
+
+        /* ── Loading / Empty ── */
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 200px;
+            color: var(--medium-gray);
+            font-size: 14px;
+        }
+
+        .loading::before {
+            content: "";
+            width: 20px;
+            height: 20px;
+            border: 2px solid var(--light-gray);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+            margin-right: 12px;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .empty-state {
+            padding: 40px 20px;
+            text-align: center;
+            color: var(--medium-gray);
+        }
+
+        .empty-state p { font-size: 14px; }
+
+        /* ── Page Header (within tab content) ── */
+        .page-section-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .page-section-header p {
+            color: var(--medium-gray);
+            font-size: 13px;
+        }
+
+        /* ── Responsive ── */
+        @media (max-width: 1024px) {
+            .charts-grid { grid-template-columns: 1fr; }
+            .kpi-grid { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+        }
+
+        @media (max-width: 768px) {
+            .header { flex-direction: column; gap: 0.5rem; padding: 0.5rem 1rem; }
+            .nav-tabs { padding: 0 1rem; }
+            .container { padding: 0.75rem 1rem; }
+            .kpi-grid { grid-template-columns: 1fr 1fr; }
+            .calendar-cell { min-height: 60px; }
+        }
+    </style>
+</head>
+<body>
+    <!-- ── Header ── -->
+    <header class="header">
+        <h1><span>C</span>PLAN Communications</h1>
+        <div class="header-controls">
+            <div class="date-filter" id="date-filter">
+                <div class="date-presets">
+                    <button class="date-preset" data-range="30d">30 D</button>
+                    <button class="date-preset" data-range="quarter">Quarter</button>
+                    <button class="date-preset" data-range="ytd">YTD</button>
+                    <button class="date-preset" data-range="12m">12 M</button>
+                    <button class="date-preset active" data-range="all">All</button>
+                </div>
+                <label>From</label>
+                <input type="date" id="date-from">
+                <label>To</label>
+                <input type="date" id="date-to">
+            </div>
+            <button class="btn-export-header" onclick="exportAllToWorkbook()">&darr; Export All</button>
+            <span class="status-text"><span class="status-dot loading" id="status-dot"></span><span id="status-label">Loading...</span></span>
+        </div>
+    </header>
+
+    <!-- ── Tab Navigation ── -->
+    <nav class="nav-tabs">
+        <button class="nav-tab active" data-page="executive">Executive Summary</button>
+        <button class="nav-tab" data-page="dashboard">Operational</button>
+        <button class="nav-tab" data-page="calendar">Calendar</button>
+        <button class="nav-tab" data-page="planning">Planning Board</button>
+        <button class="nav-tab" data-page="internal">Internal</button>
+        <button class="nav-tab" data-page="external">External</button>
+        <button class="nav-tab" data-page="strategic">Strategic</button>
+        <button class="nav-tab" data-page="resource">Resources</button>
+        <button class="nav-tab" data-page="analytics">Analytics</button>
+        <button class="nav-tab" data-page="export">Export</button>
+    </nav>
+
+    <!-- ── Main Content ── -->
+    <div class="container">
+
+        <!-- EXECUTIVE SUMMARY -->
+        <div class="page active" id="page-executive">
+            <div class="page-section-header">
+                <div>
+                    <p>Strategic communications overview &mdash; <span id="exec-period-label">This Quarter</span></p>
+                </div>
+                <div class="pill-group" id="period-selector">
+                    <button class="active" data-period="quarter">This Quarter</button>
+                    <button data-period="last-quarter">Last Quarter</button>
+                    <button data-period="year">This Year</button>
+                    <button data-period="12months">Last 12 Months</button>
+                </div>
+            </div>
+
+            <div class="kpi-grid" id="exec-kpis"></div>
+
+            <div class="charts-grid">
+                <div class="chart-card">
+                    <div class="chart-card-header">Activity Volume Trend</div>
+                    <div class="chart-card-body chart-card-body-padded" id="exec-trend-chart"><div class="loading">Loading...</div></div>
+                </div>
+                <div class="chart-card">
+                    <div class="chart-card-header">Channel Mix by Quarter</div>
+                    <div class="chart-card-body chart-card-body-padded" id="exec-channel-mix"><div class="loading">Loading...</div></div>
+                </div>
+            </div>
+
+            <div class="charts-grid">
+                <div class="chart-card">
+                    <div class="chart-card-header">Division &times; Region Coverage</div>
+                    <div class="chart-card-body" id="exec-coverage-matrix"><div class="loading">Loading...</div></div>
+                </div>
+                <div class="chart-card">
+                    <div class="chart-card-header">Audience Saturation (Weekly)</div>
+                    <div class="chart-card-body" id="exec-saturation"><div class="loading">Loading...</div></div>
+                </div>
+            </div>
+
+            <div class="charts-grid">
+                <div class="chart-card full-width">
+                    <div class="chart-card-header">Attention Items</div>
+                    <div class="chart-card-body" id="exec-alerts"><div class="loading">Loading...</div></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- STRATEGIC ALIGNMENT -->
+        <div class="page" id="page-strategic">
+            <div class="page-section-header">
+                <p>How communication activities map to strategic objectives</p>
+            </div>
+
+            <div class="kpi-grid" id="strategic-stats"></div>
+
+            <div class="charts-grid">
+                <div class="chart-card">
+                    <div class="chart-card-header">Objective Coverage by Channel</div>
+                    <div class="chart-card-body" id="strategic-objective-chart"><div class="loading">Loading...</div></div>
+                </div>
+                <div class="chart-card">
+                    <div class="chart-card-header">Objective &times; Division Matrix</div>
+                    <div class="chart-card-body" id="strategic-matrix"><div class="loading">Loading...</div></div>
+                </div>
+            </div>
+
+            <div class="charts-grid">
+                <div class="chart-card full-width">
+                    <div class="chart-card-header">Objective Trend (Monthly)</div>
+                    <div class="chart-card-body chart-card-body-padded" id="strategic-trend"><div class="loading">Loading...</div></div>
+                </div>
+            </div>
+
+            <div class="charts-grid">
+                <div class="chart-card full-width">
+                    <div class="chart-card-header">
+                        <span>Unaligned Activities</span>
+                        <button class="btn-export" onclick="exportSingleTable('unaligned')"><span class="export-icon">&darr;</span> .xlsx</button>
+                    </div>
+                    <div class="chart-card-body" id="strategic-unaligned"><div class="loading">Loading...</div></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- RESOURCE & COORDINATION -->
+        <div class="page" id="page-resource">
+            <div class="page-section-header">
+                <p>Team workload, cross-team collaboration, and overlap detection</p>
+            </div>
+
+            <div class="kpi-grid" id="resource-stats"></div>
+
+            <div class="charts-grid">
+                <div class="chart-card">
+                    <div class="chart-card-header">Team Workload</div>
+                    <div class="chart-card-body" id="resource-workload"><div class="loading">Loading...</div></div>
+                </div>
+                <div class="chart-card">
+                    <div class="chart-card-header">Team &times; Channel Mix</div>
+                    <div class="chart-card-body" id="resource-team-channel"><div class="loading">Loading...</div></div>
+                </div>
+            </div>
+
+            <div class="charts-grid">
+                <div class="chart-card full-width">
+                    <div class="chart-card-header">
+                        <span>Campaign Scorecard</span>
+                        <button class="btn-export" onclick="exportSingleTable('campaigns')"><span class="export-icon">&darr;</span> .xlsx</button>
+                    </div>
+                    <div class="chart-card-body" id="resource-campaigns"><div class="loading">Loading...</div></div>
+                </div>
+            </div>
+
+            <div class="charts-grid">
+                <div class="chart-card full-width">
+                    <div class="chart-card-header">
+                        <span>Overlap Detector</span>
+                        <button class="btn-export" onclick="exportSingleTable('overlaps')"><span class="export-icon">&darr;</span> .xlsx</button>
+                    </div>
+                    <div class="chart-card-body" id="resource-overlaps"><div class="loading">Loading...</div></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- PLANNING BOARD -->
+        <div class="page" id="page-planning">
+            <div class="page-section-header">
+                <p>Forward-looking view for scheduling and capacity planning</p>
+                <div style="display:flex;gap:12px;align-items:center">
+                    <div class="pill-group" id="planning-horizon-toggle">
+                        <button class="active" data-weeks="8">8 Weeks</button>
+                        <button data-weeks="12">12 Weeks</button>
+                        <button data-weeks="26">6 Months</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="kpi-grid" id="planning-stats"></div>
+
+            <div class="charts-grid">
+                <div class="chart-card full-width">
+                    <div class="chart-card-header">
+                        <span>Activity Timeline</span>
+                        <div class="card-actions">
+                            <div class="pill-group" id="gantt-group-toggle">
+                                <button class="active" data-group="channel">By Channel</button>
+                                <button data-group="campaign">By Campaign</button>
+                                <button data-group="division">By Division</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="chart-card-body" id="planning-gantt"><div class="loading">Loading...</div></div>
+                </div>
+            </div>
+
+            <div class="charts-grid">
+                <div class="chart-card">
+                    <div class="chart-card-header">Weekly Load Forecast</div>
+                    <div class="chart-card-body chart-card-body-padded" id="planning-load"><div class="loading">Loading...</div></div>
+                </div>
+                <div class="chart-card">
+                    <div class="chart-card-header">Channel Availability</div>
+                    <div class="chart-card-body" id="planning-availability"><div class="loading">Loading...</div></div>
+                </div>
+            </div>
+
+            <div class="charts-grid">
+                <div class="chart-card full-width">
+                    <div class="chart-card-header">
+                        <span>Upcoming Pipeline</span>
+                        <button class="btn-export" onclick="exportSingleTable('upcoming')"><span class="export-icon">&darr;</span> .xlsx</button>
+                    </div>
+                    <div class="chart-card-body" id="planning-pipeline"><div class="loading">Loading...</div></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- OPERATIONAL DASHBOARD -->
+        <div class="page" id="page-dashboard">
+            <div class="page-section-header">
+                <p>Last data refresh: <span id="last-refresh">&mdash;</span></p>
+            </div>
+
+            <div class="kpi-grid" id="dashboard-stats"></div>
+
+            <div class="charts-grid">
+                <div class="chart-card">
+                    <div class="chart-card-header">Upcoming Activities (Next 30 Days)</div>
+                    <div class="chart-card-body" id="upcoming-list"><div class="loading">Loading...</div></div>
+                </div>
+                <div class="chart-card">
+                    <div class="chart-card-header">Channel Breakdown</div>
+                    <div class="chart-card-body" id="channel-chart"><div class="loading">Loading...</div></div>
+                </div>
+            </div>
+
+            <div class="charts-grid">
+                <div class="chart-card">
+                    <div class="chart-card-header">Business Division</div>
+                    <div class="chart-card-body" id="division-chart"><div class="loading">Loading...</div></div>
+                </div>
+                <div class="chart-card">
+                    <div class="chart-card-header">Priority Distribution</div>
+                    <div class="chart-card-body" id="priority-chart"><div class="loading">Loading...</div></div>
+                </div>
+            </div>
+
+            <div class="charts-grid">
+                <div class="chart-card full-width">
+                    <div class="chart-card-header">
+                        Monthly Activity Trend
+                        <div class="card-actions">
+                            <div class="pill-group" id="trend-toggle">
+                                <button class="active" data-mode="all">All</button>
+                                <button data-mode="internal">Internal</button>
+                                <button data-mode="external">External</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="chart-card-body chart-card-body-padded" id="trend-chart"><div class="loading">Loading...</div></div>
+                </div>
+            </div>
+
+            <div class="charts-grid">
+                <div class="chart-card full-width">
+                    <div class="chart-card-header">Recent Activities</div>
+                    <div class="chart-card-body" id="recent-table"><div class="loading">Loading...</div></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- CALENDAR -->
+        <div class="page" id="page-calendar">
+            <div class="charts-grid">
+                <div class="chart-card full-width">
+                    <div class="chart-card-header">
+                        <span>Calendar</span>
+                        <div class="calendar-nav">
+                            <button id="cal-prev">&larr;</button>
+                            <span class="month-label" id="cal-month-label"></span>
+                            <button id="cal-next">&rarr;</button>
+                            <button id="cal-today">Today</button>
+                        </div>
+                    </div>
+                    <div class="chart-card-body chart-card-body-padded">
+                        <div class="calendar-grid" id="calendar-grid"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="charts-grid">
+                <div class="chart-card full-width">
+                    <div class="chart-card-header">Upcoming Events</div>
+                    <div class="chart-card-body" id="calendar-upcoming"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- INTERNAL -->
+        <div class="page" id="page-internal">
+            <div class="kpi-grid" id="internal-stats"></div>
+
+            <div class="charts-grid">
+                <div class="chart-card full-width">
+                    <div class="chart-card-header">
+                        <span>Internal Activities</span>
+                        <button class="btn-export" onclick="exportSingleTable('internal')"><span class="export-icon">&darr;</span> .xlsx</button>
+                    </div>
+                    <div class="chart-card-body">
+                        <div style="padding:12px 18px 0">
+                            <div class="filter-bar">
+                                <input type="text" placeholder="Search activities..." id="internal-search">
+                                <select id="internal-channel-filter"><option value="">All Channels</option></select>
+                                <select id="internal-priority-filter"><option value="">All Priorities</option></select>
+                            </div>
+                        </div>
+                        <div id="internal-table"><div class="loading">Loading...</div></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- EXTERNAL -->
+        <div class="page" id="page-external">
+            <div class="kpi-grid" id="external-stats"></div>
+
+            <div class="charts-grid">
+                <div class="chart-card full-width">
+                    <div class="chart-card-header">
+                        <span>External Activities</span>
+                        <button class="btn-export" onclick="exportSingleTable('external')"><span class="export-icon">&darr;</span> .xlsx</button>
+                    </div>
+                    <div class="chart-card-body">
+                        <div style="padding:12px 18px 0">
+                            <div class="filter-bar">
+                                <input type="text" placeholder="Search activities..." id="external-search">
+                                <select id="external-channel-filter"><option value="">All Channels</option></select>
+                                <select id="external-priority-filter"><option value="">All Priorities</option></select>
+                            </div>
+                        </div>
+                        <div id="external-table"><div class="loading">Loading...</div></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ANALYTICS -->
+        <div class="page" id="page-analytics">
+            <div class="kpi-grid" id="analytics-stats"></div>
+
+            <div class="charts-grid">
+                <div class="chart-card">
+                    <div class="chart-card-header">Activities by Lead Team</div>
+                    <div class="chart-card-body" id="lead-team-chart"></div>
+                </div>
+                <div class="chart-card">
+                    <div class="chart-card-header">Activities by Region</div>
+                    <div class="chart-card-body" id="region-chart"></div>
+                </div>
+            </div>
+
+            <div class="charts-grid">
+                <div class="chart-card">
+                    <div class="chart-card-header">Target Audience Breakdown</div>
+                    <div class="chart-card-body" id="audience-chart"></div>
+                </div>
+                <div class="chart-card">
+                    <div class="chart-card-header">Strategic Objectives</div>
+                    <div class="chart-card-body" id="objectives-chart"></div>
+                </div>
+            </div>
+
+            <div class="charts-grid">
+                <div class="chart-card">
+                    <div class="chart-card-header">Top Leads by Activity Count</div>
+                    <div class="chart-card-body" id="leads-chart"></div>
+                </div>
+                <div class="chart-card">
+                    <div class="chart-card-header">Campaign Distribution</div>
+                    <div class="chart-card-body" id="campaign-chart"></div>
+                </div>
+            </div>
+
+            <div class="charts-grid">
+                <div class="chart-card full-width">
+                    <div class="chart-card-header">News Digest Inclusion</div>
+                    <div class="chart-card-body chart-card-body-padded" id="digest-stats"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- EXPORT CENTER -->
+        <div class="page" id="page-export">
+            <div class="charts-grid">
+                <div class="chart-card full-width">
+                    <div class="chart-card-header">
+                        <span>Available Exports</span>
+                        <button class="btn-export" onclick="exportAllToWorkbook()"><span class="export-icon">&darr;</span> Export All (Multi-Sheet)</button>
+                    </div>
+                    <div class="chart-card-body">
+                        <div class="export-grid" id="export-grid"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+    // =========================================================================
+    // CPLAN Dashboard v2
+    // =========================================================================
+
+    let db = null;
+    let conn = null;
+
+    // Chart color palette — NO RED unless expressing concern/criticality
+    // Reordered: red removed from default rotation, kept only for PRIORITY_COLORS
+    const CHART_COLORS = [
+        "#0C7EC6", "#879420", "#B98E2C", "#00759E", "#4972AC",
+        "#469A6C", "#8489BD", "#45999C", "#804C95", "#785E4A",
+        "#4B2D58", "#946F29", "#CC707A", "#654D16", "#295B40",
+        "#545A9C", "#07476F", "#AD3E4A", "#9F8865", "#620004"
+    ];
+
+    const PRIORITY_COLORS = {
+        "High": "#BD000C",
+        "Medium": "#E4A911",
+        "Low": "#6F7A1A",
+        "Normal": "#0C7EC6"
+    };
+
+    const MONTHS_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+    let DATA = null;
+    let calYear, calMonth;
+
+    // Global date filter state
+    let globalDateFrom = null;
+    let globalDateTo = null;
+
+    // -------------------------------------------------------------------------
+    // DuckDB-WASM data layer
+    // -------------------------------------------------------------------------
+
+    async function initDuckDB() {
+        if (!window.duckdb) {
+            await Promise.race([
+                new Promise(r => window.addEventListener('duckdb-ready', r, { once: true })),
+                new Promise((_, rej) => setTimeout(() => rej(new Error('DuckDB failed to load after 30s.')), 30000))
+            ]);
+        }
+
+        const m = window.duckdb;
+        const bundles = m.getJsDelivrBundles();
+        const bundle = await m.selectBundle(bundles);
+        const wurl = URL.createObjectURL(
+            new Blob([`importScripts("${bundle.mainWorker}");`], { type: 'text/javascript' })
+        );
+        const worker = new Worker(wurl);
+        const logger = new m.ConsoleLogger();
+        db = new m.AsyncDuckDB(logger, worker);
+        await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+        URL.revokeObjectURL(wurl);
+        conn = await db.connect();
+    }
+
+    async function loadParquetFiles() {
+        const base = window.location.origin + window.location.pathname.replace(/\/[^\/]*$/, '');
+        const paths = [`${base}/../output/`, `${window.location.origin}/output/`, `${base}/output/`];
+
+        async function load(view, file, required) {
+            for (const p of paths) {
+                try {
+                    const resp = await fetch(`${p}${file}`);
+                    if (!resp.ok) continue;
+                    const buf = new Uint8Array(await resp.arrayBuffer());
+                    await db.registerFileBuffer(file, buf);
+                    await conn.query(`CREATE VIEW ${view} AS SELECT * FROM read_parquet('${file}')`);
+                    return true;
+                } catch(e) { /* try next path */ }
+            }
+            for (const p of paths) {
+                try {
+                    await conn.query(`CREATE VIEW ${view} AS SELECT * FROM read_parquet('${p}${file}')`);
+                    return true;
+                } catch(e) { /* try next */ }
+            }
+            if (required) throw new Error(`Could not find ${file}`);
+            return false;
+        }
+
+        await load('communications', 'communications.parquet', true);
+        await load('packs', 'packs.parquet', false);
+    }
+
+    async function query(sql) {
+        const result = await conn.query(sql);
+        return result.toArray().map(row => {
+            const obj = {};
+            for (const key of Object.keys(row)) {
+                let val = row[key];
+                if (typeof val === 'bigint') val = Number(val);
+                obj[key] = val;
+            }
+            return obj;
+        });
+    }
+
+    async function loadData() {
+        const rows = await query('SELECT * FROM communications');
+        const cols = rows.length > 0 ? Object.keys(rows[0]) : [];
+        return {
+            generated_at: new Date().toLocaleDateString('en-GB'),
+            row_count: rows.length,
+            columns: cols,
+            rows: rows
+        };
+    }
+
+    // -------------------------------------------------------------------------
+    // Global date filter
+    // -------------------------------------------------------------------------
+
+    function getFilteredRows(rows) {
+        if (!globalDateFrom && !globalDateTo) return rows;
+        return rows.filter(r => {
+            const d = parseDate(r.start_date);
+            if (!d) return true;
+            if (globalDateFrom && d < globalDateFrom) return false;
+            if (globalDateTo && d > globalDateTo) return false;
+            return true;
+        });
+    }
+
+    function applyDatePreset(range) {
+        const now = new Date();
+        const y = now.getFullYear();
+        const m = now.getMonth();
+        const q = Math.floor(m / 3);
+
+        switch (range) {
+            case '30d':
+                globalDateFrom = new Date(y, m, now.getDate() - 30);
+                globalDateTo = now;
+                break;
+            case 'quarter':
+                globalDateFrom = new Date(y, q * 3, 1);
+                globalDateTo = new Date(y, q * 3 + 3, 0, 23, 59, 59);
+                break;
+            case 'ytd':
+                globalDateFrom = new Date(y, 0, 1);
+                globalDateTo = now;
+                break;
+            case '12m':
+                globalDateFrom = new Date(y - 1, m, now.getDate());
+                globalDateTo = now;
+                break;
+            case 'all':
+            default:
+                globalDateFrom = null;
+                globalDateTo = null;
+                break;
+        }
+
+        // Update date inputs
+        const fromEl = document.getElementById('date-from');
+        const toEl = document.getElementById('date-to');
+        fromEl.value = globalDateFrom ? globalDateFrom.toISOString().slice(0, 10) : '';
+        toEl.value = globalDateTo ? globalDateTo.toISOString().slice(0, 10) : '';
+    }
+
+    function refreshAllPages() {
+        if (!DATA) return;
+        const data = { ...DATA, rows: getFilteredRows(DATA.rows) };
+        renderExecutiveSummary(data.rows);
+        renderPlanningBoard(data);
+        renderDashboard(data);
+        renderCalendar(data);
+        renderSourcePage("internal", data);
+        renderSourcePage("external", data);
+        renderStrategicAlignment(data);
+        renderResourceCoordination(data);
+        renderAnalytics(data);
+        renderExportCenter();
+    }
+
+    // -------------------------------------------------------------------------
+    // Utility functions
+    // -------------------------------------------------------------------------
+
+    function esc(str) {
+        const el = document.createElement("span");
+        el.textContent = str;
+        return el.innerHTML;
+    }
+
+    function parseDate(val) {
+        if (!val) return null;
+        const d = new Date(val);
+        return isNaN(d.getTime()) ? null : d;
+    }
+
+    function fmtDate(d) {
+        if (!d) return "\u2014";
+        return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+    }
+
+    function fmtDateShort(d) {
+        if (!d) return "\u2014";
+        return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
+    }
+
+    function countBy(rows, field) {
+        const counts = {};
+        for (const r of rows) {
+            let vals = r[field];
+            if (!vals || vals === "None" || vals === "null") continue;
+            const parts = String(vals).split(/[;,]/).map(s => s.trim()).filter(Boolean);
+            for (const v of parts) {
+                if (v && v !== "None") counts[v] = (counts[v] || 0) + 1;
+            }
+        }
+        return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    }
+
+    function topN(entries, n = 10) {
+        if (entries.length <= n) return entries;
+        const top = entries.slice(0, n);
+        const otherCount = entries.slice(n).reduce((s, e) => s + e[1], 0);
+        if (otherCount > 0) top.push(["Other", otherCount]);
+        return top;
+    }
+
+    function daysBetween(a, b) {
+        return Math.round((b - a) / (1000 * 60 * 60 * 24));
+    }
+
+    // -------------------------------------------------------------------------
+    // Chart rendering (CSS-only bar charts)
+    // -------------------------------------------------------------------------
+
+    function renderBarChart(containerId, entries, colorFn) {
+        const el = document.getElementById(containerId);
+        if (!entries.length) {
+            el.innerHTML = '<div class="empty-state"><p>No data available</p></div>';
+            return;
+        }
+        const max = entries[0][1];
+        let html = '<div class="bar-chart">';
+        entries.forEach(([label, count], i) => {
+            const pct = max > 0 ? (count / max * 100) : 0;
+            const color = colorFn ? colorFn(label, i) : CHART_COLORS[i % CHART_COLORS.length];
+            html += `
+                <div class="bar-row">
+                    <div class="bar-label" title="${esc(label)}">${esc(label)}</div>
+                    <div class="bar-track">
+                        <div class="bar-fill" style="width:${pct}%;background:${color}"></div>
+                    </div>
+                    <div class="bar-value">${count}</div>
+                </div>`;
+        });
+        html += "</div>";
+        el.innerHTML = html;
+    }
+
+    function renderDonut(containerId, entries, colorFn) {
+        const el = document.getElementById(containerId);
+        if (!entries.length) {
+            el.innerHTML = '<div class="empty-state"><p>No data available</p></div>';
+            return;
+        }
+
+        const total = entries.reduce((s, e) => s + e[1], 0);
+        const size = 140;
+        const r = 54;
+        const stroke = 22;
+        const cx = size / 2;
+        const cy = size / 2;
+        const circumference = 2 * Math.PI * r;
+
+        let offset = 0;
+        let arcs = "";
+        let legend = "";
+
+        entries.forEach(([label, count], i) => {
+            const pct = count / total;
+            const color = colorFn ? colorFn(label, i) : CHART_COLORS[i % CHART_COLORS.length];
+            const dashLen = pct * circumference;
+            const dashGap = circumference - dashLen;
+
+            arcs += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${color}"
+                stroke-width="${stroke}" stroke-dasharray="${dashLen} ${dashGap}"
+                stroke-dashoffset="${-offset}" transform="rotate(-90 ${cx} ${cy})"/>`;
+            offset += dashLen;
+
+            legend += `<div class="donut-legend-item">
+                <div class="donut-legend-swatch" style="background:${color}"></div>
+                <span>${esc(label)} &mdash; ${count} (${(pct * 100).toFixed(0)}%)</span>
+            </div>`;
+        });
+
+        el.innerHTML = `
+            <div class="donut-container">
+                <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+                    ${arcs}
+                    <text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central"
+                        font-size="22" font-weight="700" fill="var(--dark-gray)">${total}</text>
+                </svg>
+                <div class="donut-legend">${legend}</div>
+            </div>`;
+    }
+
+    // -------------------------------------------------------------------------
+    // Trend chart (SVG)
+    // -------------------------------------------------------------------------
+
+    function renderTrend(rows, mode) {
+        const el = document.getElementById("trend-chart");
+        const filtered = mode === "all" ? rows : rows.filter(r => r.source_type === mode);
+
+        const byMonth = {};
+        for (const r of filtered) {
+            const d = parseDate(r.start_date);
+            if (!d) continue;
+            const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+            byMonth[key] = (byMonth[key] || 0) + 1;
+        }
+
+        const keys = Object.keys(byMonth).sort();
+        if (!keys.length) {
+            el.innerHTML = '<div class="empty-state"><p>No dated activities</p></div>';
+            return;
+        }
+
+        const values = keys.map(k => byMonth[k]);
+        const maxVal = Math.max(...values);
+
+        const W = 700, H = 200, padL = 40, padR = 20, padT = 20, padB = 30;
+        const chartW = W - padL - padR;
+        const chartH = H - padT - padB;
+        const barW = Math.min(30, chartW / keys.length * 0.7);
+
+        let bars = "";
+        let labels = "";
+
+        keys.forEach((k, i) => {
+            const x = padL + (i + 0.5) * (chartW / keys.length);
+            const h = maxVal > 0 ? (values[i] / maxVal) * chartH : 0;
+            const y = padT + chartH - h;
+            // Use non-red colors for trends
+            const color = mode === "internal" ? "#0C7EC6" : mode === "external" ? "#6F7A1A" : "#404040";
+
+            bars += `<rect x="${x - barW/2}" y="${y}" width="${barW}" height="${h}"
+                fill="${color}" rx="2" opacity="0.85"/>`;
+            bars += `<text x="${x}" y="${y - 4}" text-anchor="middle" font-size="10"
+                fill="var(--dark-gray)" font-weight="600">${values[i]}</text>`;
+
+            const showEvery = keys.length > 12 ? 3 : keys.length > 6 ? 2 : 1;
+            if (i % showEvery === 0) {
+                const [yr, mo] = k.split("-");
+                labels += `<text x="${x}" y="${H - 4}" text-anchor="middle" font-size="10"
+                    fill="var(--medium-gray)">${MONTHS_SHORT[parseInt(mo)-1]} ${yr.slice(2)}</text>`;
+            }
+        });
+
+        let grid = "";
+        const steps = 4;
+        for (let i = 0; i <= steps; i++) {
+            const y = padT + (chartH / steps) * i;
+            const val = Math.round(maxVal * (1 - i / steps));
+            grid += `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}"
+                stroke="var(--surface)" stroke-width="1"/>`;
+            grid += `<text x="${padL - 6}" y="${y + 3}" text-anchor="end" font-size="10"
+                fill="var(--medium-gray)">${val}</text>`;
+        }
+
+        el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px">${grid}${bars}${labels}</svg>`;
+    }
+
+    // -------------------------------------------------------------------------
+    // Dashboard page
+    // -------------------------------------------------------------------------
+
+    function renderDashboard(data) {
+        const rows = data.rows || [];
+        const now = new Date();
+        const internal = rows.filter(r => r.source_type === "internal");
+        const external = rows.filter(r => r.source_type === "external");
+
+        const upcoming = rows.filter(r => {
+            const d = parseDate(r.start_date);
+            return d && d >= now && daysBetween(now, d) <= 30;
+        }).sort((a, b) => new Date(a.start_date) - new Date(b.start_date));
+
+        const weekEnd = new Date(now);
+        weekEnd.setDate(weekEnd.getDate() + 7);
+        const thisWeek = rows.filter(r => {
+            const d = parseDate(r.start_date);
+            return d && d >= now && d <= weekEnd;
+        });
+
+        const active = rows.filter(r => {
+            const s = parseDate(r.start_date);
+            const e = parseDate(r.end_date);
+            return s && s <= now && (!e || e >= now);
+        });
+
+        document.getElementById("dashboard-stats").innerHTML = `
+            <div class="kpi-card highlight">
+                <div class="kpi-label">Total Activities</div>
+                <div class="kpi-row"><div><span class="kpi-value">${rows.length.toLocaleString()}</span></div></div>
+                <div class="kpi-sub">${internal.length} internal + ${external.length} external</div>
+            </div>
+            <div class="kpi-card info">
+                <div class="kpi-label">This Week</div>
+                <div class="kpi-row"><div><span class="kpi-value">${thisWeek.length}</span></div></div>
+                <div class="kpi-sub">Starting in 7 days</div>
+            </div>
+            <div class="kpi-card warning">
+                <div class="kpi-label">Next 30 Days</div>
+                <div class="kpi-row"><div><span class="kpi-value">${upcoming.length}</span></div></div>
+                <div class="kpi-sub">Upcoming activities</div>
+            </div>
+            <div class="kpi-card success">
+                <div class="kpi-label">Active Now</div>
+                <div class="kpi-row"><div><span class="kpi-value">${active.length}</span></div></div>
+                <div class="kpi-sub">Currently running</div>
+            </div>`;
+
+        document.getElementById("last-refresh").textContent = data.generated_at || "\u2014";
+
+        renderUpcomingList("upcoming-list", upcoming.slice(0, 8));
+        renderBarChart("channel-chart", topN(countBy(rows, "channel"), 8));
+        renderDonut("division-chart", topN(countBy(rows, "business_division"), 8));
+        renderDonut("priority-chart", topN(countBy(rows, "priority"), 6),
+            (label) => PRIORITY_COLORS[label] || CHART_COLORS[0]);
+        renderTrend(rows, "all");
+        renderActivityTable("recent-table", rows.slice(-20).reverse(),
+            ["activity_name", "source_type", "channel", "start_date", "priority", "lead", "business_division"]);
+    }
+
+    // -------------------------------------------------------------------------
+    // Upcoming events list
+    // -------------------------------------------------------------------------
+
+    function renderUpcomingList(containerId, events) {
+        const el = document.getElementById(containerId);
+        if (!events.length) {
+            el.innerHTML = '<div class="empty-state"><p>No upcoming activities in the next 30 days</p></div>';
+            return;
+        }
+
+        let html = "";
+        for (const r of events) {
+            const d = parseDate(r.start_date);
+            const isInternal = r.source_type === "internal";
+            const bgColor = isInternal ? "#d4eaf8" : "#e8ecd0";
+            const textColor = isInternal ? "#065a96" : "var(--success)";
+            const typeBadge = isInternal ? "Internal" : "External";
+
+            html += `
+                <div class="event-item">
+                    <div class="event-date-box" style="background:${bgColor};color:${textColor}">
+                        <div class="day">${d ? d.getDate() : "?"}</div>
+                        <div class="month">${d ? MONTHS_SHORT[d.getMonth()] : ""}</div>
+                    </div>
+                    <div class="event-details">
+                        <div class="event-title">${esc(r.activity_name || "Untitled")}</div>
+                        <div class="event-meta">
+                            <span class="badge badge-source-${r.source_type}">${typeBadge}</span>
+                            ${r.channel ? ` &middot; ${esc(r.channel)}` : ""}
+                            ${r.lead ? ` &middot; ${esc(r.lead)}` : ""}
+                        </div>
+                    </div>
+                </div>`;
+        }
+        el.innerHTML = html;
+    }
+
+    // -------------------------------------------------------------------------
+    // Activity table (reusable)
+    // -------------------------------------------------------------------------
+
+    function renderActivityTable(containerId, rows, columns) {
+        const el = document.getElementById(containerId);
+        if (!rows.length) {
+            el.innerHTML = '<div class="empty-state"><p>No activities to display</p></div>';
+            return;
+        }
+
+        let html = "<table><thead><tr>";
+        for (const col of columns) {
+            html += `<th>${esc(col.replace(/_/g, " "))}</th>`;
+        }
+        html += "</tr></thead><tbody>";
+
+        for (const row of rows) {
+            html += "<tr>";
+            for (const col of columns) {
+                let val = row[col];
+                if (col === "start_date" || col === "end_date" || col === "created" || col === "modified") {
+                    val = fmtDate(parseDate(val));
+                }
+                if (col === "source_type") {
+                    const cls = val === "internal" ? "badge-source-internal" : "badge-source-external";
+                    html += `<td><span class="badge ${cls}">${esc(String(val || ""))}</span></td>`;
+                } else if (col === "priority") {
+                    const color = PRIORITY_COLORS[val] || "var(--medium-gray)";
+                    html += `<td><span class="badge" style="background:${color}20;color:${color}">${esc(String(val || "\u2014"))}</span></td>`;
+                } else {
+                    html += `<td title="${esc(String(val ?? ""))}">${esc(String(val ?? "\u2014"))}</td>`;
+                }
+            }
+            html += "</tr>";
+        }
+        html += "</tbody></table>";
+        el.innerHTML = html;
+    }
+
+    // -------------------------------------------------------------------------
+    // Calendar page
+    // -------------------------------------------------------------------------
+
+    function initCalendar(data) {
+        const now = new Date();
+        calYear = now.getFullYear();
+        calMonth = now.getMonth();
+
+        document.getElementById("cal-prev").addEventListener("click", () => {
+            calMonth--;
+            if (calMonth < 0) { calMonth = 11; calYear--; }
+            renderCalendar(data);
+        });
+        document.getElementById("cal-next").addEventListener("click", () => {
+            calMonth++;
+            if (calMonth > 11) { calMonth = 0; calYear++; }
+            renderCalendar(data);
+        });
+        document.getElementById("cal-today").addEventListener("click", () => {
+            calYear = now.getFullYear();
+            calMonth = now.getMonth();
+            renderCalendar(data);
+        });
+
+        renderCalendar(data);
+    }
+
+    function renderCalendar(data) {
+        const rows = data.rows || [];
+        const grid = document.getElementById("calendar-grid");
+        const label = document.getElementById("cal-month-label");
+
+        label.textContent = `${MONTHS_SHORT[calMonth]} ${calYear}`;
+
+        const eventMap = {};
+        for (const r of rows) {
+            const d = parseDate(r.start_date);
+            if (!d) continue;
+            const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+            if (!eventMap[key]) eventMap[key] = [];
+            eventMap[key].push(r);
+        }
+
+        const firstDay = new Date(calYear, calMonth, 1);
+        const lastDay = new Date(calYear, calMonth + 1, 0);
+        const startDow = (firstDay.getDay() + 6) % 7;
+        const daysInMonth = lastDay.getDate();
+
+        const today = new Date();
+        const todayKey = `${today.getFullYear()}-${today.getMonth()}-${today.getDate()}`;
+
+        const prevMonthLast = new Date(calYear, calMonth, 0);
+        const prevDays = prevMonthLast.getDate();
+
+        let html = "";
+        const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+        for (const dn of dayNames) {
+            html += `<div class="calendar-header-cell">${dn}</div>`;
+        }
+
+        const totalCells = Math.ceil((startDow + daysInMonth) / 7) * 7;
+        for (let i = 0; i < totalCells; i++) {
+            let day, month, year, isOther = false;
+
+            if (i < startDow) {
+                day = prevDays - startDow + i + 1;
+                month = calMonth - 1;
+                year = calYear;
+                if (month < 0) { month = 11; year--; }
+                isOther = true;
+            } else if (i - startDow >= daysInMonth) {
+                day = i - startDow - daysInMonth + 1;
+                month = calMonth + 1;
+                year = calYear;
+                if (month > 11) { month = 0; year++; }
+                isOther = true;
+            } else {
+                day = i - startDow + 1;
+                month = calMonth;
+                year = calYear;
+            }
+
+            const dateKey = `${year}-${month}-${day}`;
+            const isToday = dateKey === todayKey;
+            const events = eventMap[dateKey] || [];
+
+            let cls = "calendar-cell";
+            if (isOther) cls += " other-month";
+            if (isToday) cls += " today";
+
+            html += `<div class="${cls}">`;
+            html += `<div class="calendar-day">${day}</div>`;
+
+            const maxShow = 3;
+            for (let e = 0; e < Math.min(events.length, maxShow); e++) {
+                const ev = events[e];
+                const evCls = ev.source_type === "internal" ? "internal" : "external";
+                html += `<div class="calendar-event ${evCls}" title="${esc(ev.activity_name || "")} \u2014 ${esc(ev.channel || "")} (${esc(ev.source_type || "")})">${esc(ev.activity_name || "Untitled")}</div>`;
+            }
+            if (events.length > maxShow) {
+                html += `<div class="calendar-event more">+${events.length - maxShow} more</div>`;
+            }
+
+            html += "</div>";
+        }
+
+        grid.innerHTML = html;
+
+        const monthStart = new Date(calYear, calMonth, 1);
+        const monthEnd = new Date(calYear, calMonth + 1, 0, 23, 59, 59);
+        const monthEvents = rows.filter(r => {
+            const d = parseDate(r.start_date);
+            return d && d >= monthStart && d <= monthEnd;
+        }).sort((a, b) => new Date(a.start_date) - new Date(b.start_date));
+
+        renderUpcomingList("calendar-upcoming", monthEvents.slice(0, 15));
+    }
+
+    // -------------------------------------------------------------------------
+    // Internal / External pages
+    // -------------------------------------------------------------------------
+
+    function renderSourcePage(type, data) {
+        const rows = (data.rows || []).filter(r => r.source_type === type);
+        const now = new Date();
+        const prefix = type;
+
+        const upcoming = rows.filter(r => { const d = parseDate(r.start_date); return d && d >= now; });
+        const channels = countBy(rows, "channel");
+        const topChannel = channels.length ? channels[0][0] : "\u2014";
+
+        document.getElementById(`${prefix}-stats`).innerHTML = `
+            <div class="kpi-card ${type === "internal" ? "info" : "success"}">
+                <div class="kpi-label">Total ${type}</div>
+                <div class="kpi-row"><div><span class="kpi-value">${rows.length}</span></div></div>
+                <div class="kpi-sub">Communication activities</div>
+            </div>
+            <div class="kpi-card warning">
+                <div class="kpi-label">Upcoming</div>
+                <div class="kpi-row"><div><span class="kpi-value">${upcoming.length}</span></div></div>
+                <div class="kpi-sub">Future start date</div>
+            </div>
+            <div class="kpi-card highlight">
+                <div class="kpi-label">Top Channel</div>
+                <div class="kpi-row"><div><span class="kpi-value" style="font-size:18px">${esc(topChannel)}</span></div></div>
+                <div class="kpi-sub">${channels.length ? channels[0][1] + " activities" : ""}</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Unique Channels</div>
+                <div class="kpi-row"><div><span class="kpi-value">${channels.length}</span></div></div>
+                <div class="kpi-sub">Communication channels</div>
+            </div>`;
+
+        const channelSelect = document.getElementById(`${prefix}-channel-filter`);
+        const prioritySelect = document.getElementById(`${prefix}-priority-filter`);
+
+        // Reset filter dropdowns
+        channelSelect.innerHTML = '<option value="">All Channels</option>';
+        prioritySelect.innerHTML = '<option value="">All Priorities</option>';
+
+        const channelValues = [...new Set(rows.map(r => r.channel).filter(Boolean))].sort();
+        const priorityValues = [...new Set(rows.map(r => r.priority).filter(Boolean))].sort();
+
+        for (const v of channelValues) {
+            channelSelect.innerHTML += `<option value="${esc(v)}">${esc(v)}</option>`;
+        }
+        for (const v of priorityValues) {
+            prioritySelect.innerHTML += `<option value="${esc(v)}">${esc(v)}</option>`;
+        }
+
+        const tableCols = ["activity_name", "channel", "start_date", "end_date", "priority", "lead", "business_division", "target_audience"];
+
+        function applyFilters() {
+            const search = document.getElementById(`${prefix}-search`).value.toLowerCase();
+            const chFilter = channelSelect.value;
+            const prFilter = prioritySelect.value;
+
+            let filtered = rows;
+            if (search) {
+                filtered = filtered.filter(r =>
+                    Object.values(r).some(v => String(v || "").toLowerCase().includes(search))
+                );
+            }
+            if (chFilter) filtered = filtered.filter(r => r.channel === chFilter);
+            if (prFilter) filtered = filtered.filter(r => r.priority === prFilter);
+
+            filtered.sort((a, b) => {
+                const da = parseDate(a.start_date);
+                const db = parseDate(b.start_date);
+                if (!da && !db) return 0;
+                if (!da) return 1;
+                if (!db) return -1;
+                return db - da;
+            });
+
+            renderActivityTable(`${prefix}-table`, filtered, tableCols);
+        }
+
+        document.getElementById(`${prefix}-search`).addEventListener("input", applyFilters);
+        channelSelect.addEventListener("change", applyFilters);
+        prioritySelect.addEventListener("change", applyFilters);
+
+        applyFilters();
+    }
+
+    // -------------------------------------------------------------------------
+    // Analytics page
+    // -------------------------------------------------------------------------
+
+    function renderAnalytics(data) {
+        const rows = data.rows || [];
+
+        const uniqueLeads = new Set(rows.map(r => r.lead).filter(Boolean)).size;
+        const uniqueChannels = new Set(rows.map(r => r.channel).filter(Boolean)).size;
+        const uniqueDivisions = new Set(rows.map(r => r.business_division).filter(Boolean)).size;
+        const avgPerMonth = (() => {
+            const months = {};
+            for (const r of rows) {
+                const d = parseDate(r.start_date);
+                if (!d) continue;
+                const key = `${d.getFullYear()}-${d.getMonth()}`;
+                months[key] = (months[key] || 0) + 1;
+            }
+            const vals = Object.values(months);
+            return vals.length ? (vals.reduce((s,v) => s+v, 0) / vals.length).toFixed(1) : "0";
+        })();
+
+        document.getElementById("analytics-stats").innerHTML = `
+            <div class="kpi-card highlight">
+                <div class="kpi-label">Avg. per Month</div>
+                <div class="kpi-row"><div><span class="kpi-value">${avgPerMonth}</span></div></div>
+                <div class="kpi-sub">Activities per month</div>
+            </div>
+            <div class="kpi-card info">
+                <div class="kpi-label">Unique Leads</div>
+                <div class="kpi-row"><div><span class="kpi-value">${uniqueLeads}</span></div></div>
+                <div class="kpi-sub">Activity owners</div>
+            </div>
+            <div class="kpi-card success">
+                <div class="kpi-label">Channels</div>
+                <div class="kpi-row"><div><span class="kpi-value">${uniqueChannels}</span></div></div>
+                <div class="kpi-sub">Communication channels</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Divisions</div>
+                <div class="kpi-row"><div><span class="kpi-value">${uniqueDivisions}</span></div></div>
+                <div class="kpi-sub">Business divisions</div>
+            </div>`;
+
+        renderBarChart("lead-team-chart", topN(countBy(rows, "lead_team"), 10));
+        renderBarChart("region-chart", topN(countBy(rows, "region"), 10));
+        renderBarChart("audience-chart", topN(countBy(rows, "target_audience"), 10));
+        renderBarChart("objectives-chart", topN(countBy(rows, "strategic_objectives"), 10));
+        renderBarChart("leads-chart", topN(countBy(rows, "lead"), 10));
+        renderBarChart("campaign-chart", topN(countBy(rows, "campaign"), 10));
+
+        const digestYes = rows.filter(r => r.news_digest === true || r.news_digest === "True" || r.news_digest === "true").length;
+        const digestNo = rows.length - digestYes;
+        const digestPct = rows.length > 0 ? ((digestYes / rows.length) * 100).toFixed(1) : "0";
+
+        document.getElementById("digest-stats").innerHTML = `
+            <div style="display:flex;align-items:center;gap:24px;flex-wrap:wrap">
+                <div>
+                    <div style="font-size:13px;color:var(--medium-gray);font-weight:600;text-transform:uppercase;letter-spacing:0.04em">Included in News Digest</div>
+                    <div style="font-size:28px;font-weight:700;color:var(--success)">${digestYes}</div>
+                </div>
+                <div>
+                    <div style="font-size:13px;color:var(--medium-gray);font-weight:600;text-transform:uppercase;letter-spacing:0.04em">Not Included</div>
+                    <div style="font-size:28px;font-weight:700;color:var(--medium-gray)">${digestNo}</div>
+                </div>
+                <div>
+                    <div style="font-size:13px;color:var(--medium-gray);font-weight:600;text-transform:uppercase;letter-spacing:0.04em">Digest Rate</div>
+                    <div style="font-size:28px;font-weight:700;color:var(--dark-gray)">${digestPct}%</div>
+                </div>
+                <div style="flex:1;min-width:200px">
+                    <div style="height:14px;background:var(--surface);border-radius:7px;overflow:hidden">
+                        <div style="height:100%;width:${digestPct}%;background:var(--success);border-radius:7px"></div>
+                    </div>
+                </div>
+            </div>`;
+    }
+
+    // -------------------------------------------------------------------------
+    // Executive Summary
+    // -------------------------------------------------------------------------
+
+    let execPeriod = 'quarter';
+
+    function getPeriodRange(period) {
+        const now = new Date();
+        const y = now.getFullYear();
+        const m = now.getMonth();
+        const q = Math.floor(m / 3);
+
+        switch (period) {
+            case 'quarter': {
+                const start = new Date(y, q * 3, 1);
+                const end = new Date(y, q * 3 + 3, 0, 23, 59, 59);
+                const prevStart = new Date(y, (q - 1) * 3, 1);
+                const prevEnd = new Date(y, q * 3, 0, 23, 59, 59);
+                return { start, end, prevStart, prevEnd, label: `Q${q+1} ${y}` };
+            }
+            case 'last-quarter': {
+                const pq = q === 0 ? 3 : q - 1;
+                const py = q === 0 ? y - 1 : y;
+                const start = new Date(py, pq * 3, 1);
+                const end = new Date(py, pq * 3 + 3, 0, 23, 59, 59);
+                const ppq = pq === 0 ? 3 : pq - 1;
+                const ppy = pq === 0 ? py - 1 : py;
+                const prevStart = new Date(ppy, ppq * 3, 1);
+                const prevEnd = new Date(ppy, ppq * 3 + 3, 0, 23, 59, 59);
+                return { start, end, prevStart, prevEnd, label: `Q${pq+1} ${py}` };
+            }
+            case 'year': {
+                const start = new Date(y, 0, 1);
+                const end = new Date(y, 11, 31, 23, 59, 59);
+                const prevStart = new Date(y - 1, 0, 1);
+                const prevEnd = new Date(y - 1, 11, 31, 23, 59, 59);
+                return { start, end, prevStart, prevEnd, label: `${y}` };
+            }
+            case '12months': {
+                const end = now;
+                const start = new Date(y - 1, m, now.getDate());
+                const prevEnd = new Date(start);
+                prevEnd.setDate(prevEnd.getDate() - 1);
+                const prevStart = new Date(y - 2, m, now.getDate());
+                return { start, end, prevStart, prevEnd, label: 'Last 12 Months' };
+            }
+            default:
+                return getPeriodRange('quarter');
+        }
+    }
+
+    function filterByPeriod(rows, start, end) {
+        return rows.filter(r => {
+            const d = parseDate(r.start_date);
+            return d && d >= start && d <= end;
+        });
+    }
+
+    function shannonEntropy(counts) {
+        const total = counts.reduce((s, c) => s + c, 0);
+        if (total === 0) return 0;
+        let entropy = 0;
+        for (const c of counts) {
+            if (c === 0) continue;
+            const p = c / total;
+            entropy -= p * Math.log2(p);
+        }
+        const maxEntropy = Math.log2(counts.length || 1);
+        return maxEntropy > 0 ? (entropy / maxEntropy) * 100 : 0;
+    }
+
+    function computeKPIs(rows) {
+        const total = rows.length;
+        if (total === 0) return { alignment: 0, diversity: 0, coverage: 0, horizon: 0, velocity: 0, bodGeb: 0 };
+
+        const aligned = rows.filter(r => r.strategic_objectives && r.strategic_objectives !== 'None' && r.strategic_objectives !== 'null' && String(r.strategic_objectives).trim()).length;
+        const alignment = (aligned / total * 100);
+
+        const channelCounts = {};
+        for (const r of rows) {
+            const ch = r.channel;
+            if (ch && ch !== 'None') {
+                const parts = String(ch).split(/[;,]/).map(s => s.trim()).filter(Boolean);
+                for (const p of parts) channelCounts[p] = (channelCounts[p] || 0) + 1;
+            }
+        }
+        const diversity = shannonEntropy(Object.values(channelCounts));
+
+        const divRegionPairs = new Set();
+        const allDivs = new Set();
+        const allRegions = new Set();
+        for (const r of rows) {
+            const div = r.business_division;
+            const reg = r.region;
+            if (div && div !== 'None') allDivs.add(div);
+            if (reg && reg !== 'None') allRegions.add(reg);
+            if (div && reg && div !== 'None' && reg !== 'None') {
+                divRegionPairs.add(`${div}|||${reg}`);
+            }
+        }
+        const possiblePairs = Math.max(allDivs.size * allRegions.size, 1);
+        const coverage = (divRegionPairs.size / possiblePairs * 100);
+
+        const leadDays = rows.map(r => r.planning_lead_days).filter(v => v != null && !isNaN(v) && v >= 0).sort((a, b) => a - b);
+        const horizon = leadDays.length > 0 ? leadDays[Math.floor(leadDays.length / 2)] : 0;
+
+        const now = new Date();
+        const fourWeeksAgo = new Date(now); fourWeeksAgo.setDate(fourWeeksAgo.getDate() - 28);
+        const eightWeeksAgo = new Date(now); eightWeeksAgo.setDate(eightWeeksAgo.getDate() - 56);
+        const recent4w = rows.filter(r => { const d = parseDate(r.start_date); return d && d >= fourWeeksAgo && d <= now; }).length;
+        const prior4w = rows.filter(r => { const d = parseDate(r.start_date); return d && d >= eightWeeksAgo && d < fourWeeksAgo; }).length;
+        const velocity = prior4w > 0 ? ((recent4w - prior4w) / prior4w * 100) : (recent4w > 0 ? 100 : 0);
+
+        const bodCount = rows.filter(r => r.bod_geb && r.bod_geb !== 'None' && r.bod_geb !== 'null' && String(r.bod_geb).trim()).length;
+        const bodGeb = (bodCount / total * 100);
+
+        return { alignment, diversity, coverage, horizon, velocity, bodGeb };
+    }
+
+    function renderSparkline(values) {
+        if (!values.length) return '';
+        const w = 72, h = 22;
+        const max = Math.max(...values, 1);
+        const min = Math.min(...values, 0);
+        const range = max - min || 1;
+        const points = values.map((v, i) => {
+            const x = (i / Math.max(values.length - 1, 1)) * w;
+            const y = h - ((v - min) / range) * (h - 4) - 2;
+            return `${x},${y}`;
+        }).join(' ');
+        const lastX = w;
+        const lastY = h - ((values[values.length - 1] - min) / range) * (h - 4) - 2;
+        return `<svg class="kpi-sparkline" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+            <polyline points="${points}" fill="none" stroke="var(--light-gray)" stroke-width="1.5"/>
+            <circle cx="${lastX}" cy="${lastY}" r="2.5" fill="var(--info)"/>
+        </svg>`;
+    }
+
+    function renderKPICards(currentKPIs, prevKPIs, rows) {
+        const el = document.getElementById('exec-kpis');
+
+        const monthlyVolume = {};
+        for (const r of (DATA ? DATA.rows : rows)) {
+            const ym = r.year_month;
+            if (ym) monthlyVolume[ym] = (monthlyVolume[ym] || 0) + 1;
+        }
+        const sparkKeys = Object.keys(monthlyVolume).sort().slice(-12);
+        const sparkVals = sparkKeys.map(k => monthlyVolume[k]);
+
+        function kpiCard(label, value, unit, prev, sparkData, invert, cssClass) {
+            const delta = prev != null ? (value - prev) : null;
+            const pctDelta = prev != null && prev !== 0 ? ((value - prev) / Math.abs(prev) * 100).toFixed(0) : null;
+            let deltaClass = 'neutral';
+            let deltaText = 'No prior data';
+            if (delta != null) {
+                const isPositive = invert ? delta < 0 : delta > 0;
+                const isNegative = invert ? delta > 0 : delta < 0;
+                deltaClass = isPositive ? 'positive' : isNegative ? 'negative' : 'neutral';
+                const arrow = delta > 0 ? '\u2191' : delta < 0 ? '\u2193' : '\u2192';
+                deltaText = `${arrow} ${pctDelta != null ? Math.abs(pctDelta) + '% vs prior' : ''}`;
+            }
+            const sparkHtml = sparkData ? renderSparkline(sparkData) : '';
+            return `<div class="kpi-card ${cssClass || ''}">
+                <div class="kpi-label">${label}</div>
+                <div class="kpi-row">
+                    <div><span class="kpi-value">${typeof value === 'number' ? (Number.isInteger(value) ? value : value.toFixed(1)) : value}</span><span class="kpi-unit">${unit}</span></div>
+                </div>
+                <div class="kpi-delta ${deltaClass}">${deltaText}</div>
+                ${sparkHtml}
+            </div>`;
+        }
+
+        el.innerHTML =
+            kpiCard('Strategic Alignment', currentKPIs.alignment, '%', prevKPIs.alignment, null, false, 'success') +
+            kpiCard('Channel Diversification', currentKPIs.diversity, '', prevKPIs.diversity, null, false, 'info') +
+            kpiCard('Coverage Breadth', currentKPIs.coverage, '%', prevKPIs.coverage, null, false, '') +
+            kpiCard('Planning Horizon', currentKPIs.horizon, 'd', prevKPIs.horizon, null, false, '') +
+            kpiCard('Activity Velocity', currentKPIs.velocity, '%', null, sparkVals, false, 'highlight') +
+            kpiCard('Board/GEB Visibility', currentKPIs.bodGeb, '%', prevKPIs.bodGeb, null, false, '');
+    }
+
+    function renderExecTrend(rows) {
+        const el = document.getElementById('exec-trend-chart');
+        const byMonth = {};
+        for (const r of rows) {
+            const ym = r.year_month;
+            if (!ym) continue;
+            if (!byMonth[ym]) byMonth[ym] = { internal: 0, external: 0 };
+            if (r.source_type === 'internal') byMonth[ym].internal++;
+            else byMonth[ym].external++;
+        }
+
+        const keys = Object.keys(byMonth).sort().slice(-12);
+        if (!keys.length) { el.innerHTML = '<div class="empty-state"><p>No data</p></div>'; return; }
+
+        const maxVal = Math.max(...keys.map(k => byMonth[k].internal + byMonth[k].external), 1);
+        const W = 700, H = 200, padL = 40, padR = 20, padT = 20, padB = 30;
+        const chartW = W - padL - padR;
+        const chartH = H - padT - padB;
+        const barW = Math.min(24, chartW / keys.length * 0.35);
+
+        let svg = '';
+        for (let i = 0; i <= 4; i++) {
+            const y = padT + (chartH / 4) * i;
+            const val = Math.round(maxVal * (1 - i / 4));
+            svg += `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="var(--surface)" stroke-width="1"/>`;
+            svg += `<text x="${padL - 6}" y="${y + 3}" text-anchor="end" font-size="10" fill="var(--medium-gray)">${val}</text>`;
+        }
+
+        keys.forEach((k, i) => {
+            const x = padL + (i + 0.5) * (chartW / keys.length);
+            const intH = (byMonth[k].internal / maxVal) * chartH;
+            const extH = (byMonth[k].external / maxVal) * chartH;
+            const intY = padT + chartH - intH - extH;
+            const extY = padT + chartH - extH;
+
+            svg += `<rect x="${x - barW}" y="${intY}" width="${barW}" height="${intH}" fill="#0C7EC6" rx="2" opacity="0.85"/>`;
+            svg += `<rect x="${x}" y="${extY}" width="${barW}" height="${extH}" fill="#6F7A1A" rx="2" opacity="0.85"/>`;
+
+            const showEvery = keys.length > 10 ? 2 : 1;
+            if (i % showEvery === 0) {
+                const [yr, mo] = k.split('-');
+                svg += `<text x="${x}" y="${H - 4}" text-anchor="middle" font-size="10" fill="var(--medium-gray)">${MONTHS_SHORT[parseInt(mo)-1]} ${yr.slice(2)}</text>`;
+            }
+        });
+
+        svg += `<rect x="${W - 170}" y="4" width="10" height="10" fill="#0C7EC6" rx="2"/>`;
+        svg += `<text x="${W - 155}" y="13" font-size="10" fill="var(--dark-gray)">Internal</text>`;
+        svg += `<rect x="${W - 100}" y="4" width="10" height="10" fill="#6F7A1A" rx="2"/>`;
+        svg += `<text x="${W - 85}" y="13" font-size="10" fill="var(--dark-gray)">External</text>`;
+
+        el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px">${svg}</svg>`;
+    }
+
+    function renderChannelMixByQuarter(rows) {
+        const el = document.getElementById('exec-channel-mix');
+        const byQuarter = {};
+        for (const r of rows) {
+            const q = r.quarter;
+            if (!q) continue;
+            if (!byQuarter[q]) byQuarter[q] = {};
+            const ch = r.channel || 'Unknown';
+            const parts = String(ch).split(/[;,]/).map(s => s.trim()).filter(Boolean);
+            for (const p of parts) byQuarter[q][p] = (byQuarter[q][p] || 0) + 1;
+        }
+
+        const quarters = Object.keys(byQuarter).sort().slice(-6);
+        if (!quarters.length) { el.innerHTML = '<div class="empty-state"><p>No data</p></div>'; return; }
+
+        const allChannels = {};
+        for (const q of quarters) {
+            for (const [ch, cnt] of Object.entries(byQuarter[q])) allChannels[ch] = (allChannels[ch] || 0) + cnt;
+        }
+        const topChannels = Object.entries(allChannels).sort((a, b) => b[1] - a[1]).slice(0, 8).map(e => e[0]);
+
+        const maxTotal = Math.max(...quarters.map(q => Object.values(byQuarter[q]).reduce((s, v) => s + v, 0)), 1);
+
+        let html = '<div style="padding:16px 18px">';
+        quarters.forEach(q => {
+            const total = Object.values(byQuarter[q]).reduce((s, v) => s + v, 0);
+            html += `<div style="margin-bottom:10px">`;
+            html += `<div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">`;
+            html += `<span style="width:80px;font-size:13px;font-weight:600;color:var(--dark-gray);text-align:right">${q}</span>`;
+            html += `<div style="flex:1;display:flex;height:22px;border-radius:4px;overflow:hidden;background:var(--surface)">`;
+            topChannels.forEach((ch, ci) => {
+                const cnt = (byQuarter[q][ch] || 0);
+                const pct = total > 0 ? (cnt / maxTotal * 100) : 0;
+                if (cnt > 0) {
+                    html += `<div title="${ch}: ${cnt}" style="width:${pct}%;background:${CHART_COLORS[ci % CHART_COLORS.length]};min-width:1px"></div>`;
+                }
+            });
+            html += `</div>`;
+            html += `<span style="width:32px;font-size:13px;font-weight:600;color:var(--dark-gray)">${total}</span>`;
+            html += `</div></div>`;
+        });
+        html += '<div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:8px">';
+        topChannels.forEach((ch, i) => {
+            html += `<div style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--dark-gray)">
+                <div style="width:10px;height:10px;border-radius:2px;background:${CHART_COLORS[i % CHART_COLORS.length]}"></div>${esc(ch)}</div>`;
+        });
+        html += '</div></div>';
+        el.innerHTML = html;
+    }
+
+    function renderCoverageMatrix(rows) {
+        const el = document.getElementById('exec-coverage-matrix');
+        const matrix = {};
+        const divs = new Set();
+        const regions = new Set();
+
+        for (const r of rows) {
+            const div = r.business_division;
+            const reg = r.region;
+            if (!div || div === 'None' || !reg || reg === 'None') continue;
+            const divParts = String(div).split(/[;,]/).map(s => s.trim()).filter(Boolean);
+            const regParts = String(reg).split(/[;,]/).map(s => s.trim()).filter(Boolean);
+            for (const d of divParts) {
+                for (const rg of regParts) {
+                    divs.add(d);
+                    regions.add(rg);
+                    const key = `${d}|||${rg}`;
+                    matrix[key] = (matrix[key] || 0) + 1;
+                }
+            }
+        }
+
+        const divList = [...divs].sort();
+        const regList = [...regions].sort();
+
+        if (!divList.length || !regList.length) {
+            el.innerHTML = '<div class="empty-state"><p>No division/region data available</p></div>';
+            return;
+        }
+
+        let html = `<div class="heatmap-wrapper"><div class="heatmap" style="grid-template-columns: 140px repeat(${regList.length}, minmax(50px, 1fr))">`;
+        html += `<div class="heatmap-label"></div>`;
+        for (const reg of regList) {
+            html += `<div class="heatmap-col-label" title="${esc(reg)}">${esc(reg.length > 8 ? reg.slice(0, 7) + '\u2026' : reg)}</div>`;
+        }
+
+        for (const div of divList) {
+            html += `<div class="heatmap-label" title="${esc(div)}">${esc(div)}</div>`;
+            for (const reg of regList) {
+                const count = matrix[`${div}|||${reg}`] || 0;
+                let bg, fg;
+                if (count === 0) { bg = '#f5d0d320'; fg = 'var(--danger)'; }
+                else if (count <= 2) { bg = '#e8ecd0'; fg = 'var(--success)'; }
+                else if (count <= 5) { bg = '#d4eaf8'; fg = '#065a96'; }
+                else { bg = '#0C7EC620'; fg = '#065a96'; }
+                html += `<div class="heatmap-cell" style="background:${bg};color:${fg}" title="${esc(div)} / ${esc(reg)}: ${count}">${count || '\u2014'}</div>`;
+            }
+        }
+
+        html += '</div></div>';
+        el.innerHTML = html;
+    }
+
+    function renderSaturationHeatmap(rows) {
+        const el = document.getElementById('exec-saturation');
+        const now = new Date();
+        const twelveWeeksAgo = new Date(now); twelveWeeksAgo.setDate(twelveWeeksAgo.getDate() - 84);
+
+        const weeks = [];
+        for (let i = 0; i < 12; i++) {
+            const wStart = new Date(twelveWeeksAgo); wStart.setDate(wStart.getDate() + i * 7);
+            const wEnd = new Date(wStart); wEnd.setDate(wEnd.getDate() + 6);
+            weeks.push({ start: wStart, end: wEnd, label: `W${i+1}` });
+        }
+
+        const audiences = new Set();
+        const matrix = {};
+        for (const r of rows) {
+            const sd = parseDate(r.start_date);
+            const ed = parseDate(r.end_date) || sd;
+            const aud = r.target_audience;
+            if (!sd || !aud || aud === 'None') continue;
+            const audParts = String(aud).split(/[;,]/).map(s => s.trim()).filter(Boolean);
+            for (const a of audParts) {
+                audiences.add(a);
+                for (let wi = 0; wi < weeks.length; wi++) {
+                    if (sd <= weeks[wi].end && ed >= weeks[wi].start) {
+                        const key = `${a}|||${wi}`;
+                        matrix[key] = (matrix[key] || 0) + 1;
+                    }
+                }
+            }
+        }
+
+        const audList = [...audiences].sort().slice(0, 15);
+
+        if (!audList.length) {
+            el.innerHTML = '<div class="empty-state"><p>No audience data available</p></div>';
+            return;
+        }
+
+        let html = `<div class="heatmap-wrapper"><div class="heatmap" style="grid-template-columns: 140px repeat(${weeks.length}, minmax(36px, 1fr))">`;
+
+        html += `<div class="heatmap-label"></div>`;
+        for (const w of weeks) {
+            html += `<div class="heatmap-col-label">${w.label}</div>`;
+        }
+
+        for (const aud of audList) {
+            html += `<div class="heatmap-label" title="${esc(aud)}">${esc(aud.length > 18 ? aud.slice(0, 17) + '\u2026' : aud)}</div>`;
+            for (let wi = 0; wi < weeks.length; wi++) {
+                const count = matrix[`${aud}|||${wi}`] || 0;
+                let bg, fg;
+                if (count === 0) { bg = 'var(--white)'; fg = 'var(--light-gray)'; }
+                else if (count <= 2) { bg = '#e8ecd0'; fg = 'var(--success)'; }
+                else if (count <= 4) { bg = '#fdf3d7'; fg = '#8a6800'; }
+                else { bg = '#f5d0d3'; fg = 'var(--danger)'; }
+                html += `<div class="heatmap-cell" style="background:${bg};color:${fg}">${count || ''}</div>`;
+            }
+        }
+
+        html += '</div></div>';
+        el.innerHTML = html;
+    }
+
+    function analyzeAlerts(rows, period) {
+        const alerts = [];
+        const { start, end } = period;
+        const periodRows = filterByPeriod(rows, start, end);
+
+        if (periodRows.length === 0) {
+            alerts.push({ severity: 'amber', message: 'No activities found for the selected period.' });
+            return alerts;
+        }
+
+        const allDivs = new Set();
+        const periodDivs = new Set();
+        for (const r of rows) {
+            const d = r.business_division;
+            if (d && d !== 'None') allDivs.add(d);
+        }
+        for (const r of periodRows) {
+            const d = r.business_division;
+            if (d && d !== 'None') {
+                String(d).split(/[;,]/).map(s => s.trim()).filter(Boolean).forEach(v => periodDivs.add(v));
+            }
+        }
+        const missingDivs = [...allDivs].filter(d => !periodDivs.has(d));
+        if (missingDivs.length > 0) {
+            alerts.push({
+                severity: 'red',
+                message: `<strong>${missingDivs.length} division${missingDivs.length > 1 ? 's' : ''}</strong> with zero activities this period: ${missingDivs.slice(0, 3).map(d => esc(d)).join(', ')}${missingDivs.length > 3 ? '...' : ''}`
+            });
+        }
+
+        const reactive = periodRows.filter(r => r.planning_lead_days != null && r.planning_lead_days < 3 && r.planning_lead_days >= 0);
+        if (reactive.length > 0) {
+            const pct = (reactive.length / periodRows.length * 100).toFixed(0);
+            alerts.push({
+                severity: reactive.length > periodRows.length * 0.2 ? 'red' : 'amber',
+                message: `<strong>${reactive.length} activities (${pct}%)</strong> created less than 3 days before their start date (reactive planning).`
+            });
+        }
+
+        const campaignChannels = {};
+        for (const r of periodRows) {
+            const c = r.campaign;
+            if (!c || c === 'None') continue;
+            if (!campaignChannels[c]) campaignChannels[c] = new Set();
+            if (r.channel && r.channel !== 'None') {
+                String(r.channel).split(/[;,]/).map(s => s.trim()).filter(Boolean).forEach(v => campaignChannels[c].add(v));
+            }
+        }
+        const singleChannelCampaigns = Object.entries(campaignChannels).filter(([, chs]) => chs.size === 1);
+        if (singleChannelCampaigns.length > 0) {
+            alerts.push({
+                severity: 'amber',
+                message: `<strong>${singleChannelCampaigns.length} campaign${singleChannelCampaigns.length > 1 ? 's are' : ' is'}</strong> using only a single channel: ${singleChannelCampaigns.slice(0, 3).map(c => esc(c[0])).join(', ')}`
+            });
+        }
+
+        const teamCounts = {};
+        for (const r of periodRows) {
+            const t = r.lead_team;
+            if (t && t !== 'None') teamCounts[t] = (teamCounts[t] || 0) + 1;
+        }
+        const topTeam = Object.entries(teamCounts).sort((a, b) => b[1] - a[1])[0];
+        if (topTeam && topTeam[1] / periodRows.length > 0.4) {
+            alerts.push({
+                severity: 'amber',
+                message: `<strong>${esc(topTeam[0])}</strong> owns ${(topTeam[1] / periodRows.length * 100).toFixed(0)}% of all activities \u2014 high team concentration.`
+            });
+        }
+
+        const chCounts = {};
+        for (const r of periodRows) {
+            const ch = r.channel;
+            if (ch && ch !== 'None') {
+                String(ch).split(/[;,]/).map(s => s.trim()).filter(Boolean).forEach(v => chCounts[v] = (chCounts[v] || 0) + 1);
+            }
+        }
+        const topCh = Object.entries(chCounts).sort((a, b) => b[1] - a[1])[0];
+        const totalChCount = Object.values(chCounts).reduce((s, v) => s + v, 0);
+        if (topCh && totalChCount > 0 && topCh[1] / totalChCount > 0.5) {
+            alerts.push({
+                severity: 'amber',
+                message: `<strong>${esc(topCh[0])}</strong> accounts for ${(topCh[1] / totalChCount * 100).toFixed(0)}% of all channel usage \u2014 consider diversifying.`
+            });
+        }
+
+        const unaligned = periodRows.filter(r => !r.strategic_objectives || r.strategic_objectives === 'None' || !String(r.strategic_objectives).trim());
+        if (unaligned.length > periodRows.length * 0.3) {
+            alerts.push({
+                severity: 'amber',
+                message: `<strong>${unaligned.length} activities (${(unaligned.length / periodRows.length * 100).toFixed(0)}%)</strong> have no strategic objective assigned.`
+            });
+        }
+
+        if (alerts.length === 0) {
+            alerts.push({ severity: 'green', message: 'No attention items detected for this period.' });
+        }
+
+        return alerts;
+    }
+
+    function renderAlerts(alerts) {
+        const el = document.getElementById('exec-alerts');
+        if (!alerts.length) {
+            el.innerHTML = '<div class="empty-state"><p>No alerts</p></div>';
+            return;
+        }
+
+        let html = '<div class="alert-list">';
+        for (const a of alerts) {
+            const icon = a.severity === 'red' ? '!' : a.severity === 'amber' ? '?' : '\u2713';
+            html += `<div class="alert-card alert-${a.severity}">
+                <div class="alert-icon">${icon}</div>
+                <div class="alert-text">${a.message}</div>
+            </div>`;
+        }
+        html += '</div>';
+        el.innerHTML = html;
+    }
+
+    async function renderExecutiveSummary(rows) {
+        const period = getPeriodRange(execPeriod);
+        const periodRows = filterByPeriod(rows, period.start, period.end);
+        const prevRows = filterByPeriod(rows, period.prevStart, period.prevEnd);
+
+        const currentKPIs = computeKPIs(periodRows);
+        const prevKPIs = computeKPIs(prevRows);
+
+        document.getElementById('exec-period-label').textContent = period.label;
+        renderKPICards(currentKPIs, prevKPIs, periodRows);
+        renderExecTrend(rows);
+        renderChannelMixByQuarter(rows);
+        renderCoverageMatrix(periodRows);
+        renderSaturationHeatmap(periodRows);
+        renderAlerts(analyzeAlerts(rows, period));
+    }
+
+    // -------------------------------------------------------------------------
+    // Strategic Alignment page
+    // -------------------------------------------------------------------------
+
+    function renderStrategicAlignment(data) {
+        const rows = data.rows || [];
+
+        const total = rows.length;
+        const aligned = rows.filter(r => r.strategic_objectives && r.strategic_objectives !== 'None' && String(r.strategic_objectives).trim()).length;
+        const unaligned = total - aligned;
+        const objectives = countBy(rows, 'strategic_objectives');
+        const uniqueObj = objectives.length;
+
+        document.getElementById('strategic-stats').innerHTML = `
+            <div class="kpi-card success">
+                <div class="kpi-label">Aligned Activities</div>
+                <div class="kpi-row"><div><span class="kpi-value">${aligned}</span></div></div>
+                <div class="kpi-sub">${total > 0 ? (aligned / total * 100).toFixed(0) : 0}% of total</div>
+            </div>
+            <div class="kpi-card danger">
+                <div class="kpi-label">Unaligned</div>
+                <div class="kpi-row"><div><span class="kpi-value">${unaligned}</span></div></div>
+                <div class="kpi-sub">No objective assigned</div>
+            </div>
+            <div class="kpi-card info">
+                <div class="kpi-label">Unique Objectives</div>
+                <div class="kpi-row"><div><span class="kpi-value">${uniqueObj}</span></div></div>
+                <div class="kpi-sub">Strategic objectives tracked</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Avg Activities/Objective</div>
+                <div class="kpi-row"><div><span class="kpi-value">${uniqueObj > 0 ? (aligned / uniqueObj).toFixed(1) : '0'}</span></div></div>
+                <div class="kpi-sub">Distribution evenness</div>
+            </div>`;
+
+        renderBarChart('strategic-objective-chart', topN(objectives, 12));
+
+        renderObjectiveDivisionMatrix(rows);
+        renderObjectiveTrend(rows);
+
+        const unalignedRows = rows.filter(r => !r.strategic_objectives || r.strategic_objectives === 'None' || !String(r.strategic_objectives).trim());
+        unalignedRows.sort((a, b) => {
+            const da = parseDate(a.start_date);
+            const db = parseDate(b.start_date);
+            if (!da && !db) return 0; if (!da) return 1; if (!db) return -1;
+            return db - da;
+        });
+        renderActivityTable('strategic-unaligned', unalignedRows.slice(0, 30),
+            ['activity_name', 'source_type', 'business_division', 'lead_team', 'channel', 'start_date']);
+    }
+
+    function renderObjectiveDivisionMatrix(rows) {
+        const el = document.getElementById('strategic-matrix');
+        const matrix = {};
+        const objs = new Set();
+        const divs = new Set();
+
+        for (const r of rows) {
+            const obj = r.strategic_objectives;
+            const div = r.business_division;
+            if (!obj || obj === 'None' || !div || div === 'None') continue;
+            const objParts = String(obj).split(/[;,]/).map(s => s.trim()).filter(Boolean);
+            const divParts = String(div).split(/[;,]/).map(s => s.trim()).filter(Boolean);
+            for (const o of objParts) {
+                for (const d of divParts) {
+                    objs.add(o);
+                    divs.add(d);
+                    matrix[`${o}|||${d}`] = (matrix[`${o}|||${d}`] || 0) + 1;
+                }
+            }
+        }
+
+        const objList = [...objs].sort();
+        const divList = [...divs].sort();
+
+        if (!objList.length || !divList.length) {
+            el.innerHTML = '<div class="empty-state"><p>No data</p></div>';
+            return;
+        }
+
+        let html = `<div class="heatmap-wrapper"><div class="heatmap" style="grid-template-columns: 140px repeat(${divList.length}, minmax(50px, 1fr))">`;
+        html += `<div class="heatmap-label"></div>`;
+        for (const d of divList) {
+            html += `<div class="heatmap-col-label" title="${esc(d)}">${esc(d.length > 8 ? d.slice(0, 7) + '\u2026' : d)}</div>`;
+        }
+
+        for (const obj of objList) {
+            html += `<div class="heatmap-label" title="${esc(obj)}">${esc(obj.length > 18 ? obj.slice(0, 17) + '\u2026' : obj)}</div>`;
+            for (const d of divList) {
+                const count = matrix[`${obj}|||${d}`] || 0;
+                let bg, fg;
+                if (count === 0) { bg = 'var(--surface)'; fg = 'var(--light-gray)'; }
+                else if (count <= 2) { bg = '#e8ecd0'; fg = 'var(--success)'; }
+                else if (count <= 5) { bg = '#d4eaf8'; fg = '#065a96'; }
+                else { bg = '#0C7EC620'; fg = '#065a96'; }
+                html += `<div class="heatmap-cell" style="background:${bg};color:${fg}">${count || ''}</div>`;
+            }
+        }
+
+        html += '</div></div>';
+        el.innerHTML = html;
+    }
+
+    function renderObjectiveTrend(rows) {
+        const el = document.getElementById('strategic-trend');
+        const byMonth = {};
+        const allObjs = new Set();
+
+        for (const r of rows) {
+            const ym = r.year_month;
+            const obj = r.strategic_objectives;
+            if (!ym || !obj || obj === 'None') continue;
+            const parts = String(obj).split(/[;,]/).map(s => s.trim()).filter(Boolean);
+            for (const o of parts) {
+                allObjs.add(o);
+                if (!byMonth[ym]) byMonth[ym] = {};
+                byMonth[ym][o] = (byMonth[ym][o] || 0) + 1;
+            }
+        }
+
+        const months = Object.keys(byMonth).sort().slice(-12);
+        const objList = [...allObjs];
+        const objTotals = {};
+        for (const o of objList) {
+            objTotals[o] = months.reduce((s, m) => s + (byMonth[m]?.[o] || 0), 0);
+        }
+        const topObjs = Object.entries(objTotals).sort((a, b) => b[1] - a[1]).slice(0, 5).map(e => e[0]);
+
+        if (!months.length || !topObjs.length) {
+            el.innerHTML = '<div class="empty-state"><p>No objective trend data</p></div>';
+            return;
+        }
+
+        const maxVal = Math.max(...months.map(m => Math.max(...topObjs.map(o => byMonth[m]?.[o] || 0))), 1);
+        const W = 700, H = 220, padL = 40, padR = 20, padT = 20, padB = 40;
+        const chartW = W - padL - padR;
+        const chartH = H - padT - padB;
+
+        let svg = '';
+        for (let i = 0; i <= 4; i++) {
+            const y = padT + (chartH / 4) * i;
+            const val = Math.round(maxVal * (1 - i / 4));
+            svg += `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="var(--surface)" stroke-width="1"/>`;
+            svg += `<text x="${padL - 6}" y="${y + 3}" text-anchor="end" font-size="10" fill="var(--medium-gray)">${val}</text>`;
+        }
+
+        topObjs.forEach((obj, oi) => {
+            const color = CHART_COLORS[oi % CHART_COLORS.length];
+            const points = months.map((m, mi) => {
+                const x = padL + (mi + 0.5) * (chartW / months.length);
+                const v = byMonth[m]?.[obj] || 0;
+                const y = padT + chartH - (v / maxVal) * chartH;
+                return `${x},${y}`;
+            });
+            svg += `<polyline points="${points.join(' ')}" fill="none" stroke="${color}" stroke-width="2" opacity="0.85"/>`;
+            months.forEach((m, mi) => {
+                const x = padL + (mi + 0.5) * (chartW / months.length);
+                const v = byMonth[m]?.[obj] || 0;
+                const y = padT + chartH - (v / maxVal) * chartH;
+                svg += `<circle cx="${x}" cy="${y}" r="3" fill="${color}"/>`;
+            });
+        });
+
+        months.forEach((m, i) => {
+            const x = padL + (i + 0.5) * (chartW / months.length);
+            const showEvery = months.length > 8 ? 2 : 1;
+            if (i % showEvery === 0) {
+                const [yr, mo] = m.split('-');
+                svg += `<text x="${x}" y="${H - 4}" text-anchor="middle" font-size="10" fill="var(--medium-gray)">${MONTHS_SHORT[parseInt(mo)-1]} ${yr.slice(2)}</text>`;
+            }
+        });
+
+        let legendHtml = '<div style="display:flex;flex-wrap:wrap;gap:14px;margin-top:8px">';
+        topObjs.forEach((obj, i) => {
+            legendHtml += `<div style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--dark-gray)">
+                <div style="width:14px;height:3px;border-radius:2px;background:${CHART_COLORS[i % CHART_COLORS.length]}"></div>${esc(obj.length > 30 ? obj.slice(0, 29) + '\u2026' : obj)}</div>`;
+        });
+        legendHtml += '</div>';
+
+        el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px">${svg}</svg>${legendHtml}`;
+    }
+
+    // -------------------------------------------------------------------------
+    // Resource & Coordination page
+    // -------------------------------------------------------------------------
+
+    function renderResourceCoordination(data) {
+        const rows = data.rows || [];
+
+        const teams = countBy(rows, 'lead_team');
+        const campaigns = countBy(rows, 'campaign');
+        const partners = countBy(rows, 'partner_team');
+
+        document.getElementById('resource-stats').innerHTML = `
+            <div class="kpi-card highlight">
+                <div class="kpi-label">Active Teams</div>
+                <div class="kpi-row"><div><span class="kpi-value">${teams.length}</span></div></div>
+                <div class="kpi-sub">Lead teams with activities</div>
+            </div>
+            <div class="kpi-card info">
+                <div class="kpi-label">Campaigns</div>
+                <div class="kpi-row"><div><span class="kpi-value">${campaigns.length}</span></div></div>
+                <div class="kpi-sub">Active campaigns</div>
+            </div>
+            <div class="kpi-card success">
+                <div class="kpi-label">Partner Teams</div>
+                <div class="kpi-row"><div><span class="kpi-value">${partners.length}</span></div></div>
+                <div class="kpi-sub">Cross-team collaborations</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Avg per Team</div>
+                <div class="kpi-row"><div><span class="kpi-value">${teams.length > 0 ? (rows.length / teams.length).toFixed(1) : '0'}</span></div></div>
+                <div class="kpi-sub">Activities per lead team</div>
+            </div>`;
+
+        renderTeamWorkload(rows);
+        renderTeamChannelMatrix(rows);
+        renderCampaignScorecard(rows);
+        renderOverlapDetector(rows);
+    }
+
+    function renderTeamWorkload(rows) {
+        const el = document.getElementById('resource-workload');
+        const teamData = {};
+        for (const r of rows) {
+            const t = r.lead_team;
+            if (!t || t === 'None') continue;
+            const parts = String(t).split(/[;,]/).map(s => s.trim()).filter(Boolean);
+            for (const p of parts) {
+                if (!teamData[p]) teamData[p] = { internal: 0, external: 0 };
+                if (r.source_type === 'internal') teamData[p].internal++;
+                else teamData[p].external++;
+            }
+        }
+
+        const sorted = Object.entries(teamData).sort((a, b) => (b[1].internal + b[1].external) - (a[1].internal + a[1].external));
+        const top = sorted.slice(0, 12);
+        if (!top.length) { el.innerHTML = '<div class="empty-state"><p>No team data</p></div>'; return; }
+
+        const maxTotal = top[0][1].internal + top[0][1].external;
+
+        let html = '<div class="bar-chart">';
+        for (const [team, counts] of top) {
+            const total = counts.internal + counts.external;
+            const intPct = maxTotal > 0 ? (counts.internal / maxTotal * 100) : 0;
+            const extPct = maxTotal > 0 ? (counts.external / maxTotal * 100) : 0;
+            html += `<div class="bar-row">
+                <div class="bar-label" title="${esc(team)}">${esc(team)}</div>
+                <div class="bar-track" style="display:flex">
+                    <div style="width:${intPct}%;background:#0C7EC6;height:100%;border-radius:4px 0 0 4px;min-width:${counts.internal ? '2px' : '0'}"></div>
+                    <div style="width:${extPct}%;background:#6F7A1A;height:100%;border-radius:0 4px 4px 0;min-width:${counts.external ? '2px' : '0'}"></div>
+                </div>
+                <div class="bar-value">${total}</div>
+            </div>`;
+        }
+        html += `<div style="display:flex;gap:16px;margin-top:8px;padding-left:150px">
+            <div style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--dark-gray)">
+                <div style="width:10px;height:10px;border-radius:2px;background:#0C7EC6"></div>Internal</div>
+            <div style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--dark-gray)">
+                <div style="width:10px;height:10px;border-radius:2px;background:#6F7A1A"></div>External</div>
+        </div>`;
+        html += '</div>';
+        el.innerHTML = html;
+    }
+
+    function renderTeamChannelMatrix(rows) {
+        const el = document.getElementById('resource-team-channel');
+        const matrix = {};
+        const teams = new Set();
+        const channels = new Set();
+
+        for (const r of rows) {
+            const t = r.lead_team;
+            const ch = r.channel;
+            if (!t || t === 'None' || !ch || ch === 'None') continue;
+            const tParts = String(t).split(/[;,]/).map(s => s.trim()).filter(Boolean);
+            const chParts = String(ch).split(/[;,]/).map(s => s.trim()).filter(Boolean);
+            for (const tp of tParts) {
+                for (const cp of chParts) {
+                    teams.add(tp);
+                    channels.add(cp);
+                    matrix[`${tp}|||${cp}`] = (matrix[`${tp}|||${cp}`] || 0) + 1;
+                }
+            }
+        }
+
+        const teamTotals = {};
+        for (const t of teams) {
+            teamTotals[t] = [...channels].reduce((s, c) => s + (matrix[`${t}|||${c}`] || 0), 0);
+        }
+        const teamList = Object.entries(teamTotals).sort((a, b) => b[1] - a[1]).slice(0, 10).map(e => e[0]);
+        const chList = [...channels].sort();
+
+        if (!teamList.length || !chList.length) {
+            el.innerHTML = '<div class="empty-state"><p>No data</p></div>';
+            return;
+        }
+
+        let html = `<div class="heatmap-wrapper"><div class="heatmap" style="grid-template-columns: 140px repeat(${chList.length}, minmax(42px, 1fr))">`;
+        html += '<div class="heatmap-label"></div>';
+        for (const c of chList) {
+            html += `<div class="heatmap-col-label" title="${esc(c)}">${esc(c.length > 7 ? c.slice(0, 6) + '\u2026' : c)}</div>`;
+        }
+
+        for (const t of teamList) {
+            html += `<div class="heatmap-label" title="${esc(t)}">${esc(t)}</div>`;
+            for (const c of chList) {
+                const count = matrix[`${t}|||${c}`] || 0;
+                let bg, fg;
+                if (count === 0) { bg = 'var(--surface)'; fg = 'var(--light-gray)'; }
+                else if (count <= 2) { bg = '#e8ecd0'; fg = 'var(--success)'; }
+                else if (count <= 5) { bg = '#d4eaf8'; fg = '#065a96'; }
+                else { bg = '#0C7EC620'; fg = '#065a96'; }
+                html += `<div class="heatmap-cell" style="background:${bg};color:${fg}">${count || ''}</div>`;
+            }
+        }
+
+        html += '</div></div>';
+        el.innerHTML = html;
+    }
+
+    function renderCampaignScorecard(rows) {
+        const el = document.getElementById('resource-campaigns');
+        const campaigns = {};
+
+        for (const r of rows) {
+            const c = r.campaign;
+            if (!c || c === 'None') continue;
+            const parts = String(c).split(/[;,]/).map(s => s.trim()).filter(Boolean);
+            for (const p of parts) {
+                if (!campaigns[p]) {
+                    campaigns[p] = { count: 0, channels: new Set(), divisions: new Set(), audiences: new Set(), minDate: null, maxDate: null, objectives: new Set() };
+                }
+                campaigns[p].count++;
+                if (r.channel && r.channel !== 'None') String(r.channel).split(/[;,]/).map(s=>s.trim()).filter(Boolean).forEach(v => campaigns[p].channels.add(v));
+                if (r.business_division && r.business_division !== 'None') String(r.business_division).split(/[;,]/).map(s=>s.trim()).filter(Boolean).forEach(v => campaigns[p].divisions.add(v));
+                if (r.target_audience && r.target_audience !== 'None') String(r.target_audience).split(/[;,]/).map(s=>s.trim()).filter(Boolean).forEach(v => campaigns[p].audiences.add(v));
+                if (r.strategic_objectives && r.strategic_objectives !== 'None') String(r.strategic_objectives).split(/[;,]/).map(s=>s.trim()).filter(Boolean).forEach(v => campaigns[p].objectives.add(v));
+                const sd = parseDate(r.start_date);
+                const ed = parseDate(r.end_date);
+                if (sd && (!campaigns[p].minDate || sd < campaigns[p].minDate)) campaigns[p].minDate = sd;
+                if (ed && (!campaigns[p].maxDate || ed > campaigns[p].maxDate)) campaigns[p].maxDate = ed;
+            }
+        }
+
+        const sorted = Object.entries(campaigns).sort((a, b) => b[1].count - a[1].count);
+
+        if (!sorted.length) {
+            el.innerHTML = '<div class="empty-state"><p>No campaign data available</p></div>';
+            return;
+        }
+
+        let html = '<table><thead><tr>';
+        html += '<th>Campaign</th><th>Activities</th><th>Channels</th><th>Divisions</th><th>Audiences</th><th>Objectives</th><th>Date Range</th>';
+        html += '</tr></thead><tbody>';
+
+        for (const [name, data] of sorted.slice(0, 20)) {
+            const dateRange = data.minDate && data.maxDate
+                ? `${fmtDateShort(data.minDate)} \u2013 ${fmtDateShort(data.maxDate)}`
+                : '\u2014';
+            const chBadge = data.channels.size === 1
+                ? `<span class="badge badge-warning">${data.channels.size}</span>`
+                : `<span class="badge badge-success">${data.channels.size}</span>`;
+
+            html += `<tr>
+                <td title="${esc(name)}">${esc(name)}</td>
+                <td><strong>${data.count}</strong></td>
+                <td>${chBadge}</td>
+                <td>${data.divisions.size}</td>
+                <td>${data.audiences.size}</td>
+                <td>${data.objectives.size}</td>
+                <td style="font-size:12px">${dateRange}</td>
+            </tr>`;
+        }
+
+        html += '</tbody></table>';
+        el.innerHTML = html;
+    }
+
+    function renderOverlapDetector(rows) {
+        const el = document.getElementById('resource-overlaps');
+        const now = new Date();
+        const sixMonthsAgo = new Date(now); sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+        const weekMap = {};
+
+        for (const r of rows) {
+            const sd = parseDate(r.start_date);
+            const ed = parseDate(r.end_date) || sd;
+            if (!sd || sd < sixMonthsAgo) continue;
+            const ch = r.channel;
+            const aud = r.target_audience;
+            if (!ch || ch === 'None' || !aud || aud === 'None') continue;
+
+            const chParts = String(ch).split(/[;,]/).map(s => s.trim()).filter(Boolean);
+            const audParts = String(aud).split(/[;,]/).map(s => s.trim()).filter(Boolean);
+
+            for (const c of chParts) {
+                for (const a of audParts) {
+                    const weekStart = new Date(sd);
+                    weekStart.setDate(weekStart.getDate() - weekStart.getDay() + 1);
+                    const weekKey = `${weekStart.getFullYear()}-${String(weekStart.getMonth()+1).padStart(2,'0')}-${String(weekStart.getDate()).padStart(2,'0')}`;
+                    const groupKey = `${weekKey}|||${a}|||${c}`;
+
+                    if (!weekMap[groupKey]) weekMap[groupKey] = { week: weekKey, audience: a, channel: c, activities: [] };
+                    weekMap[groupKey].activities.push(r.activity_name || 'Untitled');
+                }
+            }
+        }
+
+        const overlapGroups = Object.values(weekMap).filter(g => g.activities.length > 1).sort((a, b) => b.activities.length - a.activities.length);
+
+        if (!overlapGroups.length) {
+            el.innerHTML = '<div class="empty-state"><p>No overlapping activities detected in the last 6 months</p></div>';
+            return;
+        }
+
+        let html = '<table><thead><tr>';
+        html += '<th>Week</th><th>Audience</th><th>Channel</th><th>Count</th><th>Activities</th>';
+        html += '</tr></thead><tbody>';
+
+        for (const g of overlapGroups.slice(0, 20)) {
+            const severity = g.activities.length >= 5 ? 'badge-danger' : g.activities.length >= 3 ? 'badge-warning' : 'badge-info';
+            html += `<tr>
+                <td>${esc(g.week)}</td>
+                <td title="${esc(g.audience)}">${esc(g.audience)}</td>
+                <td>${esc(g.channel)}</td>
+                <td><span class="badge ${severity}">${g.activities.length}</span></td>
+                <td title="${esc(g.activities.join(', '))}">${esc(g.activities.slice(0, 3).join(', '))}${g.activities.length > 3 ? '...' : ''}</td>
+            </tr>`;
+        }
+
+        html += '</tbody></table>';
+        el.innerHTML = html;
+    }
+
+    // -------------------------------------------------------------------------
+    // Planning Board
+    // -------------------------------------------------------------------------
+
+    let planningWeeks = 8;
+    let ganttGroupBy = 'channel';
+
+    function getWeekLabel(d) {
+        const day = d.getDate();
+        const mon = MONTHS_SHORT[d.getMonth()];
+        return `${day} ${mon}`;
+    }
+
+    function getWeeksBetween(start, numWeeks) {
+        const weeks = [];
+        const d = new Date(start);
+        d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+        d.setHours(0, 0, 0, 0);
+        for (let i = 0; i < numWeeks; i++) {
+            const wStart = new Date(d);
+            wStart.setDate(wStart.getDate() + i * 7);
+            const wEnd = new Date(wStart);
+            wEnd.setDate(wEnd.getDate() + 6);
+            wEnd.setHours(23, 59, 59);
+            weeks.push({ start: wStart, end: wEnd, label: getWeekLabel(wStart) });
+        }
+        return weeks;
+    }
+
+    function renderPlanningBoard(data) {
+        const rows = data.rows || [];
+        const now = new Date();
+        const weeks = getWeeksBetween(now, planningWeeks);
+        const horizonEnd = weeks[weeks.length - 1].end;
+
+        const future = rows.filter(r => {
+            const sd = parseDate(r.start_date);
+            const ed = parseDate(r.end_date) || sd;
+            return sd && ed >= now && sd <= horizonEnd;
+        }).sort((a, b) => new Date(a.start_date) - new Date(b.start_date));
+
+        const thisWeekEnd = new Date(now); thisWeekEnd.setDate(thisWeekEnd.getDate() + 7);
+        const thisWeek = future.filter(r => { const d = parseDate(r.start_date); return d && d <= thisWeekEnd; });
+        const nextMonth = future.filter(r => { const d = parseDate(r.start_date); const m = new Date(now); m.setDate(m.getDate() + 30); return d && d <= m; });
+        const reactive = future.filter(r => r.planning_lead_days != null && r.planning_lead_days < 7 && r.planning_lead_days >= 0);
+        const avgLead = (() => {
+            const vals = future.map(r => r.planning_lead_days).filter(v => v != null && !isNaN(v) && v >= 0);
+            return vals.length ? (vals.reduce((s, v) => s + v, 0) / vals.length).toFixed(0) : '\u2014';
+        })();
+
+        document.getElementById('planning-stats').innerHTML = `
+            <div class="kpi-card highlight">
+                <div class="kpi-label">This Week</div>
+                <div class="kpi-row"><div><span class="kpi-value">${thisWeek.length}</span></div></div>
+                <div class="kpi-sub">Starting in 7 days</div>
+            </div>
+            <div class="kpi-card info">
+                <div class="kpi-label">Next 30 Days</div>
+                <div class="kpi-row"><div><span class="kpi-value">${nextMonth.length}</span></div></div>
+                <div class="kpi-sub">Upcoming activities</div>
+            </div>
+            <div class="kpi-card warning">
+                <div class="kpi-label">Short Notice</div>
+                <div class="kpi-row"><div><span class="kpi-value">${reactive.length}</span></div></div>
+                <div class="kpi-sub">Created &lt;7 days before start</div>
+            </div>
+            <div class="kpi-card success">
+                <div class="kpi-label">Avg Lead Time</div>
+                <div class="kpi-row"><div><span class="kpi-value">${avgLead}</span><span class="kpi-unit"> d</span></div></div>
+                <div class="kpi-sub">Days from creation to start</div>
+            </div>`;
+
+        renderGantt(future, weeks);
+        renderWeeklyLoadForecast(future, weeks);
+        renderChannelAvailability(future, weeks);
+        renderPlanningPipeline(future);
+    }
+
+    function renderGantt(activities, weeks) {
+        const el = document.getElementById('planning-gantt');
+        if (!activities.length) {
+            el.innerHTML = '<div class="empty-state"><p>No upcoming activities to display</p></div>';
+            return;
+        }
+
+        const groups = {};
+        for (const r of activities) {
+            let groupVal = r[ganttGroupBy] || 'Unassigned';
+            if (groupVal === 'None' || groupVal === 'null') groupVal = 'Unassigned';
+            const firstVal = String(groupVal).split(/[;,]/)[0].trim();
+            if (!groups[firstVal]) groups[firstVal] = [];
+            groups[firstVal].push(r);
+        }
+
+        const sortedGroups = Object.entries(groups).sort((a, b) => b[1].length - a[1].length);
+        const numWeeks = weeks.length;
+        const now = new Date();
+        const todayWeekIdx = weeks.findIndex(w => now >= w.start && now <= w.end);
+
+        let html = `<div class="gantt-wrapper"><div class="gantt" style="grid-template-columns: 180px repeat(${numWeeks}, minmax(60px, 1fr))">`;
+
+        html += '<div class="gantt-header-cell" style="border-bottom:2px solid var(--light-gray)">Activity</div>';
+        for (let wi = 0; wi < numWeeks; wi++) {
+            const isTodayWeek = wi === todayWeekIdx;
+            html += `<div class="gantt-header-cell" style="${isTodayWeek ? 'background:var(--warning);color:var(--white)' : ''}">${weeks[wi].label}</div>`;
+        }
+
+        for (const [groupName, items] of sortedGroups) {
+            html += `<div class="gantt-group-label">${esc(groupName)} (${items.length})</div>`;
+
+            for (const r of items.slice(0, 15)) {
+                const name = r.activity_name || 'Untitled';
+                const sd = parseDate(r.start_date);
+                const ed = parseDate(r.end_date) || sd;
+                const isInternal = r.source_type === 'internal';
+
+                html += `<div class="gantt-row-label" title="${esc(name)}">${esc(name.length > 22 ? name.slice(0, 21) + '\u2026' : name)}</div>`;
+
+                for (let wi = 0; wi < numWeeks; wi++) {
+                    const wStart = weeks[wi].start;
+                    const wEnd = weeks[wi].end;
+                    const isTodayWeek = wi === todayWeekIdx;
+                    let cellHtml = '';
+
+                    if (sd <= wEnd && ed >= wStart) {
+                        const barStartDay = Math.max(0, (sd - wStart) / (1000 * 60 * 60 * 24));
+                        const barEndDay = Math.min(7, (ed - wStart) / (1000 * 60 * 60 * 24) + 1);
+                        const leftPct = (barStartDay / 7) * 100;
+                        const widthPct = ((barEndDay - barStartDay) / 7) * 100;
+                        const cls = isInternal ? 'internal' : 'external';
+                        cellHtml = `<div class="gantt-bar ${cls}" style="left:${leftPct}%;width:${widthPct}%" title="${esc(name)}\n${fmtDateShort(sd)} \u2013 ${fmtDateShort(ed)}\n${esc(r.channel || '')}"></div>`;
+                    }
+
+                    html += `<div class="gantt-cell${isTodayWeek ? ' today-col' : ''}">${cellHtml}</div>`;
+                }
+            }
+
+            if (items.length > 15) {
+                html += `<div class="gantt-row-label" style="color:var(--medium-gray);font-style:italic">+${items.length - 15} more</div>`;
+                for (let wi = 0; wi < numWeeks; wi++) html += '<div class="gantt-cell"></div>';
+            }
+        }
+
+        html += '</div></div>';
+
+        html += `<div style="padding:8px 18px;display:flex;gap:16px;font-size:11px;color:var(--dark-gray);border-top:1px solid var(--surface)">
+            <div style="display:flex;align-items:center;gap:4px"><div style="width:20px;height:8px;border-radius:3px;background:var(--info);opacity:0.85"></div>Internal</div>
+            <div style="display:flex;align-items:center;gap:4px"><div style="width:20px;height:8px;border-radius:3px;background:var(--success);opacity:0.85"></div>External</div>
+            <div style="display:flex;align-items:center;gap:4px"><div style="width:12px;height:12px;background:var(--warning);border-radius:2px"></div>Current week</div>
+        </div>`;
+
+        el.innerHTML = html;
+    }
+
+    function renderWeeklyLoadForecast(activities, weeks) {
+        const el = document.getElementById('planning-load');
+        const numWeeks = weeks.length;
+
+        const weeklyLoad = weeks.map(w => {
+            let internal = 0, external = 0;
+            for (const r of activities) {
+                const sd = parseDate(r.start_date);
+                const ed = parseDate(r.end_date) || sd;
+                if (sd && sd <= w.end && ed >= w.start) {
+                    if (r.source_type === 'internal') internal++;
+                    else external++;
+                }
+            }
+            return { internal, external, total: internal + external, label: w.label };
+        });
+
+        const maxLoad = Math.max(...weeklyLoad.map(w => w.total), 1);
+        const avg = weeklyLoad.reduce((s, w) => s + w.total, 0) / numWeeks;
+        const stddev = Math.sqrt(weeklyLoad.reduce((s, w) => s + (w.total - avg) ** 2, 0) / numWeeks);
+        const threshold = Math.max(Math.round(avg + stddev), 5);
+
+        const W = 700, H = 220, padL = 40, padR = 20, padT = 20, padB = 36;
+        const chartW = W - padL - padR;
+        const chartH = H - padT - padB;
+        const barW = Math.min(28, chartW / numWeeks * 0.6);
+        const yMax = Math.max(maxLoad, threshold + 2);
+
+        let svg = '';
+        const steps = 4;
+        for (let i = 0; i <= steps; i++) {
+            const y = padT + (chartH / steps) * i;
+            const val = Math.round(yMax * (1 - i / steps));
+            svg += `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="var(--surface)" stroke-width="1"/>`;
+            svg += `<text x="${padL - 6}" y="${y + 3}" text-anchor="end" font-size="10" fill="var(--medium-gray)">${val}</text>`;
+        }
+
+        const threshY = padT + chartH - (threshold / yMax) * chartH;
+        svg += `<line x1="${padL}" y1="${threshY}" x2="${W - padR}" y2="${threshY}" class="load-threshold"/>`;
+        svg += `<text x="${W - padR + 4}" y="${threshY + 3}" font-size="9" fill="var(--danger)" font-weight="600">Busy (${threshold})</text>`;
+
+        const todayWeekIdx = weeks.findIndex(w => {
+            const now = new Date();
+            return now >= w.start && now <= w.end;
+        });
+
+        weeklyLoad.forEach((w, i) => {
+            const x = padL + (i + 0.5) * (chartW / numWeeks);
+            const intH = (w.internal / yMax) * chartH;
+            const extH = (w.external / yMax) * chartH;
+            const intY = padT + chartH - intH - extH;
+            const extY = padT + chartH - extH;
+            const isOverThreshold = w.total >= threshold;
+            const isTodayWeek = i === todayWeekIdx;
+
+            svg += `<rect x="${x - barW}" y="${intY}" width="${barW}" height="${intH}" fill="${isOverThreshold ? 'var(--danger)' : 'var(--info)'}" rx="2" opacity="0.85"/>`;
+            svg += `<rect x="${x}" y="${extY}" width="${barW}" height="${extH}" fill="${isOverThreshold ? '#BD000C80' : 'var(--success)'}" rx="2" opacity="0.85"/>`;
+
+            if (w.total > 0) {
+                svg += `<text x="${x}" y="${intY - 4}" text-anchor="middle" font-size="10" fill="${isOverThreshold ? 'var(--danger)' : 'var(--dark-gray)'}" font-weight="600">${w.total}</text>`;
+            }
+
+            svg += `<text x="${x}" y="${H - 4}" text-anchor="middle" font-size="9" fill="${isTodayWeek ? 'var(--warning)' : 'var(--medium-gray)'}" font-weight="${isTodayWeek ? '700' : '400'}">${w.label}</text>`;
+        });
+
+        svg += `<rect x="${W - 200}" y="4" width="10" height="10" fill="var(--info)" rx="2"/>`;
+        svg += `<text x="${W - 185}" y="13" font-size="10" fill="var(--dark-gray)">Internal</text>`;
+        svg += `<rect x="${W - 130}" y="4" width="10" height="10" fill="var(--success)" rx="2"/>`;
+        svg += `<text x="${W - 115}" y="13" font-size="10" fill="var(--dark-gray)">External</text>`;
+
+        el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px">${svg}</svg>`;
+    }
+
+    function renderChannelAvailability(activities, weeks) {
+        const el = document.getElementById('planning-availability');
+        const numWeeks = weeks.length;
+
+        const channels = new Set();
+        const matrix = {};
+
+        for (const r of activities) {
+            const ch = r.channel;
+            if (!ch || ch === 'None') continue;
+            const sd = parseDate(r.start_date);
+            const ed = parseDate(r.end_date) || sd;
+            if (!sd) continue;
+
+            const chParts = String(ch).split(/[;,]/).map(s => s.trim()).filter(Boolean);
+            for (const c of chParts) {
+                channels.add(c);
+                for (let wi = 0; wi < numWeeks; wi++) {
+                    if (sd <= weeks[wi].end && ed >= weeks[wi].start) {
+                        const key = `${c}|||${wi}`;
+                        matrix[key] = (matrix[key] || 0) + 1;
+                    }
+                }
+            }
+        }
+
+        const chList = [...channels].sort();
+        if (!chList.length) {
+            el.innerHTML = '<div class="empty-state"><p>No channel data available</p></div>';
+            return;
+        }
+
+        const todayWeekIdx = weeks.findIndex(w => {
+            const now = new Date();
+            return now >= w.start && now <= w.end;
+        });
+
+        let html = `<div class="heatmap-wrapper"><div class="heatmap" style="grid-template-columns: 140px repeat(${numWeeks}, minmax(48px, 1fr))">`;
+
+        html += '<div class="heatmap-label"></div>';
+        for (let wi = 0; wi < numWeeks; wi++) {
+            const isTodayWeek = wi === todayWeekIdx;
+            html += `<div class="heatmap-col-label" style="${isTodayWeek ? 'color:var(--warning);font-weight:700' : ''}">${weeks[wi].label}</div>`;
+        }
+
+        for (const ch of chList) {
+            html += `<div class="heatmap-label" title="${esc(ch)}">${esc(ch)}</div>`;
+            for (let wi = 0; wi < numWeeks; wi++) {
+                const count = matrix[`${ch}|||${wi}`] || 0;
+                let bg, fg, text;
+                if (count === 0) { bg = '#e8ecd040'; fg = 'var(--success)'; text = '\u2713'; }
+                else if (count <= 2) { bg = '#e8ecd0'; fg = 'var(--success)'; text = count; }
+                else if (count <= 4) { bg = '#fdf3d7'; fg = '#8a6800'; text = count; }
+                else { bg = '#f5d0d3'; fg = 'var(--danger)'; text = count; }
+                html += `<div class="heatmap-cell" style="background:${bg};color:${fg}" title="${esc(ch)} \u2014 Week of ${weeks[wi].label}: ${count} activities">${text}</div>`;
+            }
+        }
+
+        html += '</div></div>';
+
+        html += `<div style="padding:8px 18px;display:flex;gap:16px;font-size:11px;color:var(--dark-gray)">
+            <div style="display:flex;align-items:center;gap:4px"><div style="width:12px;height:12px;border-radius:2px;background:#e8ecd040;border:1px solid var(--light-gray)"></div>Open</div>
+            <div style="display:flex;align-items:center;gap:4px"><div style="width:12px;height:12px;border-radius:2px;background:#e8ecd0"></div>Light (1\u20132)</div>
+            <div style="display:flex;align-items:center;gap:4px"><div style="width:12px;height:12px;border-radius:2px;background:#fdf3d7"></div>Busy (3\u20134)</div>
+            <div style="display:flex;align-items:center;gap:4px"><div style="width:12px;height:12px;border-radius:2px;background:#f5d0d3"></div>Saturated (5+)</div>
+        </div>`;
+
+        el.innerHTML = html;
+    }
+
+    function renderPlanningPipeline(activities) {
+        const el = document.getElementById('planning-pipeline');
+        if (!activities.length) {
+            el.innerHTML = '<div class="empty-state"><p>No upcoming activities</p></div>';
+            return;
+        }
+
+        let html = '<table><thead><tr>';
+        html += '<th></th><th>Activity</th><th>Type</th><th>Channel</th><th>Start</th><th>End</th><th>Lead Time</th><th>Priority</th><th>Lead Team</th><th>Target Audience</th>';
+        html += '</tr></thead><tbody>';
+
+        for (const r of activities.slice(0, 40)) {
+            const sd = parseDate(r.start_date);
+            const ed = parseDate(r.end_date);
+            const leadDays = r.planning_lead_days;
+            let leadClass = 'lead-good';
+            if (leadDays != null) {
+                if (leadDays < 3) leadClass = 'lead-danger';
+                else if (leadDays < 14) leadClass = 'lead-warning';
+            }
+
+            const typeBadge = r.source_type === 'internal'
+                ? '<span class="badge badge-source-internal">Internal</span>'
+                : '<span class="badge badge-source-external">External</span>';
+
+            const priorityColor = PRIORITY_COLORS[r.priority] || 'var(--medium-gray)';
+
+            html += `<tr>
+                <td><span class="lead-indicator ${leadClass}" title="Lead time: ${leadDays != null ? leadDays + ' days' : 'unknown'}"></span></td>
+                <td title="${esc(r.activity_name || '')}">${esc(r.activity_name || 'Untitled')}</td>
+                <td>${typeBadge}</td>
+                <td>${esc(r.channel || '\u2014')}</td>
+                <td>${fmtDateShort(sd)}</td>
+                <td>${fmtDateShort(ed)}</td>
+                <td style="font-weight:600;color:${leadDays != null && leadDays < 7 ? 'var(--danger)' : 'var(--dark-gray)'}">${leadDays != null ? leadDays + 'd' : '\u2014'}</td>
+                <td><span class="badge" style="background:${priorityColor}20;color:${priorityColor}">${esc(r.priority || '\u2014')}</span></td>
+                <td title="${esc(r.lead_team || '')}">${esc(r.lead_team || '\u2014')}</td>
+                <td title="${esc(r.target_audience || '')}">${esc((r.target_audience || '\u2014').length > 25 ? r.target_audience.slice(0, 24) + '\u2026' : r.target_audience || '\u2014')}</td>
+            </tr>`;
+        }
+
+        if (activities.length > 40) {
+            html += `<tr><td colspan="10" style="text-align:center;color:var(--medium-gray);font-style:italic;padding:12px">+${activities.length - 40} more activities</td></tr>`;
+        }
+
+        html += '</tbody></table>';
+        el.innerHTML = html;
+    }
+
+    // -------------------------------------------------------------------------
+    // XLSX Export
+    // -------------------------------------------------------------------------
+
+    function exportDate(val) {
+        if (!val) return '';
+        const d = new Date(val);
+        if (isNaN(d.getTime())) return String(val);
+        return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    }
+
+    function downloadXlsx(wb, filename) {
+        if (typeof XLSX === 'undefined') {
+            alert('XLSX library not loaded. Please check your internet connection.');
+            return;
+        }
+        XLSX.writeFile(wb, filename);
+    }
+
+    function rowsToSheet(rows, columns, headers) {
+        const data = [headers || columns.map(c => c.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()))];
+        for (const r of rows) {
+            data.push(columns.map(col => {
+                let val = r[col];
+                if (col.includes('date') || col === 'created' || col === 'modified') {
+                    val = exportDate(val);
+                }
+                if (val === null || val === undefined || val === 'None' || val === 'null') return '';
+                if (typeof val === 'boolean') return val ? 'Yes' : 'No';
+                return val;
+            }));
+        }
+        const ws = XLSX.utils.aoa_to_sheet(data);
+        ws['!cols'] = columns.map((col, i) => {
+            const maxLen = Math.max(
+                (headers ? headers[i] : col).length,
+                ...data.slice(1).map(row => String(row[i] || '').length)
+            );
+            return { wch: Math.min(Math.max(maxLen, 8), 40) };
+        });
+        return ws;
+    }
+
+    function getExportDefinitions() {
+        const rows = DATA ? getFilteredRows(DATA.rows) : [];
+        const now = new Date();
+        const futureRows = rows.filter(r => { const d = parseDate(r.start_date); return d && d >= now; })
+            .sort((a, b) => new Date(a.start_date) - new Date(b.start_date));
+
+        const activityCols = ['activity_name', 'source_type', 'channel', 'start_date', 'end_date',
+            'priority', 'lead', 'lead_team', 'business_division', 'region',
+            'target_audience', 'strategic_objectives', 'campaign', 'news_digest',
+            'planning_lead_days', 'tracking_id'];
+
+        const pipelineCols = ['activity_name', 'source_type', 'channel', 'start_date', 'end_date',
+            'priority', 'lead_team', 'target_audience', 'planning_lead_days', 'campaign'];
+
+        return [
+            {
+                id: 'all-activities', title: 'All Activities',
+                description: 'Complete dataset of all internal and external communication activities.',
+                rows: rows, columns: activityCols, filename: 'cplan_all_activities.xlsx', sheetName: 'All Activities', count: rows.length,
+            },
+            {
+                id: 'internal', title: 'Internal Activities',
+                description: 'Internal communication activities only.',
+                rows: rows.filter(r => r.source_type === 'internal'), columns: activityCols,
+                filename: 'cplan_internal_activities.xlsx', sheetName: 'Internal',
+                count: rows.filter(r => r.source_type === 'internal').length,
+            },
+            {
+                id: 'external', title: 'External Activities',
+                description: 'External communication activities only.',
+                rows: rows.filter(r => r.source_type === 'external'), columns: activityCols,
+                filename: 'cplan_external_activities.xlsx', sheetName: 'External',
+                count: rows.filter(r => r.source_type === 'external').length,
+            },
+            {
+                id: 'upcoming', title: 'Upcoming Pipeline',
+                description: 'Future activities sorted by start date.',
+                rows: futureRows, columns: pipelineCols,
+                filename: 'cplan_upcoming_pipeline.xlsx', sheetName: 'Pipeline', count: futureRows.length,
+            },
+            {
+                id: 'campaigns', title: 'Campaign Scorecard',
+                description: 'Campaign-level rollup with channel diversity and date range.',
+                rows: null,
+                compute: function() {
+                    const campaigns = {};
+                    for (const r of rows) {
+                        const c = r.campaign;
+                        if (!c || c === 'None') continue;
+                        const parts = String(c).split(/[;,]/).map(s => s.trim()).filter(Boolean);
+                        for (const p of parts) {
+                            if (!campaigns[p]) campaigns[p] = { name: p, count: 0, channels: new Set(), divisions: new Set(), audiences: new Set(), objectives: new Set(), minDate: null, maxDate: null };
+                            campaigns[p].count++;
+                            if (r.channel && r.channel !== 'None') String(r.channel).split(/[;,]/).map(s=>s.trim()).filter(Boolean).forEach(v => campaigns[p].channels.add(v));
+                            if (r.business_division && r.business_division !== 'None') String(r.business_division).split(/[;,]/).map(s=>s.trim()).filter(Boolean).forEach(v => campaigns[p].divisions.add(v));
+                            if (r.target_audience && r.target_audience !== 'None') String(r.target_audience).split(/[;,]/).map(s=>s.trim()).filter(Boolean).forEach(v => campaigns[p].audiences.add(v));
+                            if (r.strategic_objectives && r.strategic_objectives !== 'None') String(r.strategic_objectives).split(/[;,]/).map(s=>s.trim()).filter(Boolean).forEach(v => campaigns[p].objectives.add(v));
+                            const sd = parseDate(r.start_date); const ed = parseDate(r.end_date);
+                            if (sd && (!campaigns[p].minDate || sd < campaigns[p].minDate)) campaigns[p].minDate = sd;
+                            if (ed && (!campaigns[p].maxDate || ed > campaigns[p].maxDate)) campaigns[p].maxDate = ed;
+                        }
+                    }
+                    return Object.values(campaigns).sort((a, b) => b.count - a.count).map(c => ({
+                        campaign: c.name, activities: c.count,
+                        channels: c.channels.size, channel_list: [...c.channels].join(', '),
+                        divisions: c.divisions.size, audiences: c.audiences.size,
+                        objectives: c.objectives.size, objective_list: [...c.objectives].join(', '),
+                        start_date: c.minDate ? exportDate(c.minDate) : '', end_date: c.maxDate ? exportDate(c.maxDate) : ''
+                    }));
+                },
+                columns: ['campaign', 'activities', 'channels', 'channel_list', 'divisions', 'audiences', 'objectives', 'objective_list', 'start_date', 'end_date'],
+                headers: ['Campaign', 'Activities', 'Channels', 'Channel List', 'Divisions', 'Audiences', 'Objectives', 'Objective List', 'First Start', 'Last End'],
+                filename: 'cplan_campaign_scorecard.xlsx', sheetName: 'Campaigns',
+                count: new Set(rows.map(r => r.campaign).filter(c => c && c !== 'None')).size,
+            },
+            {
+                id: 'unaligned', title: 'Unaligned Activities',
+                description: 'Activities with no strategic objective assigned.',
+                rows: rows.filter(r => !r.strategic_objectives || r.strategic_objectives === 'None' || !String(r.strategic_objectives).trim()),
+                columns: ['activity_name', 'source_type', 'business_division', 'lead_team', 'channel', 'start_date', 'campaign'],
+                filename: 'cplan_unaligned_activities.xlsx', sheetName: 'Unaligned',
+                count: rows.filter(r => !r.strategic_objectives || r.strategic_objectives === 'None' || !String(r.strategic_objectives).trim()).length,
+            },
+            {
+                id: 'overlaps', title: 'Audience Overlaps',
+                description: 'Weeks with multiple activities targeting the same audience on the same channel.',
+                rows: null,
+                compute: function() {
+                    const weekMap = {};
+                    const sixMonthsAgo = new Date(now); sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+                    for (const r of rows) {
+                        const sd = parseDate(r.start_date); const ed = parseDate(r.end_date) || sd;
+                        if (!sd || sd < sixMonthsAgo) continue;
+                        const ch = r.channel; const aud = r.target_audience;
+                        if (!ch || ch === 'None' || !aud || aud === 'None') continue;
+                        const chParts = String(ch).split(/[;,]/).map(s=>s.trim()).filter(Boolean);
+                        const audParts = String(aud).split(/[;,]/).map(s=>s.trim()).filter(Boolean);
+                        for (const c of chParts) { for (const a of audParts) {
+                            const ws = new Date(sd); ws.setDate(ws.getDate() - ws.getDay() + 1);
+                            const wk = `${ws.getFullYear()}-${String(ws.getMonth()+1).padStart(2,'0')}-${String(ws.getDate()).padStart(2,'0')}`;
+                            const key = `${wk}|||${a}|||${c}`;
+                            if (!weekMap[key]) weekMap[key] = { week: wk, audience: a, channel: c, activities: [] };
+                            weekMap[key].activities.push(r.activity_name || 'Untitled');
+                        }}
+                    }
+                    return Object.values(weekMap).filter(g => g.activities.length > 1)
+                        .sort((a, b) => b.activities.length - a.activities.length)
+                        .map(g => ({ week: g.week, audience: g.audience, channel: g.channel, count: g.activities.length, activities: g.activities.join('; ') }));
+                },
+                columns: ['week', 'audience', 'channel', 'count', 'activities'],
+                headers: ['Week', 'Audience', 'Channel', 'Overlap Count', 'Activities'],
+                filename: 'cplan_audience_overlaps.xlsx', sheetName: 'Overlaps', count: null,
+            },
+        ];
+    }
+
+    function exportSingleTable(defId) {
+        const defs = getExportDefinitions();
+        const def = defs.find(d => d.id === defId);
+        if (!def) return;
+
+        const dataRows = def.compute ? def.compute() : def.rows;
+        if (!dataRows || !dataRows.length) {
+            alert('No data to export.');
+            return;
+        }
+
+        const wb = XLSX.utils.book_new();
+        const ws = rowsToSheet(dataRows, def.columns, def.headers);
+        XLSX.utils.book_append_sheet(wb, ws, def.sheetName);
+        downloadXlsx(wb, def.filename);
+    }
+
+    function exportAllToWorkbook() {
+        const defs = getExportDefinitions();
+        const wb = XLSX.utils.book_new();
+        let sheetsAdded = 0;
+
+        for (const def of defs) {
+            const dataRows = def.compute ? def.compute() : def.rows;
+            if (!dataRows || !dataRows.length) continue;
+            const ws = rowsToSheet(dataRows, def.columns, def.headers);
+            XLSX.utils.book_append_sheet(wb, ws, def.sheetName);
+            sheetsAdded++;
+        }
+
+        if (sheetsAdded === 0) {
+            alert('No data to export.');
+            return;
+        }
+
+        const today = new Date().toISOString().slice(0, 10);
+        downloadXlsx(wb, `cplan_export_${today}.xlsx`);
+    }
+
+    function renderExportCenter() {
+        const el = document.getElementById('export-grid');
+        const defs = getExportDefinitions();
+
+        let html = '';
+        for (const def of defs) {
+            const dataRows = def.compute ? def.compute() : def.rows;
+            const count = dataRows ? dataRows.length : (def.count || 0);
+            html += `<div class="export-card">
+                <div class="export-card-title">${esc(def.title)}</div>
+                <div class="export-card-desc">${esc(def.description)}</div>
+                <div class="export-card-meta">${count} rows &middot; ${def.columns.length} columns</div>
+                <button class="btn-export" onclick="exportSingleTable('${def.id}')">
+                    <span class="export-icon">&darr;</span> Download .xlsx
+                </button>
+            </div>`;
+        }
+        el.innerHTML = html;
+    }
+
+    // -------------------------------------------------------------------------
+    // Navigation — horizontal tabs
+    // -------------------------------------------------------------------------
+
+    function switchPage(pageName) {
+        document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
+        document.querySelectorAll(".nav-tab").forEach(t => t.classList.remove("active"));
+
+        const page = document.getElementById(`page-${pageName}`);
+        if (page) page.classList.add("active");
+
+        const tab = document.querySelector(`.nav-tab[data-page="${pageName}"]`);
+        if (tab) tab.classList.add("active");
+    }
+
+    document.querySelectorAll(".nav-tab").forEach(tab => {
+        tab.addEventListener("click", () => {
+            const page = tab.dataset.page;
+            if (page) switchPage(page);
+        });
+    });
+
+    // Trend toggle
+    document.getElementById("trend-toggle").addEventListener("click", e => {
+        const btn = e.target.closest("button");
+        if (!btn || !DATA) return;
+        document.querySelectorAll("#trend-toggle button").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        renderTrend(getFilteredRows(DATA.rows || []), btn.dataset.mode);
+    });
+
+    // Period selector
+    document.getElementById("period-selector").addEventListener("click", e => {
+        const btn = e.target.closest("button");
+        if (!btn || !DATA) return;
+        document.querySelectorAll("#period-selector button").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        execPeriod = btn.dataset.period;
+        renderExecutiveSummary(getFilteredRows(DATA.rows || []));
+    });
+
+    // Planning horizon toggle
+    document.getElementById("planning-horizon-toggle").addEventListener("click", e => {
+        const btn = e.target.closest("button");
+        if (!btn || !DATA) return;
+        document.querySelectorAll("#planning-horizon-toggle button").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        planningWeeks = parseInt(btn.dataset.weeks);
+        renderPlanningBoard({ ...DATA, rows: getFilteredRows(DATA.rows) });
+    });
+
+    // Gantt group-by toggle
+    document.getElementById("gantt-group-toggle").addEventListener("click", e => {
+        const btn = e.target.closest("button");
+        if (!btn || !DATA) return;
+        document.querySelectorAll("#gantt-group-toggle button").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        ganttGroupBy = btn.dataset.group;
+        renderPlanningBoard({ ...DATA, rows: getFilteredRows(DATA.rows) });
+    });
+
+    // Date filter presets
+    document.querySelectorAll('.date-preset').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.date-preset').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            applyDatePreset(btn.dataset.range);
+            refreshAllPages();
+        });
+    });
+
+    // Custom date inputs
+    document.getElementById('date-from').addEventListener('change', () => {
+        const val = document.getElementById('date-from').value;
+        globalDateFrom = val ? new Date(val + 'T00:00:00') : null;
+        document.querySelectorAll('.date-preset').forEach(b => b.classList.remove('active'));
+        refreshAllPages();
+    });
+
+    document.getElementById('date-to').addEventListener('change', () => {
+        const val = document.getElementById('date-to').value;
+        globalDateTo = val ? new Date(val + 'T23:59:59') : null;
+        document.querySelectorAll('.date-preset').forEach(b => b.classList.remove('active'));
+        refreshAllPages();
+    });
+
+    // -------------------------------------------------------------------------
+    // Init
+    // -------------------------------------------------------------------------
+
+    (async function init() {
+        const dot = document.getElementById('status-dot');
+        const label = document.getElementById('status-label');
+
+        try {
+            await initDuckDB();
+            label.textContent = 'Loading data...';
+            await loadParquetFiles();
+
+            const data = await loadData();
+            DATA = data;
+
+            dot.className = 'status-dot ready';
+            label.textContent = `${data.row_count} activities`;
+
+            renderExecutiveSummary(data.rows || []);
+            renderPlanningBoard(data);
+            renderDashboard(data);
+            initCalendar(data);
+            renderSourcePage("internal", data);
+            renderSourcePage("external", data);
+            renderStrategicAlignment(data);
+            renderResourceCoordination(data);
+            renderAnalytics(data);
+            renderExportCenter();
+        } catch (err) {
+            console.error("Init error:", err);
+            dot.className = 'status-dot error';
+            label.textContent = 'Error';
+            document.querySelector(".container").innerHTML = `
+                <div style="padding:2rem">
+                    <div class="chart-card">
+                        <div class="chart-card-body chart-card-body-padded">
+                            <div class="empty-state"><p>Failed to initialize: ${esc(err.message)}<br>
+                            Run <code>python process_cplan.py</code> first, then serve via <code>python -m http.server</code>.</p></div>
+                        </div>
+                    </div>
+                </div>`;
+        }
+    })();
+    </script>
+</body>
+</html>
