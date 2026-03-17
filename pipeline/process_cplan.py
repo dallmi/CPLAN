@@ -725,10 +725,10 @@ def transform_clusters(df):
         elif lower == "title":
             rename[col] = "cluster_name"
         elif lower == "abbreviation":
-            rename[col] = "cluster_abbr"
+            rename[col] = "cluster_abbreviation"
 
     df = df.rename(columns=rename)
-    keep = [c for c in ("cluster_id", "cluster_name", "cluster_abbr") if c in df.columns]
+    keep = [c for c in ("cluster_id", "cluster_name", "cluster_abbreviation") if c in df.columns]
     df = df[keep]
 
     log(f"  Clusters: {len(df)} rows, columns: {list(df.columns)}")
