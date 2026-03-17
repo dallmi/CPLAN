@@ -195,7 +195,7 @@ def parse_sp_lookup(val):
     # Quick check — skip if it doesn't look like JSON
     stripped = val.strip()
     if not (stripped.startswith("{") or stripped.startswith("[")):
-        return val
+        return _strip_taxonomy_guid(stripped)
 
     try:
         parsed = json.loads(stripped)
@@ -217,18 +217,38 @@ def parse_sp_lookup(val):
     return val
 
 
+def _strip_taxonomy_guid(val):
+    """Remove pipe-delimited GUIDs from SharePoint taxonomy values.
+
+    Taxonomy fields often return "Label|<GUID>" e.g.:
+      "FFEM - GWM EMEA|a686bf48-e358-4756-b907-..."
+      "All|98cdf24c-ab69-472e-ada6-166e99a93a8d"
+    """
+    if "|" not in val:
+        return val
+    # GUID pattern: 8-4-4-4-12 hex chars
+    parts = val.rsplit("|", 1)
+    if len(parts) == 2 and re.match(
+        r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+        parts[1].strip()
+    ):
+        return parts[0].strip()
+    return val
+
+
 def _extract_sp_value(obj):
     """Extract the most useful value from a single SP lookup object."""
+    raw = ""
     # Person field
     if "DisplayName" in obj:
-        return obj["DisplayName"]
+        raw = obj["DisplayName"]
     # Standard lookup / taxonomy
-    if "Value" in obj:
-        return str(obj["Value"])
+    elif "Value" in obj:
+        raw = str(obj["Value"])
     # Fallback to Label (taxonomy)
-    if "Label" in obj:
-        return obj["Label"]
-    return ""
+    elif "Label" in obj:
+        raw = obj["Label"]
+    return _strip_taxonomy_guid(raw) if raw else ""
 
 
 def parse_sp_person_email(val):
