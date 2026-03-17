@@ -314,6 +314,7 @@ COLUMN_MAP = {
     "News digest":              "news_digest",
     "Priority":                 "priority",
     "Strategic Objectives":     "strategic_objectives",
+    "Campaign":                 "campaign",
     "Communication pack":       "communication_pack",
     "Communication":            "communication_ref",
     "Created":                  "created",
@@ -326,7 +327,7 @@ COLUMN_MAP = {
 SP_LOOKUP_COLUMNS = {
     "target_audience", "extended_audience", "business_division",
     "business_area", "region", "channel", "lead", "lead_team",
-    "partner_team", "priority", "strategic_objectives",
+    "partner_team", "priority", "strategic_objectives", "campaign",
     "communication_ref", "communication_pack", "author", "audience",
 }
 
