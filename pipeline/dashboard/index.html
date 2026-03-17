@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CPLAN — Communications Dashboard</title>
+    <style>
+        :root {
+            --primary: #E60000;
+            --primary-dark: #8A000A;
+            --danger: #BD000C;
+            --warning: #E4A911;
+            --success: #6F7A1A;
+            --info: #0C7EC6;
+            --dark-gray: #404040;
+            --medium-gray: #7A7870;
+            --light-gray: #CCCABC;
+            --surface: #ECEBE4;
+            --surface-alt: #F5F0E1;
+            --row-alt: #F8F7F2;
+            --white: #FFFFFF;
+            --black: #000000;
+
+            --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: var(--font);
+            background: var(--surface);
+            color: var(--black);
+            line-height: 1.5;
+        }
+
+        /* Layout */
+        .app {
+            display: flex;
+            min-height: 100vh;
+        }
+
+        .sidebar {
+            width: 240px;
+            background: var(--black);
+            color: var(--white);
+            padding: 24px 0;
+            flex-shrink: 0;
+        }
+
+        .sidebar-brand {
+            padding: 0 24px 24px;
+            font-size: 20px;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            border-bottom: 1px solid var(--dark-gray);
+            margin-bottom: 16px;
+        }
+
+        .sidebar-brand span {
+            color: var(--primary);
+        }
+
+        .sidebar-nav a {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 24px;
+            color: var(--light-gray);
+            text-decoration: none;
+            font-size: 14px;
+            transition: background 0.15s, color 0.15s;
+        }
+
+        .sidebar-nav a:hover,
+        .sidebar-nav a.active {
+            background: var(--dark-gray);
+            color: var(--white);
+        }
+
+        .sidebar-nav a.active {
+            border-left: 3px solid var(--primary);
+            padding-left: 21px;
+        }
+
+        .main {
+            flex: 1;
+            padding: 32px;
+            overflow-y: auto;
+        }
+
+        .page-header {
+            margin-bottom: 32px;
+        }
+
+        .page-header h1 {
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--black);
+        }
+
+        .page-header p {
+            color: var(--medium-gray);
+            font-size: 14px;
+            margin-top: 4px;
+        }
+
+        /* Cards */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 20px;
+            margin-bottom: 32px;
+        }
+
+        .stat-card {
+            background: var(--white);
+            border: 1px solid var(--light-gray);
+            border-radius: 8px;
+            padding: 20px 24px;
+        }
+
+        .stat-card .label {
+            font-size: 13px;
+            color: var(--medium-gray);
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .stat-card .value {
+            font-size: 32px;
+            font-weight: 700;
+            margin-top: 4px;
+            color: var(--black);
+        }
+
+        .stat-card .sub {
+            font-size: 12px;
+            color: var(--medium-gray);
+            margin-top: 4px;
+        }
+
+        /* Tables */
+        .card {
+            background: var(--white);
+            border: 1px solid var(--light-gray);
+            border-radius: 8px;
+            margin-bottom: 24px;
+        }
+
+        .card-header {
+            padding: 16px 24px;
+            border-bottom: 1px solid var(--light-gray);
+            font-weight: 600;
+            font-size: 16px;
+        }
+
+        .card-body {
+            padding: 0;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+
+        thead th {
+            text-align: left;
+            padding: 12px 16px;
+            font-weight: 600;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: var(--medium-gray);
+            border-bottom: 2px solid var(--light-gray);
+            background: var(--surface-alt);
+        }
+
+        tbody tr {
+            border-bottom: 1px solid var(--surface);
+        }
+
+        tbody tr:nth-child(even) {
+            background: var(--row-alt);
+        }
+
+        tbody tr:hover {
+            background: var(--surface);
+        }
+
+        tbody td {
+            padding: 10px 16px;
+            color: var(--dark-gray);
+        }
+
+        /* Badges */
+        .badge {
+            display: inline-block;
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .badge-success { background: #e8ecd0; color: var(--success); }
+        .badge-warning { background: #fdf3d7; color: #8a6800; }
+        .badge-danger  { background: #f5d0d3; color: var(--danger); }
+        .badge-info    { background: #d4eaf8; color: #065a96; }
+        .badge-default { background: var(--surface); color: var(--medium-gray); }
+
+        /* Loading */
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 200px;
+            color: var(--medium-gray);
+            font-size: 14px;
+        }
+
+        .loading::before {
+            content: "";
+            width: 20px;
+            height: 20px;
+            border: 2px solid var(--light-gray);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+            margin-right: 12px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .sidebar { display: none; }
+            .main { padding: 16px; }
+            .stats-grid { grid-template-columns: 1fr 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <!-- Sidebar -->
+        <nav class="sidebar">
+            <div class="sidebar-brand"><span>C</span>PLAN</div>
+            <div class="sidebar-nav">
+                <a href="#" class="active" data-page="dashboard">&#9632; Dashboard</a>
+                <a href="#" data-page="internal">&#9656; Internal</a>
+                <a href="#" data-page="external">&#9656; External</a>
+                <a href="#" data-page="calendar">&#9656; Calendar</a>
+            </div>
+        </nav>
+
+        <!-- Main content -->
+        <div class="main">
+            <div class="page-header">
+                <h1>Communications Dashboard</h1>
+                <p>Last data refresh: <span id="last-refresh">—</span></p>
+            </div>
+
+            <!-- Stats -->
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="label">Total Activities</div>
+                    <div class="value" id="stat-total">—</div>
+                    <div class="sub" id="stat-total-sub"></div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Internal</div>
+                    <div class="value" id="stat-internal">—</div>
+                    <div class="sub">Communication activities</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">External</div>
+                    <div class="value" id="stat-external">—</div>
+                    <div class="sub">Communication activities</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Columns</div>
+                    <div class="value" id="stat-columns">—</div>
+                    <div class="sub">Data fields available</div>
+                </div>
+            </div>
+
+            <!-- Data table -->
+            <div class="card">
+                <div class="card-header">
+                    Recent Activities
+                </div>
+                <div class="card-body" id="table-container">
+                    <div class="loading">Loading data...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ---------------------------------------------------------------------------
+        // Dashboard — loads communications.parquet via fetch and renders tables
+        //
+        // Data source: ../output/communications.parquet (generated by process_cplan.py)
+        //
+        // For now we load a JSON summary generated alongside the parquet.
+        // Once the schema stabilizes, we can switch to DuckDB-WASM for
+        // in-browser SQL queries on the parquet file directly.
+        // ---------------------------------------------------------------------------
+
+        const DATA_URL = "../output/communications.json";
+
+        async function loadData() {
+            try {
+                const resp = await fetch(DATA_URL);
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                return await resp.json();
+            } catch (err) {
+                console.error("Failed to load data:", err);
+                return null;
+            }
+        }
+
+        function renderStats(data) {
+            const rows = data.rows || [];
+            const internal = rows.filter(r => r.source_type === "internal");
+            const external = rows.filter(r => r.source_type === "external");
+
+            document.getElementById("stat-total").textContent = rows.length.toLocaleString();
+            document.getElementById("stat-total-sub").textContent =
+                `${internal.length.toLocaleString()} internal + ${external.length.toLocaleString()} external`;
+            document.getElementById("stat-internal").textContent = internal.length.toLocaleString();
+            document.getElementById("stat-external").textContent = external.length.toLocaleString();
+            document.getElementById("stat-columns").textContent = (data.columns || []).length;
+            document.getElementById("last-refresh").textContent = data.generated_at || "—";
+        }
+
+        function renderTable(data) {
+            const container = document.getElementById("table-container");
+            const columns = data.columns || [];
+            const rows = data.rows || [];
+
+            if (rows.length === 0) {
+                container.innerHTML = '<div class="loading" style="animation:none">No data available. Run process_cplan.py first.</div>';
+                return;
+            }
+
+            // Show first 100 rows, limited columns for readability
+            const displayCols = columns.slice(0, 8);
+            const displayRows = rows.slice(0, 100);
+
+            let html = "<table><thead><tr>";
+            for (const col of displayCols) {
+                html += `<th>${escapeHtml(col)}</th>`;
+            }
+            html += "</tr></thead><tbody>";
+
+            for (const row of displayRows) {
+                html += "<tr>";
+                for (const col of displayCols) {
+                    const val = row[col];
+                    html += `<td>${escapeHtml(String(val ?? ""))}</td>`;
+                }
+                html += "</tr>";
+            }
+
+            html += "</tbody></table>";
+            if (rows.length > 100) {
+                html += `<div style="padding:12px 16px;color:var(--medium-gray);font-size:13px;">Showing 100 of ${rows.length.toLocaleString()} rows</div>`;
+            }
+            container.innerHTML = html;
+        }
+
+        function escapeHtml(str) {
+            const el = document.createElement("span");
+            el.textContent = str;
+            return el.innerHTML;
+        }
+
+        // Navigation
+        document.querySelectorAll(".sidebar-nav a").forEach(link => {
+            link.addEventListener("click", e => {
+                e.preventDefault();
+                document.querySelectorAll(".sidebar-nav a").forEach(a => a.classList.remove("active"));
+                link.classList.add("active");
+                // TODO: implement page switching once we have more views
+            });
+        });
+
+        // Init
+        loadData().then(data => {
+            if (data) {
+                renderStats(data);
+                renderTable(data);
+            } else {
+                document.getElementById("table-container").innerHTML =
+                    '<div class="loading" style="animation:none">Could not load data. Run <code>python process_cplan.py</code> first.</div>';
+            }
+        });
+    </script>
+</body>
+</html>

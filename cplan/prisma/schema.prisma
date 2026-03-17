@@ -1,0 +1,395 @@
+// This is your Prisma schema file
+// Learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User model for authentication and authorization
+model User {
+  id                String              @id @default(cuid())
+  email             String              @unique
+  name              String?
+  password          String?
+  image             String?
+  role              UserRole            @default(VIEWER)
+  department        String?
+  location          String?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  // Relations
+  communications    Communication[]     @relation("Owner")
+  approvals         Approval[]
+  activities        Activity[]
+  templates         Template[]          @relation("TemplateCreator")
+  notifications     Notification[]
+  feedbacks         Feedback[]
+  assignments       CommunicationAssignment[]
+}
+
+enum UserRole {
+  ADMIN
+  EDITOR
+  VIEWER
+  APPROVER
+}
+
+// Main Communication model with unique tracking ID
+model Communication {
+  id                String              @id @default(cuid())
+  trackingId        String              @unique @default(cuid())
+  title             String
+  description       String?
+  content           String              @db.Text
+  status            CommunicationStatus @default(DRAFT)
+  priority          Priority            @default(MEDIUM)
+  type              CommunicationType
+
+  // Dates
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  publishDate       DateTime?
+  expiryDate        DateTime?
+
+  // Owner and assignments
+  ownerId           String
+  owner             User                @relation("Owner", fields: [ownerId], references: [id])
+
+  // Template reference
+  templateId        String?
+  template          Template?           @relation(fields: [templateId], references: [id])
+
+  // Pack reference for grouping
+  packId            String?
+  pack              CommunicationPack?  @relation(fields: [packId], references: [id])
+
+  // Relations
+  channels          CommunicationChannel[]
+  approvals         Approval[]
+  activities        Activity[]
+  metrics           CommunicationMetric[]
+  attachments       Attachment[]
+  tags              Tag[]               @relation("CommunicationTags")
+  versions          CommunicationVersion[]
+  feedbacks         Feedback[]
+  assignments       CommunicationAssignment[]
+
+  // Metadata
+  metadata          Json?
+  aiSuggestions     Json?
+
+  @@index([trackingId])
+  @@index([status])
+  @@index([publishDate])
+}
+
+enum CommunicationStatus {
+  DRAFT
+  REVIEW
+  APPROVED
+  SCHEDULED
+  PUBLISHED
+  ARCHIVED
+  EXPIRED
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum CommunicationType {
+  ANNOUNCEMENT
+  UPDATE
+  NEWSLETTER
+  ALERT
+  EVENT
+  POLICY
+  OTHER
+}
+
+// Communication Pack for grouping related communications
+model CommunicationPack {
+  id                String              @id @default(cuid())
+  name              String
+  description       String?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  communications    Communication[]
+
+  @@index([name])
+}
+
+// Communication assignment for team collaboration
+model CommunicationAssignment {
+  id                String              @id @default(cuid())
+  communicationId   String
+  communication     Communication       @relation(fields: [communicationId], references: [id], onDelete: Cascade)
+  userId            String
+  user              User                @relation(fields: [userId], references: [id])
+  role              String              // e.g., "reviewer", "contributor", "approver"
+  assignedAt        DateTime            @default(now())
+
+  @@unique([communicationId, userId])
+}
+
+// Channels for multi-channel distribution
+model CommunicationChannel {
+  id                String              @id @default(cuid())
+  communicationId   String
+  communication     Communication       @relation(fields: [communicationId], references: [id], onDelete: Cascade)
+  channel           ChannelType
+  status            ChannelStatus       @default(PENDING)
+  scheduledAt       DateTime?
+  publishedAt       DateTime?
+  metadata          Json?
+
+  @@unique([communicationId, channel])
+}
+
+enum ChannelType {
+  EMAIL
+  INTRANET
+  TEAMS
+  SLACK
+  SMS
+  MOBILE_APP
+  DIGITAL_SIGNAGE
+  SOCIAL
+}
+
+enum ChannelStatus {
+  PENDING
+  SCHEDULED
+  PUBLISHED
+  FAILED
+}
+
+// Template management
+model Template {
+  id                String              @id @default(cuid())
+  name              String
+  description       String?
+  content           String              @db.Text
+  type              CommunicationType
+  category          String?
+  isActive          Boolean             @default(true)
+
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  createdById       String
+  createdBy         User                @relation("TemplateCreator", fields: [createdById], references: [id])
+
+  // Usage tracking
+  usageCount        Int                 @default(0)
+  lastUsedAt        DateTime?
+
+  // Relations
+  communications    Communication[]
+  fields            TemplateField[]
+
+  // Metadata for dynamic content
+  variables         Json?
+  metadata          Json?
+
+  @@index([name])
+  @@index([type])
+}
+
+// Template fields for dynamic content
+model TemplateField {
+  id                String              @id @default(cuid())
+  templateId        String
+  template          Template            @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  name              String
+  type              String              // text, number, date, select, etc.
+  label             String
+  placeholder       String?
+  required          Boolean             @default(false)
+  defaultValue      String?
+  options           Json?               // For select fields
+  validation        Json?               // Validation rules
+  order             Int                 @default(0)
+}
+
+// Version control for communications
+model CommunicationVersion {
+  id                String              @id @default(cuid())
+  communicationId   String
+  communication     Communication       @relation(fields: [communicationId], references: [id], onDelete: Cascade)
+  version           Int
+  content           String              @db.Text
+  metadata          Json?
+  createdAt         DateTime            @default(now())
+  createdBy         String
+  changeNote        String?
+
+  @@unique([communicationId, version])
+  @@index([communicationId])
+}
+
+// Approval workflow
+model Approval {
+  id                String              @id @default(cuid())
+  communicationId   String
+  communication     Communication       @relation(fields: [communicationId], references: [id], onDelete: Cascade)
+  approverId        String
+  approver          User                @relation(fields: [approverId], references: [id])
+  status            ApprovalStatus      @default(PENDING)
+  comments          String?
+  level             Int                 @default(1)
+  approvedAt        DateTime?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  @@index([communicationId])
+  @@index([status])
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  REQUESTED_CHANGES
+}
+
+// Activity tracking
+model Activity {
+  id                String              @id @default(cuid())
+  type              ActivityType
+  description       String
+  communicationId   String?
+  communication     Communication?      @relation(fields: [communicationId], references: [id], onDelete: Cascade)
+  userId            String
+  user              User                @relation(fields: [userId], references: [id])
+  metadata          Json?
+  createdAt         DateTime            @default(now())
+
+  @@index([communicationId])
+  @@index([userId])
+  @@index([type])
+}
+
+enum ActivityType {
+  CREATED
+  UPDATED
+  PUBLISHED
+  ARCHIVED
+  APPROVED
+  REJECTED
+  COMMENTED
+  VIEWED
+  EXPORTED
+}
+
+// Analytics and metrics
+model CommunicationMetric {
+  id                String              @id @default(cuid())
+  communicationId   String
+  communication     Communication       @relation(fields: [communicationId], references: [id], onDelete: Cascade)
+  channel           ChannelType
+
+  // Engagement metrics
+  sent              Int                 @default(0)
+  delivered         Int                 @default(0)
+  opened            Int                 @default(0)
+  clicked           Int                 @default(0)
+  bounced           Int                 @default(0)
+
+  // Additional metrics
+  uniqueOpens       Int                 @default(0)
+  uniqueClicks      Int                 @default(0)
+  forwardCount      Int                 @default(0)
+  replyCount        Int                 @default(0)
+
+  // Time-based metrics
+  avgTimeToOpen     Float?              // in minutes
+  avgReadTime       Float?              // in seconds
+
+  recordedAt        DateTime            @default(now())
+
+  @@unique([communicationId, channel])
+  @@index([communicationId])
+}
+
+// Attachments
+model Attachment {
+  id                String              @id @default(cuid())
+  communicationId   String
+  communication     Communication       @relation(fields: [communicationId], references: [id], onDelete: Cascade)
+  fileName          String
+  fileType          String
+  fileSize          Int
+  url               String
+  uploadedAt        DateTime            @default(now())
+
+  @@index([communicationId])
+}
+
+// Tags for categorization
+model Tag {
+  id                String              @id @default(cuid())
+  name              String              @unique
+  color             String?
+  communications    Communication[]     @relation("CommunicationTags")
+  createdAt         DateTime            @default(now())
+
+  @@index([name])
+}
+
+// Notifications
+model Notification {
+  id                String              @id @default(cuid())
+  userId            String
+  user              User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type              NotificationType
+  title             String
+  message           String
+  link              String?
+  isRead            Boolean             @default(false)
+  createdAt         DateTime            @default(now())
+
+  @@index([userId])
+  @@index([isRead])
+}
+
+enum NotificationType {
+  APPROVAL_REQUIRED
+  APPROVAL_RECEIVED
+  COMMUNICATION_PUBLISHED
+  DEADLINE_APPROACHING
+  FEEDBACK_RECEIVED
+  MENTION
+  SYSTEM
+}
+
+// Feedback collection
+model Feedback {
+  id                String              @id @default(cuid())
+  communicationId   String
+  communication     Communication       @relation(fields: [communicationId], references: [id], onDelete: Cascade)
+  userId            String?
+  user              User?               @relation(fields: [userId], references: [id])
+  rating            Int?                // 1-5 scale
+  comment           String?
+  sentiment         Sentiment?
+  isAnonymous       Boolean             @default(false)
+  createdAt         DateTime            @default(now())
+
+  @@index([communicationId])
+}
+
+enum Sentiment {
+  POSITIVE
+  NEUTRAL
+  NEGATIVE
+}
