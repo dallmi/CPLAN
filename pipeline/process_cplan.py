@@ -358,11 +358,16 @@ def transform(df, source_type):
     df.columns = [c.strip() for c in df.columns]
 
     # Drop noise columns before matching to reduce false positives
-    drop_cols = [c for c in df.columns
-                 if "@odata.type" in c
-                 or c.endswith("#WssId")
-                 or c.endswith("#Id")
-                 or c.endswith("#Claims")]
+    def _is_noise(col):
+        decoded = decode_sp_column_name(col).strip()
+        return (
+            "@odata.type" in col or "@odata.type" in decoded
+            or col.endswith("#WssId") or decoded.endswith("#WssId")
+            or col.endswith("#Id") or decoded.endswith("#Id")
+            or col.endswith("#Claims") or decoded.endswith("#Claims")
+        )
+
+    drop_cols = [c for c in df.columns if _is_noise(c)]
     if drop_cols:
         df = df.drop(columns=drop_cols)
         log(f"  Dropped {len(drop_cols)} noise columns")
