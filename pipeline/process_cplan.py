@@ -552,49 +552,56 @@ def print_column_comparison(raw_columns, files):
         for src, cols in raw_columns.items()
     }
 
-    all_raw = {}  # decoded_name -> { source: raw_name }
-    for src, cols in clean_columns.items():
-        for col in cols:
-            decoded = decode_sp_column_name(col).strip()
-            if decoded not in all_raw:
-                all_raw[decoded] = {}
-            all_raw[decoded][src] = col
-
-    # Show which columns map to our COLUMN_MAP (same logic as transform)
+    # Match columns per source (same logic as transform)
     labels_sorted = sorted(COLUMN_MAP.keys(), key=len, reverse=True)
-    raw_to_clean = {}
+    # src -> { raw_col: clean_name or None }
+    col_mapping = {}
     for src, cols in clean_columns.items():
+        col_mapping[src] = {}
         claimed = set()
         for col in cols:
             decoded = decode_sp_column_name(col).strip()
+            matched = None
             for label in labels_sorted:
                 if label in claimed:
                     continue
                 if "*" in label:
                     prefix, suffix = label.split("*", 1)
                     if decoded.startswith(prefix) and suffix in decoded:
-                        raw_to_clean[col] = COLUMN_MAP[label]
+                        matched = COLUMN_MAP[label]
                         claimed.add(label)
                         break
                     continue
                 if col == label or decoded == label or decoded.startswith(label):
-                    raw_to_clean[col] = COLUMN_MAP[label]
+                    matched = COLUMN_MAP[label]
                     claimed.add(label)
                     break
+            col_mapping[src][col] = matched
+
+    # Build display rows grouped by output name (mapped) or decoded name (unmapped).
+    # This merges typo variants (e.g. "Tracking ID" / "Tacking ID") into one row.
+    all_rows = {}  # display_key -> { "clean": str|None, sources: {src: raw_col} }
+    for src, mappings in col_mapping.items():
+        for col, clean in mappings.items():
+            decoded = decode_sp_column_name(col).strip()
+            key = clean if clean else decoded  # group by output name if mapped
+            if key not in all_rows:
+                all_rows[key] = {"clean": clean, "sources": {}}
+            all_rows[key]["sources"][src] = col
+            if clean:
+                all_rows[key]["clean"] = clean
 
     # Sort: mapped columns first, then unmapped
-    def sort_key(decoded):
-        raw_names = list(all_raw[decoded].values())
-        mapped = any(r in raw_to_clean for r in raw_names)
-        return (0 if mapped else 1, decoded.lower())
+    def sort_key(key):
+        mapped = all_rows[key]["clean"] is not None
+        return (0 if mapped else 1, key.lower())
 
-    sorted_cols = sorted(all_raw.keys(), key=sort_key)
+    sorted_cols = sorted(all_rows.keys(), key=sort_key)
 
     # Calculate column widths
-    w_name = max(len("Column (decoded)"), max(len(d) for d in sorted_cols))
+    w_name = max(len("Column"), max(len(k) for k in sorted_cols))
     w_mapped = max(len("Mapped To"), max(
-        (len(raw_to_clean.get(r, "")) for cols in all_raw.values() for r in cols.values()),
-        default=0
+        (len(r["clean"] or "") for r in all_rows.values()), default=0
     ))
     w_mapped = max(w_mapped, 9)
 
@@ -605,7 +612,7 @@ def print_column_comparison(raw_columns, files):
     print("=" * 80)
     print()
 
-    header = f"  {'Column (decoded)':<{w_name}}  {'Mapped To':<{w_mapped}}"
+    header = f"  {'Column':<{w_name}}  {'Mapped To':<{w_mapped}}"
     for src in sources:
         header += f"  {src:^10}"
     print(header)
@@ -614,18 +621,13 @@ def print_column_comparison(raw_columns, files):
     mapped_count = 0
     unmapped_count = 0
 
-    for decoded in sorted_cols:
-        raw_names = all_raw[decoded]
-        # Find mapped name
-        clean = ""
-        for r in raw_names.values():
-            if r in raw_to_clean:
-                clean = raw_to_clean[r]
-                break
+    for key in sorted_cols:
+        row = all_rows[key]
+        clean = row["clean"] or ""
 
         presence = ""
         for src in sources:
-            if src in raw_names:
+            if src in row["sources"]:
                 presence += f"  {'  ✓':^10}"
             else:
                 presence += f"  {'  ✗':^10}"
@@ -635,18 +637,17 @@ def print_column_comparison(raw_columns, files):
         else:
             unmapped_count += 1
 
-        # Truncate long decoded names
-        display_name = decoded[:w_name] if len(decoded) > w_name else decoded
+        display_name = key[:w_name] if len(key) > w_name else key
         print(f"  {display_name:<{w_name}}  {clean:<{w_mapped}}{presence}")
 
     # Summary
-    in_both = sum(1 for d in sorted_cols if len(all_raw[d]) == len(sources))
+    in_both = sum(1 for k in sorted_cols if len(all_rows[k]["sources"]) == len(sources))
     print()
     print(f"  Total unique columns: {len(sorted_cols)}")
     print(f"  In all files:         {in_both}")
     for src in sources:
-        only = sum(1 for d in sorted_cols if set(all_raw[d].keys()) == {src})
-        total = sum(1 for d in sorted_cols if src in all_raw[d])
+        only = sum(1 for k in sorted_cols if set(all_rows[k]["sources"].keys()) == {src})
+        total = sum(1 for k in sorted_cols if src in all_rows[k]["sources"])
         print(f"  {src + ' only:':<22} {only}   (total: {total})")
     print(f"  Mapped to output:     {mapped_count}")
     print(f"  Unmapped (dropped):   {unmapped_count}")
