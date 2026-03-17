@@ -140,7 +140,13 @@ def read_csv_auto(path):
     except csv.Error:
         sep = ","
     log(f"  Reading {path.name} (delimiter={repr(sep)})")
-    return pd.read_csv(path, sep=sep)
+    df = pd.read_csv(path, sep=sep)
+    # Drop @odata.type companion columns — they only contain the SP type string
+    odata_cols = [c for c in df.columns if "@odata.type" in c]
+    if odata_cols:
+        df = df.drop(columns=odata_cols)
+        log(f"  Dropped {len(odata_cols)} @odata.type columns")
+    return df
 
 
 # ---------------------------------------------------------------------------
