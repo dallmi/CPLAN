@@ -1945,9 +1945,13 @@
 
         const monthStart = new Date(calYear, calMonth, 1);
         const monthEnd = new Date(calYear, calMonth + 1, 0, 23, 59, 59);
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        tomorrow.setHours(0, 0, 0, 0);
+        const upcomingStart = tomorrow > monthStart ? tomorrow : monthStart;
         const monthEvents = rows.filter(r => {
             const d = parseDate(r.start_date);
-            return d && d >= monthStart && d <= monthEnd;
+            return d && d >= upcomingStart && d <= monthEnd;
         }).sort((a, b) => new Date(a.start_date) - new Date(b.start_date));
 
         renderUpcomingList("calendar-upcoming", monthEvents.slice(0, 15));
