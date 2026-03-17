@@ -3416,7 +3416,7 @@
                 ? '<span class="badge badge-source-internal">Internal</span>'
                 : '<span class="badge badge-source-external">External</span>';
 
-            const priorityColor = priorityColor(r.priority) || 'var(--medium-gray)';
+            const priColor = priorityColor(r.priority) || 'var(--medium-gray)';
 
             html += `<tr>
                 <td><span class="lead-indicator ${leadClass}" title="Lead time: ${leadDays != null ? leadDays + ' days' : 'unknown'}"></span></td>
@@ -3426,7 +3426,7 @@
                 <td>${fmtDateShort(sd)}</td>
                 <td>${fmtDateShort(ed)}</td>
                 <td style="font-weight:600;color:${leadDays != null && leadDays < 7 ? 'var(--danger)' : 'var(--dark-gray)'}">${leadDays != null ? fmtNum(leadDays) + 'd' : '\u2014'}</td>
-                <td><span class="badge" style="background:${priorityColor}20;color:${priorityColor}">${esc(r.priority || '\u2014')}</span></td>
+                <td><span class="badge" style="background:${priColor}20;color:${priColor}">${esc(r.priority || '\u2014')}</span></td>
                 <td title="${esc(r.lead_team || '')}">${esc(r.lead_team || '\u2014')}</td>
                 <td title="${esc(r.target_audience || '')}">${esc((r.target_audience || '\u2014').length > 25 ? r.target_audience.slice(0, 24) + '\u2026' : r.target_audience || '\u2014')}</td>
             </tr>`;
