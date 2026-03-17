@@ -23,6 +23,9 @@ pipeline/input/*.csv
 .env*
 !.env.example
 
+# Pictures
+pictures/
+
 # OS
 .DS_Store
 Thumbs.db
