@@ -296,6 +296,7 @@ def parse_sp_person_email(val):
 # Each CSV column maps to at most one output (first match wins,
 # longest labels are tried first to keep it 1:1).
 COLUMN_MAP = {
+    "ID":                       "sp_id",
     "Tracking ID":              "tracking_id",
     "Title":                    "title",
     "Activity":                 "activity_description",
