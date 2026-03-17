@@ -1376,6 +1376,8 @@
         conn = await db.connect();
     }
 
+    let dataRefreshDate = null;
+
     async function loadParquetFiles() {
         const base = window.location.origin + window.location.pathname.replace(/\/[^\/]*$/, '');
         const paths = [`${base}/../output/`, `${window.location.origin}/output/`, `${base}/output/`];
@@ -1385,6 +1387,11 @@
                 try {
                     const resp = await fetch(`${p}${file}`);
                     if (!resp.ok) continue;
+                    // Capture Last-Modified from the main data file
+                    if (view === 'communications') {
+                        const lm = resp.headers.get('Last-Modified');
+                        if (lm) dataRefreshDate = new Date(lm);
+                    }
                     const buf = new Uint8Array(await resp.arrayBuffer());
                     await db.registerFileBuffer(file, buf);
                     await conn.query(`CREATE VIEW ${view} AS SELECT * FROM read_parquet('${file}')`);
@@ -1422,7 +1429,9 @@
         const rows = await query('SELECT * FROM communications');
         const cols = rows.length > 0 ? Object.keys(rows[0]) : [];
         return {
-            generated_at: new Date().toLocaleDateString('en-GB'),
+            generated_at: dataRefreshDate
+                ? dataRefreshDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) + ' ' + dataRefreshDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+                : new Date().toLocaleDateString('en-GB'),
             row_count: rows.length,
             columns: cols,
             rows: rows
@@ -3591,16 +3600,9 @@
             DATA = data;
 
             dot.className = 'status-dot ready';
-            try {
-                const latest = await query(`SELECT MAX(start_date) as last_date FROM communications`);
-                const ts = latest[0]?.last_date;
-                if (ts) {
-                    const d = new Date(ts);
-                    label.textContent = `Data through: ${d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`;
-                } else {
-                    label.textContent = `${fmtNum(data.row_count)} activities`;
-                }
-            } catch(e) {
+            if (dataRefreshDate) {
+                label.textContent = `Refreshed: ${dataRefreshDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} ${dataRefreshDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;
+            } else {
                 label.textContent = `${fmtNum(data.row_count)} activities`;
             }
 
