@@ -166,7 +166,9 @@ def _strip_html(val):
     """Strip HTML tags and decode entities, returning plain text."""
     if pd.isna(val) or not isinstance(val, str):
         return val
-    text = re.sub(r"<[^>]+>", " ", val)  # replace tags with space
+    text = re.sub(r"</p>", "\n", val)     # paragraph breaks → newline
+    text = re.sub(r"<br\s*/?>", "\n", text)  # <br> → newline
+    text = re.sub(r"<[^>]+>", "", text)  # strip remaining tags
     text = html.unescape(text)           # decode &amp; &nbsp; etc.
     text = re.sub(r"\s+", " ", text).strip()
     return text
