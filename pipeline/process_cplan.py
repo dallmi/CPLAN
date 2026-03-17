@@ -267,25 +267,39 @@ def parse_sp_person_email(val):
 
 # Maps raw (SP-encoded) column names to clean output names.
 # The values will be extracted via parse_sp_lookup where appropriate.
+# Maps raw CSV column names (exact match) to clean output names.
+# Add both the SP-encoded and plain-text variants if needed.
 COLUMN_MAP = {
     "Tracking_x0020_ID":                             "tracking_id",
+    "Tracking ID":                                   "tracking_id",
     "Title":                                         "title",
-    "Activity_x0020_":                               "activity",
+    "Activity":                                      "activity",
     "Target_x0020_audience":                         "target_audience",
-    "Extended_x0020_audience_x0020_":                "extended_audience",
-    "Business_x0020_Division_x0020_x_0":             "business_division",
-    "Business_x0020_Area_x0020_x_0002":              "business_area",
-    "Region_x0020_x0021_x0020_Local":                "region",
+    "Target audience":                               "target_audience",
+    "Extended_x0020_audience":                       "extended_audience",
+    "Extended audience":                             "extended_audience",
+    "Business_x0020_Division":                       "business_division",
+    "Business Division":                             "business_division",
+    "Business_x0020_Area":                           "business_area",
+    "Business Area":                                 "business_area",
+    "Region_x0020_!_x0020_Local":                    "region",
+    "Region ! Local":                                "region",
     "Channel":                                       "channel",
     "Lead":                                          "lead",
     "Lead_x0020_Team":                               "lead_team",
-    "Start_x0020_date_x0020_x0028_p":                "start_date",
+    "Lead Team":                                     "lead_team",
+    "Start_x0020_date":                              "start_date",
+    "Start date":                                    "start_date",
     "End_x0020_date":                                "end_date",
+    "End date":                                      "end_date",
     "News_x0020_digest":                             "news_digest",
+    "News digest":                                   "news_digest",
     "Priority":                                      "priority",
     "Strategic_x0020_Objectives":                    "strategic_objectives",
-    "Communication_x0020_x0028_s":                   "communication_ref",
-    "Communication_x0020_pack_x0020_x":              "communication_pack",
+    "Strategic Objectives":                          "strategic_objectives",
+    "Communication":                                 "communication_ref",
+    "Communication_x0020_pack":                      "communication_pack",
+    "Communication pack":                            "communication_pack",
     "Created":                                       "created",
     "Modified":                                      "modified",
     "Author":                                        "author",
@@ -311,44 +325,31 @@ DATE_COLUMNS = {"start_date", "end_date", "created", "modified"}
 # Transform
 # ---------------------------------------------------------------------------
 
-def _find_column(df_columns, partial_name):
-    """Find a DataFrame column that starts with the given partial name.
-
-    SharePoint column names in Power Automate exports can be truncated
-    or have varying suffixes. This does a prefix match.
-    """
-    for col in df_columns:
-        if col.startswith(partial_name) or col == partial_name:
-            return col
-    return None
-
-
 def transform(df, source_type):
     """Apply transformations to a raw DataFrame.
 
-    1. Decode SP-encoded column names
-    2. Map to clean column names via prefix matching
-    3. Extract values from SP lookup JSON fields
-    4. Parse dates
-    5. Tag with source type
+    1. Exact-match column names against COLUMN_MAP (raw + decoded variants)
+    2. Extract values from SP lookup JSON fields
+    3. Parse dates
+    4. Tag with source type
     """
     # Strip whitespace from column names
     df.columns = [c.strip() for c in df.columns]
 
     log(f"  Raw columns: {list(df.columns)}")
 
-    # Build renamed DataFrame with clean column names.
-    # Process longest prefixes first so "Lead_x0020_Team" matches before "Lead".
+    # Build renamed DataFrame with clean column names (exact 1:1 matching).
+    # For each CSV column, try: exact match, then match after decoding SP hex.
     rename_map = {}
-    sorted_map = sorted(COLUMN_MAP.items(), key=lambda x: len(x[0]), reverse=True)
-    claimed = set()
-    for sp_name, clean_name in sorted_map:
-        matched_col = _find_column(
-            [c for c in df.columns if c not in claimed], sp_name
-        )
-        if matched_col:
-            rename_map[matched_col] = clean_name
-            claimed.add(matched_col)
+    for col in df.columns:
+        # Exact match
+        if col in COLUMN_MAP:
+            rename_map[col] = COLUMN_MAP[col]
+            continue
+        # Try decoded name
+        decoded = decode_sp_column_name(col).strip()
+        if decoded in COLUMN_MAP:
+            rename_map[col] = COLUMN_MAP[decoded]
 
     df = df.rename(columns=rename_map)
 
@@ -479,14 +480,16 @@ def print_column_comparison(raw_columns, files):
                 all_raw[decoded] = {}
             all_raw[decoded][src] = col
 
-    # Also show which columns map to our COLUMN_MAP
+    # Also show which columns map to our COLUMN_MAP (exact match)
     raw_to_clean = {}
     for src, cols in raw_columns.items():
         for col in cols:
-            for sp_prefix, clean_name in COLUMN_MAP.items():
-                if col.startswith(sp_prefix) or col == sp_prefix:
-                    raw_to_clean[col] = clean_name
-                    break
+            if col in COLUMN_MAP:
+                raw_to_clean[col] = COLUMN_MAP[col]
+            else:
+                decoded = decode_sp_column_name(col).strip()
+                if decoded in COLUMN_MAP:
+                    raw_to_clean[col] = COLUMN_MAP[decoded]
 
     # Sort: mapped columns first, then unmapped
     def sort_key(decoded):
