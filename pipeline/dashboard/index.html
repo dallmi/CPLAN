@@ -815,9 +815,9 @@
 
     // Chart color palette (corporate-approved)
     const CHART_COLORS = [
-        "#0C7EC6", "#879420", "#B98E2C", "#00759E", "#4972AC",
-        "#469A6C", "#804C95", "#8489BD", "#45999C", "#AD3E4A",
-        "#785E4A", "#4B2D58", "#946F29", "#CC707A", "#654D16",
+        "#0C7EC6", "#879420", "#B98E2C", "#804C95", "#469A6C",
+        "#AD3E4A", "#45999C", "#4972AC", "#785E4A", "#8489BD",
+        "#00759E", "#CC707A", "#4B2D58", "#946F29", "#654D16",
         "#295B40", "#545A9C", "#07476F", "#AF8626", "#620004"
     ];
 
@@ -1078,7 +1078,7 @@
             const x = padL + (i + 0.5) * (chartW / keys.length);
             const h = maxVal > 0 ? (values[i] / maxVal) * chartH : 0;
             const y = padT + chartH - h;
-            const color = mode === "internal" ? "#0C7EC6" : mode === "external" ? "#6F7A1A" : "#E60000";
+            const color = mode === "internal" ? "#0C7EC6" : mode === "external" ? "#6F7A1A" : "#B98E2C";
 
             bars += `<rect x="${x - barW/2}" y="${y}" width="${barW}" height="${h}"
                 fill="${color}" rx="2" opacity="0.85"/>`;
