@@ -3591,7 +3591,18 @@
             DATA = data;
 
             dot.className = 'status-dot ready';
-            label.textContent = `${fmtNum(data.row_count)} activities`;
+            try {
+                const latest = await query(`SELECT MAX(start_date) as last_date FROM communications`);
+                const ts = latest[0]?.last_date;
+                if (ts) {
+                    const d = new Date(ts);
+                    label.textContent = `Data through: ${d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`;
+                } else {
+                    label.textContent = `${fmtNum(data.row_count)} activities`;
+                }
+            } catch(e) {
+                label.textContent = `${fmtNum(data.row_count)} activities`;
+            }
 
             renderExecutiveSummary(data.rows || []);
             renderPlanningBoard(data);
