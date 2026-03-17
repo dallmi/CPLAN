@@ -815,10 +815,10 @@
 
     // Chart color palette (corporate-approved)
     const CHART_COLORS = [
-        "#E60000", "#0C7EC6", "#879420", "#B98E2C", "#00759E",
-        "#AD3E4A", "#4972AC", "#469A6C", "#8489BD", "#45999C",
-        "#804C95", "#785E4A", "#4B2D58", "#946F29", "#CC707A",
-        "#654D16", "#295B40", "#545A9C", "#07476F", "#620004"
+        "#0C7EC6", "#879420", "#B98E2C", "#00759E", "#4972AC",
+        "#469A6C", "#804C95", "#8489BD", "#45999C", "#AD3E4A",
+        "#785E4A", "#4B2D58", "#946F29", "#CC707A", "#654D16",
+        "#295B40", "#545A9C", "#07476F", "#AF8626", "#620004"
     ];
 
     const PRIORITY_COLORS = {
@@ -1186,7 +1186,7 @@
 
         // Priority chart
         renderDonut("priority-chart", topN(countBy(rows, "priority"), 6),
-            (label) => PRIORITY_COLORS[label] || CHART_COLORS[0]);
+            (label) => PRIORITY_COLORS[label] || "#8E8D83");
 
         // Trend
         renderTrend(rows, "all");
