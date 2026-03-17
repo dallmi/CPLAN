@@ -11,6 +11,8 @@
         window.duckdb = duckdb;
         window.dispatchEvent(new Event('duckdb-ready'));
     </script>
+    <!-- SheetJS for XLSX export -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 
     <style>
         :root {
@@ -124,6 +126,21 @@
         .date-preset:last-child { border-right: none; }
         .date-preset:hover { background: var(--surface); color: var(--dark-gray); }
         .date-preset.active { background: var(--primary); color: var(--white); }
+
+        .export-btn {
+            padding: 0.35rem 0.75rem;
+            background: var(--white);
+            border: 1px solid var(--light-gray);
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.75rem;
+            color: var(--dark-gray);
+            font-family: var(--font);
+            font-weight: 600;
+            white-space: nowrap;
+            transition: all 0.15s;
+        }
+        .export-btn:hover { background: var(--surface); border-color: var(--gray-ii); }
 
         .date-filter label {
             font-size: 0.8rem;
@@ -933,6 +950,7 @@
                 <label>To</label>
                 <input type="text" id="date-to" placeholder="DD.MM.YYYY" maxlength="10" style="width:100px">
             </div>
+            <button class="export-btn" id="export-xlsx" title="Export all activities to Excel">&#11123; Export XLSX</button>
             <span class="status-text"><span class="status-dot loading" id="status-dot"></span><span id="status-label">Loading...</span></span>
         </div>
     </header>
@@ -3542,6 +3560,19 @@
 
     document.getElementById('date-from').addEventListener('change', onDateInputChange);
     document.getElementById('date-to').addEventListener('change', onDateInputChange);
+
+    // Export to XLSX
+    document.getElementById('export-xlsx').addEventListener('click', () => {
+        if (!DATA || !DATA.rows || !DATA.rows.length) return;
+        const rows = getFilteredRows(DATA.rows);
+        const cols = Object.keys(rows[0]);
+        const wsData = [cols, ...rows.map(r => cols.map(c => r[c] ?? ''))];
+        const ws = XLSX.utils.aoa_to_sheet(wsData);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Activities');
+        const dateStr = new Date().toISOString().slice(0, 10);
+        XLSX.writeFile(wb, `CPLAN_Activities_${dateStr}.xlsx`);
+    });
 
     // -------------------------------------------------------------------------
     // Init
