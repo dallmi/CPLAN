@@ -13,6 +13,9 @@ pipeline/data/*.db
 pipeline/output/*.parquet
 pipeline/output/*.json
 
+# Pipeline docs (internal only)
+pipeline/docs/
+
 # Pipeline inputs (synced via OneDrive, not committed)
 pipeline/input/*.csv
 
