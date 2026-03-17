@@ -337,12 +337,18 @@ def transform(df, source_type):
 
     log(f"  Raw columns: {list(df.columns)}")
 
-    # Build renamed DataFrame with clean column names
+    # Build renamed DataFrame with clean column names.
+    # Process longest prefixes first so "Lead_x0020_Team" matches before "Lead".
     rename_map = {}
-    for sp_name, clean_name in COLUMN_MAP.items():
-        matched_col = _find_column(df.columns, sp_name)
+    sorted_map = sorted(COLUMN_MAP.items(), key=lambda x: len(x[0]), reverse=True)
+    claimed = set()
+    for sp_name, clean_name in sorted_map:
+        matched_col = _find_column(
+            [c for c in df.columns if c not in claimed], sp_name
+        )
         if matched_col:
             rename_map[matched_col] = clean_name
+            claimed.add(matched_col)
 
     df = df.rename(columns=rename_map)
 
