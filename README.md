@@ -1,101 +1,53 @@
-# CPLAN - Communication Planning Tool
+# CPLAN - Communication Planning Dashboard
 
-A modern, enterprise-grade internal communications planning tool powered by **Microsoft Lists** with **UNLIMITED record support**.
+Python pipeline that reads communication activity CSVs (exported via Power Automate from SharePoint Lists) and produces a self-contained HTML dashboard.
 
-## 🎯 Why CPLAN?
+## Architecture
 
-### Breaks the 5K SharePoint Limit! 🚀
-
-**SharePoint Lists UI:** Limited to 5,000 items in views
-**CPLAN:** Handles **MILLIONS** of records effortlessly
-
-CPLAN uses Microsoft Graph API to completely bypass SharePoint's view threshold. Fetch, search, and manage unlimited communications!
-
-### Other Benefits
-
-✅ No Database Setup - Use M365 infrastructure
-✅ Native Power Automate - Easy automation  
-✅ Enterprise Security - Azure AD built-in
-✅ Automatic Backups - Built into M365
-✅ Unlimited Records - No 5K limitation!
-
-## ✨ Key Features
-
-- 🆔 **Unique Tracking IDs** - Every communication tracked
-- 📊 **Unlimited Data** - Millions of records supported
-- 📅 **Interactive Calendar** - Visual planning
-- ✅ **Approval Workflows** - Multi-level approvals
-- 🔌 **Power Automate** - Seamless integration
-- 🤖 **AI-Assisted** - Content suggestions
-- 📈 **Advanced Analytics** - Deep insights
-- 🔍 **Fast Search** - Indexed for speed
-
-## 🚀 Quick Start
-
-```bash
-npm install
-./setup-lists.ps1 -SiteUrl "https://yourtenant.sharepoint.com/sites/CPLAN"
-# Configure .env.local with your IDs
-npm run dev
+```
+OneDrive sync folder          pipeline/
+  (or pipeline/input/)          process_cplan.py   <- ETL script
+  *.csv  ──────────────────>    data/cplan.db      <- DuckDB database
+                                output/communications.parquet
+                                output/communications.json
+                                dashboard/index.html  <- HTML dashboard
 ```
 
-📖 See [MICROSOFT_LISTS_SETUP.md](./MICROSOFT_LISTS_SETUP.md) for setup.
+## Prerequisites
 
-## 📊 Unlimited Records Support
-
-### Fast Count (Even with Millions)
-
-```bash
-GET /api/communications-lists?count=true
-Response: { "total": 2485372 }  # < 1 second!
+```
+pip install pandas duckdb pyarrow
 ```
 
-### Smart Pagination
+## Usage
 
 ```bash
-GET /api/communications-lists?limit=1000
-# Returns 1000 items + continuation token for next page
+# Process all input CSVs and generate outputs
+python pipeline/process_cplan.py
+
+# Preview data without writing outputs
+python pipeline/process_cplan.py --preview
+
+# Full refresh (delete DB and reprocess)
+python pipeline/process_cplan.py --full-refresh
 ```
 
-### Fetch All (Background Jobs)
+## Input
 
-```bash
-GET /api/communications-lists?fetchAll=true&status=PUBLISHED
-# Fetches ALL records, even millions!
-```
+The pipeline looks for CSV files in this order:
 
-📖 See [PAGINATION_GUIDE.md](./PAGINATION_GUIDE.md) for details.
-📖 See [QUICK_API_REFERENCE.md](./QUICK_API_REFERENCE.md) for API examples.
+1. **OneDrive sync folder**: `<OneDrive>/Projekte/CPLAN/Input/*.csv`
+2. **Local fallback**: `pipeline/input/*.csv`
 
-## 🏗️ Technology Stack
+Expected files:
+- `InternalCommunicationActivities*.csv`
+- `ExternalCommunicationActivities*.csv`
 
-- **Frontend:** Next.js 16, React 18, TypeScript, Tailwind CSS
-- **Backend:** Microsoft Graph API, Microsoft Lists  
-- **Auth:** Azure AD
-- **No Limits:** Cursor-based pagination for unlimited records
+## Output
 
-## 📚 Documentation
-
-- [Microsoft Lists Setup](./MICROSOFT_LISTS_SETUP.md) - Complete setup guide
-- [Pagination Guide](./PAGINATION_GUIDE.md) - Handle millions of records
-- [API Reference](./QUICK_API_REFERENCE.md) - API quick reference
-
-## 🔥 Performance Benchmarks
-
-| Operation | Records | Time |
-|-----------|---------|------|
-| Count all items | 2.5M | 0.3s |
-| Fetch 1,000 items | 1K | 1.2s |
-| Search (indexed) | 2.5M | 0.4s |
-| Fetch ALL | 2.5M | 45min* |
-
-*Background jobs only
-
-## 📄 License
-
-Proprietary software. All rights reserved.
-
----
-
-**Built with ❤️ using Next.js and Microsoft 365**
-**No database. No limits. Just pure M365 power.** 🚀
+| File | Purpose |
+|------|---------|
+| `pipeline/data/cplan.db` | DuckDB database |
+| `pipeline/output/communications.parquet` | Combined data as Parquet |
+| `pipeline/output/communications.json` | JSON for the HTML dashboard |
+| `pipeline/dashboard/index.html` | Self-contained HTML dashboard |
