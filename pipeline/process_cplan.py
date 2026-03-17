@@ -267,43 +267,37 @@ def parse_sp_person_email(val):
 
 # Maps raw (SP-encoded) column names to clean output names.
 # The values will be extracted via parse_sp_lookup where appropriate.
-# Maps raw CSV column names (exact match) to clean output names.
-# Add both the SP-encoded and plain-text variants if needed.
+# Maps a decoded (human-readable) column label to a clean output name.
+# Matching logic (in transform()):
+#   1. Exact match on raw CSV column name
+#   2. Exact match on decoded (SP hex → readable) column name
+#   3. Decoded name starts with the label (handles SP suffixes like
+#      "Business Division (some extra text)")
+# Each CSV column maps to at most one output (first match wins,
+# longest labels are tried first to keep it 1:1).
 COLUMN_MAP = {
-    "Tracking_x0020_ID":                             "tracking_id",
-    "Tracking ID":                                   "tracking_id",
-    "Title":                                         "title",
-    "Activity":                                      "activity",
-    "Target_x0020_audience":                         "target_audience",
-    "Target audience":                               "target_audience",
-    "Extended_x0020_audience":                       "extended_audience",
-    "Extended audience":                             "extended_audience",
-    "Business_x0020_Division":                       "business_division",
-    "Business Division":                             "business_division",
-    "Business_x0020_Area":                           "business_area",
-    "Business Area":                                 "business_area",
-    "Region_x0020_!_x0020_Local":                    "region",
-    "Region ! Local":                                "region",
-    "Channel":                                       "channel",
-    "Lead":                                          "lead",
-    "Lead_x0020_Team":                               "lead_team",
-    "Lead Team":                                     "lead_team",
-    "Start_x0020_date":                              "start_date",
-    "Start date":                                    "start_date",
-    "End_x0020_date":                                "end_date",
-    "End date":                                      "end_date",
-    "News_x0020_digest":                             "news_digest",
-    "News digest":                                   "news_digest",
-    "Priority":                                      "priority",
-    "Strategic_x0020_Objectives":                    "strategic_objectives",
-    "Strategic Objectives":                          "strategic_objectives",
-    "Communication":                                 "communication_ref",
-    "Communication_x0020_pack":                      "communication_pack",
-    "Communication pack":                            "communication_pack",
-    "Created":                                       "created",
-    "Modified":                                      "modified",
-    "Author":                                        "author",
-    "Audience":                                      "audience",
+    "Tracking ID":              "tracking_id",
+    "Title":                    "title",
+    "Activity":                 "activity",
+    "Target audience":          "target_audience",
+    "Extended audience":        "extended_audience",
+    "Business Division":        "business_division",
+    "Business Area":            "business_area",
+    "Region":                   "region",
+    "Channel":                  "channel",
+    "Lead Team":                "lead_team",
+    "Lead":                     "lead",
+    "Start date":               "start_date",
+    "End date":                 "end_date",
+    "News digest":              "news_digest",
+    "Priority":                 "priority",
+    "Strategic Objectives":     "strategic_objectives",
+    "Communication pack":       "communication_pack",
+    "Communication":            "communication_ref",
+    "Created":                  "created",
+    "Modified":                 "modified",
+    "Author":                   "author",
+    "Audience":                 "audience",
 }
 
 # Columns that contain SP lookup JSON and need Value extraction
@@ -338,18 +332,25 @@ def transform(df, source_type):
 
     log(f"  Raw columns: {list(df.columns)}")
 
-    # Build renamed DataFrame with clean column names (exact 1:1 matching).
-    # For each CSV column, try: exact match, then match after decoding SP hex.
+    # Build rename map — each CSV column maps to at most one output.
+    # Try longest labels first so "Lead Team" matches before "Lead",
+    # "Communication pack" before "Communication", etc.
+    labels_sorted = sorted(COLUMN_MAP.keys(), key=len, reverse=True)
     rename_map = {}
+    claimed_labels = set()  # labels already matched
+
     for col in df.columns:
-        # Exact match
-        if col in COLUMN_MAP:
-            rename_map[col] = COLUMN_MAP[col]
-            continue
-        # Try decoded name
         decoded = decode_sp_column_name(col).strip()
-        if decoded in COLUMN_MAP:
-            rename_map[col] = COLUMN_MAP[decoded]
+        for label in labels_sorted:
+            if label in claimed_labels:
+                continue
+            # 1) Exact match on raw name
+            # 2) Exact match on decoded name
+            # 3) Decoded name starts with label (handles SP suffixes)
+            if col == label or decoded == label or decoded.startswith(label):
+                rename_map[col] = COLUMN_MAP[label]
+                claimed_labels.add(label)
+                break
 
     df = df.rename(columns=rename_map)
 
@@ -480,16 +481,20 @@ def print_column_comparison(raw_columns, files):
                 all_raw[decoded] = {}
             all_raw[decoded][src] = col
 
-    # Also show which columns map to our COLUMN_MAP (exact match)
+    # Show which columns map to our COLUMN_MAP (same logic as transform)
+    labels_sorted = sorted(COLUMN_MAP.keys(), key=len, reverse=True)
     raw_to_clean = {}
     for src, cols in raw_columns.items():
+        claimed = set()
         for col in cols:
-            if col in COLUMN_MAP:
-                raw_to_clean[col] = COLUMN_MAP[col]
-            else:
-                decoded = decode_sp_column_name(col).strip()
-                if decoded in COLUMN_MAP:
-                    raw_to_clean[col] = COLUMN_MAP[decoded]
+            decoded = decode_sp_column_name(col).strip()
+            for label in labels_sorted:
+                if label in claimed:
+                    continue
+                if col == label or decoded == label or decoded.startswith(label):
+                    raw_to_clean[col] = COLUMN_MAP[label]
+                    claimed.add(label)
+                    break
 
     # Sort: mapped columns first, then unmapped
     def sort_key(decoded):
