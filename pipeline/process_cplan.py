@@ -52,7 +52,8 @@ INPUT_FILES = {
     "internal": "InternalCommunicationActivities*.csv",
     "external": "ExternalCommunicationActivities*.csv",
     "packs": "CommunicationPacks*.csv",
-    "channels": "InternalChannels*.csv",
+    "internal_channels": "InternalChannels*.csv",
+    "external_channels": "ExternalChannels*.csv",
 }
 
 
@@ -932,12 +933,21 @@ def main():
         else:
             write_table(packs_df, "packs", "packs", full_refresh=full_refresh)
 
-    # --- Internal channels lookup ---
-    if "channels" in files:
-        log("Processing InternalChannels...")
-        channels_df = read_csv_auto(files["channels"])
-        log(f"  channels: {len(channels_df)} rows, {len(channels_df.columns)} columns")
-        channels_df = transform_channels(channels_df)
+    # --- Channels lookup (internal + external) ---
+    channel_frames = []
+    for key in ("internal_channels", "external_channels"):
+        if key in files:
+            source = key.replace("_channels", "")
+            log(f"Processing {files[key].name}...")
+            ch_df = read_csv_auto(files[key])
+            log(f"  {key}: {len(ch_df)} rows, {len(ch_df.columns)} columns")
+            ch_df = transform_channels(ch_df)
+            ch_df["source_type"] = source
+            channel_frames.append(ch_df)
+
+    if channel_frames:
+        channels_df = pd.concat(channel_frames, ignore_index=True)
+        log(f"Combined channels: {len(channels_df)} rows")
 
         if preview:
             print()
