@@ -415,6 +415,7 @@ COLUMN_MAP = {
     "Campaign*LTID":            "campaign_ltid",
     "Communication pack:C":     "communication_pack_cpid",
     "BOD*GEB":                  "bod_geb",
+    "BoD_GEB*email":            "bod_geb",
     "Communication pack":       "communication_pack",
     "Communication":            "communication_ref",
     "Created":                  "created",
@@ -499,9 +500,10 @@ def transform(df, source_type):
 
     log(f"  {len(df.columns)} columns mapped to output schema")
 
-    # Strip HTML from rich text fields (e.g. activity)
-    if "activity_description" in df.columns:
-        df["activity_description"] = df["activity_description"].apply(_strip_html)
+    # Strip HTML from rich text fields
+    for col in ("activity_description", "bod_geb"):
+        if col in df.columns:
+            df[col] = df[col].apply(_strip_html)
 
     # Extract person emails BEFORE lookup parsing (which replaces JSON with display names)
     for col in SP_PERSON_COLUMNS:
@@ -964,23 +966,40 @@ def print_column_comparison(raw_columns, files):
 
 def print_data_preview(df, max_rows=20, title="DATA"):
     """Print a pretty preview of the transformed data."""
+    # Per-column width overrides for schema sample values
+    SAMPLE_WIDTHS = {
+        "lead": 42, "lead_team": 42, "lead_email": 42,
+        "activity_name": 42, "channel": 32,
+        "start_date": 22, "end_date": 22, "launch_date": 22,
+        "short_description": 42,
+    }
+
     # Schema table
     schema_rows = []
     for col in df.columns:
         dtype = str(df[col].dtype)
         non_null = df[col].notna().sum()
+        sample_w = SAMPLE_WIDTHS.get(col, 30)
         sample = ""
         first_valid = df[col].dropna().head(1)
         if not first_valid.empty:
-            sample = str(first_valid.iloc[0])[:30]
+            sample = str(first_valid.iloc[0])[:sample_w]
         schema_rows.append((col, dtype, str(non_null), sample))
 
+    max_sample = max(len(r[3]) for r in schema_rows) + 2 if schema_rows else 32
     print_table(
         f"{title} Schema ({len(df)} rows, {len(df.columns)} columns)",
         ["Column", "Type", "Non-Null", "Sample"],
         schema_rows,
-        col_widths=[30, 16, 10, 32],
+        col_widths=[30, 16, 10, max(32, min(max_sample, 44))],
     )
+
+    # Per-column width overrides for data sample
+    DATA_COL_WIDTHS = {
+        "activity_name": 30, "channel": 22,
+        "start_date": 22, "end_date": 22,
+        "lead": 28, "lead_team": 28,
+    }
 
     # Sample rows table
     display_cols = [c for c in df.columns if c != "source_type"][:6]
@@ -988,15 +1007,23 @@ def print_data_preview(df, max_rows=20, title="DATA"):
         display_cols.append("source_type")
 
     sample_rows = []
+    col_widths = []
+    for c in display_cols:
+        w = DATA_COL_WIDTHS.get(c, min(20, max(len(c) + 2, 10)))
+        col_widths.append(w)
+
     for _, row in df.head(max_rows).iterrows():
-        sample_rows.append(tuple(str(row.get(c, ""))[:18] for c in display_cols))
+        sample_rows.append(tuple(
+            str(row.get(c, ""))[:col_widths[i] - 2]
+            for i, c in enumerate(display_cols)
+        ))
 
     if sample_rows:
         print_table(
             f"{title} Sample (first {min(max_rows, len(df))} rows)",
             display_cols,
             sample_rows,
-            col_widths=[min(20, max(len(c) + 2, 10)) for c in display_cols],
+            col_widths=col_widths,
         )
     if len(df) > max_rows:
         log(f"  ... and {len(df) - max_rows} more rows")
