@@ -445,6 +445,149 @@ def write_outputs(df, full_refresh=False):
 
 
 # ---------------------------------------------------------------------------
+# Pretty-print helpers for --preview
+# ---------------------------------------------------------------------------
+
+def print_column_comparison(raw_columns, files):
+    """Print a comparison table of raw columns across input files."""
+    sources = list(raw_columns.keys())
+    all_raw = {}  # decoded_name -> { source: raw_name }
+    for src, cols in raw_columns.items():
+        for col in cols:
+            decoded = decode_sp_column_name(col).strip()
+            if decoded not in all_raw:
+                all_raw[decoded] = {}
+            all_raw[decoded][src] = col
+
+    # Also show which columns map to our COLUMN_MAP
+    raw_to_clean = {}
+    for src, cols in raw_columns.items():
+        for col in cols:
+            for sp_prefix, clean_name in COLUMN_MAP.items():
+                if col.startswith(sp_prefix) or col == sp_prefix:
+                    raw_to_clean[col] = clean_name
+                    break
+
+    # Sort: mapped columns first, then unmapped
+    def sort_key(decoded):
+        raw_names = list(all_raw[decoded].values())
+        mapped = any(r in raw_to_clean for r in raw_names)
+        return (0 if mapped else 1, decoded.lower())
+
+    sorted_cols = sorted(all_raw.keys(), key=sort_key)
+
+    # Calculate column widths
+    w_name = max(len("Column (decoded)"), max(len(d) for d in sorted_cols))
+    w_mapped = max(len("Mapped To"), max(
+        (len(raw_to_clean.get(r, "")) for cols in all_raw.values() for r in cols.values()),
+        default=0
+    ))
+    w_mapped = max(w_mapped, 9)
+
+    # Header
+    print()
+    print("=" * 80)
+    print("  COLUMN COMPARISON")
+    print("=" * 80)
+    print()
+
+    header = f"  {'Column (decoded)':<{w_name}}  {'Mapped To':<{w_mapped}}"
+    for src in sources:
+        header += f"  {src:^10}"
+    print(header)
+    print(f"  {'─' * w_name}  {'─' * w_mapped}" + f"  {'─' * 10}" * len(sources))
+
+    mapped_count = 0
+    unmapped_count = 0
+
+    for decoded in sorted_cols:
+        raw_names = all_raw[decoded]
+        # Find mapped name
+        clean = ""
+        for r in raw_names.values():
+            if r in raw_to_clean:
+                clean = raw_to_clean[r]
+                break
+
+        presence = ""
+        for src in sources:
+            if src in raw_names:
+                presence += f"  {'  ✓':^10}"
+            else:
+                presence += f"  {'  ✗':^10}"
+
+        if clean:
+            mapped_count += 1
+        else:
+            unmapped_count += 1
+
+        # Truncate long decoded names
+        display_name = decoded[:w_name] if len(decoded) > w_name else decoded
+        print(f"  {display_name:<{w_name}}  {clean:<{w_mapped}}{presence}")
+
+    # Summary
+    in_both = sum(1 for d in sorted_cols if len(all_raw[d]) == len(sources))
+    print()
+    print(f"  Total unique columns: {len(sorted_cols)}")
+    print(f"  In all files:         {in_both}")
+    for src in sources:
+        only = sum(1 for d in sorted_cols if set(all_raw[d].keys()) == {src})
+        total = sum(1 for d in sorted_cols if src in all_raw[d])
+        print(f"  {src + ' only:':<22} {only}   (total: {total})")
+    print(f"  Mapped to output:     {mapped_count}")
+    print(f"  Unmapped (dropped):   {unmapped_count}")
+    print()
+
+
+def print_data_preview(df, max_rows=20):
+    """Print a pretty preview of the transformed data."""
+    print("=" * 80)
+    print(f"  DATA PREVIEW  ({len(df)} rows, {len(df.columns)} columns)")
+    print("=" * 80)
+    print()
+
+    # Show column types
+    print(f"  {'Column':<30} {'Type':<15} {'Non-null':<10} {'Sample'}")
+    print(f"  {'─' * 30} {'─' * 15} {'─' * 10} {'─' * 40}")
+    for col in df.columns:
+        dtype = str(df[col].dtype)
+        non_null = df[col].notna().sum()
+        sample = ""
+        first_valid = df[col].dropna().head(1)
+        if not first_valid.empty:
+            sample = str(first_valid.iloc[0])[:40]
+        print(f"  {col:<30} {dtype:<15} {non_null:<10} {sample}")
+
+    # Show first N rows
+    print()
+    print(f"  First {min(max_rows, len(df))} rows:")
+    print(f"  {'─' * 76}")
+    # Use a subset of columns that fit the terminal
+    display_cols = [c for c in df.columns if c != "source_type"][:6]
+    display_cols.append("source_type")
+
+    # Header
+    header = "  "
+    for col in display_cols:
+        w = min(20, max(len(col), 8))
+        header += f"{col:<{w}}  "
+    print(header)
+    print("  " + "─" * len(header))
+
+    for _, row in df.head(max_rows).iterrows():
+        line = "  "
+        for col in display_cols:
+            w = min(20, max(len(col), 8))
+            val = str(row.get(col, ""))[:w]
+            line += f"{val:<{w}}  "
+        print(line)
+
+    if len(df) > max_rows:
+        print(f"  ... and {len(df) - max_rows} more rows")
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -469,10 +612,11 @@ def main():
 
     # Read and transform each file
     frames = []
+    raw_columns = {}  # key -> list of raw column names (before transform)
     for key, path in files.items():
         df = read_csv_auto(path)
         log(f"  {key}: {len(df)} rows, {len(df.columns)} columns")
-        log(f"  Columns: {list(df.columns)}")
+        raw_columns[key] = [c.strip() for c in df.columns]
         df = transform(df, source_type=key)
         frames.append(df)
 
@@ -481,8 +625,8 @@ def main():
     log(f"Combined: {len(combined)} rows")
 
     if preview:
-        log("\n--- Preview (first 20 rows) ---")
-        print(combined.head(20).to_string(index=False))
+        print_column_comparison(raw_columns, files)
+        print_data_preview(combined)
         return
 
     # Write outputs
