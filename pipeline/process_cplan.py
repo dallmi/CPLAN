@@ -415,7 +415,6 @@ COLUMN_MAP = {
     "Campaign*LTID":            "campaign_ltid",
     "Communication pack:C":     "communication_pack_cpid",
     "BOD*GEB":                  "bod_geb",
-    "BoD_GEB*email":            "bod_geb",
     "Communication pack":       "communication_pack",
     "Communication":            "communication_ref",
     "Created":                  "created",
@@ -482,7 +481,8 @@ def transform(df, source_type):
             # 4) Decoded name starts with label (handles SP suffixes)
             if "*" in label:
                 prefix, suffix = label.split("*", 1)
-                if decoded.startswith(prefix) and suffix in decoded:
+                decoded_upper = decoded.upper()
+                if decoded_upper.startswith(prefix.upper()) and suffix.upper() in decoded_upper:
                     rename_map[col] = COLUMN_MAP[label]
                     claimed_labels.add(label)
                     break
@@ -886,7 +886,8 @@ def print_column_comparison(raw_columns, files):
                     continue
                 if "*" in label:
                     prefix, suffix = label.split("*", 1)
-                    if decoded.startswith(prefix) and suffix in decoded:
+                    decoded_upper = decoded.upper()
+                    if decoded_upper.startswith(prefix.upper()) and suffix.upper() in decoded_upper:
                         matched = COLUMN_MAP[label]
                         claimed.add(label)
                         break
