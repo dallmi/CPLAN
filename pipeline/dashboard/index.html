@@ -939,6 +939,8 @@
         return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
     }
 
+    function fmtNum(n) { return Number(n).toLocaleString(); }
+
     function countBy(rows, field) {
         const counts = {};
         for (const r of rows) {
@@ -986,7 +988,7 @@
                     <div class="bar-track">
                         <div class="bar-fill" style="width:${pct}%;background:${color}"></div>
                     </div>
-                    <div class="bar-value">${count}</div>
+                    <div class="bar-value">${fmtNum(count)}</div>
                 </div>`;
         });
         html += "</div>";
@@ -1025,7 +1027,7 @@
 
             legend += `<div class="donut-legend-item">
                 <div class="donut-legend-swatch" style="background:${color}"></div>
-                <span>${esc(label)} &mdash; ${count} (${(pct * 100).toFixed(0)}%)</span>
+                <span>${esc(label)} &mdash; ${fmtNum(count)} (${(pct * 100).toFixed(0)}%)</span>
             </div>`;
         });
 
@@ -1034,7 +1036,7 @@
                 <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
                     ${arcs}
                     <text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central"
-                        font-size="22" font-weight="700" fill="var(--dark-gray)">${total}</text>
+                        font-size="22" font-weight="700" fill="var(--dark-gray)">${fmtNum(total)}</text>
                 </svg>
                 <div class="donut-legend">${legend}</div>
             </div>`;
@@ -1083,7 +1085,7 @@
             bars += `<rect x="${x - barW/2}" y="${y}" width="${barW}" height="${h}"
                 fill="${color}" rx="2" opacity="0.85"/>`;
             bars += `<text x="${x}" y="${y - 4}" text-anchor="middle" font-size="10"
-                fill="var(--dark-gray)" font-weight="600">${values[i]}</text>`;
+                fill="var(--dark-gray)" font-weight="600">${fmtNum(values[i])}</text>`;
 
             // Show label for every Nth month depending on density
             const showEvery = keys.length > 12 ? 3 : keys.length > 6 ? 2 : 1;
@@ -1145,25 +1147,25 @@
             <div class="stat-card">
                 <div class="accent-bar" style="background:var(--primary)"></div>
                 <div class="label">Total Activities</div>
-                <div class="value">${rows.length.toLocaleString()}</div>
-                <div class="sub">${internal.length} internal + ${external.length} external</div>
+                <div class="value">${fmtNum(rows.length)}</div>
+                <div class="sub">${fmtNum(internal.length)} internal + ${fmtNum(external.length)} external</div>
             </div>
             <div class="stat-card">
                 <div class="accent-bar" style="background:var(--info)"></div>
                 <div class="label">This Week</div>
-                <div class="value">${thisWeek.length}</div>
+                <div class="value">${fmtNum(thisWeek.length)}</div>
                 <div class="sub">Activities starting in 7 days</div>
             </div>
             <div class="stat-card">
                 <div class="accent-bar" style="background:var(--warning)"></div>
                 <div class="label">Next 30 Days</div>
-                <div class="value">${upcoming.length}</div>
+                <div class="value">${fmtNum(upcoming.length)}</div>
                 <div class="sub">Upcoming activities</div>
             </div>
             <div class="stat-card">
                 <div class="accent-bar" style="background:var(--success)"></div>
                 <div class="label">Active Now</div>
-                <div class="value">${active.length}</div>
+                <div class="value">${fmtNum(active.length)}</div>
                 <div class="sub">Currently running</div>
             </div>
             <div class="stat-card">
@@ -1421,13 +1423,13 @@
             <div class="stat-card">
                 <div class="accent-bar" style="background:${type === "internal" ? "var(--info)" : "var(--success)"}"></div>
                 <div class="label">Total ${type}</div>
-                <div class="value">${rows.length}</div>
+                <div class="value">${fmtNum(rows.length)}</div>
                 <div class="sub">Communication activities</div>
             </div>
             <div class="stat-card">
                 <div class="accent-bar" style="background:var(--warning)"></div>
                 <div class="label">Upcoming</div>
-                <div class="value">${upcoming.length}</div>
+                <div class="value">${fmtNum(upcoming.length)}</div>
                 <div class="sub">Future start date</div>
             </div>
             <div class="stat-card">
@@ -1439,7 +1441,7 @@
             <div class="stat-card">
                 <div class="accent-bar" style="background:var(--dark-gray)"></div>
                 <div class="label">Unique Channels</div>
-                <div class="value">${channels.length}</div>
+                <div class="value">${fmtNum(channels.length)}</div>
                 <div class="sub">Communication channels</div>
             </div>`;
 
@@ -1521,25 +1523,25 @@
             <div class="stat-card">
                 <div class="accent-bar" style="background:var(--primary)"></div>
                 <div class="label">Avg. per Month</div>
-                <div class="value">${avgPerMonth}</div>
+                <div class="value">${fmtNum(avgPerMonth)}</div>
                 <div class="sub">Activities per month</div>
             </div>
             <div class="stat-card">
                 <div class="accent-bar" style="background:var(--info)"></div>
                 <div class="label">Unique Leads</div>
-                <div class="value">${uniqueLeads}</div>
+                <div class="value">${fmtNum(uniqueLeads)}</div>
                 <div class="sub">Activity owners</div>
             </div>
             <div class="stat-card">
                 <div class="accent-bar" style="background:var(--success)"></div>
                 <div class="label">Channels</div>
-                <div class="value">${uniqueChannels}</div>
+                <div class="value">${fmtNum(uniqueChannels)}</div>
                 <div class="sub">Communication channels</div>
             </div>
             <div class="stat-card">
                 <div class="accent-bar" style="background:var(--bronze-i)"></div>
                 <div class="label">Divisions</div>
-                <div class="value">${uniqueDivisions}</div>
+                <div class="value">${fmtNum(uniqueDivisions)}</div>
                 <div class="sub">Business divisions</div>
             </div>`;
 
@@ -1560,11 +1562,11 @@
             <div style="display:flex;align-items:center;gap:24px;flex-wrap:wrap">
                 <div>
                     <div style="font-size:13px;color:var(--medium-gray);font-weight:600;text-transform:uppercase;letter-spacing:0.04em">Included in News Digest</div>
-                    <div style="font-size:28px;font-weight:700;color:var(--success)">${digestYes}</div>
+                    <div style="font-size:28px;font-weight:700;color:var(--success)">${fmtNum(digestYes)}</div>
                 </div>
                 <div>
                     <div style="font-size:13px;color:var(--medium-gray);font-weight:600;text-transform:uppercase;letter-spacing:0.04em">Not Included</div>
-                    <div style="font-size:28px;font-weight:700;color:var(--medium-gray)">${digestNo}</div>
+                    <div style="font-size:28px;font-weight:700;color:var(--medium-gray)">${fmtNum(digestNo)}</div>
                 </div>
                 <div>
                     <div style="font-size:13px;color:var(--medium-gray);font-weight:600;text-transform:uppercase;letter-spacing:0.04em">Digest Rate</div>
