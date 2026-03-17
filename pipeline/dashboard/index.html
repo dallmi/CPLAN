@@ -1464,12 +1464,12 @@
     let db = null;
     let conn = null;
 
-    // Chart color palette — NO RED unless expressing concern/criticality
+    // Chart color palette (corporate-approved)
     const CHART_COLORS = [
-        "#0C7EC6", "#879420", "#B98E2C", "#00759E", "#4972AC",
-        "#469A6C", "#8489BD", "#45999C", "#804C95", "#785E4A",
-        "#4B2D58", "#946F29", "#CC707A", "#654D16", "#295B40",
-        "#545A9C", "#07476F", "#AD3E4A", "#9F8865", "#620004"
+        "#E60000", "#0C7EC6", "#879420", "#B98E2C", "#00759E",
+        "#AD3E4A", "#4972AC", "#469A6C", "#8489BD", "#45999C",
+        "#804C95", "#785E4A", "#4B2D58", "#946F29", "#CC707A",
+        "#654D16", "#295B40", "#545A9C", "#07476F", "#620004"
     ];
 
     const PRIORITY_COLORS = {
@@ -1729,7 +1729,7 @@
             const x = padL + (i + 0.5) * (chartW / keys.length);
             const h = maxVal > 0 ? (values[i] / maxVal) * chartH : 0;
             const y = padT + chartH - h;
-            const color = mode === "internal" ? "#0C7EC6" : mode === "external" ? "#6F7A1A" : "#404040";
+            const color = mode === "internal" ? "#0C7EC6" : mode === "external" ? "#6F7A1A" : "#E60000";
 
             bars += `<rect x="${x - barW/2}" y="${y}" width="${barW}" height="${h}"
                 fill="${color}" rx="2" opacity="0.85"/>`;
@@ -1837,10 +1837,7 @@
 
         // Priority chart
         renderDonut("priority-chart", topN(countBy(rows, "priority"), 6),
-            (label, i) => {
-                const key = Object.keys(PRIORITY_COLORS).find(k => k.toLowerCase() === String(label).toLowerCase());
-                return key ? PRIORITY_COLORS[key] : CHART_COLORS[i % CHART_COLORS.length];
-            });
+            (label) => PRIORITY_COLORS[label] || CHART_COLORS[0]);
 
         // Trend
         renderTrend(rows, "all");
@@ -1916,8 +1913,7 @@
                     const cls = val === "internal" ? "badge-source-internal" : "badge-source-external";
                     html += `<td><span class="badge ${cls}">${esc(String(val || ""))}</span></td>`;
                 } else if (col === "priority") {
-                    const pKey = Object.keys(PRIORITY_COLORS).find(k => k.toLowerCase() === String(val).toLowerCase());
-                    const color = pKey ? PRIORITY_COLORS[pKey] : "var(--medium-gray)";
+                    const color = PRIORITY_COLORS[val] || "var(--medium-gray)";
                     html += `<td><span class="badge" style="background:${color}20;color:${color}">${esc(String(val || "—"))}</span></td>`;
                 } else {
                     html += `<td title="${esc(String(val ?? ""))}">${esc(String(val ?? "—"))}</td>`;
@@ -3624,8 +3620,7 @@
                 ? '<span class="badge badge-source-internal">Internal</span>'
                 : '<span class="badge badge-source-external">External</span>';
 
-            const pKey = Object.keys(PRIORITY_COLORS).find(k => k.toLowerCase() === String(r.priority || '').toLowerCase());
-            const priorityColor = pKey ? PRIORITY_COLORS[pKey] : 'var(--medium-gray)';
+            const priorityColor = PRIORITY_COLORS[r.priority] || 'var(--medium-gray)';
 
             html += `<tr>
                 <td><span class="lead-indicator ${leadClass}" title="Lead time: ${leadDays != null ? leadDays + ' days' : 'unknown'}"></span></td>
