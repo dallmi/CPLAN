@@ -385,6 +385,15 @@ def transform(df, source_type):
             if mask.any():
                 df.loc[mask, col] = pd.to_datetime(raw[mask], errors="coerce")
 
+            # Convert to CET (Europe/Zurich).
+            # If timestamps are tz-naive, assume they are already CET (from SharePoint).
+            # If timestamps are tz-aware (e.g. UTC from ISO 8601), convert to CET.
+            CET = "Europe/Zurich"
+            if df[col].dt.tz is not None:
+                df[col] = df[col].dt.tz_convert(CET)
+            else:
+                df[col] = df[col].dt.tz_localize(CET)
+
     # Boolean columns
     if "news_digest" in df.columns:
         df["news_digest"] = df["news_digest"].astype(str).str.upper().map(
