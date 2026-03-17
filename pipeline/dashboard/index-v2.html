@@ -1313,10 +1313,11 @@
     ];
 
     const PRIORITY_COLORS_RAW = {
+        "critical": "#620004",
         "high": "#BD000C",
         "medium": "#E4A911",
-        "low": "#6F7A1A",
-        "normal": "#8489BD"
+        "normal": "#B98E2C",
+        "low": "#6F7A1A"
     };
     function priorityColor(label) {
         return PRIORITY_COLORS_RAW[String(label).toLowerCase()] || null;
@@ -1753,7 +1754,7 @@
         renderBarChart("channel-chart", topN(countBy(rows, "channel"), 8));
         renderDonut("division-chart", topN(countBy(rows, "business_division"), 8));
         renderDonut("priority-chart", topN(countBy(rows, "priority"), 6),
-            (label, i) => priorityColor(label) || CHART_COLORS[i % CHART_COLORS.length]);
+            (label, i) => priorityColor(label) || ["#785E4A","#804C95","#45999C","#469A6C","#946F29","#4B2D58"][i % 6]);
         renderTrend(rows, "all");
         renderActivityTable("recent-table", rows.slice(-20).reverse(),
             ["activity_name", "source_type", "channel", "start_date", "priority", "lead", "business_division"]);
