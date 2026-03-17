@@ -61,6 +61,7 @@ Combined internal and external communication activities.
 | campaign | Campaign | Campaign (external only) |
 | campaign_ltid | Campaign LTID | Campaign LTID (external) |
 | bod_geb | BOD...GEB | BOD/GEB flag |
+| audience | Audience | Audience (SP lookup value) |
 | author | Author | Author display name |
 | author_email | (extracted) | Author email from Claims |
 | created | Created | Record created datetime (CET) |

@@ -60,8 +60,91 @@ INPUT_FILES = {
 
 def log(message):
     """Print timestamped log message."""
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[{timestamp}] {message}")
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    print(f"  {timestamp}  {message}")
+
+
+# ---------------------------------------------------------------------------
+# Pretty-print helpers
+# ---------------------------------------------------------------------------
+
+def _box_top(width):
+    return "┌" + "─" * width + "┐"
+
+def _box_mid(width):
+    return "├" + "─" * width + "┤"
+
+def _box_bot(width):
+    return "└" + "─" * width + "┘"
+
+def _box_row(text, width):
+    return "│" + text.ljust(width) + "│"
+
+def _box_sep(widths, left="├", mid="┬", right="┤", fill="─"):
+    return left + mid.join(fill * w for w in widths) + right
+
+def print_banner(title):
+    """Print a boxed banner."""
+    w = 60
+    print()
+    print(_box_top(w))
+    print(_box_row(f"  {title}", w))
+    print(_box_bot(w))
+    print()
+
+def print_table(title, headers, rows, col_widths=None):
+    """Print a clean formatted table with box-drawing characters."""
+    if not rows:
+        print(f"  {title}: (empty)")
+        return
+
+    # Auto-calculate widths
+    if col_widths is None:
+        col_widths = []
+        for i, h in enumerate(headers):
+            max_w = len(str(h))
+            for row in rows:
+                if i < len(row):
+                    max_w = max(max_w, len(str(row[i])))
+            col_widths.append(min(max_w + 2, 42))
+
+    total_w = sum(col_widths) + len(col_widths) - 1
+
+    print(f"  {title}")
+    print("  " + _box_sep(col_widths, "┌", "┬", "┐"))
+
+    # Header
+    header_str = ""
+    for i, h in enumerate(headers):
+        header_str += str(h).center(col_widths[i])
+        if i < len(headers) - 1:
+            header_str += "│"
+    print("  │" + header_str + "│")
+    print("  " + _box_sep(col_widths, "├", "┼", "┤"))
+
+    # Rows
+    for row in rows:
+        row_str = ""
+        for i, val in enumerate(row):
+            s = str(val)
+            w = col_widths[i] if i < len(col_widths) else 20
+            if len(s) > w - 2:
+                s = s[:w - 3] + "…"
+            row_str += f" {s}".ljust(w)
+            if i < len(row) - 1:
+                row_str += "│"
+        print("  │" + row_str + "│")
+
+    print("  " + _box_sep(col_widths, "└", "┴", "┘"))
+    print()
+
+def print_kv(pairs, indent=2):
+    """Print key-value pairs aligned."""
+    if not pairs:
+        return
+    max_k = max(len(str(k)) for k, v in pairs)
+    for k, v in pairs:
+        print(" " * indent + f"  {str(k).ljust(max_k)}  {v}")
 
 
 # ---------------------------------------------------------------------------
@@ -119,15 +202,22 @@ def find_input_files(input_dir):
     Only includes files that actually exist. Picks the newest match per pattern.
     """
     found = {}
+    table_rows = []
     for key, pattern in INPUT_FILES.items():
         matches = list(input_dir.glob(pattern))
         matches = [f for f in matches if not f.name.startswith("~$")]
         if matches:
             newest = max(matches, key=lambda f: f.stat().st_mtime)
             found[key] = newest
-            log(f"  {key}: {newest.name}")
+            size_kb = newest.stat().st_size / 1024
+            table_rows.append((key, newest.name, f"{size_kb:.0f} KB", "found"))
         else:
-            log(f"  {key}: not found (pattern: {pattern})")
+            table_rows.append((key, pattern, "—", "missing"))
+
+    print_table("Input Files",
+                ["Source", "File", "Size", "Status"],
+                table_rows,
+                col_widths=[22, 42, 10, 10])
     return found
 
 
@@ -368,7 +458,7 @@ def transform(df, source_type):
         df = df.drop(columns=drop_cols)
         log(f"  Dropped {len(drop_cols)} noise columns")
 
-    log(f"  Columns after cleanup: {list(df.columns)}")
+    log(f"  {len(df.columns)} columns after cleanup")
 
     # Build rename map — each CSV column maps to at most one output.
     # Try longest labels first so "Lead Team" matches before "Lead",
@@ -405,7 +495,7 @@ def transform(df, source_type):
     keep = [c for c in rename_map.values() if c in df.columns]
     df = df[keep]
 
-    log(f"  Mapped columns: {list(df.columns)}")
+    log(f"  {len(df.columns)} columns mapped to output schema")
 
     # Strip HTML from rich text fields (e.g. activity)
     if "activity_description" in df.columns:
@@ -521,11 +611,9 @@ def write_table(df, table_name, parquet_name, full_refresh=False):
     # Parquet
     parquet_path = OUTPUT_DIR / f"{parquet_name}.parquet"
     df.to_parquet(parquet_path, index=False)
-    log(f"Wrote {len(df)} rows to {parquet_path}")
 
     # DuckDB
     if full_refresh and DB_PATH.exists():
-        # Only delete once (caller responsibility), but safe to call
         pass
 
     con = duckdb.connect(str(DB_PATH))
@@ -546,12 +634,7 @@ def write_table(df, table_name, parquet_name, full_refresh=False):
             """, [str(parquet_path)])
 
         row_count = con.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
-        log(f"DuckDB: {row_count} rows in {table_name} table")
-
         schema = con.execute(f"DESCRIBE {table_name}").fetchall()
-        log(f"Schema ({table_name}):")
-        for col_name, col_type, *_ in schema:
-            log(f"  {col_name:<40} {col_type}")
     finally:
         con.close()
 
@@ -568,7 +651,31 @@ def write_table(df, table_name, parquet_name, full_refresh=False):
     }
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, default=str)
-    log(f"Wrote dashboard JSON to {json_path}")
+
+    # Summary output
+    parquet_kb = parquet_path.stat().st_size / 1024
+    json_kb = json_path.stat().st_size / 1024
+
+    print_table(
+        f"Output: {table_name} ({row_count} rows, {len(schema)} columns)",
+        ["Column", "Type", "Non-Null", "Sample"],
+        [
+            (
+                col_name,
+                col_type,
+                str(df[col_name].notna().sum()) if col_name in df.columns else "—",
+                str(df[col_name].dropna().iloc[0])[:30]
+                    if col_name in df.columns and df[col_name].notna().any() else "—",
+            )
+            for col_name, col_type, *_ in schema
+        ],
+        col_widths=[30, 16, 10, 32],
+    )
+    print_kv([
+        ("Parquet", f"{parquet_path.name}  ({parquet_kb:.0f} KB)"),
+        ("JSON", f"{json_path.name}  ({json_kb:.0f} KB)"),
+        ("DuckDB", f"{DB_PATH.name} → {table_name}"),
+    ])
 
 
 PACKS_COLUMN_MAP = {
@@ -613,7 +720,7 @@ def transform_packs(df):
         df = df.drop(columns=drop_cols)
         log(f"  Dropped {len(drop_cols)} noise columns")
 
-    log(f"  Columns after cleanup: {list(df.columns)}")
+    log(f"  {len(df.columns)} columns after cleanup")
 
     # Same matching logic as activities: decode, then longest-label-first
     labels_sorted = sorted(PACKS_COLUMN_MAP.keys(), key=len, reverse=True)
@@ -636,7 +743,7 @@ def transform_packs(df):
     keep = [c for c in rename_map.values() if c in df.columns]
     df = df[keep]
 
-    log(f"  Mapped columns: {list(df.columns)}")
+    log(f"  {len(df.columns)} columns mapped to output schema")
 
     # Extract person emails before lookup parsing
     for col in PACKS_PERSON_COLUMNS:
@@ -806,26 +913,8 @@ def print_column_comparison(raw_columns, files):
 
     sorted_cols = sorted(all_rows.keys(), key=sort_key)
 
-    # Calculate column widths
-    w_name = max(len("Column"), max(len(k) for k in sorted_cols))
-    w_mapped = max(len("Mapped To"), max(
-        (len(r["clean"] or "") for r in all_rows.values()), default=0
-    ))
-    w_mapped = max(w_mapped, 9)
-
-    # Header
-    print()
-    print("=" * 80)
-    print("  COLUMN COMPARISON")
-    print("=" * 80)
-    print()
-
-    header = f"  {'Column':<{w_name}}  {'Mapped To':<{w_mapped}}"
-    for src in sources:
-        header += f"  {src:^10}"
-    print(header)
-    print(f"  {'─' * w_name}  {'─' * w_mapped}" + f"  {'─' * 10}" * len(sources))
-
+    # Build table rows
+    table_rows = []
     mapped_count = 0
     unmapped_count = 0
 
@@ -833,81 +922,75 @@ def print_column_comparison(raw_columns, files):
         row = all_rows[key]
         clean = row["clean"] or ""
 
-        presence = ""
+        presence = []
         for src in sources:
-            if src in row["sources"]:
-                presence += f"  {'  ✓':^10}"
-            else:
-                presence += f"  {'  ✗':^10}"
+            presence.append("yes" if src in row["sources"] else "—")
 
         if clean:
             mapped_count += 1
         else:
             unmapped_count += 1
 
-        display_name = key[:w_name] if len(key) > w_name else key
-        print(f"  {display_name:<{w_name}}  {clean:<{w_mapped}}{presence}")
+        table_rows.append((key, clean, *presence))
+
+    headers = ["Column", "Mapped To"] + list(sources)
+    col_widths = [28, 24] + [12] * len(sources)
+    print_table("Column Comparison", headers, table_rows, col_widths)
 
     # Summary
     in_both = sum(1 for k in sorted_cols if len(all_rows[k]["sources"]) == len(sources))
-    print()
-    print(f"  Total unique columns: {len(sorted_cols)}")
-    print(f"  In all files:         {in_both}")
+    summary_pairs = [
+        ("Total columns", str(len(sorted_cols))),
+        ("In all files", str(in_both)),
+    ]
     for src in sources:
         only = sum(1 for k in sorted_cols if set(all_rows[k]["sources"].keys()) == {src})
         total = sum(1 for k in sorted_cols if src in all_rows[k]["sources"])
-        print(f"  {src + ' only:':<22} {only}   (total: {total})")
-    print(f"  Mapped to output:     {mapped_count}")
-    print(f"  Unmapped (dropped):   {unmapped_count}")
+        summary_pairs.append((f"{src} only", f"{only}  (total: {total})"))
+    summary_pairs.append(("Mapped", str(mapped_count)))
+    summary_pairs.append(("Unmapped (dropped)", str(unmapped_count)))
+    print_kv(summary_pairs)
     print()
 
 
-def print_data_preview(df, max_rows=20):
+def print_data_preview(df, max_rows=20, title="DATA"):
     """Print a pretty preview of the transformed data."""
-    print("=" * 80)
-    print(f"  DATA PREVIEW  ({len(df)} rows, {len(df.columns)} columns)")
-    print("=" * 80)
-    print()
-
-    # Show column types
-    print(f"  {'Column':<30} {'Type':<15} {'Non-null':<10} {'Sample'}")
-    print(f"  {'─' * 30} {'─' * 15} {'─' * 10} {'─' * 40}")
+    # Schema table
+    schema_rows = []
     for col in df.columns:
         dtype = str(df[col].dtype)
         non_null = df[col].notna().sum()
         sample = ""
         first_valid = df[col].dropna().head(1)
         if not first_valid.empty:
-            sample = str(first_valid.iloc[0])[:40]
-        print(f"  {col:<30} {dtype:<15} {non_null:<10} {sample}")
+            sample = str(first_valid.iloc[0])[:30]
+        schema_rows.append((col, dtype, str(non_null), sample))
 
-    # Show first N rows
-    print()
-    print(f"  First {min(max_rows, len(df))} rows:")
-    print(f"  {'─' * 76}")
-    # Use a subset of columns that fit the terminal
+    print_table(
+        f"{title} Schema ({len(df)} rows, {len(df.columns)} columns)",
+        ["Column", "Type", "Non-Null", "Sample"],
+        schema_rows,
+        col_widths=[30, 16, 10, 32],
+    )
+
+    # Sample rows table
     display_cols = [c for c in df.columns if c != "source_type"][:6]
-    display_cols.append("source_type")
+    if "source_type" in df.columns:
+        display_cols.append("source_type")
 
-    # Header
-    header = "  "
-    for col in display_cols:
-        w = min(20, max(len(col), 8))
-        header += f"{col:<{w}}  "
-    print(header)
-    print("  " + "─" * len(header))
-
+    sample_rows = []
     for _, row in df.head(max_rows).iterrows():
-        line = "  "
-        for col in display_cols:
-            w = min(20, max(len(col), 8))
-            val = str(row.get(col, ""))[:w]
-            line += f"{val:<{w}}  "
-        print(line)
+        sample_rows.append(tuple(str(row.get(c, ""))[:18] for c in display_cols))
 
+    if sample_rows:
+        print_table(
+            f"{title} Sample (first {min(max_rows, len(df))} rows)",
+            display_cols,
+            sample_rows,
+            col_widths=[min(20, max(len(c) + 2, 10)) for c in display_cols],
+        )
     if len(df) > max_rows:
-        print(f"  ... and {len(df) - max_rows} more rows")
-    print()
+        log(f"  ... and {len(df) - max_rows} more rows")
 
 
 # ---------------------------------------------------------------------------
@@ -918,19 +1001,23 @@ def main():
     preview = "--preview" in sys.argv
     full_refresh = "--full-refresh" in sys.argv
 
-    log("=" * 60)
-    log("CPLAN Data Pipeline")
-    log("=" * 60)
+    print_banner("CPLAN Data Pipeline")
+
+    mode = "preview" if preview else ("full refresh" if full_refresh else "incremental")
+    log(f"Mode: {mode}")
 
     # Find input
-    log("Looking for input files...")
     input_dir = find_input_dir()
     files = find_input_files(input_dir)
 
     if not files:
+        print()
         log("ERROR: No input files found.")
-        log(f"  Place CSV files in: {input_dir}/")
-        log(f"  Expected patterns: {list(INPUT_FILES.values())}")
+        print_kv([
+            ("Input dir", str(input_dir)),
+            ("Expected", ", ".join(INPUT_FILES.values())),
+        ])
+        print()
         sys.exit(1)
 
     if full_refresh and DB_PATH.exists():
@@ -942,6 +1029,7 @@ def main():
     frames = []
     raw_columns = {}
     for key, path in activity_files.items():
+        log(f"Reading {path.name}...")
         df = read_csv_auto(path)
         log(f"  {key}: {len(df)} rows, {len(df.columns)} columns")
         raw_columns[key] = [c.strip() for c in df.columns]
@@ -960,25 +1048,13 @@ def main():
 
     # --- Communication packs ---
     if "packs" in files:
-        log("Processing CommunicationPacks...")
+        log(f"Reading {files['packs'].name}...")
         packs_df = read_csv_auto(files["packs"])
         log(f"  packs: {len(packs_df)} rows, {len(packs_df.columns)} columns")
         packs_df = transform_packs(packs_df)
 
         if preview:
-            print()
-            print("=" * 80)
-            print(f"  PACKS PREVIEW  ({len(packs_df)} rows, {len(packs_df.columns)} columns)")
-            print("=" * 80)
-            print()
-            for col in packs_df.columns:
-                dtype = str(packs_df[col].dtype)
-                non_null = packs_df[col].notna().sum()
-                sample = ""
-                first_valid = packs_df[col].dropna().head(1)
-                if not first_valid.empty:
-                    sample = str(first_valid.iloc[0])[:40]
-                print(f"  {col:<30} {dtype:<15} {non_null:<10} {sample}")
+            print_data_preview(packs_df, title="PACKS")
         else:
             write_table(packs_df, "packs", "packs", full_refresh=full_refresh)
 
@@ -987,7 +1063,7 @@ def main():
     for key in ("internal_channels", "external_channels"):
         if key in files:
             source = key.replace("_channels", "")
-            log(f"Processing {files[key].name}...")
+            log(f"Reading {files[key].name}...")
             ch_df = read_csv_auto(files[key])
             log(f"  {key}: {len(ch_df)} rows, {len(ch_df.columns)} columns")
             ch_df = transform_channels(ch_df)
@@ -999,33 +1075,37 @@ def main():
         log(f"Combined channels: {len(channels_df)} rows")
 
         if preview:
-            print()
-            print("=" * 80)
-            print(f"  CHANNELS PREVIEW  ({len(channels_df)} rows)")
-            print("=" * 80)
-            print()
-            print(channels_df.to_string(index=False))
+            print_data_preview(channels_df, title="CHANNELS")
         else:
             write_table(channels_df, "channels", "channels", full_refresh=full_refresh)
 
     # --- Tracking clusters lookup ---
     if "clusters" in files:
-        log("Processing TrackingClusters...")
+        log(f"Reading {files['clusters'].name}...")
         clusters_df = read_csv_auto(files["clusters"])
         log(f"  clusters: {len(clusters_df)} rows, {len(clusters_df.columns)} columns")
         clusters_df = transform_clusters(clusters_df)
 
         if preview:
-            print()
-            print("=" * 80)
-            print(f"  CLUSTERS PREVIEW  ({len(clusters_df)} rows)")
-            print("=" * 80)
-            print()
-            print(clusters_df.to_string(index=False))
+            print_data_preview(clusters_df, title="CLUSTERS")
         else:
             write_table(clusters_df, "clusters", "clusters", full_refresh=full_refresh)
 
+    # --- Final summary ---
     if not preview:
+        outputs = []
+        for name in ("communications", "packs", "channels", "clusters"):
+            p = OUTPUT_DIR / f"{name}.parquet"
+            if p.exists():
+                kb = p.stat().st_size / 1024
+                outputs.append((name, f"{kb:.0f} KB"))
+        db_kb = DB_PATH.stat().st_size / 1024 if DB_PATH.exists() else 0
+
+        print()
+        print_table("Pipeline Complete",
+                    ["Output", "Size"],
+                    outputs + [("cplan.db", f"{db_kb:.0f} KB")],
+                    col_widths=[24, 14])
         log("Done.")
 
 
