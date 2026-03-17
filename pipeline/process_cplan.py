@@ -51,6 +51,8 @@ ONEDRIVE_INPUT_DIR = Path("Projekte") / "CPLAN" / "Input"
 INPUT_FILES = {
     "internal": "InternalCommunicationActivities*.csv",
     "external": "ExternalCommunicationActivities*.csv",
+    "internal_archive": "InternalCommunicationActivitiesArchive*.csv",
+    "external_archive": "ExternalCommunicationActivitiesArchive*.csv",
     "packs": "CommunicationPacks*.csv",
     "internal_channels": "InternalChannels*.csv",
     "external_channels": "ExternalChannels*.csv",
@@ -924,7 +926,7 @@ def print_column_comparison(raw_columns, files):
 
         presence = []
         for src in sources:
-            presence.append("yes" if src in row["sources"] else "—")
+            presence.append("\u2713" if src in row["sources"] else "\u2014")
 
         if clean:
             mapped_count += 1
@@ -933,8 +935,15 @@ def print_column_comparison(raw_columns, files):
 
         table_rows.append((key, clean, *presence))
 
-    headers = ["Column", "Mapped To"] + list(sources)
-    col_widths = [28, 24] + [12] * len(sources)
+    # Shorter display labels for readability
+    display_labels = {
+        "internal":         "INT",
+        "external":         "EXT",
+        "internal_archive": "INT arch",
+        "external_archive": "EXT arch",
+    }
+    headers = ["Column", "Mapped To"] + [display_labels.get(s, s) for s in sources]
+    col_widths = [28, 24] + [10] * len(sources)
     print_table("Column Comparison", headers, table_rows, col_widths)
 
     # Summary
@@ -1024,16 +1033,24 @@ def main():
         DB_PATH.unlink()
         log("Deleted existing database (full refresh)")
 
-    # --- Communication activities (internal + external) ---
-    activity_files = {k: v for k, v in files.items() if k in ("internal", "external")}
+    # --- Communication activities (internal + external, active + archive) ---
+    ACTIVITY_KEYS = {
+        "internal":         ("internal", False),
+        "external":         ("external", False),
+        "internal_archive": ("internal", True),
+        "external_archive": ("external", True),
+    }
+    activity_files = {k: v for k, v in files.items() if k in ACTIVITY_KEYS}
     frames = []
     raw_columns = {}
     for key, path in activity_files.items():
+        source_type, is_archived = ACTIVITY_KEYS[key]
         log(f"Reading {path.name}...")
         df = read_csv_auto(path)
         log(f"  {key}: {len(df)} rows, {len(df.columns)} columns")
         raw_columns[key] = [c.strip() for c in df.columns]
-        df = transform(df, source_type=key)
+        df = transform(df, source_type=source_type)
+        df["is_archived"] = is_archived
         frames.append(df)
 
     if frames:
