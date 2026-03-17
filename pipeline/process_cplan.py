@@ -405,32 +405,37 @@ def transform(df, source_type):
         if col in df.columns:
             df[col] = df[col].apply(parse_sp_lookup)
 
-    # Parse dates — keep full datetime (date + time)
-    # Formats seen: "DD.MM.YYYY HH:MM", "DD.MM.YYYY HH:MM:SS", ISO 8601
+    # Parse dates — keep full datetime (date + time), convert to CET
+    # Formats seen: "DD.MM.YYYY HH:MM", ISO 8601 with tz ("2025-05-06 08:00:00+00:00")
+    CET = "Europe/Zurich"
     for col in DATE_COLUMNS:
         if col in df.columns:
             raw = df[col].copy()
-            # Try DD.MM.YYYY HH:MM first
-            df[col] = pd.to_datetime(raw, format="%d.%m.%Y %H:%M", errors="coerce")
-            # Retry with seconds
-            mask = df[col].isna() & raw.notna()
-            if mask.any():
-                df.loc[mask, col] = pd.to_datetime(
-                    raw[mask], format="%d.%m.%Y %H:%M:%S", errors="coerce"
-                )
-            # Fallback: let pandas infer (catches ISO 8601 etc.)
-            mask = df[col].isna() & raw.notna()
-            if mask.any():
-                df.loc[mask, col] = pd.to_datetime(raw[mask], errors="coerce")
 
-            # Convert to CET (Europe/Zurich).
-            # If timestamps are tz-naive, assume they are already CET (from SharePoint).
-            # If timestamps are tz-aware (e.g. UTC from ISO 8601), convert to CET.
-            CET = "Europe/Zurich"
-            if df[col].dt.tz is not None:
-                df[col] = df[col].dt.tz_convert(CET)
-            else:
-                df[col] = df[col].dt.tz_localize(CET)
+            # Parse each value individually to handle mixed formats cleanly
+            def _parse_date(val):
+                if pd.isna(val) or not isinstance(val, str) or not val.strip():
+                    return pd.NaT
+                s = val.strip()
+                # Try DD.MM.YYYY HH:MM(:SS)
+                for fmt in ("%d.%m.%Y %H:%M", "%d.%m.%Y %H:%M:%S", "%d.%m.%Y"):
+                    try:
+                        dt = pd.Timestamp(datetime.strptime(s, fmt))
+                        # Naive → assume CET
+                        return dt.tz_localize(CET)
+                    except ValueError:
+                        continue
+                # Fallback: let pandas infer (ISO 8601 etc.)
+                try:
+                    dt = pd.Timestamp(s)
+                    if dt.tz is not None:
+                        return dt.tz_convert(CET)
+                    else:
+                        return dt.tz_localize(CET)
+                except Exception:
+                    return pd.NaT
+
+            df[col] = raw.apply(_parse_date)
 
     # Boolean columns
     if "news_digest" in df.columns:
