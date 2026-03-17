@@ -28,8 +28,10 @@ Prerequisites:
 """
 
 import csv
+import html
 import json
 import os
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -158,6 +160,16 @@ def decode_sp_column_name(name):
     def _replace(m):
         return chr(int(m.group(1), 16))
     return re.sub(r"_x([0-9a-fA-F]{4})_", _replace, name)
+
+
+def _strip_html(val):
+    """Strip HTML tags and decode entities, returning plain text."""
+    if pd.isna(val) or not isinstance(val, str):
+        return val
+    text = re.sub(r"<[^>]+>", " ", val)  # replace tags with space
+    text = html.unescape(text)           # decode &amp; &nbsp; etc.
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
 
 
 def parse_sp_lookup(val):
@@ -356,6 +368,10 @@ def transform(df, source_type):
     df = df[keep]
 
     log(f"  Mapped columns: {list(df.columns)}")
+
+    # Strip HTML from rich text fields (e.g. activity)
+    if "activity" in df.columns:
+        df["activity"] = df["activity"].apply(_strip_html)
 
     # Extract person emails BEFORE lookup parsing (which replaces JSON with display names)
     for col in SP_PERSON_COLUMNS:
