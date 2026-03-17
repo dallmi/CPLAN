@@ -1489,6 +1489,19 @@
         return isNaN(d.getTime()) ? null : d;
     }
 
+    function fmtNum(v) {
+        if (v == null || v === '' || isNaN(v)) return v;
+        const n = Number(v);
+        if (!Number.isFinite(n)) return v;
+        // For decimals, format with 1 decimal place and add thousand separators
+        if (!Number.isInteger(n)) {
+            const parts = n.toFixed(1).split('.');
+            parts[0] = Number(parts[0]).toLocaleString('de-CH');
+            return parts.join('.');
+        }
+        return n.toLocaleString('de-CH');
+    }
+
     function fmtDateEU(d) {
         if (!d) return '';
         const dd = String(d.getDate()).padStart(2, '0');
@@ -1560,7 +1573,7 @@
                     <div class="bar-track">
                         <div class="bar-fill" style="width:${pct}%;background:${color}"></div>
                     </div>
-                    <div class="bar-value">${count}</div>
+                    <div class="bar-value">${fmtNum(count)}</div>
                 </div>`;
         });
         html += "</div>";
@@ -1599,7 +1612,7 @@
 
             legend += `<div class="donut-legend-item">
                 <div class="donut-legend-swatch" style="background:${color}"></div>
-                <span>${esc(label)} &mdash; ${count} (${(pct * 100).toFixed(0)}%)</span>
+                <span>${esc(label)} &mdash; ${fmtNum(count)} (${(pct * 100).toFixed(0)}%)</span>
             </div>`;
         });
 
@@ -1608,7 +1621,7 @@
                 <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
                     ${arcs}
                     <text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central"
-                        font-size="22" font-weight="700" fill="var(--dark-gray)">${total}</text>
+                        font-size="22" font-weight="700" fill="var(--dark-gray)">${fmtNum(total)}</text>
                 </svg>
                 <div class="donut-legend">${legend}</div>
             </div>`;
@@ -1657,7 +1670,7 @@
             bars += `<rect x="${x - barW/2}" y="${y}" width="${barW}" height="${h}"
                 fill="${color}" rx="2" opacity="0.85"/>`;
             bars += `<text x="${x}" y="${y - 4}" text-anchor="middle" font-size="10"
-                fill="var(--dark-gray)" font-weight="600">${values[i]}</text>`;
+                fill="var(--dark-gray)" font-weight="600">${fmtNum(values[i])}</text>`;
 
             const showEvery = keys.length > 12 ? 3 : keys.length > 6 ? 2 : 1;
             if (i % showEvery === 0) {
@@ -1675,7 +1688,7 @@
             grid += `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}"
                 stroke="var(--surface)" stroke-width="1"/>`;
             grid += `<text x="${padL - 6}" y="${y + 3}" text-anchor="end" font-size="10"
-                fill="var(--medium-gray)">${val}</text>`;
+                fill="var(--medium-gray)">${fmtNum(val)}</text>`;
         }
 
         el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px">${grid}${bars}${labels}</svg>`;
@@ -1712,22 +1725,22 @@
         document.getElementById("dashboard-stats").innerHTML = `
             <div class="kpi-card highlight">
                 <div class="kpi-label">Total Activities</div>
-                <div class="kpi-row"><div><span class="kpi-value">${rows.length.toLocaleString()}</span></div></div>
-                <div class="kpi-sub">${internal.length} internal + ${external.length} external</div>
+                <div class="kpi-row"><div><span class="kpi-value">${fmtNum(rows.length)}</span></div></div>
+                <div class="kpi-sub">${fmtNum(internal.length)} internal + ${fmtNum(external.length)} external</div>
             </div>
             <div class="kpi-card info">
                 <div class="kpi-label">This Week</div>
-                <div class="kpi-row"><div><span class="kpi-value">${thisWeek.length}</span></div></div>
+                <div class="kpi-row"><div><span class="kpi-value">${fmtNum(thisWeek.length)}</span></div></div>
                 <div class="kpi-sub">Starting in 7 days</div>
             </div>
             <div class="kpi-card warning">
                 <div class="kpi-label">Next 30 Days</div>
-                <div class="kpi-row"><div><span class="kpi-value">${upcoming.length}</span></div></div>
+                <div class="kpi-row"><div><span class="kpi-value">${fmtNum(upcoming.length)}</span></div></div>
                 <div class="kpi-sub">Upcoming activities</div>
             </div>
             <div class="kpi-card success">
                 <div class="kpi-label">Active Now</div>
-                <div class="kpi-row"><div><span class="kpi-value">${active.length}</span></div></div>
+                <div class="kpi-row"><div><span class="kpi-value">${fmtNum(active.length)}</span></div></div>
                 <div class="kpi-sub">Currently running</div>
             </div>`;
 
@@ -1956,22 +1969,22 @@
         document.getElementById(`${prefix}-stats`).innerHTML = `
             <div class="kpi-card ${type === "internal" ? "info" : "success"}">
                 <div class="kpi-label">Total ${type}</div>
-                <div class="kpi-row"><div><span class="kpi-value">${rows.length}</span></div></div>
+                <div class="kpi-row"><div><span class="kpi-value">${fmtNum(rows.length)}</span></div></div>
                 <div class="kpi-sub">Communication activities</div>
             </div>
             <div class="kpi-card warning">
                 <div class="kpi-label">Upcoming</div>
-                <div class="kpi-row"><div><span class="kpi-value">${upcoming.length}</span></div></div>
+                <div class="kpi-row"><div><span class="kpi-value">${fmtNum(upcoming.length)}</span></div></div>
                 <div class="kpi-sub">Future start date</div>
             </div>
             <div class="kpi-card highlight">
                 <div class="kpi-label">Top Channel</div>
                 <div class="kpi-row"><div><span class="kpi-value" style="font-size:18px">${esc(topChannel)}</span></div></div>
-                <div class="kpi-sub">${channels.length ? channels[0][1] + " activities" : ""}</div>
+                <div class="kpi-sub">${channels.length ? fmtNum(channels[0][1]) + " activities" : ""}</div>
             </div>
             <div class="kpi-card">
                 <div class="kpi-label">Unique Channels</div>
-                <div class="kpi-row"><div><span class="kpi-value">${channels.length}</span></div></div>
+                <div class="kpi-row"><div><span class="kpi-value">${fmtNum(channels.length)}</span></div></div>
                 <div class="kpi-sub">Communication channels</div>
             </div>`;
 
@@ -2052,22 +2065,22 @@
         document.getElementById("analytics-stats").innerHTML = `
             <div class="kpi-card highlight">
                 <div class="kpi-label">Avg. per Month</div>
-                <div class="kpi-row"><div><span class="kpi-value">${avgPerMonth}</span></div></div>
+                <div class="kpi-row"><div><span class="kpi-value">${fmtNum(avgPerMonth)}</span></div></div>
                 <div class="kpi-sub">Activities per month</div>
             </div>
             <div class="kpi-card info">
                 <div class="kpi-label">Unique Leads</div>
-                <div class="kpi-row"><div><span class="kpi-value">${uniqueLeads}</span></div></div>
+                <div class="kpi-row"><div><span class="kpi-value">${fmtNum(uniqueLeads)}</span></div></div>
                 <div class="kpi-sub">Activity owners</div>
             </div>
             <div class="kpi-card success">
                 <div class="kpi-label">Channels</div>
-                <div class="kpi-row"><div><span class="kpi-value">${uniqueChannels}</span></div></div>
+                <div class="kpi-row"><div><span class="kpi-value">${fmtNum(uniqueChannels)}</span></div></div>
                 <div class="kpi-sub">Communication channels</div>
             </div>
             <div class="kpi-card">
                 <div class="kpi-label">Divisions</div>
-                <div class="kpi-row"><div><span class="kpi-value">${uniqueDivisions}</span></div></div>
+                <div class="kpi-row"><div><span class="kpi-value">${fmtNum(uniqueDivisions)}</span></div></div>
                 <div class="kpi-sub">Business divisions</div>
             </div>`;
 
@@ -2086,11 +2099,11 @@
             <div style="display:flex;align-items:center;gap:24px;flex-wrap:wrap">
                 <div>
                     <div style="font-size:13px;color:var(--medium-gray);font-weight:600;text-transform:uppercase;letter-spacing:0.04em">Included in News Digest</div>
-                    <div style="font-size:28px;font-weight:700;color:var(--success)">${digestYes}</div>
+                    <div style="font-size:28px;font-weight:700;color:var(--success)">${fmtNum(digestYes)}</div>
                 </div>
                 <div>
                     <div style="font-size:13px;color:var(--medium-gray);font-weight:600;text-transform:uppercase;letter-spacing:0.04em">Not Included</div>
-                    <div style="font-size:28px;font-weight:700;color:var(--medium-gray)">${digestNo}</div>
+                    <div style="font-size:28px;font-weight:700;color:var(--medium-gray)">${fmtNum(digestNo)}</div>
                 </div>
                 <div>
                     <div style="font-size:13px;color:var(--medium-gray);font-weight:600;text-transform:uppercase;letter-spacing:0.04em">Digest Rate</div>
@@ -2269,7 +2282,7 @@
             return `<div class="kpi-card ${cssClass || ''}">
                 <div class="kpi-label">${label}</div>
                 <div class="kpi-row">
-                    <div><span class="kpi-value">${typeof value === 'number' ? (Number.isInteger(value) ? value : value.toFixed(1)) : value}</span><span class="kpi-unit">${unit}</span></div>
+                    <div><span class="kpi-value">${typeof value === 'number' ? fmtNum(Number.isInteger(value) ? value : parseFloat(value.toFixed(1))) : value}</span><span class="kpi-unit">${unit}</span></div>
                 </div>
                 <div class="kpi-delta ${deltaClass}">${deltaText}</div>
                 ${sparkHtml}
@@ -2310,7 +2323,7 @@
             const y = padT + (chartH / 4) * i;
             const val = Math.round(maxVal * (1 - i / 4));
             svg += `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="var(--surface)" stroke-width="1"/>`;
-            svg += `<text x="${padL - 6}" y="${y + 3}" text-anchor="end" font-size="10" fill="var(--medium-gray)">${val}</text>`;
+            svg += `<text x="${padL - 6}" y="${y + 3}" text-anchor="end" font-size="10" fill="var(--medium-gray)">${fmtNum(val)}</text>`;
         }
 
         keys.forEach((k, i) => {
@@ -2372,11 +2385,11 @@
                 const cnt = (byQuarter[q][ch] || 0);
                 const pct = total > 0 ? (cnt / maxTotal * 100) : 0;
                 if (cnt > 0) {
-                    html += `<div title="${ch}: ${cnt}" style="width:${pct}%;background:${CHART_COLORS[ci % CHART_COLORS.length]};min-width:1px"></div>`;
+                    html += `<div title="${ch}: ${fmtNum(cnt)}" style="width:${pct}%;background:${CHART_COLORS[ci % CHART_COLORS.length]};min-width:1px"></div>`;
                 }
             });
             html += `</div>`;
-            html += `<span style="width:32px;font-size:13px;font-weight:600;color:var(--dark-gray)">${total}</span>`;
+            html += `<span style="width:32px;font-size:13px;font-weight:600;color:var(--dark-gray)">${fmtNum(total)}</span>`;
             html += `</div></div>`;
         });
         html += '<div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:8px">';
@@ -2433,7 +2446,7 @@
                 else if (count <= 2) { bg = '#e8ecd0'; fg = 'var(--success)'; }
                 else if (count <= 5) { bg = '#d4eaf8'; fg = '#065a96'; }
                 else { bg = '#0C7EC620'; fg = '#065a96'; }
-                html += `<div class="heatmap-cell" style="background:${bg};color:${fg}" title="${esc(div)} / ${esc(reg)}: ${count}">${count || '\u2014'}</div>`;
+                html += `<div class="heatmap-cell" style="background:${bg};color:${fg}" title="${esc(div)} / ${esc(reg)}: ${fmtNum(count)}">${count ? fmtNum(count) : '\u2014'}</div>`;
             }
         }
 
@@ -2495,7 +2508,7 @@
                 else if (count <= 2) { bg = '#e8ecd0'; fg = 'var(--success)'; }
                 else if (count <= 4) { bg = '#fdf3d7'; fg = '#8a6800'; }
                 else { bg = '#f5d0d3'; fg = 'var(--danger)'; }
-                html += `<div class="heatmap-cell" style="background:${bg};color:${fg}">${count || ''}</div>`;
+                html += `<div class="heatmap-cell" style="background:${bg};color:${fg}">${count ? fmtNum(count) : ''}</div>`;
             }
         }
 
@@ -2529,7 +2542,7 @@
         if (missingDivs.length > 0) {
             alerts.push({
                 severity: 'red',
-                message: `<strong>${missingDivs.length} division${missingDivs.length > 1 ? 's' : ''}</strong> with zero activities this period: ${missingDivs.slice(0, 3).map(d => esc(d)).join(', ')}${missingDivs.length > 3 ? '...' : ''}`
+                message: `<strong>${fmtNum(missingDivs.length)} division${missingDivs.length > 1 ? 's' : ''}</strong> with zero activities this period: ${missingDivs.slice(0, 3).map(d => esc(d)).join(', ')}${missingDivs.length > 3 ? '...' : ''}`
             });
         }
 
@@ -2538,7 +2551,7 @@
             const pct = (reactive.length / periodRows.length * 100).toFixed(0);
             alerts.push({
                 severity: reactive.length > periodRows.length * 0.2 ? 'red' : 'amber',
-                message: `<strong>${reactive.length} activities (${pct}%)</strong> created less than 3 days before their start date (reactive planning).`
+                message: `<strong>${fmtNum(reactive.length)} activities (${pct}%)</strong> created less than 3 days before their start date (reactive planning).`
             });
         }
 
@@ -2555,7 +2568,7 @@
         if (singleChannelCampaigns.length > 0) {
             alerts.push({
                 severity: 'amber',
-                message: `<strong>${singleChannelCampaigns.length} campaign${singleChannelCampaigns.length > 1 ? 's are' : ' is'}</strong> using only a single channel: ${singleChannelCampaigns.slice(0, 3).map(c => esc(c[0])).join(', ')}`
+                message: `<strong>${fmtNum(singleChannelCampaigns.length)} campaign${singleChannelCampaigns.length > 1 ? 's are' : ' is'}</strong> using only a single channel: ${singleChannelCampaigns.slice(0, 3).map(c => esc(c[0])).join(', ')}`
             });
         }
 
@@ -2592,7 +2605,7 @@
         if (unaligned.length > periodRows.length * 0.3) {
             alerts.push({
                 severity: 'amber',
-                message: `<strong>${unaligned.length} activities (${(unaligned.length / periodRows.length * 100).toFixed(0)}%)</strong> have no strategic objective assigned.`
+                message: `<strong>${fmtNum(unaligned.length)} activities (${(unaligned.length / periodRows.length * 100).toFixed(0)}%)</strong> have no strategic objective assigned.`
             });
         }
 
@@ -2655,22 +2668,22 @@
         document.getElementById('strategic-stats').innerHTML = `
             <div class="kpi-card success">
                 <div class="kpi-label">Aligned Activities</div>
-                <div class="kpi-row"><div><span class="kpi-value">${aligned}</span></div></div>
+                <div class="kpi-row"><div><span class="kpi-value">${fmtNum(aligned)}</span></div></div>
                 <div class="kpi-sub">${total > 0 ? (aligned / total * 100).toFixed(0) : 0}% of total</div>
             </div>
             <div class="kpi-card danger">
                 <div class="kpi-label">Unaligned</div>
-                <div class="kpi-row"><div><span class="kpi-value">${unaligned}</span></div></div>
+                <div class="kpi-row"><div><span class="kpi-value">${fmtNum(unaligned)}</span></div></div>
                 <div class="kpi-sub">No objective assigned</div>
             </div>
             <div class="kpi-card info">
                 <div class="kpi-label">Unique Objectives</div>
-                <div class="kpi-row"><div><span class="kpi-value">${uniqueObj}</span></div></div>
+                <div class="kpi-row"><div><span class="kpi-value">${fmtNum(uniqueObj)}</span></div></div>
                 <div class="kpi-sub">Strategic objectives tracked</div>
             </div>
             <div class="kpi-card">
                 <div class="kpi-label">Avg Activities/Objective</div>
-                <div class="kpi-row"><div><span class="kpi-value">${uniqueObj > 0 ? (aligned / uniqueObj).toFixed(1) : '0'}</span></div></div>
+                <div class="kpi-row"><div><span class="kpi-value">${uniqueObj > 0 ? fmtNum(parseFloat((aligned / uniqueObj).toFixed(1))) : '0'}</span></div></div>
                 <div class="kpi-sub">Distribution evenness</div>
             </div>`;
 
@@ -2734,7 +2747,7 @@
                 else if (count <= 2) { bg = '#e8ecd0'; fg = 'var(--success)'; }
                 else if (count <= 5) { bg = '#d4eaf8'; fg = '#065a96'; }
                 else { bg = '#0C7EC620'; fg = '#065a96'; }
-                html += `<div class="heatmap-cell" style="background:${bg};color:${fg}">${count || ''}</div>`;
+                html += `<div class="heatmap-cell" style="background:${bg};color:${fg}">${count ? fmtNum(count) : ''}</div>`;
             }
         }
 
@@ -2782,7 +2795,7 @@
             const y = padT + (chartH / 4) * i;
             const val = Math.round(maxVal * (1 - i / 4));
             svg += `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="var(--surface)" stroke-width="1"/>`;
-            svg += `<text x="${padL - 6}" y="${y + 3}" text-anchor="end" font-size="10" fill="var(--medium-gray)">${val}</text>`;
+            svg += `<text x="${padL - 6}" y="${y + 3}" text-anchor="end" font-size="10" fill="var(--medium-gray)">${fmtNum(val)}</text>`;
         }
 
         topObjs.forEach((obj, oi) => {
@@ -2835,22 +2848,22 @@
         document.getElementById('resource-stats').innerHTML = `
             <div class="kpi-card highlight">
                 <div class="kpi-label">Active Teams</div>
-                <div class="kpi-row"><div><span class="kpi-value">${teams.length}</span></div></div>
+                <div class="kpi-row"><div><span class="kpi-value">${fmtNum(teams.length)}</span></div></div>
                 <div class="kpi-sub">Lead teams with activities</div>
             </div>
             <div class="kpi-card info">
                 <div class="kpi-label">Campaigns</div>
-                <div class="kpi-row"><div><span class="kpi-value">${campaigns.length}</span></div></div>
+                <div class="kpi-row"><div><span class="kpi-value">${fmtNum(campaigns.length)}</span></div></div>
                 <div class="kpi-sub">Active campaigns</div>
             </div>
             <div class="kpi-card success">
                 <div class="kpi-label">Partner Teams</div>
-                <div class="kpi-row"><div><span class="kpi-value">${partners.length}</span></div></div>
+                <div class="kpi-row"><div><span class="kpi-value">${fmtNum(partners.length)}</span></div></div>
                 <div class="kpi-sub">Cross-team collaborations</div>
             </div>
             <div class="kpi-card">
                 <div class="kpi-label">Avg per Team</div>
-                <div class="kpi-row"><div><span class="kpi-value">${teams.length > 0 ? (rows.length / teams.length).toFixed(1) : '0'}</span></div></div>
+                <div class="kpi-row"><div><span class="kpi-value">${teams.length > 0 ? fmtNum(parseFloat((rows.length / teams.length).toFixed(1))) : '0'}</span></div></div>
                 <div class="kpi-sub">Activities per lead team</div>
             </div>`;
 
@@ -2891,7 +2904,7 @@
                     <div style="width:${intPct}%;background:#0C7EC6;height:100%;border-radius:4px 0 0 4px;min-width:${counts.internal ? '2px' : '0'}"></div>
                     <div style="width:${extPct}%;background:#6F7A1A;height:100%;border-radius:0 4px 4px 0;min-width:${counts.external ? '2px' : '0'}"></div>
                 </div>
-                <div class="bar-value">${total}</div>
+                <div class="bar-value">${fmtNum(total)}</div>
             </div>`;
         }
         html += `<div style="display:flex;gap:16px;margin-top:8px;padding-left:150px">
@@ -2952,7 +2965,7 @@
                 else if (count <= 2) { bg = '#e8ecd0'; fg = 'var(--success)'; }
                 else if (count <= 5) { bg = '#d4eaf8'; fg = '#065a96'; }
                 else { bg = '#0C7EC620'; fg = '#065a96'; }
-                html += `<div class="heatmap-cell" style="background:${bg};color:${fg}">${count || ''}</div>`;
+                html += `<div class="heatmap-cell" style="background:${bg};color:${fg}">${count ? fmtNum(count) : ''}</div>`;
             }
         }
 
@@ -3005,10 +3018,10 @@
 
             html += `<tr>
                 <td title="${esc(name)}">${esc(name)}</td>
-                <td><strong>${data.count}</strong></td>
+                <td><strong>${fmtNum(data.count)}</strong></td>
                 <td>${chBadge}</td>
-                <td>${data.divisions.size}</td>
-                <td>${data.audiences.size}</td>
+                <td>${fmtNum(data.divisions.size)}</td>
+                <td>${fmtNum(data.audiences.size)}</td>
                 <td>${data.objectives.size}</td>
                 <td style="font-size:12px">${dateRange}</td>
             </tr>`;
@@ -3065,7 +3078,7 @@
                 <td>${esc(g.week)}</td>
                 <td title="${esc(g.audience)}">${esc(g.audience)}</td>
                 <td>${esc(g.channel)}</td>
-                <td><span class="badge ${severity}">${g.activities.length}</span></td>
+                <td><span class="badge ${severity}">${fmtNum(g.activities.length)}</span></td>
                 <td title="${esc(g.activities.join(', '))}">${esc(g.activities.slice(0, 3).join(', '))}${g.activities.length > 3 ? '...' : ''}</td>
             </tr>`;
         }
@@ -3127,22 +3140,22 @@
         document.getElementById('planning-stats').innerHTML = `
             <div class="kpi-card highlight">
                 <div class="kpi-label">This Week</div>
-                <div class="kpi-row"><div><span class="kpi-value">${thisWeek.length}</span></div></div>
+                <div class="kpi-row"><div><span class="kpi-value">${fmtNum(thisWeek.length)}</span></div></div>
                 <div class="kpi-sub">Starting in 7 days</div>
             </div>
             <div class="kpi-card info">
                 <div class="kpi-label">Next 30 Days</div>
-                <div class="kpi-row"><div><span class="kpi-value">${nextMonth.length}</span></div></div>
+                <div class="kpi-row"><div><span class="kpi-value">${fmtNum(nextMonth.length)}</span></div></div>
                 <div class="kpi-sub">Upcoming activities</div>
             </div>
             <div class="kpi-card warning">
                 <div class="kpi-label">Short Notice</div>
-                <div class="kpi-row"><div><span class="kpi-value">${reactive.length}</span></div></div>
+                <div class="kpi-row"><div><span class="kpi-value">${fmtNum(reactive.length)}</span></div></div>
                 <div class="kpi-sub">Created &lt;7 days before start</div>
             </div>
             <div class="kpi-card success">
                 <div class="kpi-label">Avg Lead Time</div>
-                <div class="kpi-row"><div><span class="kpi-value">${avgLead}</span><span class="kpi-unit"> d</span></div></div>
+                <div class="kpi-row"><div><span class="kpi-value">${fmtNum(avgLead)}</span><span class="kpi-unit"> d</span></div></div>
                 <div class="kpi-sub">Days from creation to start</div>
             </div>`;
 
@@ -3182,7 +3195,7 @@
         }
 
         for (const [groupName, items] of sortedGroups) {
-            html += `<div class="gantt-group-label">${esc(groupName)} (${items.length})</div>`;
+            html += `<div class="gantt-group-label">${esc(groupName)} (${fmtNum(items.length)})</div>`;
 
             for (const r of items.slice(0, 15)) {
                 const name = r.activity_name || 'Untitled';
@@ -3262,7 +3275,7 @@
             const y = padT + (chartH / steps) * i;
             const val = Math.round(yMax * (1 - i / steps));
             svg += `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="var(--surface)" stroke-width="1"/>`;
-            svg += `<text x="${padL - 6}" y="${y + 3}" text-anchor="end" font-size="10" fill="var(--medium-gray)">${val}</text>`;
+            svg += `<text x="${padL - 6}" y="${y + 3}" text-anchor="end" font-size="10" fill="var(--medium-gray)">${fmtNum(val)}</text>`;
         }
 
         const threshY = padT + chartH - (threshold / yMax) * chartH;
@@ -3287,7 +3300,7 @@
             svg += `<rect x="${x}" y="${extY}" width="${barW}" height="${extH}" fill="${isOverThreshold ? '#BD000C80' : 'var(--success)'}" rx="2" opacity="0.85"/>`;
 
             if (w.total > 0) {
-                svg += `<text x="${x}" y="${intY - 4}" text-anchor="middle" font-size="10" fill="${isOverThreshold ? 'var(--danger)' : 'var(--dark-gray)'}" font-weight="600">${w.total}</text>`;
+                svg += `<text x="${x}" y="${intY - 4}" text-anchor="middle" font-size="10" fill="${isOverThreshold ? 'var(--danger)' : 'var(--dark-gray)'}" font-weight="600">${fmtNum(w.total)}</text>`;
             }
 
             svg += `<text x="${x}" y="${H - 4}" text-anchor="middle" font-size="9" fill="${isTodayWeek ? 'var(--warning)' : 'var(--medium-gray)'}" font-weight="${isTodayWeek ? '700' : '400'}">${w.label}</text>`;
@@ -3352,10 +3365,10 @@
                 const count = matrix[`${ch}|||${wi}`] || 0;
                 let bg, fg, text;
                 if (count === 0) { bg = '#e8ecd040'; fg = 'var(--success)'; text = '\u2713'; }
-                else if (count <= 2) { bg = '#e8ecd0'; fg = 'var(--success)'; text = count; }
-                else if (count <= 4) { bg = '#fdf3d7'; fg = '#8a6800'; text = count; }
-                else { bg = '#f5d0d3'; fg = 'var(--danger)'; text = count; }
-                html += `<div class="heatmap-cell" style="background:${bg};color:${fg}" title="${esc(ch)} \u2014 Week of ${weeks[wi].label}: ${count} activities">${text}</div>`;
+                else if (count <= 2) { bg = '#e8ecd0'; fg = 'var(--success)'; text = fmtNum(count); }
+                else if (count <= 4) { bg = '#fdf3d7'; fg = '#8a6800'; text = fmtNum(count); }
+                else { bg = '#f5d0d3'; fg = 'var(--danger)'; text = fmtNum(count); }
+                html += `<div class="heatmap-cell" style="background:${bg};color:${fg}" title="${esc(ch)} \u2014 Week of ${weeks[wi].label}: ${fmtNum(count)} activities">${text}</div>`;
             }
         }
 
@@ -3405,7 +3418,7 @@
                 <td>${esc(r.channel || '\u2014')}</td>
                 <td>${fmtDateShort(sd)}</td>
                 <td>${fmtDateShort(ed)}</td>
-                <td style="font-weight:600;color:${leadDays != null && leadDays < 7 ? 'var(--danger)' : 'var(--dark-gray)'}">${leadDays != null ? leadDays + 'd' : '\u2014'}</td>
+                <td style="font-weight:600;color:${leadDays != null && leadDays < 7 ? 'var(--danger)' : 'var(--dark-gray)'}">${leadDays != null ? fmtNum(leadDays) + 'd' : '\u2014'}</td>
                 <td><span class="badge" style="background:${priorityColor}20;color:${priorityColor}">${esc(r.priority || '\u2014')}</span></td>
                 <td title="${esc(r.lead_team || '')}">${esc(r.lead_team || '\u2014')}</td>
                 <td title="${esc(r.target_audience || '')}">${esc((r.target_audience || '\u2014').length > 25 ? r.target_audience.slice(0, 24) + '\u2026' : r.target_audience || '\u2014')}</td>
@@ -3413,7 +3426,7 @@
         }
 
         if (activities.length > 40) {
-            html += `<tr><td colspan="10" style="text-align:center;color:var(--medium-gray);font-style:italic;padding:12px">+${activities.length - 40} more activities</td></tr>`;
+            html += `<tr><td colspan="10" style="text-align:center;color:var(--medium-gray);font-style:italic;padding:12px">+${fmtNum(activities.length - 40)} more activities</td></tr>`;
         }
 
         html += '</tbody></table>';
@@ -3539,7 +3552,7 @@
             DATA = data;
 
             dot.className = 'status-dot ready';
-            label.textContent = `${data.row_count} activities`;
+            label.textContent = `${fmtNum(data.row_count)} activities`;
 
             renderExecutiveSummary(data.rows || []);
             renderPlanningBoard(data);
