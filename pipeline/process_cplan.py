@@ -140,21 +140,7 @@ def read_csv_auto(path):
     except csv.Error:
         sep = ","
     log(f"  Reading {path.name} (delimiter={repr(sep)})")
-    df = pd.read_csv(path, sep=sep)
-    # Drop noise columns:
-    # - @odata.type: SP type strings
-    # - #WssId: internal SP lookup IDs
-    # - #Id: lookup reference IDs
-    # - #Claims: SP Claims identity strings (emails already extracted separately)
-    drop_cols = [c for c in df.columns
-                 if "@odata.type" in c
-                 or c.endswith("#WssId")
-                 or c.endswith("#Id")
-                 or c.endswith("#Claims")]
-    if drop_cols:
-        df = df.drop(columns=drop_cols)
-        log(f"  Dropped {len(drop_cols)} noise columns (@odata.type, #WssId, #Id, #Claims)")
-    return df
+    return pd.read_csv(path, sep=sep)
 
 
 # ---------------------------------------------------------------------------
@@ -331,7 +317,17 @@ def transform(df, source_type):
     # Strip whitespace from column names
     df.columns = [c.strip() for c in df.columns]
 
-    log(f"  Raw columns: {list(df.columns)}")
+    # Drop noise columns before matching to reduce false positives
+    drop_cols = [c for c in df.columns
+                 if "@odata.type" in c
+                 or c.endswith("#WssId")
+                 or c.endswith("#Id")
+                 or c.endswith("#Claims")]
+    if drop_cols:
+        df = df.drop(columns=drop_cols)
+        log(f"  Dropped {len(drop_cols)} noise columns")
+
+    log(f"  Columns after cleanup: {list(df.columns)}")
 
     # Build rename map — each CSV column maps to at most one output.
     # Try longest labels first so "Lead Team" matches before "Lead",
