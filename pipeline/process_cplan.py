@@ -52,6 +52,7 @@ INPUT_FILES = {
     "internal": "InternalCommunicationActivities*.csv",
     "external": "ExternalCommunicationActivities*.csv",
     "packs": "CommunicationPacks*.csv",
+    "channels": "InternalChannels*.csv",
 }
 
 
@@ -459,6 +460,28 @@ def transform(df, source_type):
     # Tag source
     df["source_type"] = source_type
 
+    # Computed columns for executive dashboard
+    if "start_date" in df.columns and "created" in df.columns:
+        df["planning_lead_days"] = (
+            df["start_date"] - df["created"]
+        ).dt.total_seconds() / 86400
+        df["planning_lead_days"] = df["planning_lead_days"].round(0).astype("Int64")
+
+    if "start_date" in df.columns and "end_date" in df.columns:
+        df["activity_duration_days"] = (
+            df["end_date"] - df["start_date"]
+        ).dt.total_seconds() / 86400
+        df["activity_duration_days"] = df["activity_duration_days"].round(0).astype("Int64")
+
+    if "start_date" in df.columns:
+        valid = df["start_date"].notna()
+        df.loc[valid, "quarter"] = (
+            df.loc[valid, "start_date"].dt.year.astype(str)
+            + "-Q"
+            + df.loc[valid, "start_date"].dt.quarter.astype(str)
+        )
+        df.loc[valid, "year_month"] = df.loc[valid, "start_date"].dt.strftime("%Y-%m")
+
     return df
 
 
@@ -633,6 +656,32 @@ def transform_packs(df):
 
             df[col] = raw.apply(_parse_date)
 
+    return df
+
+
+def transform_channels(df):
+    """Transform InternalChannels CSV.
+
+    Keeps: ID -> channel_id, Title -> channel_name, field_1 -> channel_abbr.
+    The channel_abbr matches the suffix after the last '-' in tracking_id.
+    """
+    df.columns = [c.strip() for c in df.columns]
+
+    rename = {}
+    for col in df.columns:
+        lower = col.lower().strip()
+        if lower == "id":
+            rename[col] = "channel_id"
+        elif lower == "title":
+            rename[col] = "channel_name"
+        elif lower == "field_1" or lower == "field 1":
+            rename[col] = "channel_abbr"
+
+    df = df.rename(columns=rename)
+    keep = [c for c in ("channel_id", "channel_name", "channel_abbr") if c in df.columns]
+    df = df[keep]
+
+    log(f"  Channels: {len(df)} rows, columns: {list(df.columns)}")
     return df
 
 
@@ -882,6 +931,23 @@ def main():
                 print(f"  {col:<30} {dtype:<15} {non_null:<10} {sample}")
         else:
             write_table(packs_df, "packs", "packs", full_refresh=full_refresh)
+
+    # --- Internal channels lookup ---
+    if "channels" in files:
+        log("Processing InternalChannels...")
+        channels_df = read_csv_auto(files["channels"])
+        log(f"  channels: {len(channels_df)} rows, {len(channels_df.columns)} columns")
+        channels_df = transform_channels(channels_df)
+
+        if preview:
+            print()
+            print("=" * 80)
+            print(f"  CHANNELS PREVIEW  ({len(channels_df)} rows)")
+            print("=" * 80)
+            print()
+            print(channels_df.to_string(index=False))
+        else:
+            write_table(channels_df, "channels", "channels", full_refresh=full_refresh)
 
     if not preview:
         log("Done.")
