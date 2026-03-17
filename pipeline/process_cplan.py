@@ -298,6 +298,7 @@ def parse_sp_person_email(val):
 COLUMN_MAP = {
     "ID":                       "sp_id",
     "Tracking ID":              "tracking_id",
+    "Tacking ID":               "tracking_id",
     "Title":                    "activity_name",
     "Activity":                 "activity_description",
     "Target audience":          "target_audience",
