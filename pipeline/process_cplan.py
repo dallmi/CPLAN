@@ -276,7 +276,7 @@ def parse_sp_person_email(val):
 COLUMN_MAP = {
     "Tracking ID":              "tracking_id",
     "Title":                    "title",
-    "Activity":                 "activity",
+    "Activity":                 "activity_description",
     "Target audience":          "target_audience",
     "Extended audience":        "extended_audience",
     "Business Division":        "business_division",
@@ -370,8 +370,8 @@ def transform(df, source_type):
     log(f"  Mapped columns: {list(df.columns)}")
 
     # Strip HTML from rich text fields (e.g. activity)
-    if "activity" in df.columns:
-        df["activity"] = df["activity"].apply(_strip_html)
+    if "activity_description" in df.columns:
+        df["activity_description"] = df["activity_description"].apply(_strip_html)
 
     # Extract person emails BEFORE lookup parsing (which replaces JSON with display names)
     for col in SP_PERSON_COLUMNS:
