@@ -51,6 +51,7 @@ ONEDRIVE_INPUT_DIR = Path("Projekte") / "CPLAN" / "Input"
 INPUT_FILES = {
     "internal": "InternalCommunicationActivities*.csv",
     "external": "ExternalCommunicationActivities*.csv",
+    "packs": "CommunicationPacks*.csv",
 }
 
 
@@ -465,54 +466,50 @@ def transform(df, source_type):
 # DuckDB + Parquet output
 # ---------------------------------------------------------------------------
 
-def write_outputs(df, full_refresh=False):
-    """Write combined DataFrame to DuckDB and Parquet."""
+def write_table(df, table_name, parquet_name, full_refresh=False):
+    """Write a DataFrame to Parquet, DuckDB table, and JSON."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
     # Parquet
-    parquet_path = OUTPUT_DIR / "communications.parquet"
+    parquet_path = OUTPUT_DIR / f"{parquet_name}.parquet"
     df.to_parquet(parquet_path, index=False)
     log(f"Wrote {len(df)} rows to {parquet_path}")
 
     # DuckDB
     if full_refresh and DB_PATH.exists():
-        DB_PATH.unlink()
-        log("Deleted existing database (full refresh)")
+        # Only delete once (caller responsibility), but safe to call
+        pass
 
     con = duckdb.connect(str(DB_PATH))
     try:
         if full_refresh:
-            con.execute("DROP TABLE IF EXISTS communications")
+            con.execute(f"DROP TABLE IF EXISTS {table_name}")
 
-        con.execute("""
-            CREATE TABLE IF NOT EXISTS communications AS
+        con.execute(f"""
+            CREATE TABLE IF NOT EXISTS {table_name} AS
             SELECT * FROM read_parquet(?)
         """, [str(parquet_path)])
 
-        # If table already existed and we're not doing full refresh,
-        # replace the data
         if not full_refresh:
-            con.execute("DELETE FROM communications")
-            con.execute("""
-                INSERT INTO communications
+            con.execute(f"DELETE FROM {table_name}")
+            con.execute(f"""
+                INSERT INTO {table_name}
                 SELECT * FROM read_parquet(?)
             """, [str(parquet_path)])
 
-        row_count = con.execute("SELECT COUNT(*) FROM communications").fetchone()[0]
-        log(f"DuckDB: {row_count} rows in communications table")
+        row_count = con.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
+        log(f"DuckDB: {row_count} rows in {table_name} table")
 
-        # Print schema
-        schema = con.execute("DESCRIBE communications").fetchall()
-        log("Schema:")
+        schema = con.execute(f"DESCRIBE {table_name}").fetchall()
+        log(f"Schema ({table_name}):")
         for col_name, col_type, *_ in schema:
             log(f"  {col_name:<40} {col_type}")
     finally:
         con.close()
 
     # JSON for HTML dashboard
-    json_path = OUTPUT_DIR / "communications.json"
-    # Convert timestamps/dates to strings for JSON serialization
+    json_path = OUTPUT_DIR / f"{parquet_name}.json"
     json_df = df.copy()
     for col in json_df.select_dtypes(include=["datetime64", "datetimetz"]).columns:
         json_df[col] = json_df[col].astype(str)
@@ -525,6 +522,39 @@ def write_outputs(df, full_refresh=False):
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, default=str)
     log(f"Wrote dashboard JSON to {json_path}")
+
+
+def transform_packs(df):
+    """Transform CommunicationPacks CSV — light processing.
+
+    Applies the same noise column removal and SP lookup parsing
+    but keeps all remaining columns (schema TBD).
+    """
+    df.columns = [c.strip() for c in df.columns]
+
+    # Drop noise columns
+    drop_cols = [c for c in df.columns if _is_noise_col(c)]
+    if drop_cols:
+        df = df.drop(columns=drop_cols)
+        log(f"  Dropped {len(drop_cols)} noise columns")
+
+    # Decode SP column names for readability
+    rename = {}
+    for col in df.columns:
+        decoded = decode_sp_column_name(col).strip()
+        clean = decoded.lower().replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+        rename[col] = clean
+    df = df.rename(columns=rename)
+
+    # Parse any SP lookup JSON values across all columns
+    for col in df.columns:
+        if df[col].dtype == object:
+            sample = df[col].dropna().head(5)
+            if sample.astype(str).str.startswith("{").any() or sample.astype(str).str.startswith("[").any():
+                df[col] = df[col].apply(parse_sp_lookup)
+
+    log(f"  Packs columns: {list(df.columns)}")
+    return df
 
 
 # ---------------------------------------------------------------------------
@@ -725,29 +755,57 @@ def main():
         log(f"  Expected patterns: {list(INPUT_FILES.values())}")
         sys.exit(1)
 
-    # Read and transform each file
+    if full_refresh and DB_PATH.exists():
+        DB_PATH.unlink()
+        log("Deleted existing database (full refresh)")
+
+    # --- Communication activities (internal + external) ---
+    activity_files = {k: v for k, v in files.items() if k in ("internal", "external")}
     frames = []
-    raw_columns = {}  # key -> list of raw column names (before transform)
-    for key, path in files.items():
+    raw_columns = {}
+    for key, path in activity_files.items():
         df = read_csv_auto(path)
         log(f"  {key}: {len(df)} rows, {len(df.columns)} columns")
         raw_columns[key] = [c.strip() for c in df.columns]
         df = transform(df, source_type=key)
         frames.append(df)
 
-    # Combine
-    combined = pd.concat(frames, ignore_index=True)
-    log(f"Combined: {len(combined)} rows")
+    if frames:
+        combined = pd.concat(frames, ignore_index=True)
+        log(f"Combined activities: {len(combined)} rows")
 
-    if preview:
-        print_column_comparison(raw_columns, files)
-        print_data_preview(combined)
-        return
+        if preview:
+            print_column_comparison(raw_columns, activity_files)
+            print_data_preview(combined)
+        else:
+            write_table(combined, "communications", "communications", full_refresh=full_refresh)
 
-    # Write outputs
-    write_outputs(combined, full_refresh=full_refresh)
+    # --- Communication packs ---
+    if "packs" in files:
+        log("Processing CommunicationPacks...")
+        packs_df = read_csv_auto(files["packs"])
+        log(f"  packs: {len(packs_df)} rows, {len(packs_df.columns)} columns")
+        packs_df = transform_packs(packs_df)
 
-    log("Done.")
+        if preview:
+            print()
+            print("=" * 80)
+            print(f"  PACKS PREVIEW  ({len(packs_df)} rows, {len(packs_df.columns)} columns)")
+            print("=" * 80)
+            print()
+            for col in packs_df.columns:
+                dtype = str(packs_df[col].dtype)
+                non_null = packs_df[col].notna().sum()
+                sample = ""
+                first_valid = packs_df[col].dropna().head(1)
+                if not first_valid.empty:
+                    sample = str(first_valid.iloc[0])[:40]
+                print(f"  {col:<30} {dtype:<15} {non_null:<10} {sample}")
+        else:
+            write_table(packs_df, "packs", "packs", full_refresh=full_refresh)
+
+    if not preview:
+        log("Done.")
 
 
 if __name__ == "__main__":
