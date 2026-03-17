@@ -358,16 +358,7 @@ def transform(df, source_type):
     df.columns = [c.strip() for c in df.columns]
 
     # Drop noise columns before matching to reduce false positives
-    def _is_noise(col):
-        decoded = decode_sp_column_name(col).strip()
-        return (
-            "@odata.type" in col or "@odata.type" in decoded
-            or col.endswith("#WssId") or decoded.endswith("#WssId")
-            or col.endswith("#Id") or decoded.endswith("#Id")
-            or col.endswith("#Claims") or decoded.endswith("#Claims")
-        )
-
-    drop_cols = [c for c in df.columns if _is_noise(c)]
+    drop_cols = [c for c in df.columns if _is_noise_col(c)]
     if drop_cols:
         df = df.drop(columns=drop_cols)
         log(f"  Dropped {len(drop_cols)} noise columns")
@@ -539,11 +530,29 @@ def write_outputs(df, full_refresh=False):
 # Pretty-print helpers for --preview
 # ---------------------------------------------------------------------------
 
+def _is_noise_col(col):
+    """Check if a column should be dropped as noise (used by both transform and comparison)."""
+    decoded = decode_sp_column_name(col).strip()
+    return (
+        "@odata.type" in col or "@odata.type" in decoded
+        or col.endswith("#WssId") or decoded.endswith("#WssId")
+        or col.endswith("#Id") or decoded.endswith("#Id")
+        or col.endswith("#Claims") or decoded.endswith("#Claims")
+    )
+
+
 def print_column_comparison(raw_columns, files):
     """Print a comparison table of raw columns across input files."""
     sources = list(raw_columns.keys())
+
+    # Filter noise columns (same logic as transform)
+    clean_columns = {
+        src: [c for c in cols if not _is_noise_col(c)]
+        for src, cols in raw_columns.items()
+    }
+
     all_raw = {}  # decoded_name -> { source: raw_name }
-    for src, cols in raw_columns.items():
+    for src, cols in clean_columns.items():
         for col in cols:
             decoded = decode_sp_column_name(col).strip()
             if decoded not in all_raw:
@@ -553,7 +562,7 @@ def print_column_comparison(raw_columns, files):
     # Show which columns map to our COLUMN_MAP (same logic as transform)
     labels_sorted = sorted(COLUMN_MAP.keys(), key=len, reverse=True)
     raw_to_clean = {}
-    for src, cols in raw_columns.items():
+    for src, cols in clean_columns.items():
         claimed = set()
         for col in cols:
             decoded = decode_sp_column_name(col).strip()
