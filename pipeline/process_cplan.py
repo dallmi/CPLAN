@@ -315,6 +315,7 @@ COLUMN_MAP = {
     "Priority":                 "priority",
     "Strategic Objectives":     "strategic_objectives",
     "Campaign":                 "campaign",
+    "Campaign LTID":            "campaign_ltid",
     "Communication pack":       "communication_pack",
     "Communication":            "communication_ref",
     "Created":                  "created",
@@ -327,7 +328,8 @@ COLUMN_MAP = {
 SP_LOOKUP_COLUMNS = {
     "target_audience", "extended_audience", "business_division",
     "business_area", "region", "channel", "lead", "lead_team",
-    "partner_team", "priority", "strategic_objectives", "campaign",
+    "partner_team", "priority", "strategic_objectives",
+    "campaign", "campaign_ltid",
     "communication_ref", "communication_pack", "author", "audience",
 }
 
