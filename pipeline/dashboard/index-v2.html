@@ -147,7 +147,7 @@
             color: var(--medium-gray);
         }
 
-        .date-filter input[type="text"] {
+        .date-filter input[type="date"] {
             padding: 0.35rem 0.5rem;
             border: 1px solid var(--light-gray);
             border-radius: 4px;
@@ -155,7 +155,7 @@
             font-family: var(--font);
         }
 
-        .date-filter input[type="text"]:focus {
+        .date-filter input[type="date"]:focus {
             outline: none;
             border-color: var(--primary);
         }
@@ -946,9 +946,9 @@
                     <button class="date-preset active" data-range="all">All</button>
                 </div>
                 <label>From</label>
-                <input type="text" id="date-from" placeholder="DD.MM.YYYY" maxlength="10" style="width:100px">
+                <input type="date" id="date-from">
                 <label>To</label>
-                <input type="text" id="date-to" placeholder="DD.MM.YYYY" maxlength="10" style="width:100px">
+                <input type="date" id="date-to">
             </div>
             <button class="export-btn" id="export-xlsx" title="Export all activities to Excel">&#11123; Export XLSX</button>
             <span class="status-text"><span class="status-dot loading" id="status-dot"></span><span id="status-label">Loading...</span></span>
@@ -1486,8 +1486,8 @@
         // Update date inputs (DD.MM.YYYY format)
         const fromEl = document.getElementById('date-from');
         const toEl = document.getElementById('date-to');
-        fromEl.value = globalDateFrom ? fmtDateEU(globalDateFrom) : '';
-        toEl.value = globalDateTo ? fmtDateEU(globalDateTo) : '';
+        fromEl.value = globalDateFrom ? fmtDateISO(globalDateFrom) : '';
+        toEl.value = globalDateTo ? fmtDateISO(globalDateTo) : '';
     }
 
     function refreshAllPages() {
@@ -1533,18 +1533,16 @@
         return n.toLocaleString('de-CH');
     }
 
-    function fmtDateEU(d) {
+    function fmtDateISO(d) {
         if (!d) return '';
         const dd = String(d.getDate()).padStart(2, '0');
         const mm = String(d.getMonth() + 1).padStart(2, '0');
-        return `${dd}.${mm}.${d.getFullYear()}`;
+        return `${d.getFullYear()}-${mm}-${dd}`;
     }
 
-    function parseDateEU(str) {
+    function parseDateInput(str) {
         if (!str) return null;
-        const m = str.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
-        if (!m) return null;
-        const d = new Date(parseInt(m[3]), parseInt(m[2]) - 1, parseInt(m[1]));
+        const d = new Date(str + 'T00:00:00');
         return isNaN(d.getTime()) ? null : d;
     }
 
@@ -3560,8 +3558,8 @@
     function onDateInputChange() {
         const fromVal = document.getElementById('date-from').value;
         const toVal = document.getElementById('date-to').value;
-        globalDateFrom = parseDateEU(fromVal);
-        globalDateTo = parseDateEU(toVal);
+        globalDateFrom = parseDateInput(fromVal);
+        globalDateTo = parseDateInput(toVal);
         if (globalDateTo) globalDateTo.setHours(23, 59, 59);
         document.querySelectorAll('.date-preset').forEach(b => b.classList.remove('active'));
         refreshAllPages();
