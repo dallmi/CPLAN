@@ -2217,10 +2217,12 @@
         const headers = exportCols.map(c => c.label);
         const wsData = [headers];
 
+        const DATE_KEYS = new Set(['start_date', 'end_date', 'created', 'modified']);
+
         for (const row of rows) {
             wsData.push(exportCols.map(c => {
                 let v = row[c.key];
-                if (c.key === 'start_date' || c.key === 'end_date') {
+                if (DATE_KEYS.has(c.key)) {
                     const d = parseDate(v);
                     return d ? fmtDate(d) : '';
                 }
