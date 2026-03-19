@@ -11,8 +11,8 @@
         window.duckdb = duckdb;
         window.dispatchEvent(new Event('duckdb-ready'));
     </script>
-    <!-- SheetJS for XLSX export -->
-    <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+    <!-- xlsx-js-style for formatted XLSX export (superset of SheetJS) -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
     <!-- Flatpickr date picker -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
@@ -702,6 +702,125 @@
 
         .filter-bar input { width: 240px; }
 
+        /* ── Activity Tables: Enhanced Filters ── */
+        .act-filters {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            padding: 12px 18px 12px;
+        }
+
+        .act-filters-primary {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .act-filters-secondary {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .trackid-wrap {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: var(--surface-alt);
+            border: 1.5px solid var(--primary);
+            border-radius: 6px;
+            padding: 0 10px;
+        }
+
+        .trackid-label {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--primary);
+            white-space: nowrap;
+        }
+
+        .trackid-input {
+            border: none;
+            background: transparent;
+            outline: none;
+            font-family: "Consolas", "Menlo", monospace;
+            font-size: 13px;
+            width: 160px;
+            padding: 6px 0;
+            color: var(--dark-gray);
+        }
+
+        .act-search {
+            flex: 1;
+            min-width: 200px;
+            padding: 6px 12px;
+            border: 1px solid var(--light-gray);
+            border-radius: 6px;
+            font-size: 13px;
+            font-family: var(--font);
+            background: var(--white);
+            color: var(--dark-gray);
+        }
+
+        .act-search:focus { outline: none; border-color: var(--info); }
+
+        .act-filters-secondary select {
+            padding: 5px 8px;
+            border: 1px solid var(--light-gray);
+            border-radius: 6px;
+            font-size: 12px;
+            font-family: var(--font);
+            background: var(--white);
+            color: var(--dark-gray);
+            cursor: pointer;
+        }
+
+        .act-filters-secondary select:focus { outline: none; border-color: var(--info); }
+
+        .act-clear-btn {
+            padding: 5px 12px;
+            border: 1px solid var(--light-gray);
+            border-radius: 6px;
+            background: var(--white);
+            font-size: 12px;
+            font-family: var(--font);
+            color: var(--medium-gray);
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .act-clear-btn:hover { background: var(--surface); border-color: var(--gray-ii); color: var(--dark-gray); }
+
+        .act-filter-count {
+            font-size: 12px;
+            color: var(--medium-gray);
+            white-space: nowrap;
+            margin-left: 4px;
+        }
+
+        .act-table-wrap {
+            overflow-x: auto;
+            max-height: 620px;
+            overflow-y: auto;
+        }
+
+        /* tracking_id cell */
+        td.col-tracking-id {
+            font-family: "Consolas", "Menlo", monospace;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--info) !important;
+            white-space: nowrap;
+            max-width: none !important;
+        }
+
+        thead th.sort-asc::after { content: " \2191"; opacity: 0.9; font-size: 11px; }
+        thead th.sort-desc::after { content: " \2193"; opacity: 0.9; font-size: 11px; }
+
         /* ── Heatmap ── */
         .heatmap-wrapper {
             overflow-x: auto;
@@ -1162,7 +1281,7 @@
             </div>
         </div>
 
-        <!-- ACTIVITIES (Internal / External / All) -->
+        <!-- ACTIVITIES (Internal / External) -->
         <div class="page" id="page-activities">
             <div class="sub-tabs" id="activities-sub-tabs">
                 <button class="sub-tab active" data-sub="act-internal">Internal</button>
@@ -1171,16 +1290,31 @@
 
             <div class="sub-page active" id="sub-act-internal">
                 <div class="kpi-grid" id="internal-stats"></div>
-
                 <div class="charts-grid">
                     <div class="chart-card full-width">
-                        <div class="chart-card-header">Internal Activities</div>
+                        <div class="chart-card-header">
+                            <span>Internal Activities</span>
+                            <button class="export-btn" id="internal-export-xlsx">&#11123; Export XLSX</button>
+                        </div>
                         <div class="chart-card-body">
-                            <div style="padding:12px 18px 0">
-                                <div class="filter-bar">
-                                    <input type="text" placeholder="Search activities..." id="internal-search">
+                            <div class="act-filters">
+                                <div class="act-filters-primary">
+                                    <div class="trackid-wrap">
+                                        <span class="trackid-label">Tracking ID</span>
+                                        <input type="text" class="trackid-input" id="internal-trackid" placeholder="e.g. COM-2024-001">
+                                    </div>
+                                    <input type="text" class="act-search" id="internal-search" placeholder="Search activity, lead, campaign&hellip;">
+                                </div>
+                                <div class="act-filters-secondary">
                                     <select id="internal-channel-filter"><option value="">All Channels</option></select>
                                     <select id="internal-priority-filter"><option value="">All Priorities</option></select>
+                                    <select id="internal-division-filter"><option value="">All Divisions</option></select>
+                                    <select id="internal-audience-filter"><option value="">All Audiences</option></select>
+                                    <select id="internal-lead-filter"><option value="">All Leads</option></select>
+                                    <select id="internal-region-filter"><option value="">All Regions</option></select>
+                                    <select id="internal-campaign-filter"><option value="">All Campaigns</option></select>
+                                    <button class="act-clear-btn" id="internal-clear">Clear filters</button>
+                                    <span class="act-filter-count" id="internal-count"></span>
                                 </div>
                             </div>
                             <div id="internal-table"><div class="loading">Loading...</div></div>
@@ -1191,16 +1325,31 @@
 
             <div class="sub-page" id="sub-act-external">
                 <div class="kpi-grid" id="external-stats"></div>
-
                 <div class="charts-grid">
                     <div class="chart-card full-width">
-                        <div class="chart-card-header">External Activities</div>
+                        <div class="chart-card-header">
+                            <span>External Activities</span>
+                            <button class="export-btn" id="external-export-xlsx">&#11123; Export XLSX</button>
+                        </div>
                         <div class="chart-card-body">
-                            <div style="padding:12px 18px 0">
-                                <div class="filter-bar">
-                                    <input type="text" placeholder="Search activities..." id="external-search">
+                            <div class="act-filters">
+                                <div class="act-filters-primary">
+                                    <div class="trackid-wrap">
+                                        <span class="trackid-label">Tracking ID</span>
+                                        <input type="text" class="trackid-input" id="external-trackid" placeholder="e.g. COM-2024-001">
+                                    </div>
+                                    <input type="text" class="act-search" id="external-search" placeholder="Search activity, lead, campaign&hellip;">
+                                </div>
+                                <div class="act-filters-secondary">
                                     <select id="external-channel-filter"><option value="">All Channels</option></select>
                                     <select id="external-priority-filter"><option value="">All Priorities</option></select>
+                                    <select id="external-division-filter"><option value="">All Divisions</option></select>
+                                    <select id="external-audience-filter"><option value="">All Audiences</option></select>
+                                    <select id="external-lead-filter"><option value="">All Leads</option></select>
+                                    <select id="external-region-filter"><option value="">All Regions</option></select>
+                                    <select id="external-campaign-filter"><option value="">All Campaigns</option></select>
+                                    <button class="act-clear-btn" id="external-clear">Clear filters</button>
+                                    <span class="act-filter-count" id="external-count"></span>
                                 </div>
                             </div>
                             <div id="external-table"><div class="loading">Loading...</div></div>
@@ -1994,19 +2143,145 @@
     // Internal / External pages
     // -------------------------------------------------------------------------
 
-    function renderSourcePage(type, data) {
-        const rows = (data.rows || []).filter(r => r.source_type === type);
-        const now = new Date();
-        const prefix = type;
+    const ACT_TABLE_COLS = [
+        { key: 'tracking_id',        label: 'Tracking ID',         wch: 18 },
+        { key: 'activity_name',      label: 'Activity',            wch: 50 },
+        { key: 'channel',            label: 'Channel',             wch: 20 },
+        { key: 'start_date',         label: 'Start Date',          wch: 14 },
+        { key: 'end_date',           label: 'End Date',            wch: 14 },
+        { key: 'priority',           label: 'Priority',            wch: 12 },
+        { key: 'lead',               label: 'Lead',                wch: 25 },
+        { key: 'lead_team',          label: 'Lead Team',           wch: 25 },
+        { key: 'business_division',  label: 'Division',            wch: 25 },
+        { key: 'target_audience',    label: 'Target Audience',     wch: 30 },
+        { key: 'region',             label: 'Region',              wch: 20 },
+        { key: 'campaign',           label: 'Campaign',            wch: 25 },
+        { key: 'strategic_objectives', label: 'Strategic Objectives', wch: 35 },
+    ];
 
-        const upcoming = rows.filter(r => { const d = parseDate(r.start_date); return d && d >= now; });
-        const channels = countBy(rows, "channel");
-        const topChannel = channels.length ? channels[0][0] : "\u2014";
+    // Extra cols included in XLSX export only
+    const ACT_EXPORT_EXTRA_COLS = [
+        { key: 'news_digest',  label: 'News Digest', wch: 12 },
+        { key: 'source_type',  label: 'Source Type', wch: 14 },
+    ];
+
+    function renderEnhancedTable(containerId, rows, sortCol, sortDir, onSort) {
+        const el = document.getElementById(containerId);
+        if (!rows.length) {
+            el.innerHTML = '<div class="empty-state"><p>No activities match the current filters</p></div>';
+            return;
+        }
+
+        let html = '<div class="act-table-wrap"><table><thead><tr>';
+        for (const col of ACT_TABLE_COLS) {
+            const isSorting = sortCol === col.key;
+            const sortCls = isSorting ? (sortDir === 1 ? ' sort-asc' : ' sort-desc') : '';
+            html += `<th class="sortable${sortCls}" data-col="${esc(col.key)}">${esc(col.label)}</th>`;
+        }
+        html += '</tr></thead><tbody>';
+
+        for (const row of rows) {
+            html += '<tr>';
+            for (const col of ACT_TABLE_COLS) {
+                let val = row[col.key];
+                if (col.key === 'start_date' || col.key === 'end_date') {
+                    val = fmtDate(parseDate(val));
+                    html += `<td>${esc(val)}</td>`;
+                } else if (col.key === 'tracking_id') {
+                    html += `<td class="col-tracking-id" title="${esc(String(row[col.key] ?? ''))}">${esc(String(row[col.key] ?? '\u2014'))}</td>`;
+                } else if (col.key === 'priority') {
+                    const color = priorityColor(val) || 'var(--medium-gray)';
+                    html += `<td><span class="badge" style="background:${color}20;color:${color}">${esc(String(val || '\u2014'))}</span></td>`;
+                } else {
+                    html += `<td title="${esc(String(val ?? ''))}">${esc(String(val ?? '\u2014'))}</td>`;
+                }
+            }
+            html += '</tr>';
+        }
+        html += '</tbody></table></div>';
+        el.innerHTML = html;
+
+        el.querySelectorAll('th.sortable').forEach(th => {
+            th.addEventListener('click', () => onSort(th.dataset.col));
+        });
+    }
+
+    function exportActivityXLSX(rows, filename, sheetLabel) {
+        if (!rows.length) return;
+
+        const exportCols = [...ACT_TABLE_COLS, ...ACT_EXPORT_EXTRA_COLS];
+        const headers = exportCols.map(c => c.label);
+        const wsData = [headers];
+
+        for (const row of rows) {
+            wsData.push(exportCols.map(c => {
+                let v = row[c.key];
+                if (c.key === 'start_date' || c.key === 'end_date') {
+                    const d = parseDate(v);
+                    return d ? fmtDate(d) : '';
+                }
+                return v ?? '';
+            }));
+        }
+
+        const wb = XLSX.utils.book_new();
+        const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+        ws['!cols'] = exportCols.map(c => ({ wch: c.wch }));
+        ws['!rows'] = [{ hpt: 28 }];
+        ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: wsData.length - 1, c: exportCols.length - 1 } }) };
+
+        const headerStyle = {
+            font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 11, name: 'Calibri' },
+            fill: { fgColor: { rgb: '404040' } },
+            border: {
+                bottom: { style: 'medium', color: { rgb: 'E60000' } },
+                top:    { style: 'thin',   color: { rgb: '404040' } },
+                left:   { style: 'thin',   color: { rgb: '404040' } },
+                right:  { style: 'thin',   color: { rgb: '404040' } }
+            },
+            alignment: { vertical: 'center', wrapText: false }
+        };
+        const thinBorder = {
+            top:    { style: 'thin', color: { rgb: 'CCCABC' } },
+            bottom: { style: 'thin', color: { rgb: 'CCCABC' } },
+            left:   { style: 'thin', color: { rgb: 'CCCABC' } },
+            right:  { style: 'thin', color: { rgb: 'CCCABC' } }
+        };
+        const evenRowStyle = { font: { sz: 10, name: 'Calibri', color: { rgb: '000000' } }, fill: { fgColor: { rgb: 'FFFFFF' } }, border: thinBorder, alignment: { vertical: 'center' } };
+        const oddRowStyle  = { font: { sz: 10, name: 'Calibri', color: { rgb: '000000' } }, fill: { fgColor: { rgb: 'F8F7F2' } }, border: thinBorder, alignment: { vertical: 'center' } };
+
+        for (let c = 0; c < exportCols.length; c++) {
+            const ref = XLSX.utils.encode_cell({ r: 0, c });
+            if (ws[ref]) ws[ref].s = headerStyle;
+        }
+        for (let r = 1; r < wsData.length; r++) {
+            const style = r % 2 === 1 ? oddRowStyle : evenRowStyle;
+            for (let c = 0; c < exportCols.length; c++) {
+                const ref = XLSX.utils.encode_cell({ r, c });
+                if (!ws[ref]) ws[ref] = { v: '', t: 's' };
+                ws[ref].s = style;
+            }
+        }
+
+        XLSX.utils.book_append_sheet(wb, ws, sheetLabel);
+        XLSX.writeFile(wb, filename);
+    }
+
+    function renderSourcePage(type, data) {
+        const sourceRows = (data.rows || []).filter(r => r.source_type === type);
+        const prefix = type;
+        const now = new Date();
+
+        // KPI cards
+        const upcoming = sourceRows.filter(r => { const d = parseDate(r.start_date); return d && d >= now; });
+        const channels = countBy(sourceRows, 'channel');
+        const topChannel = channels.length ? channels[0][0] : '\u2014';
 
         document.getElementById(`${prefix}-stats`).innerHTML = `
-            <div class="kpi-card ${type === "internal" ? "info" : "success"}">
+            <div class="kpi-card ${type === 'internal' ? 'info' : 'success'}">
                 <div class="kpi-label">Total ${type}</div>
-                <div class="kpi-row"><div><span class="kpi-value">${fmtNum(rows.length)}</span></div></div>
+                <div class="kpi-row"><div><span class="kpi-value">${fmtNum(sourceRows.length)}</span></div></div>
                 <div class="kpi-sub">Communication activities</div>
             </div>
             <div class="kpi-card warning">
@@ -2017,7 +2292,7 @@
             <div class="kpi-card highlight">
                 <div class="kpi-label">Top Channel</div>
                 <div class="kpi-row"><div><span class="kpi-value" style="font-size:18px">${esc(topChannel)}</span></div></div>
-                <div class="kpi-sub">${channels.length ? fmtNum(channels[0][1]) + " activities" : ""}</div>
+                <div class="kpi-sub">${channels.length ? fmtNum(channels[0][1]) + ' activities' : ''}</div>
             </div>
             <div class="kpi-card">
                 <div class="kpi-label">Unique Channels</div>
@@ -2025,54 +2300,94 @@
                 <div class="kpi-sub">Communication channels</div>
             </div>`;
 
-        const channelSelect = document.getElementById(`${prefix}-channel-filter`);
-        const prioritySelect = document.getElementById(`${prefix}-priority-filter`);
-
-        // Reset filter dropdowns
-        channelSelect.innerHTML = '<option value="">All Channels</option>';
-        prioritySelect.innerHTML = '<option value="">All Priorities</option>';
-
-        const channelValues = [...new Set(rows.map(r => r.channel).filter(Boolean))].sort();
-        const priorityValues = [...new Set(rows.map(r => r.priority).filter(Boolean))].sort();
-
-        for (const v of channelValues) {
-            channelSelect.innerHTML += `<option value="${esc(v)}">${esc(v)}</option>`;
+        // Populate filter dropdowns
+        function uniqueSorted(field) {
+            return [...new Set(sourceRows.map(r => r[field]).filter(v => v && v !== 'None' && v !== 'null'))].sort();
         }
-        for (const v of priorityValues) {
-            prioritySelect.innerHTML += `<option value="${esc(v)}">${esc(v)}</option>`;
+        function populateSelect(id, values, allLabel) {
+            const el = document.getElementById(id);
+            el.innerHTML = `<option value="">${allLabel}</option>`;
+            for (const v of values) el.innerHTML += `<option value="${esc(v)}">${esc(v)}</option>`;
         }
+        populateSelect(`${prefix}-channel-filter`,  uniqueSorted('channel'),           'All Channels');
+        populateSelect(`${prefix}-priority-filter`, uniqueSorted('priority'),          'All Priorities');
+        populateSelect(`${prefix}-division-filter`, uniqueSorted('business_division'), 'All Divisions');
+        populateSelect(`${prefix}-audience-filter`, uniqueSorted('target_audience'),   'All Audiences');
+        populateSelect(`${prefix}-lead-filter`,     uniqueSorted('lead'),              'All Leads');
+        populateSelect(`${prefix}-region-filter`,   uniqueSorted('region'),            'All Regions');
+        populateSelect(`${prefix}-campaign-filter`, uniqueSorted('campaign'),          'All Campaigns');
 
-        const tableCols = ["activity_name", "channel", "start_date", "end_date", "priority", "lead", "business_division", "target_audience"];
+        // Sort state
+        let sortCol = 'start_date';
+        let sortDir = -1;  // -1 = desc, 1 = asc
+
+        let currentFiltered = [];
 
         function applyFilters() {
-            const search = document.getElementById(`${prefix}-search`).value.toLowerCase();
-            const chFilter = channelSelect.value;
-            const prFilter = prioritySelect.value;
+            const trackId  = document.getElementById(`${prefix}-trackid`).value.toLowerCase();
+            const search   = document.getElementById(`${prefix}-search`).value.toLowerCase();
+            const chFilter  = document.getElementById(`${prefix}-channel-filter`).value;
+            const prFilter  = document.getElementById(`${prefix}-priority-filter`).value;
+            const divFilter = document.getElementById(`${prefix}-division-filter`).value;
+            const audFilter = document.getElementById(`${prefix}-audience-filter`).value;
+            const leadFilter = document.getElementById(`${prefix}-lead-filter`).value;
+            const regFilter  = document.getElementById(`${prefix}-region-filter`).value;
+            const campFilter = document.getElementById(`${prefix}-campaign-filter`).value;
 
-            let filtered = rows;
-            if (search) {
-                filtered = filtered.filter(r =>
-                    Object.values(r).some(v => String(v || "").toLowerCase().includes(search))
-                );
-            }
-            if (chFilter) filtered = filtered.filter(r => r.channel === chFilter);
-            if (prFilter) filtered = filtered.filter(r => r.priority === prFilter);
+            let filtered = sourceRows;
+            if (trackId)   filtered = filtered.filter(r => String(r.tracking_id || '').toLowerCase().includes(trackId));
+            if (search)    filtered = filtered.filter(r => Object.values(r).some(v => String(v || '').toLowerCase().includes(search)));
+            if (chFilter)   filtered = filtered.filter(r => r.channel === chFilter);
+            if (prFilter)   filtered = filtered.filter(r => r.priority === prFilter);
+            if (divFilter)  filtered = filtered.filter(r => r.business_division === divFilter);
+            if (audFilter)  filtered = filtered.filter(r => r.target_audience === audFilter);
+            if (leadFilter) filtered = filtered.filter(r => r.lead === leadFilter);
+            if (regFilter)  filtered = filtered.filter(r => r.region === regFilter);
+            if (campFilter) filtered = filtered.filter(r => r.campaign === campFilter);
 
-            filtered.sort((a, b) => {
-                const da = parseDate(a.start_date);
-                const db = parseDate(b.start_date);
-                if (!da && !db) return 0;
-                if (!da) return 1;
-                if (!db) return -1;
-                return db - da;
+            filtered = [...filtered].sort((a, b) => {
+                let va = a[sortCol] ?? '', vb = b[sortCol] ?? '';
+                if (sortCol === 'start_date' || sortCol === 'end_date') {
+                    va = parseDate(va) || new Date(0);
+                    vb = parseDate(vb) || new Date(0);
+                    return (va - vb) * sortDir;
+                }
+                return String(va).localeCompare(String(vb)) * sortDir;
             });
 
-            renderActivityTable(`${prefix}-table`, filtered, tableCols);
+            currentFiltered = filtered;
+            document.getElementById(`${prefix}-count`).textContent =
+                `${fmtNum(filtered.length)} of ${fmtNum(sourceRows.length)}`;
+
+            renderEnhancedTable(`${prefix}-table`, filtered, sortCol, sortDir, (col) => {
+                if (sortCol === col) sortDir *= -1;
+                else { sortCol = col; sortDir = 1; }
+                applyFilters();
+            });
         }
 
-        document.getElementById(`${prefix}-search`).addEventListener("input", applyFilters);
-        channelSelect.addEventListener("change", applyFilters);
-        prioritySelect.addEventListener("change", applyFilters);
+        document.getElementById(`${prefix}-trackid`).addEventListener('input', applyFilters);
+        document.getElementById(`${prefix}-search`).addEventListener('input', applyFilters);
+        for (const id of [`${prefix}-channel-filter`, `${prefix}-priority-filter`, `${prefix}-division-filter`,
+                          `${prefix}-audience-filter`, `${prefix}-lead-filter`, `${prefix}-region-filter`, `${prefix}-campaign-filter`]) {
+            document.getElementById(id).addEventListener('change', applyFilters);
+        }
+
+        document.getElementById(`${prefix}-clear`).addEventListener('click', () => {
+            document.getElementById(`${prefix}-trackid`).value = '';
+            document.getElementById(`${prefix}-search`).value = '';
+            for (const id of [`${prefix}-channel-filter`, `${prefix}-priority-filter`, `${prefix}-division-filter`,
+                              `${prefix}-audience-filter`, `${prefix}-lead-filter`, `${prefix}-region-filter`, `${prefix}-campaign-filter`]) {
+                document.getElementById(id).value = '';
+            }
+            applyFilters();
+        });
+
+        document.getElementById(`${prefix}-export-xlsx`).addEventListener('click', () => {
+            const dateStr = new Date().toISOString().slice(0, 10);
+            const label = type === 'internal' ? 'Internal Activities' : 'External Activities';
+            exportActivityXLSX(currentFiltered, `CPLAN_${type}_${dateStr}.xlsx`, label);
+        });
 
         applyFilters();
     }
@@ -3573,14 +3888,53 @@
     const fpFrom = flatpickr('#date-from', fpOpts);
     const fpTo = flatpickr('#date-to', fpOpts);
 
-    // Export to XLSX
+    // Export to XLSX (all activities — global header export)
     document.getElementById('export-xlsx').addEventListener('click', () => {
         if (!DATA || !DATA.rows || !DATA.rows.length) return;
         const rows = getFilteredRows(DATA.rows);
         const cols = Object.keys(rows[0]);
-        const wsData = [cols, ...rows.map(r => cols.map(c => r[c] ?? ''))];
-        const ws = XLSX.utils.aoa_to_sheet(wsData);
+        const headers = cols.map(c => c.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()));
+        const wsData = [headers, ...rows.map(r => cols.map(c => r[c] ?? ''))];
         const wb = XLSX.utils.book_new();
+        const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+        ws['!cols'] = cols.map(() => ({ wch: 20 }));
+        ws['!rows'] = [{ hpt: 28 }];
+        ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: wsData.length - 1, c: cols.length - 1 } }) };
+
+        const headerStyle = {
+            font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 11, name: 'Calibri' },
+            fill: { fgColor: { rgb: '404040' } },
+            border: {
+                bottom: { style: 'medium', color: { rgb: 'E60000' } },
+                top:    { style: 'thin',   color: { rgb: '404040' } },
+                left:   { style: 'thin',   color: { rgb: '404040' } },
+                right:  { style: 'thin',   color: { rgb: '404040' } }
+            },
+            alignment: { vertical: 'center', wrapText: false }
+        };
+        const thinBorder = {
+            top:    { style: 'thin', color: { rgb: 'CCCABC' } },
+            bottom: { style: 'thin', color: { rgb: 'CCCABC' } },
+            left:   { style: 'thin', color: { rgb: 'CCCABC' } },
+            right:  { style: 'thin', color: { rgb: 'CCCABC' } }
+        };
+        const evenRowStyle = { font: { sz: 10, name: 'Calibri', color: { rgb: '000000' } }, fill: { fgColor: { rgb: 'FFFFFF' } }, border: thinBorder, alignment: { vertical: 'center' } };
+        const oddRowStyle  = { font: { sz: 10, name: 'Calibri', color: { rgb: '000000' } }, fill: { fgColor: { rgb: 'F8F7F2' } }, border: thinBorder, alignment: { vertical: 'center' } };
+
+        for (let c = 0; c < cols.length; c++) {
+            const ref = XLSX.utils.encode_cell({ r: 0, c });
+            if (ws[ref]) ws[ref].s = headerStyle;
+        }
+        for (let r = 1; r < wsData.length; r++) {
+            const style = r % 2 === 1 ? oddRowStyle : evenRowStyle;
+            for (let c = 0; c < cols.length; c++) {
+                const ref = XLSX.utils.encode_cell({ r, c });
+                if (!ws[ref]) ws[ref] = { v: '', t: 's' };
+                ws[ref].s = style;
+            }
+        }
+
         XLSX.utils.book_append_sheet(wb, ws, 'Activities');
         const dateStr = new Date().toISOString().slice(0, 10);
         XLSX.writeFile(wb, `CPLAN_Activities_${dateStr}.xlsx`);
