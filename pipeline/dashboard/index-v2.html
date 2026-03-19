@@ -2159,10 +2159,14 @@
         { key: 'strategic_objectives', label: 'Strategic Objectives', wch: 35 },
     ];
 
-    // Extra cols included in XLSX export only
+    // Extra cols included in XLSX export only (not shown in the UI table)
     const ACT_EXPORT_EXTRA_COLS = [
-        { key: 'news_digest',  label: 'News Digest', wch: 12 },
-        { key: 'source_type',  label: 'Source Type', wch: 14 },
+        { key: 'news_digest',   label: 'News Digest',    wch: 12 },
+        { key: 'source_type',   label: 'Source Type',    wch: 14 },
+        { key: 'created',       label: 'Created',        wch: 20 },
+        { key: 'author',        label: 'Created By',     wch: 25 },
+        { key: 'author_email',  label: 'Creator Email',  wch: 30 },
+        { key: 'modified',      label: 'Last Modified',  wch: 20 },
     ];
 
     function renderEnhancedTable(containerId, rows, sortCol, sortDir, onSort) {
