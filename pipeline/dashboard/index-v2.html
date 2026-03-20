@@ -369,6 +369,45 @@
             margin-top: 2px;
         }
 
+        /* ── KPI Tooltip ── */
+        .kpi-info {
+            position: absolute;
+            top: 10px;
+            right: 12px;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: var(--surface);
+            color: var(--medium-gray);
+            font-size: 10px;
+            font-weight: 700;
+            line-height: 16px;
+            text-align: center;
+            cursor: help;
+        }
+        .kpi-info:hover { background: var(--light-gray); color: var(--dark-gray); }
+
+        .kpi-info .kpi-tooltip {
+            display: none;
+            position: absolute;
+            top: 24px;
+            right: -8px;
+            width: 240px;
+            padding: 10px 12px;
+            background: var(--dark-gray);
+            color: #FFFFFF;
+            font-size: 11px;
+            font-weight: 400;
+            line-height: 1.45;
+            letter-spacing: 0;
+            text-transform: none;
+            border-radius: 4px;
+            z-index: 100;
+            box-shadow: 0 2px 8px rgba(0,0,0,.18);
+        }
+        .kpi-tooltip strong { color: #FFFFFF; font-weight: 600; }
+        .kpi-info:hover .kpi-tooltip { display: block; }
+
         /* ── Chart Cards ── */
         .charts-grid {
             display: grid;
@@ -2620,7 +2659,7 @@
         const sparkKeys = Object.keys(monthlyVolume).sort().slice(-12);
         const sparkVals = sparkKeys.map(k => monthlyVolume[k]);
 
-        function kpiCard(label, value, unit, prev, sparkData, invert, cssClass) {
+        function kpiCard(label, value, unit, prev, sparkData, invert, cssClass, glossary) {
             const delta = prev != null ? (value - prev) : null;
             const pctDelta = prev != null && prev !== 0 ? ((value - prev) / Math.abs(prev) * 100).toFixed(0) : null;
             let deltaClass = 'neutral';
@@ -2633,7 +2672,9 @@
                 deltaText = `${arrow} ${pctDelta != null ? Math.abs(pctDelta) + '% vs prior' : ''}`;
             }
             const sparkHtml = sparkData ? renderSparkline(sparkData) : '';
+            const tooltipHtml = glossary ? `<span class="kpi-info">?<span class="kpi-tooltip">${glossary}</span></span>` : '';
             return `<div class="kpi-card ${cssClass || ''}">
+                ${tooltipHtml}
                 <div class="kpi-label">${label}</div>
                 <div class="kpi-row">
                     <div><span class="kpi-value">${typeof value === 'number' ? fmtNum(Number.isInteger(value) ? value : parseFloat(value.toFixed(1))) : value}</span><span class="kpi-unit">${unit}</span></div>
@@ -2644,12 +2685,18 @@
         }
 
         el.innerHTML =
-            kpiCard('Strategic Alignment', currentKPIs.alignment, '%', prevKPIs.alignment, null, false, 'success') +
-            kpiCard('Channel Diversification', currentKPIs.diversity, '', prevKPIs.diversity, null, false, 'info') +
-            kpiCard('Coverage Breadth', currentKPIs.coverage, '%', prevKPIs.coverage, null, false, '') +
-            kpiCard('Planning Horizon', currentKPIs.horizon, 'd', prevKPIs.horizon, null, false, '') +
-            kpiCard('Activity Velocity', currentKPIs.velocity, '%', null, sparkVals, false, 'highlight') +
-            kpiCard('Board/GEB Visibility', currentKPIs.bodGeb, '%', prevKPIs.bodGeb, null, false, '');
+            kpiCard('Strategic Alignment', currentKPIs.alignment, '%', prevKPIs.alignment, null, false, 'success',
+                '<strong>What % of activities are linked to a strategic objective?</strong> High alignment means communications are purposefully tied to business goals rather than ad-hoc.') +
+            kpiCard('Channel Diversification', currentKPIs.diversity, '', prevKPIs.diversity, null, false, 'info',
+                '<strong>Are we spreading messages across channels or over-relying on one?</strong> Uses Shannon entropy \u2014 higher values mean a more balanced mix of channels; low values signal over-concentration.') +
+            kpiCard('Coverage Breadth', currentKPIs.coverage, '%', prevKPIs.coverage, null, false, '',
+                '<strong>How many Division \u00d7 Region combinations are we reaching?</strong> Shows the % of all possible division-region pairs that have at least one activity. Low coverage highlights gaps in audience reach.') +
+            kpiCard('Planning Horizon', currentKPIs.horizon, 'd', prevKPIs.horizon, null, false, '',
+                '<strong>How far ahead are activities planned?</strong> Median days between creation and start date. A short horizon signals reactive, last-minute planning.') +
+            kpiCard('Activity Velocity', currentKPIs.velocity, '%', null, sparkVals, false, 'highlight',
+                '<strong>Is our communication output accelerating or slowing?</strong> Compares the last 4 weeks to the prior 4 weeks. Positive = ramping up; negative = slowing down. Sparkline shows the 12-month trend.') +
+            kpiCard('Board/GEB Visibility', currentKPIs.bodGeb, '%', prevKPIs.bodGeb, null, false, '',
+                '<strong>What share of activities have Board or GEB visibility?</strong> Percentage of activities flagged for senior leadership awareness. Helps gauge executive-level engagement with the comms plan.');
     }
 
     function renderExecTrend(rows) {
