@@ -363,6 +363,14 @@
             right: 14px;
         }
 
+        /* Objective distribution mini-bars */
+        .obj-bars { display: flex; flex-direction: column; gap: 3px; margin-top: 4px; }
+        .obj-bar-row { display: flex; align-items: center; gap: 6px; font-size: 11px; line-height: 1.3; }
+        .obj-bar-label { width: 120px; flex-shrink: 0; color: var(--dark-gray); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .obj-bar-track { flex: 1; height: 10px; background: var(--surface); border-radius: 3px; overflow: hidden; }
+        .obj-bar-fill { display: block; height: 100%; border-radius: 3px; transition: width 0.3s; }
+        .obj-bar-pct { width: 30px; text-align: right; color: var(--medium-gray); font-weight: 600; flex-shrink: 0; }
+
         .kpi-card .kpi-sub {
             font-size: 11px;
             color: var(--medium-gray);
@@ -2538,10 +2546,20 @@
 
     function computeKPIs(rows) {
         const total = rows.length;
-        if (total === 0) return { alignment: 0, diversity: 0, coverage: 0, horizon: 0, velocity: 0, bodGeb: 0 };
+        if (total === 0) return { objectiveDist: {}, diversity: 0, coverage: 0, horizon: 0, velocity: 0, bodGeb: 0 };
 
-        const aligned = rows.filter(r => r.strategic_objectives && r.strategic_objectives !== 'None' && r.strategic_objectives !== 'null' && String(r.strategic_objectives).trim()).length;
-        const alignment = (aligned / total * 100);
+        // Strategic objectives distribution
+        const objCounts = {};
+        for (const r of rows) {
+            const v = r.strategic_objectives;
+            if (!v || v === 'None' || v === 'null' || !String(v).trim()) {
+                objCounts['(Not assigned)'] = (objCounts['(Not assigned)'] || 0) + 1;
+            } else {
+                const parts = String(v).split(/[;,]/).map(s => s.trim()).filter(Boolean);
+                for (const p of parts) objCounts[p] = (objCounts[p] || 0) + 1;
+            }
+        }
+        const objectiveDist = objCounts;
 
         const channelCounts = {};
         for (const r of rows) {
@@ -2581,7 +2599,7 @@
         const bodCount = rows.filter(r => r.bod_geb && r.bod_geb !== 'None' && r.bod_geb !== 'null' && String(r.bod_geb).trim()).length;
         const bodGeb = (bodCount / total * 100);
 
-        return { alignment, diversity, coverage, horizon, velocity, bodGeb };
+        return { objectiveDist, diversity, coverage, horizon, velocity, bodGeb };
     }
 
     function renderSparkline(values) {
@@ -2639,9 +2657,41 @@
             </div>`;
         }
 
+        const OBJ_COLORS = ['#0C7EC6', '#AF8626', '#879420', '#00759E', '#804C95', '#AD3E4A', '#45999C', '#4972AC'];
+
+        function objectiveDistCard(dist) {
+            const entries = Object.entries(dist).sort((a, b) => b[1] - a[1]);
+            const total = entries.reduce((s, e) => s + e[1], 0) || 1;
+            const top = entries.slice(0, 6);
+            let barsHtml = '';
+            for (let i = 0; i < top.length; i++) {
+                const [label, count] = top[i];
+                const pct = (count / total * 100).toFixed(0);
+                const color = label === '(Not assigned)' ? 'var(--light-gray)' : OBJ_COLORS[i % OBJ_COLORS.length];
+                barsHtml += `<div class="obj-bar-row" title="${esc(label)}: ${fmtNum(count)} (${pct}%)">
+                    <span class="obj-bar-label">${esc(label.length > 22 ? label.slice(0, 21) + '\u2026' : label)}</span>
+                    <span class="obj-bar-track"><span class="obj-bar-fill" style="width:${pct}%;background:${color}"></span></span>
+                    <span class="obj-bar-pct">${pct}%</span>
+                </div>`;
+            }
+            if (entries.length > 6) {
+                const otherCount = entries.slice(6).reduce((s, e) => s + e[1], 0);
+                const otherPct = (otherCount / total * 100).toFixed(0);
+                barsHtml += `<div class="obj-bar-row" title="Other: ${fmtNum(otherCount)} (${otherPct}%)">
+                    <span class="obj-bar-label">Other</span>
+                    <span class="obj-bar-track"><span class="obj-bar-fill" style="width:${otherPct}%;background:var(--medium-gray)"></span></span>
+                    <span class="obj-bar-pct">${otherPct}%</span>
+                </div>`;
+            }
+            return `<div class="kpi-card" style="min-width:220px;flex:1.5">
+                <span class="kpi-info">?<span class="kpi-tooltip"><strong>How are activities distributed across strategic objectives?</strong> Shows the share of activities per objective. A healthy spread indicates broad strategic coverage.</span></span>
+                <div class="kpi-label">Strategic Objectives</div>
+                <div class="obj-bars">${barsHtml}</div>
+            </div>`;
+        }
+
         el.innerHTML =
-            kpiCard('Strategic Alignment', currentKPIs.alignment, '%', prevKPIs.alignment, null, false, 'success',
-                '<strong>What % of activities are linked to a strategic objective?</strong> High alignment means communications are purposefully tied to business goals rather than ad-hoc.') +
+            objectiveDistCard(currentKPIs.objectiveDist) +
             kpiCard('Channel Diversification', currentKPIs.diversity, '', prevKPIs.diversity, null, false, 'info',
                 '<strong>Are we spreading messages across channels or over-relying on one?</strong> Uses Shannon entropy \u2014 higher values mean a more balanced mix of channels; low values signal over-concentration.') +
             kpiCard('Coverage Breadth', currentKPIs.coverage, '%', prevKPIs.coverage, null, false, '',
