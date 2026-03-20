@@ -2732,15 +2732,19 @@
             svg += `<text x="${padL - 6}" y="${y + 3}" text-anchor="end" font-size="10" fill="var(--medium-gray)">${fmtNum(val)}</text>`;
         }
 
+        const stackBarW = Math.min(32, chartW / keys.length * 0.6);
         keys.forEach((k, i) => {
             const x = padL + (i + 0.5) * (chartW / keys.length);
             const intH = (byMonth[k].internal / maxVal) * chartH;
             const extH = (byMonth[k].external / maxVal) * chartH;
-            const intY = padT + chartH - intH - extH;
             const extY = padT + chartH - extH;
+            const intY = extY - intH;
 
-            svg += `<rect x="${x - barW}" y="${intY}" width="${barW}" height="${intH}" fill="#0C7EC6" rx="2" opacity="0.85"/>`;
-            svg += `<rect x="${x}" y="${extY}" width="${barW}" height="${extH}" fill="#6F7A1A" rx="2" opacity="0.85"/>`;
+            svg += `<rect x="${x - stackBarW / 2}" y="${intY}" width="${stackBarW}" height="${intH}" fill="#0C7EC6" rx="0" opacity="0.85"/>`;
+            svg += `<rect x="${x - stackBarW / 2}" y="${extY}" width="${stackBarW}" height="${extH}" fill="#6F7A1A" rx="0" opacity="0.85"/>`;
+            // Round top corners of the topmost segment
+            if (intH > 0) svg += `<rect x="${x - stackBarW / 2}" y="${intY}" width="${stackBarW}" height="${Math.min(4, intH)}" fill="#0C7EC6" rx="2" opacity="0.85"/>`;
+            else if (extH > 0) svg += `<rect x="${x - stackBarW / 2}" y="${extY}" width="${stackBarW}" height="${Math.min(4, extH)}" fill="#6F7A1A" rx="2" opacity="0.85"/>`;
 
             const showEvery = keys.length > 10 ? 2 : 1;
             if (i % showEvery === 0) {
