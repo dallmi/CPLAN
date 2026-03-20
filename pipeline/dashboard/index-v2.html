@@ -1139,13 +1139,7 @@
         <div class="page active" id="page-executive">
             <div class="page-section-header">
                 <div>
-                    <p>Strategic communications overview &mdash; <span id="exec-period-label">This Quarter</span></p>
-                </div>
-                <div class="pill-group" id="period-selector">
-                    <button class="active" data-period="quarter">This Quarter</button>
-                    <button data-period="last-quarter">Last Quarter</button>
-                    <button data-period="year">This Year</button>
-                    <button data-period="12months">Last 12 Months</button>
+                    <p>Strategic communications overview</p>
                 </div>
             </div>
 
@@ -2514,57 +2508,18 @@
     // Executive Summary
     // -------------------------------------------------------------------------
 
-    let execPeriod = 'quarter';
-
-    function getPeriodRange(period) {
-        const now = new Date();
-        const y = now.getFullYear();
-        const m = now.getMonth();
-        const q = Math.floor(m / 3);
-
-        switch (period) {
-            case 'quarter': {
-                const start = new Date(y, q * 3, 1);
-                const end = new Date(y, q * 3 + 3, 0, 23, 59, 59);
-                const prevStart = new Date(y, (q - 1) * 3, 1);
-                const prevEnd = new Date(y, q * 3, 0, 23, 59, 59);
-                return { start, end, prevStart, prevEnd, label: `Q${q+1} ${y}` };
-            }
-            case 'last-quarter': {
-                const pq = q === 0 ? 3 : q - 1;
-                const py = q === 0 ? y - 1 : y;
-                const start = new Date(py, pq * 3, 1);
-                const end = new Date(py, pq * 3 + 3, 0, 23, 59, 59);
-                const ppq = pq === 0 ? 3 : pq - 1;
-                const ppy = pq === 0 ? py - 1 : py;
-                const prevStart = new Date(ppy, ppq * 3, 1);
-                const prevEnd = new Date(ppy, ppq * 3 + 3, 0, 23, 59, 59);
-                return { start, end, prevStart, prevEnd, label: `Q${pq+1} ${py}` };
-            }
-            case 'year': {
-                const start = new Date(y, 0, 1);
-                const end = new Date(y, 11, 31, 23, 59, 59);
-                const prevStart = new Date(y - 1, 0, 1);
-                const prevEnd = new Date(y - 1, 11, 31, 23, 59, 59);
-                return { start, end, prevStart, prevEnd, label: `${y}` };
-            }
-            case '12months': {
-                const end = now;
-                const start = new Date(y - 1, m, now.getDate());
-                const prevEnd = new Date(start);
-                prevEnd.setDate(prevEnd.getDate() - 1);
-                const prevStart = new Date(y - 2, m, now.getDate());
-                return { start, end, prevStart, prevEnd, label: 'Last 12 Months' };
-            }
-            default:
-                return getPeriodRange('quarter');
-        }
-    }
-
-    function filterByPeriod(rows, start, end) {
-        return rows.filter(r => {
+    function computePrevRows(allRows, currentRows) {
+        // Compute a "prior period" of equal duration ending just before the earliest current row
+        const dates = currentRows.map(r => parseDate(r.start_date)).filter(Boolean);
+        if (dates.length < 2) return [];
+        const minDate = new Date(Math.min(...dates));
+        const maxDate = new Date(Math.max(...dates));
+        const spanMs = maxDate - minDate;
+        const prevEnd = new Date(minDate.getTime() - 1);
+        const prevStart = new Date(minDate.getTime() - spanMs);
+        return allRows.filter(r => {
             const d = parseDate(r.start_date);
-            return d && d >= start && d <= end;
+            return d && d >= prevStart && d <= prevEnd;
         });
     }
 
@@ -2867,10 +2822,8 @@
         el.innerHTML = html;
     }
 
-    function analyzeAlerts(rows, period) {
+    function analyzeAlerts(rows, periodRows) {
         const alerts = [];
-        const { start, end } = period;
-        const periodRows = filterByPeriod(rows, start, end);
 
         if (periodRows.length === 0) {
             alerts.push({ severity: 'amber', message: 'No activities found for the selected period.' });
@@ -2987,19 +2940,17 @@
     }
 
     async function renderExecutiveSummary(rows) {
-        const period = getPeriodRange(execPeriod);
-        const periodRows = filterByPeriod(rows, period.start, period.end);
-        const prevRows = filterByPeriod(rows, period.prevStart, period.prevEnd);
+        const allRows = DATA ? DATA.rows : rows;
+        const prevRows = computePrevRows(allRows, rows);
 
-        const currentKPIs = computeKPIs(periodRows);
+        const currentKPIs = computeKPIs(rows);
         const prevKPIs = computeKPIs(prevRows);
 
-        document.getElementById('exec-period-label').textContent = period.label;
-        renderKPICards(currentKPIs, prevKPIs, periodRows);
+        renderKPICards(currentKPIs, prevKPIs, rows);
         renderExecTrend(rows);
         renderChannelMixByQuarter(rows);
-        renderSaturationHeatmap(periodRows);
-        renderAlerts(analyzeAlerts(rows, period));
+        renderSaturationHeatmap(rows);
+        renderAlerts(analyzeAlerts(allRows, rows));
     }
 
     // -------------------------------------------------------------------------
@@ -3829,16 +3780,6 @@
         document.querySelectorAll("#trend-toggle button").forEach(b => b.classList.remove("active"));
         btn.classList.add("active");
         renderTrend(getFilteredRows(DATA.rows || []), btn.dataset.mode);
-    });
-
-    // Period selector
-    document.getElementById("period-selector").addEventListener("click", e => {
-        const btn = e.target.closest("button");
-        if (!btn || !DATA) return;
-        document.querySelectorAll("#period-selector button").forEach(b => b.classList.remove("active"));
-        btn.classList.add("active");
-        execPeriod = btn.dataset.period;
-        renderExecutiveSummary(getFilteredRows(DATA.rows || []));
     });
 
     // Planning horizon toggle
