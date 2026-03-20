@@ -1124,11 +1124,7 @@
             </div>
 
             <div class="charts-grid">
-                <div class="chart-card">
-                    <div class="chart-card-header">Division &times; Region Coverage</div>
-                    <div class="chart-card-body" id="exec-coverage-matrix"><div class="loading">Loading...</div></div>
-                </div>
-                <div class="chart-card">
+                <div class="chart-card full-width">
                     <div class="chart-card-header">Audience Saturation (Weekly)</div>
                     <div class="chart-card-body" id="exec-saturation"><div class="loading">Loading...</div></div>
                 </div>
@@ -2759,58 +2755,6 @@
         el.innerHTML = html;
     }
 
-    function renderCoverageMatrix(rows) {
-        const el = document.getElementById('exec-coverage-matrix');
-        const matrix = {};
-        const divs = new Set();
-        const regions = new Set();
-
-        for (const r of rows) {
-            const div = r.business_division;
-            const reg = r.region;
-            if (!div || div === 'None' || !reg || reg === 'None') continue;
-            const divParts = String(div).split(/[;,]/).map(s => s.trim()).filter(Boolean);
-            const regParts = String(reg).split(/[;,]/).map(s => s.trim()).filter(Boolean);
-            for (const d of divParts) {
-                for (const rg of regParts) {
-                    divs.add(d);
-                    regions.add(rg);
-                    const key = `${d}|||${rg}`;
-                    matrix[key] = (matrix[key] || 0) + 1;
-                }
-            }
-        }
-
-        const divList = [...divs].sort();
-        const regList = [...regions].sort();
-
-        if (!divList.length || !regList.length) {
-            el.innerHTML = '<div class="empty-state"><p>No division/region data available</p></div>';
-            return;
-        }
-
-        let html = `<div class="heatmap-wrapper"><div class="heatmap" style="grid-template-columns: 140px repeat(${regList.length}, minmax(50px, 1fr))">`;
-        html += `<div class="heatmap-label"></div>`;
-        for (const reg of regList) {
-            html += `<div class="heatmap-col-label" title="${esc(reg)}">${esc(reg.length > 8 ? reg.slice(0, 7) + '\u2026' : reg)}</div>`;
-        }
-
-        for (const div of divList) {
-            html += `<div class="heatmap-label" title="${esc(div)}">${esc(div)}</div>`;
-            for (const reg of regList) {
-                const count = matrix[`${div}|||${reg}`] || 0;
-                let bg, fg;
-                if (count === 0) { bg = '#f5d0d320'; fg = 'var(--danger)'; }
-                else if (count <= 2) { bg = '#e8ecd0'; fg = 'var(--success)'; }
-                else if (count <= 5) { bg = '#d4eaf8'; fg = '#065a96'; }
-                else { bg = '#0C7EC620'; fg = '#065a96'; }
-                html += `<div class="heatmap-cell" style="background:${bg};color:${fg}" title="${esc(div)} / ${esc(reg)}: ${fmtNum(count)}">${count ? fmtNum(count) : '\u2014'}</div>`;
-            }
-        }
-
-        html += '</div></div>';
-        el.innerHTML = html;
-    }
 
     function renderSaturationHeatmap(rows) {
         const el = document.getElementById('exec-saturation');
@@ -3005,7 +2949,6 @@
         renderKPICards(currentKPIs, prevKPIs, periodRows);
         renderExecTrend(rows);
         renderChannelMixByQuarter(rows);
-        renderCoverageMatrix(periodRows);
         renderSaturationHeatmap(periodRows);
         renderAlerts(analyzeAlerts(rows, period));
     }
