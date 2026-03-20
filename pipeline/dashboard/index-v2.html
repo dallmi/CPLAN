@@ -2765,7 +2765,9 @@
         for (let i = 0; i < 12; i++) {
             const wStart = new Date(twelveWeeksAgo); wStart.setDate(wStart.getDate() + i * 7);
             const wEnd = new Date(wStart); wEnd.setDate(wEnd.getDate() + 6);
-            weeks.push({ start: wStart, end: wEnd, label: `W${i+1}` });
+            const dd = String(wStart.getDate()).padStart(2, '0');
+            const mm = String(wStart.getMonth() + 1).padStart(2, '0');
+            weeks.push({ start: wStart, end: wEnd, label: `${dd}.${mm}` });
         }
 
         const audiences = new Set();
