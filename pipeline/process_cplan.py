@@ -612,8 +612,17 @@ def write_table(df, table_name, parquet_name, full_refresh=False):
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-    # Parquet
+    # Parquet — delete stale file first to avoid "bad file descriptor" on Windows
+    # (DuckDB or OneDrive sync can hold the old file open)
     parquet_path = OUTPUT_DIR / f"{parquet_name}.parquet"
+    if parquet_path.exists():
+        try:
+            parquet_path.unlink()
+        except OSError:
+            import time, gc
+            gc.collect()
+            time.sleep(0.5)
+            parquet_path.unlink()
     df.to_parquet(parquet_path, index=False)
 
     # DuckDB
@@ -1059,6 +1068,9 @@ def main():
 
     if full_refresh and DB_PATH.exists():
         DB_PATH.unlink()
+        wal_path = DB_PATH.with_suffix(".db.wal")
+        if wal_path.exists():
+            wal_path.unlink()
         log("Deleted existing database (full refresh)")
 
     # --- Communication activities (internal + external, active + archive) ---
