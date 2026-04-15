@@ -2521,7 +2521,11 @@
         renderChannelOverlap(rows);
     }
 
-    // Find campaigns launched via BOTH Email and Intranet article (News)
+    // Find communication packs launched via BOTH Email and Intranet article (News).
+    // Packs are the real campaign unit, identified by tracking_pack_id (CLUSTER-PACKNUM)
+    // parsed from tracking_id = CLUSTER-PACKNUM-YYMMDD-ACTNUM-CHANNEL.
+    // Channel detection uses both the tracking channel abbreviation (EMI, INA, etc.)
+    // and the textual channel field for robustness.
     function renderChannelOverlap(rows) {
         const el = document.getElementById("channel-overlap-table");
         if (!el) return;
@@ -2529,55 +2533,85 @@
         const splitChannels = v => (v && v !== 'None')
             ? String(v).split(/[;,]/).map(s => s.trim()).filter(Boolean)
             : [];
-        const isEmail = ch => /email/i.test(ch);
-        const isIntranetNews = ch => /intranet/i.test(ch) && /news/i.test(ch);
+        const EMAIL_ABBRS = new Set(['EMI', 'EMA', 'EML', 'EMX']);
+        const INTRANET_NEWS_ABBRS = new Set(['INA', 'IAN', 'INN', 'IAR']);
+        const isEmailText = ch => /e[\s-]?mail/i.test(ch);
+        const isIntranetNewsText = ch => /intranet/i.test(ch) && /news|article/i.test(ch);
+        const classify = r => {
+            const abbr = (r.tracking_channel_abbr || '').toString().trim().toUpperCase();
+            const texts = splitChannels(r.channel);
+            const email = EMAIL_ABBRS.has(abbr) || texts.some(isEmailText);
+            const intranet = INTRANET_NEWS_ABBRS.has(abbr) || texts.some(isIntranetNewsText);
+            return { email, intranet };
+        };
 
-        const campaigns = {};
+        const packs = {};
         for (const r of rows) {
-            const c = r.campaign;
-            if (!c || c === 'None') continue;
-            const channels = splitChannels(r.channel);
-            if (!channels.length) continue;
-            if (!campaigns[c]) campaigns[c] = {
-                emailCount: 0, intranetCount: 0, emailRows: [], intranetRows: [],
-                leads: new Set(), divisions: new Set(), channels: new Set()
+            const packId = r.tracking_pack_id;
+            if (!packId || packId === 'None') continue;
+            const cls = classify(r);
+            if (!cls.email && !cls.intranet) continue;
+            if (!packs[packId]) packs[packId] = {
+                packId,
+                packNames: new Set(),
+                campaigns: new Set(),
+                clusters: new Set(),
+                emailCount: 0, intranetCount: 0,
+                leads: new Set(), divisions: new Set(),
+                firstDate: null, lastDate: null
             };
-            const entry = campaigns[c];
-            channels.forEach(ch => entry.channels.add(ch));
+            const entry = packs[packId];
+            if (r.activity_name) entry.packNames.add(r.activity_name);
+            if (r.campaign && r.campaign !== 'None') entry.campaigns.add(r.campaign);
+            if (r.tracking_cluster_id) entry.clusters.add(r.tracking_cluster_id);
             if (r.lead) entry.leads.add(r.lead);
             if (r.business_division) entry.divisions.add(r.business_division);
-            if (channels.some(isEmail)) { entry.emailCount++; entry.emailRows.push(r); }
-            if (channels.some(isIntranetNews)) { entry.intranetCount++; entry.intranetRows.push(r); }
+            const d = parseDate(r.start_date);
+            if (d) {
+                if (!entry.firstDate || d < entry.firstDate) entry.firstDate = d;
+                if (!entry.lastDate || d > entry.lastDate) entry.lastDate = d;
+            }
+            if (cls.email) entry.emailCount++;
+            if (cls.intranet) entry.intranetCount++;
         }
 
-        const overlap = Object.entries(campaigns)
-            .filter(([, v]) => v.emailCount > 0 && v.intranetCount > 0)
-            .map(([name, v]) => ({
-                name,
-                emailCount: v.emailCount,
-                intranetCount: v.intranetCount,
-                total: v.emailCount + v.intranetCount,
-                leads: [...v.leads].join(', '),
-                divisions: [...v.divisions].join(', '),
-                channelCount: v.channels.size
+        const fmtDate = d => d ? d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' }) : '\u2014';
+        const overlap = Object.values(packs)
+            .filter(p => p.emailCount > 0 && p.intranetCount > 0)
+            .map(p => ({
+                packId: p.packId,
+                cluster: [...p.clusters].join(', '),
+                campaign: [...p.campaigns].join(' / ') || '\u2014',
+                emailCount: p.emailCount,
+                intranetCount: p.intranetCount,
+                total: p.emailCount + p.intranetCount,
+                leads: [...p.leads].join(', '),
+                divisions: [...p.divisions].join(', '),
+                window: p.firstDate && p.lastDate
+                    ? (p.firstDate.getTime() === p.lastDate.getTime()
+                        ? fmtDate(p.firstDate)
+                        : `${fmtDate(p.firstDate)} \u2013 ${fmtDate(p.lastDate)}`)
+                    : '\u2014'
             }))
             .sort((a, b) => b.total - a.total);
 
         if (overlap.length === 0) {
-            el.innerHTML = `<div style="padding:24px;text-align:center;color:var(--medium-gray)">No campaigns found using both Email and Intranet article (News).</div>`;
+            el.innerHTML = `<div style="padding:24px;text-align:center;color:var(--medium-gray)">No communication packs found using both Email and Intranet article (News).</div>`;
             return;
         }
 
         const summary = `<div style="margin-bottom:12px;font-size:13px;color:var(--medium-gray)">
-            <strong style="color:var(--dark-gray);font-size:15px">${fmtNum(overlap.length)}</strong> campaign${overlap.length === 1 ? '' : 's'} launched via both Email and Intranet article (News).
+            <strong style="color:var(--dark-gray);font-size:15px">${fmtNum(overlap.length)}</strong> communication pack${overlap.length === 1 ? '' : 's'} launched via both Email and Intranet article (News). Packs are grouped by <code>tracking_pack_id</code> (CLUSTER-PACKNUM).
         </div>`;
 
         const rowsHtml = overlap.map(c => `
             <tr>
-                <td style="font-weight:600">${esc(c.name)}</td>
+                <td style="font-family:monospace;font-size:12px;white-space:nowrap">${esc(c.packId)}</td>
+                <td>${esc(c.cluster)}</td>
+                <td style="font-weight:600">${esc(c.campaign)}</td>
                 <td style="text-align:right">${fmtNum(c.emailCount)}</td>
                 <td style="text-align:right">${fmtNum(c.intranetCount)}</td>
-                <td style="text-align:right">${fmtNum(c.channelCount)}</td>
+                <td style="white-space:nowrap">${esc(c.window)}</td>
                 <td>${esc(c.leads)}</td>
                 <td>${esc(c.divisions)}</td>
             </tr>`).join('');
@@ -2587,10 +2621,12 @@
                 <table style="width:100%">
                     <thead>
                         <tr>
+                            <th>Pack ID</th>
+                            <th>Cluster</th>
                             <th>Campaign</th>
-                            <th style="text-align:right">Email activities</th>
-                            <th style="text-align:right">Intranet (News) activities</th>
-                            <th style="text-align:right">Total channels used</th>
+                            <th style="text-align:right">Email</th>
+                            <th style="text-align:right">Intranet (News)</th>
+                            <th>Window</th>
                             <th>Leads</th>
                             <th>Divisions</th>
                         </tr>
