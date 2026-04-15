@@ -2546,9 +2546,12 @@
         };
 
         const packs = {};
+        let missingPackId = 0;
+        let totalRows = 0;
         for (const r of rows) {
+            totalRows++;
             const packId = r.tracking_pack_id;
-            if (!packId || packId === 'None') continue;
+            if (!packId || packId === 'None') { missingPackId++; continue; }
             const cls = classify(r);
             if (!cls.email && !cls.intranet) continue;
             if (!packs[packId]) packs[packId] = {
@@ -2558,7 +2561,8 @@
                 clusters: new Set(),
                 emailCount: 0, intranetCount: 0,
                 leads: new Set(), divisions: new Set(),
-                firstDate: null, lastDate: null
+                firstDate: null, lastDate: null,
+                emailFirstDate: null, intranetFirstDate: null
             };
             const entry = packs[packId];
             if (r.activity_name) entry.packNames.add(r.activity_name);
@@ -2570,39 +2574,96 @@
             if (d) {
                 if (!entry.firstDate || d < entry.firstDate) entry.firstDate = d;
                 if (!entry.lastDate || d > entry.lastDate) entry.lastDate = d;
+                if (cls.email && (!entry.emailFirstDate || d < entry.emailFirstDate)) entry.emailFirstDate = d;
+                if (cls.intranet && (!entry.intranetFirstDate || d < entry.intranetFirstDate)) entry.intranetFirstDate = d;
             }
             if (cls.email) entry.emailCount++;
             if (cls.intranet) entry.intranetCount++;
         }
 
         const fmtDate = d => d ? d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' }) : '\u2014';
+        const dayDiff = (a, b) => Math.round(Math.abs(a - b) / 86400000);
+
+        // Strict time-proximity filter (slider-controlled). -1 = no filter (loose view).
+        const proximityInput = document.getElementById('channel-overlap-proximity');
+        const proximityDays = proximityInput ? parseInt(proximityInput.value, 10) : -1;
+
         const overlap = Object.values(packs)
             .filter(p => p.emailCount > 0 && p.intranetCount > 0)
-            .map(p => ({
-                packId: p.packId,
-                cluster: [...p.clusters].join(', '),
-                campaign: [...p.campaigns].join(' / ') || '\u2014',
-                emailCount: p.emailCount,
-                intranetCount: p.intranetCount,
-                total: p.emailCount + p.intranetCount,
-                leads: [...p.leads].join(', '),
-                divisions: [...p.divisions].join(', '),
-                window: p.firstDate && p.lastDate
-                    ? (p.firstDate.getTime() === p.lastDate.getTime()
-                        ? fmtDate(p.firstDate)
-                        : `${fmtDate(p.firstDate)} \u2013 ${fmtDate(p.lastDate)}`)
-                    : '\u2014'
-            }))
+            .map(p => {
+                const gap = (p.emailFirstDate && p.intranetFirstDate)
+                    ? dayDiff(p.emailFirstDate, p.intranetFirstDate) : null;
+                return {
+                    packId: p.packId,
+                    cluster: [...p.clusters].join(', '),
+                    campaign: [...p.campaigns].join(' / ') || '\u2014',
+                    emailCount: p.emailCount,
+                    intranetCount: p.intranetCount,
+                    total: p.emailCount + p.intranetCount,
+                    leads: [...p.leads].join(', '),
+                    divisions: [...p.divisions].join(', '),
+                    gap,
+                    firstChannel: (p.emailFirstDate && p.intranetFirstDate)
+                        ? (p.emailFirstDate < p.intranetFirstDate ? 'Email first'
+                          : p.intranetFirstDate < p.emailFirstDate ? 'Intranet first'
+                          : 'Same day')
+                        : '\u2014',
+                    window: p.firstDate && p.lastDate
+                        ? (p.firstDate.getTime() === p.lastDate.getTime()
+                            ? fmtDate(p.firstDate)
+                            : `${fmtDate(p.firstDate)} \u2013 ${fmtDate(p.lastDate)}`)
+                        : '\u2014'
+                };
+            })
+            .filter(p => proximityDays < 0 || (p.gap !== null && p.gap <= proximityDays))
             .sort((a, b) => b.total - a.total);
 
+        const totalOverlapPacks = Object.values(packs)
+            .filter(p => p.emailCount > 0 && p.intranetCount > 0).length;
+        const missingPct = totalRows > 0 ? (missingPackId / totalRows * 100).toFixed(1) : '0.0';
+
+        const proximityLabel = proximityDays < 0
+            ? 'Loose (any time distance)'
+            : proximityDays === 0 ? 'Same day only' : `Within ${proximityDays} days`;
+
+        const controlsHtml = `
+            <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:12px;padding:12px;background:var(--surface);border-radius:2px">
+                <div>
+                    <div style="font-size:11px;color:var(--medium-gray);text-transform:uppercase;letter-spacing:0.05em;font-weight:600">Proximity filter</div>
+                    <div style="font-size:13px;color:var(--dark-gray);margin-top:2px">${esc(proximityLabel)}</div>
+                </div>
+                <div style="flex:1;min-width:200px;display:flex;align-items:center;gap:8px">
+                    <span style="font-size:11px;color:var(--medium-gray)">Loose</span>
+                    <input type="range" id="channel-overlap-proximity" min="-1" max="30" step="1"
+                           value="${proximityDays}" style="flex:1"
+                           oninput="this.dataset.val=this.value; renderChannelOverlap(window.__allRowsForOverlap||[])">
+                    <span style="font-size:11px;color:var(--medium-gray)">30d</span>
+                </div>
+                <div style="text-align:right">
+                    <div style="font-size:11px;color:var(--medium-gray);text-transform:uppercase;letter-spacing:0.05em;font-weight:600">Data quality</div>
+                    <div style="font-size:13px;color:var(--dark-gray);margin-top:2px">${fmtNum(missingPackId)} / ${fmtNum(totalRows)} rows missing pack ID (${missingPct}%)</div>
+                </div>
+            </div>`;
+
+        // Cache rows for slider re-render
+        window.__allRowsForOverlap = rows;
+
         if (overlap.length === 0) {
-            el.innerHTML = `<div style="padding:24px;text-align:center;color:var(--medium-gray)">No communication packs found using both Email and Intranet article (News).</div>`;
+            el.innerHTML = controlsHtml + `<div style="padding:24px;text-align:center;color:var(--medium-gray)">
+                No communication packs match. ${totalOverlapPacks > 0 ? `<br>${fmtNum(totalOverlapPacks)} pack${totalOverlapPacks === 1 ? '' : 's'} use both channels but fall outside the proximity window.` : 'No packs use both Email and Intranet article (News).'}
+            </div>`;
             return;
         }
 
         const summary = `<div style="margin-bottom:12px;font-size:13px;color:var(--medium-gray)">
-            <strong style="color:var(--dark-gray);font-size:15px">${fmtNum(overlap.length)}</strong> communication pack${overlap.length === 1 ? '' : 's'} launched via both Email and Intranet article (News). Packs are grouped by <code>tracking_pack_id</code> (CLUSTER-PACKNUM).
+            <strong style="color:var(--dark-gray);font-size:15px">${fmtNum(overlap.length)}</strong> of ${fmtNum(totalOverlapPacks)} cross-channel pack${totalOverlapPacks === 1 ? '' : 's'} match the current filter. Packs grouped by <code>tracking_pack_id</code> (CLUSTER-PACKNUM); channel-gap = days between first Email activity and first Intranet (News) activity.
         </div>`;
+
+        const gapCell = c => {
+            if (c.gap === null) return '\u2014';
+            const color = c.gap <= 1 ? 'var(--success)' : c.gap <= 7 ? 'var(--dark-gray)' : 'var(--warning)';
+            return `<span style="color:${color};font-weight:600">${c.gap}d</span>`;
+        };
 
         const rowsHtml = overlap.map(c => `
             <tr>
@@ -2611,12 +2672,14 @@
                 <td style="font-weight:600">${esc(c.campaign)}</td>
                 <td style="text-align:right">${fmtNum(c.emailCount)}</td>
                 <td style="text-align:right">${fmtNum(c.intranetCount)}</td>
+                <td style="text-align:right;white-space:nowrap">${gapCell(c)}</td>
+                <td style="white-space:nowrap">${esc(c.firstChannel)}</td>
                 <td style="white-space:nowrap">${esc(c.window)}</td>
                 <td>${esc(c.leads)}</td>
                 <td>${esc(c.divisions)}</td>
             </tr>`).join('');
 
-        el.innerHTML = summary + `
+        el.innerHTML = controlsHtml + summary + `
             <div style="overflow-x:auto">
                 <table style="width:100%">
                     <thead>
@@ -2626,6 +2689,8 @@
                             <th>Campaign</th>
                             <th style="text-align:right">Email</th>
                             <th style="text-align:right">Intranet (News)</th>
+                            <th style="text-align:right">Gap</th>
+                            <th>Order</th>
                             <th>Window</th>
                             <th>Leads</th>
                             <th>Divisions</th>
@@ -2635,6 +2700,7 @@
                 </table>
             </div>`;
     }
+    window.renderChannelOverlap = renderChannelOverlap;
 
     // -------------------------------------------------------------------------
     // Executive Summary
