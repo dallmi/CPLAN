@@ -2526,25 +2526,25 @@
     // parsed from tracking_id = CLUSTER-PACKNUM-YYMMDD-ACTNUM-CHANNEL.
     // Channel detection uses both the tracking channel abbreviation (EMI, INA, etc.)
     // and the textual channel field for robustness.
-    function renderChannelOverlap(rows) {
-        const el = document.getElementById("channel-overlap-table");
-        if (!el) return;
+    const CH_OVERLAP_EMAIL_ABBRS = new Set(['EMI', 'EMA', 'EML', 'EMX']);
+    const CH_OVERLAP_INTRANET_ABBRS = new Set(['INA', 'IAN', 'INN', 'IAR']);
+    const chOverlapExpanded = new Set();
 
-        const splitChannels = v => (v && v !== 'None')
+    function chOverlapSplitChannels(v) {
+        return (v && v !== 'None')
             ? String(v).split(/[;,]/).map(s => s.trim()).filter(Boolean)
             : [];
-        const EMAIL_ABBRS = new Set(['EMI', 'EMA', 'EML', 'EMX']);
-        const INTRANET_NEWS_ABBRS = new Set(['INA', 'IAN', 'INN', 'IAR']);
-        const isEmailText = ch => /e[\s-]?mail/i.test(ch);
-        const isIntranetNewsText = ch => /intranet/i.test(ch) && /news|article/i.test(ch);
-        const classify = r => {
-            const abbr = (r.tracking_channel_abbr || '').toString().trim().toUpperCase();
-            const texts = splitChannels(r.channel);
-            const email = EMAIL_ABBRS.has(abbr) || texts.some(isEmailText);
-            const intranet = INTRANET_NEWS_ABBRS.has(abbr) || texts.some(isIntranetNewsText);
-            return { email, intranet };
-        };
+    }
+    function chOverlapClassify(r) {
+        const abbr = (r.tracking_channel_abbr || '').toString().trim().toUpperCase();
+        const texts = chOverlapSplitChannels(r.channel);
+        const email = CH_OVERLAP_EMAIL_ABBRS.has(abbr) || texts.some(ch => /e[\s-]?mail/i.test(ch));
+        const intranet = CH_OVERLAP_INTRANET_ABBRS.has(abbr) ||
+            texts.some(ch => /intranet/i.test(ch) && /news|article/i.test(ch));
+        return { email, intranet };
+    }
 
+    function computeChannelOverlapPacks(rows) {
         const packs = {};
         let missingPackId = 0;
         let totalRows = 0;
@@ -2552,20 +2552,20 @@
             totalRows++;
             const packId = r.tracking_pack_id;
             if (!packId || packId === 'None') { missingPackId++; continue; }
-            const cls = classify(r);
+            const cls = chOverlapClassify(r);
             if (!cls.email && !cls.intranet) continue;
             if (!packs[packId]) packs[packId] = {
                 packId,
-                packNames: new Set(),
                 campaigns: new Set(),
                 clusters: new Set(),
                 emailCount: 0, intranetCount: 0,
                 leads: new Set(), divisions: new Set(),
                 firstDate: null, lastDate: null,
-                emailFirstDate: null, intranetFirstDate: null
+                emailFirstDate: null, intranetFirstDate: null,
+                activities: []
             };
             const entry = packs[packId];
-            if (r.activity_name) entry.packNames.add(r.activity_name);
+            entry.activities.push({ row: r, cls });
             if (r.campaign && r.campaign !== 'None') entry.campaigns.add(r.campaign);
             if (r.tracking_cluster_id) entry.clusters.add(r.tracking_cluster_id);
             if (r.lead) entry.leads.add(r.lead);
@@ -2580,16 +2580,25 @@
             if (cls.email) entry.emailCount++;
             if (cls.intranet) entry.intranetCount++;
         }
+        return { packs, missingPackId, totalRows };
+    }
 
-        const fmtDate = d => d ? d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' }) : '\u2014';
+    function chOverlapFmtDate(d) {
+        return d ? d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' }) : '\u2014';
+    }
+
+    function renderChannelOverlap(rows) {
+        const el = document.getElementById("channel-overlap-table");
+        if (!el) return;
+
+        const { packs, missingPackId, totalRows } = computeChannelOverlapPacks(rows);
         const dayDiff = (a, b) => Math.round(Math.abs(a - b) / 86400000);
 
-        // Strict time-proximity filter (slider-controlled). -1 = no filter (loose view).
         const proximityInput = document.getElementById('channel-overlap-proximity');
         const proximityDays = proximityInput ? parseInt(proximityInput.value, 10) : -1;
 
-        const overlap = Object.values(packs)
-            .filter(p => p.emailCount > 0 && p.intranetCount > 0)
+        const allCrossChannel = Object.values(packs).filter(p => p.emailCount > 0 && p.intranetCount > 0);
+        const overlap = allCrossChannel
             .map(p => {
                 const gap = (p.emailFirstDate && p.intranetFirstDate)
                     ? dayDiff(p.emailFirstDate, p.intranetFirstDate) : null;
@@ -2600,6 +2609,7 @@
                     emailCount: p.emailCount,
                     intranetCount: p.intranetCount,
                     total: p.emailCount + p.intranetCount,
+                    activityCount: p.activities.length,
                     leads: [...p.leads].join(', '),
                     divisions: [...p.divisions].join(', '),
                     gap,
@@ -2610,21 +2620,24 @@
                         : '\u2014',
                     window: p.firstDate && p.lastDate
                         ? (p.firstDate.getTime() === p.lastDate.getTime()
-                            ? fmtDate(p.firstDate)
-                            : `${fmtDate(p.firstDate)} \u2013 ${fmtDate(p.lastDate)}`)
-                        : '\u2014'
+                            ? chOverlapFmtDate(p.firstDate)
+                            : `${chOverlapFmtDate(p.firstDate)} \u2013 ${chOverlapFmtDate(p.lastDate)}`)
+                        : '\u2014',
+                    activities: p.activities
                 };
             })
             .filter(p => proximityDays < 0 || (p.gap !== null && p.gap <= proximityDays))
             .sort((a, b) => b.total - a.total);
 
-        const totalOverlapPacks = Object.values(packs)
-            .filter(p => p.emailCount > 0 && p.intranetCount > 0).length;
+        const totalOverlapPacks = allCrossChannel.length;
         const missingPct = totalRows > 0 ? (missingPackId / totalRows * 100).toFixed(1) : '0.0';
 
         const proximityLabel = proximityDays < 0
             ? 'Loose (any time distance)'
             : proximityDays === 0 ? 'Same day only' : `Within ${proximityDays} days`;
+
+        window.__allRowsForOverlap = rows;
+        window.__chOverlapCurrent = overlap;
 
         const controlsHtml = `
             <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:12px;padding:12px;background:var(--surface);border-radius:2px">
@@ -2636,17 +2649,15 @@
                     <span style="font-size:11px;color:var(--medium-gray)">Loose</span>
                     <input type="range" id="channel-overlap-proximity" min="-1" max="30" step="1"
                            value="${proximityDays}" style="flex:1"
-                           oninput="this.dataset.val=this.value; renderChannelOverlap(window.__allRowsForOverlap||[])">
+                           oninput="renderChannelOverlap(window.__allRowsForOverlap||[])">
                     <span style="font-size:11px;color:var(--medium-gray)">30d</span>
                 </div>
                 <div style="text-align:right">
                     <div style="font-size:11px;color:var(--medium-gray);text-transform:uppercase;letter-spacing:0.05em;font-weight:600">Data quality</div>
                     <div style="font-size:13px;color:var(--dark-gray);margin-top:2px">${fmtNum(missingPackId)} / ${fmtNum(totalRows)} rows missing pack ID (${missingPct}%)</div>
                 </div>
+                <button class="export-btn" id="channel-overlap-export" ${overlap.length === 0 ? 'disabled style="opacity:0.5;cursor:not-allowed"' : ''}>&#11123; Export XLSX</button>
             </div>`;
-
-        // Cache rows for slider re-render
-        window.__allRowsForOverlap = rows;
 
         if (overlap.length === 0) {
             el.innerHTML = controlsHtml + `<div style="padding:24px;text-align:center;color:var(--medium-gray)">
@@ -2656,7 +2667,7 @@
         }
 
         const summary = `<div style="margin-bottom:12px;font-size:13px;color:var(--medium-gray)">
-            <strong style="color:var(--dark-gray);font-size:15px">${fmtNum(overlap.length)}</strong> of ${fmtNum(totalOverlapPacks)} cross-channel pack${totalOverlapPacks === 1 ? '' : 's'} match the current filter. Packs grouped by <code>tracking_pack_id</code> (CLUSTER-PACKNUM); channel-gap = days between first Email activity and first Intranet (News) activity.
+            <strong style="color:var(--dark-gray);font-size:15px">${fmtNum(overlap.length)}</strong> of ${fmtNum(totalOverlapPacks)} cross-channel pack${totalOverlapPacks === 1 ? '' : 's'} match the current filter. Click a row to expand and see the tracking IDs of all activities in that pack. Channel-gap = days between first Email and first Intranet (News) activity.
         </div>`;
 
         const gapCell = c => {
@@ -2665,19 +2676,80 @@
             return `<span style="color:${color};font-weight:600">${c.gap}d</span>`;
         };
 
-        const rowsHtml = overlap.map(c => `
-            <tr>
-                <td style="font-family:monospace;font-size:12px;white-space:nowrap">${esc(c.packId)}</td>
-                <td>${esc(c.cluster)}</td>
-                <td style="font-weight:600">${esc(c.campaign)}</td>
-                <td style="text-align:right">${fmtNum(c.emailCount)}</td>
-                <td style="text-align:right">${fmtNum(c.intranetCount)}</td>
-                <td style="text-align:right;white-space:nowrap">${gapCell(c)}</td>
-                <td style="white-space:nowrap">${esc(c.firstChannel)}</td>
-                <td style="white-space:nowrap">${esc(c.window)}</td>
-                <td>${esc(c.leads)}</td>
-                <td>${esc(c.divisions)}</td>
-            </tr>`).join('');
+        const channelBadge = cls => {
+            if (cls.email && cls.intranet) return `<span class="badge" style="background:#0C7EC620;color:#0C7EC6">Email + Intranet</span>`;
+            if (cls.email) return `<span class="badge" style="background:#E4A91120;color:#E4A911">Email</span>`;
+            if (cls.intranet) return `<span class="badge" style="background:#6F7A1A20;color:#6F7A1A">Intranet (News)</span>`;
+            return '\u2014';
+        };
+
+        const drilldownHtml = c => {
+            const sorted = [...c.activities].sort((a, b) => {
+                const da = parseDate(a.row.start_date);
+                const db = parseDate(b.row.start_date);
+                return (da?.getTime() || 0) - (db?.getTime() || 0);
+            });
+            const rows = sorted.map(({ row, cls }) => `
+                <tr>
+                    <td style="font-family:monospace;font-size:11px;white-space:nowrap">${esc(row.tracking_id || '\u2014')}</td>
+                    <td>${channelBadge(cls)}</td>
+                    <td style="white-space:nowrap">${esc(chOverlapFmtDate(parseDate(row.start_date)))}</td>
+                    <td>${esc(row.activity_name || '\u2014')}</td>
+                    <td>${esc(row.lead || '\u2014')}</td>
+                    <td>${esc(row.target_audience || '\u2014')}</td>
+                    <td>${esc(row.region || '\u2014')}</td>
+                    <td>${esc(row.business_division || '\u2014')}</td>
+                </tr>`).join('');
+            return `
+                <tr class="ch-overlap-drill">
+                    <td colspan="10" style="padding:0;background:var(--surface-alt,#F5F0E1)">
+                        <div style="padding:12px 16px">
+                            <div style="font-size:11px;color:var(--medium-gray);text-transform:uppercase;letter-spacing:0.05em;font-weight:600;margin-bottom:8px">
+                                ${fmtNum(c.activityCount)} activities in pack ${esc(c.packId)}
+                            </div>
+                            <div style="overflow-x:auto">
+                                <table style="width:100%;background:white">
+                                    <thead>
+                                        <tr>
+                                            <th>Tracking ID</th>
+                                            <th>Channel</th>
+                                            <th>Start Date</th>
+                                            <th>Activity</th>
+                                            <th>Lead</th>
+                                            <th>Audience</th>
+                                            <th>Region</th>
+                                            <th>Division</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>${rows}</tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </td>
+                </tr>`;
+        };
+
+        const rowsHtml = overlap.map(c => {
+            const isOpen = chOverlapExpanded.has(c.packId);
+            const caret = isOpen ? '\u25BE' : '\u25B8';
+            return `
+                <tr class="ch-overlap-row" data-pack-id="${esc(c.packId)}" style="cursor:pointer">
+                    <td style="font-family:monospace;font-size:12px;white-space:nowrap">
+                        <span style="display:inline-block;width:12px;color:var(--medium-gray)">${caret}</span>
+                        ${esc(c.packId)}
+                    </td>
+                    <td>${esc(c.cluster)}</td>
+                    <td style="font-weight:600">${esc(c.campaign)}</td>
+                    <td style="text-align:right">${fmtNum(c.emailCount)}</td>
+                    <td style="text-align:right">${fmtNum(c.intranetCount)}</td>
+                    <td style="text-align:right;white-space:nowrap">${gapCell(c)}</td>
+                    <td style="white-space:nowrap">${esc(c.firstChannel)}</td>
+                    <td style="white-space:nowrap">${esc(c.window)}</td>
+                    <td>${esc(c.leads)}</td>
+                    <td>${esc(c.divisions)}</td>
+                </tr>
+                ${isOpen ? drilldownHtml(c) : ''}`;
+        }).join('');
 
         el.innerHTML = controlsHtml + summary + `
             <div style="overflow-x:auto">
@@ -2699,8 +2771,136 @@
                     <tbody>${rowsHtml}</tbody>
                 </table>
             </div>`;
+
+        // Row click toggles drill-down
+        el.querySelectorAll('tr.ch-overlap-row').forEach(tr => {
+            tr.addEventListener('click', () => {
+                const pid = tr.dataset.packId;
+                if (chOverlapExpanded.has(pid)) chOverlapExpanded.delete(pid);
+                else chOverlapExpanded.add(pid);
+                renderChannelOverlap(window.__allRowsForOverlap || []);
+            });
+        });
+
+        const btn = document.getElementById('channel-overlap-export');
+        if (btn) btn.addEventListener('click', () => exportChannelOverlapXLSX(overlap));
     }
     window.renderChannelOverlap = renderChannelOverlap;
+
+    // Two-sheet XLSX: (1) Packs summary, (2) Flat activity list for all matching packs.
+    function exportChannelOverlapXLSX(overlap) {
+        if (!overlap || !overlap.length) return;
+
+        const wb = XLSX.utils.book_new();
+
+        const headerStyle = {
+            font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 11, name: 'Calibri' },
+            fill: { fgColor: { rgb: '404040' } },
+            border: {
+                bottom: { style: 'medium', color: { rgb: 'E60000' } },
+                top:    { style: 'thin',   color: { rgb: '404040' } },
+                left:   { style: 'thin',   color: { rgb: '404040' } },
+                right:  { style: 'thin',   color: { rgb: '404040' } }
+            },
+            alignment: { vertical: 'center', wrapText: false }
+        };
+        const thinBorder = {
+            top:    { style: 'thin', color: { rgb: 'CCCABC' } },
+            bottom: { style: 'thin', color: { rgb: 'CCCABC' } },
+            left:   { style: 'thin', color: { rgb: 'CCCABC' } },
+            right:  { style: 'thin', color: { rgb: 'CCCABC' } }
+        };
+        const evenRow = { font: { sz: 10, name: 'Calibri' }, fill: { fgColor: { rgb: 'FFFFFF' } }, border: thinBorder, alignment: { vertical: 'center' } };
+        const oddRow  = { font: { sz: 10, name: 'Calibri' }, fill: { fgColor: { rgb: 'F8F7F2' } }, border: thinBorder, alignment: { vertical: 'center' } };
+
+        const writeSheet = (label, cols, dataRows) => {
+            const wsData = [cols.map(c => c.label), ...dataRows];
+            const ws = XLSX.utils.aoa_to_sheet(wsData);
+            ws['!cols'] = cols.map(c => ({ wch: c.wch }));
+            ws['!rows'] = [{ hpt: 28 }];
+            ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: wsData.length - 1, c: cols.length - 1 } }) };
+            for (let c = 0; c < cols.length; c++) {
+                const ref = XLSX.utils.encode_cell({ r: 0, c });
+                if (ws[ref]) ws[ref].s = headerStyle;
+            }
+            for (let r = 1; r < wsData.length; r++) {
+                const style = r % 2 === 1 ? oddRow : evenRow;
+                for (let c = 0; c < cols.length; c++) {
+                    const ref = XLSX.utils.encode_cell({ r, c });
+                    if (!ws[ref]) ws[ref] = { v: '', t: 's' };
+                    ws[ref].s = style;
+                }
+            }
+            XLSX.utils.book_append_sheet(wb, ws, label);
+        };
+
+        // Sheet 1: Packs summary
+        const packCols = [
+            { key: 'packId',         label: 'Pack ID',           wch: 20 },
+            { key: 'cluster',        label: 'Cluster',           wch: 14 },
+            { key: 'campaign',       label: 'Campaign',          wch: 35 },
+            { key: 'emailCount',     label: 'Email Activities',  wch: 16 },
+            { key: 'intranetCount',  label: 'Intranet (News) Activities', wch: 22 },
+            { key: 'activityCount',  label: 'Total Activities',  wch: 16 },
+            { key: 'gap',            label: 'Channel Gap (days)', wch: 18 },
+            { key: 'firstChannel',   label: 'Launch Order',      wch: 16 },
+            { key: 'window',         label: 'Activity Window',   wch: 28 },
+            { key: 'leads',          label: 'Leads',             wch: 35 },
+            { key: 'divisions',      label: 'Divisions',         wch: 35 },
+        ];
+        const packRows = overlap.map(p => packCols.map(c => {
+            const v = p[c.key];
+            return v === null || v === undefined ? '' : v;
+        }));
+        writeSheet('Cross-Channel Packs', packCols, packRows);
+
+        // Sheet 2: Flat activity list
+        const actCols = [
+            { key: 'tracking_pack_id', label: 'Pack ID',           wch: 20 },
+            { key: 'tracking_id',      label: 'Tracking ID',       wch: 34 },
+            { key: 'channel_class',    label: 'Channel Class',     wch: 18 },
+            { key: 'tracking_channel_abbr', label: 'Channel Abbr', wch: 12 },
+            { key: 'channel',          label: 'Channel (text)',    wch: 24 },
+            { key: 'start_date',       label: 'Start Date',        wch: 14 },
+            { key: 'activity_name',    label: 'Activity',          wch: 50 },
+            { key: 'priority',         label: 'Priority',          wch: 12 },
+            { key: 'lead',             label: 'Lead',              wch: 25 },
+            { key: 'lead_team',        label: 'Lead Team',         wch: 25 },
+            { key: 'target_audience',  label: 'Target Audience',   wch: 28 },
+            { key: 'region',           label: 'Region',            wch: 18 },
+            { key: 'business_division', label: 'Division',         wch: 25 },
+            { key: 'campaign',         label: 'Campaign (text)',   wch: 28 },
+            { key: 'strategic_objectives', label: 'Strategic Objectives', wch: 35 },
+            { key: 'source_type',      label: 'Source Type',       wch: 14 },
+            { key: 'news_digest',      label: 'News Digest',       wch: 12 },
+        ];
+        const activityRows = [];
+        for (const p of overlap) {
+            const sorted = [...p.activities].sort((a, b) => {
+                const da = parseDate(a.row.start_date);
+                const db = parseDate(b.row.start_date);
+                return (da?.getTime() || 0) - (db?.getTime() || 0);
+            });
+            for (const { row, cls } of sorted) {
+                const channelClass = cls.email && cls.intranet ? 'Email + Intranet'
+                    : cls.email ? 'Email'
+                    : cls.intranet ? 'Intranet (News)' : '';
+                activityRows.push(actCols.map(c => {
+                    if (c.key === 'channel_class') return channelClass;
+                    let v = row[c.key];
+                    if (c.key === 'start_date') {
+                        const d = parseDate(v);
+                        return d ? chOverlapFmtDate(d) : '';
+                    }
+                    return v ?? '';
+                }));
+            }
+        }
+        writeSheet('Activities', actCols, activityRows);
+
+        const dateStr = new Date().toISOString().slice(0, 10);
+        XLSX.writeFile(wb, `CPLAN_Channel_Overlap_${dateStr}.xlsx`);
+    }
 
     // -------------------------------------------------------------------------
     // Executive Summary
