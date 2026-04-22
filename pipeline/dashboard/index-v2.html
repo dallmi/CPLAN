@@ -1321,11 +1321,49 @@
         <!-- ACTIVITIES (Internal / External) -->
         <div class="page" id="page-activities">
             <div class="sub-tabs" id="activities-sub-tabs">
-                <button class="sub-tab active" data-sub="act-internal">Internal</button>
+                <button class="sub-tab active" data-sub="act-all">All</button>
+                <button class="sub-tab" data-sub="act-internal">Internal</button>
                 <button class="sub-tab" data-sub="act-external">External</button>
             </div>
 
-            <div class="sub-page active" id="sub-act-internal">
+            <div class="sub-page active" id="sub-act-all">
+                <div class="kpi-grid" id="all-stats"></div>
+                <div class="charts-grid">
+                    <div class="chart-card full-width">
+                        <div class="chart-card-header">
+                            <span>All Activities</span>
+                            <button class="export-btn" id="all-export-xlsx">&#11123; Export XLSX</button>
+                        </div>
+                        <div class="chart-card-body">
+                            <div class="act-filters">
+                                <div class="act-filters-primary">
+                                    <div class="trackid-wrap">
+                                        <span class="trackid-label">Tracking ID</span>
+                                        <input type="text" class="trackid-input" id="all-trackid" placeholder="e.g. COM-2024-001">
+                                    </div>
+                                    <input type="text" class="act-search" id="all-search" placeholder="Search activity, lead, campaign&hellip;">
+                                </div>
+                                <div class="act-filters-secondary">
+                                    <select id="all-source-filter"><option value="">All Sources</option><option value="internal">Internal</option><option value="external">External</option></select>
+                                    <select id="all-channel-filter"><option value="">All Channels</option></select>
+                                    <select id="all-priority-filter"><option value="">All Priorities</option></select>
+                                    <select id="all-division-filter"><option value="">All Divisions</option></select>
+                                    <select id="all-audience-filter"><option value="">All Audiences</option></select>
+                                    <select id="all-lead-filter"><option value="">All Leads</option></select>
+                                    <select id="all-leadteam-filter"><option value="">All Lead Teams</option></select>
+                                    <select id="all-region-filter"><option value="">All Regions</option></select>
+                                    <select id="all-campaign-filter"><option value="">All Campaigns</option></select>
+                                    <button class="act-clear-btn" id="all-clear">Clear filters</button>
+                                    <span class="act-filter-count" id="all-count"></span>
+                                </div>
+                            </div>
+                            <div id="all-table"><div class="loading">Loading...</div></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sub-page" id="sub-act-internal">
                 <div class="kpi-grid" id="internal-stats"></div>
                 <div class="charts-grid">
                     <div class="chart-card full-width">
@@ -1348,6 +1386,7 @@
                                     <select id="internal-division-filter"><option value="">All Divisions</option></select>
                                     <select id="internal-audience-filter"><option value="">All Audiences</option></select>
                                     <select id="internal-lead-filter"><option value="">All Leads</option></select>
+                                    <select id="internal-leadteam-filter"><option value="">All Lead Teams</option></select>
                                     <select id="internal-region-filter"><option value="">All Regions</option></select>
                                     <select id="internal-campaign-filter"><option value="">All Campaigns</option></select>
                                     <button class="act-clear-btn" id="internal-clear">Clear filters</button>
@@ -1383,6 +1422,7 @@
                                     <select id="external-division-filter"><option value="">All Divisions</option></select>
                                     <select id="external-audience-filter"><option value="">All Audiences</option></select>
                                     <select id="external-lead-filter"><option value="">All Leads</option></select>
+                                    <select id="external-leadteam-filter"><option value="">All Lead Teams</option></select>
                                     <select id="external-region-filter"><option value="">All Regions</option></select>
                                     <select id="external-campaign-filter"><option value="">All Campaigns</option></select>
                                     <button class="act-clear-btn" id="external-clear">Clear filters</button>
@@ -1700,6 +1740,7 @@
         renderPlanningBoard(data);
         renderDashboard(data);
         renderCalendar(data);
+        renderSourcePage("all", data);
         renderSourcePage("internal", data);
         renderSourcePage("external", data);
         renderStrategicAlignment(data);
@@ -2319,20 +2360,41 @@
     }
 
     function renderSourcePage(type, data) {
-        const sourceRows = (data.rows || []).filter(r => r.source_type === type);
+        const allRows = data.rows || [];
+        const sourceRows = type === 'all' ? allRows : allRows.filter(r => r.source_type === type);
         const prefix = type;
         const now = new Date();
+        const hasSourceFilter = type === 'all';
+        const filterIds = [
+            `${prefix}-channel-filter`, `${prefix}-priority-filter`, `${prefix}-division-filter`,
+            `${prefix}-audience-filter`, `${prefix}-lead-filter`, `${prefix}-leadteam-filter`,
+            `${prefix}-region-filter`, `${prefix}-campaign-filter`,
+        ];
+        if (hasSourceFilter) filterIds.unshift(`${prefix}-source-filter`);
 
         // KPI cards
         const upcoming = sourceRows.filter(r => { const d = parseDate(r.start_date); return d && d >= now; });
         const channels = countBy(sourceRows, 'channel');
         const topChannel = channels.length ? channels[0][0] : '\u2014';
 
+        let totalCardClass, totalLabel, totalSub;
+        if (type === 'all') {
+            const internalCount = sourceRows.filter(r => r.source_type === 'internal').length;
+            const externalCount = sourceRows.filter(r => r.source_type === 'external').length;
+            totalCardClass = 'highlight';
+            totalLabel = 'Total Activities';
+            totalSub = `${fmtNum(internalCount)} internal · ${fmtNum(externalCount)} external`;
+        } else {
+            totalCardClass = type === 'internal' ? 'info' : 'success';
+            totalLabel = `Total ${type}`;
+            totalSub = 'Communication activities';
+        }
+
         document.getElementById(`${prefix}-stats`).innerHTML = `
-            <div class="kpi-card ${type === 'internal' ? 'info' : 'success'}">
-                <div class="kpi-label">Total ${type}</div>
+            <div class="kpi-card ${totalCardClass}">
+                <div class="kpi-label">${totalLabel}</div>
                 <div class="kpi-row"><div><span class="kpi-value">${fmtNum(sourceRows.length)}</span></div></div>
-                <div class="kpi-sub">Communication activities</div>
+                <div class="kpi-sub">${totalSub}</div>
             </div>
             <div class="kpi-card warning">
                 <div class="kpi-label">Upcoming</div>
@@ -2364,6 +2426,7 @@
         populateSelect(`${prefix}-division-filter`, uniqueSorted('business_division'), 'All Divisions');
         populateSelect(`${prefix}-audience-filter`, uniqueSorted('target_audience'),   'All Audiences');
         populateSelect(`${prefix}-lead-filter`,     uniqueSorted('lead'),              'All Leads');
+        populateSelect(`${prefix}-leadteam-filter`, uniqueSorted('lead_team'),         'All Lead Teams');
         populateSelect(`${prefix}-region-filter`,   uniqueSorted('region'),            'All Regions');
         populateSelect(`${prefix}-campaign-filter`, uniqueSorted('campaign'),          'All Campaigns');
 
@@ -2376,22 +2439,26 @@
         function applyFilters() {
             const trackId  = document.getElementById(`${prefix}-trackid`).value.toLowerCase();
             const search   = document.getElementById(`${prefix}-search`).value.toLowerCase();
+            const srcFilter = hasSourceFilter ? document.getElementById(`${prefix}-source-filter`).value : '';
             const chFilter  = document.getElementById(`${prefix}-channel-filter`).value;
             const prFilter  = document.getElementById(`${prefix}-priority-filter`).value;
             const divFilter = document.getElementById(`${prefix}-division-filter`).value;
             const audFilter = document.getElementById(`${prefix}-audience-filter`).value;
             const leadFilter = document.getElementById(`${prefix}-lead-filter`).value;
+            const leadTeamFilter = document.getElementById(`${prefix}-leadteam-filter`).value;
             const regFilter  = document.getElementById(`${prefix}-region-filter`).value;
             const campFilter = document.getElementById(`${prefix}-campaign-filter`).value;
 
             let filtered = sourceRows;
             if (trackId)   filtered = filtered.filter(r => String(r.tracking_id || '').toLowerCase().includes(trackId));
             if (search)    filtered = filtered.filter(r => Object.values(r).some(v => String(v || '').toLowerCase().includes(search)));
+            if (srcFilter) filtered = filtered.filter(r => r.source_type === srcFilter);
             if (chFilter)   filtered = filtered.filter(r => r.channel === chFilter);
             if (prFilter)   filtered = filtered.filter(r => r.priority === prFilter);
             if (divFilter)  filtered = filtered.filter(r => r.business_division === divFilter);
             if (audFilter)  filtered = filtered.filter(r => r.target_audience === audFilter);
             if (leadFilter) filtered = filtered.filter(r => r.lead === leadFilter);
+            if (leadTeamFilter) filtered = filtered.filter(r => r.lead_team === leadTeamFilter);
             if (regFilter)  filtered = filtered.filter(r => r.region === regFilter);
             if (campFilter) filtered = filtered.filter(r => r.campaign === campFilter);
 
@@ -2418,16 +2485,14 @@
 
         document.getElementById(`${prefix}-trackid`).addEventListener('input', applyFilters);
         document.getElementById(`${prefix}-search`).addEventListener('input', applyFilters);
-        for (const id of [`${prefix}-channel-filter`, `${prefix}-priority-filter`, `${prefix}-division-filter`,
-                          `${prefix}-audience-filter`, `${prefix}-lead-filter`, `${prefix}-region-filter`, `${prefix}-campaign-filter`]) {
+        for (const id of filterIds) {
             document.getElementById(id).addEventListener('change', applyFilters);
         }
 
         document.getElementById(`${prefix}-clear`).addEventListener('click', () => {
             document.getElementById(`${prefix}-trackid`).value = '';
             document.getElementById(`${prefix}-search`).value = '';
-            for (const id of [`${prefix}-channel-filter`, `${prefix}-priority-filter`, `${prefix}-division-filter`,
-                              `${prefix}-audience-filter`, `${prefix}-lead-filter`, `${prefix}-region-filter`, `${prefix}-campaign-filter`]) {
+            for (const id of filterIds) {
                 document.getElementById(id).value = '';
             }
             applyFilters();
@@ -2435,7 +2500,8 @@
 
         document.getElementById(`${prefix}-export-xlsx`).addEventListener('click', () => {
             const dateStr = new Date().toISOString().slice(0, 10);
-            const label = type === 'internal' ? 'Internal Activities' : 'External Activities';
+            const label = type === 'all' ? 'All Activities'
+                : type === 'internal' ? 'Internal Activities' : 'External Activities';
             exportActivityXLSX(currentFiltered, `CPLAN_${type}_${dateStr}.xlsx`, label);
         });
 
@@ -4350,6 +4416,7 @@
             renderPlanningBoard(data);
             renderDashboard(data);
             initCalendar(data);
+            renderSourcePage("all", data);
             renderSourcePage("internal", data);
             renderSourcePage("external", data);
             renderStrategicAlignment(data);
