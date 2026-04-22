@@ -1621,17 +1621,40 @@
 
     let dataRefreshDate = null;
 
+    async function loadMeta(paths) {
+        // Authoritative refresh timestamp from the pipeline.
+        // Cache-busted to avoid browser caching an old meta.json.
+        const bust = `?t=${Date.now()}`;
+        for (const p of paths) {
+            try {
+                const resp = await fetch(`${p}meta.json${bust}`, { cache: 'no-store' });
+                if (!resp.ok) continue;
+                const meta = await resp.json();
+                if (meta && meta.generated_at_iso) {
+                    dataRefreshDate = new Date(meta.generated_at_iso);
+                    return;
+                }
+                if (meta && meta.generated_at) {
+                    dataRefreshDate = new Date(meta.generated_at.replace(' ', 'T'));
+                    return;
+                }
+            } catch (e) { /* try next */ }
+        }
+    }
+
     async function loadParquetFiles() {
         const base = window.location.origin + window.location.pathname.replace(/\/[^\/]*$/, '');
         const paths = [`${base}/../output/`, `${window.location.origin}/output/`, `${base}/output/`];
+
+        await loadMeta(paths);
 
         async function load(view, file, required) {
             for (const p of paths) {
                 try {
                     const resp = await fetch(`${p}${file}`);
                     if (!resp.ok) continue;
-                    // Capture Last-Modified from the main data file
-                    if (view === 'communications') {
+                    // Fallback: capture Last-Modified if meta.json was unavailable
+                    if (view === 'communications' && !dataRefreshDate) {
                         const lm = resp.headers.get('Last-Modified');
                         if (lm) dataRefreshDate = new Date(lm);
                     }

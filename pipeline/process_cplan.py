@@ -1164,12 +1164,30 @@ def main():
     # --- Final summary ---
     if not preview:
         outputs = []
+        row_counts = {}
         for name in ("communications", "packs", "channels", "clusters"):
             p = OUTPUT_DIR / f"{name}.parquet"
             if p.exists():
                 kb = p.stat().st_size / 1024
                 outputs.append((name, f"{kb:.0f} KB"))
+                try:
+                    row_counts[name] = int(pd.read_parquet(p, columns=[]).shape[0])
+                except Exception:
+                    pass
         db_kb = DB_PATH.stat().st_size / 1024 if DB_PATH.exists() else 0
+
+        # meta.json — authoritative refresh timestamp for the dashboard
+        # (HTTP Last-Modified is unreliable due to browser cache and OneDrive sync)
+        meta_path = OUTPUT_DIR / "meta.json"
+        now = datetime.now()
+        meta = {
+            "generated_at": now.strftime("%Y-%m-%d %H:%M"),
+            "generated_at_iso": now.isoformat(timespec="seconds"),
+            "mode": "full" if full_refresh else "incremental",
+            "row_counts": row_counts,
+        }
+        with open(meta_path, "w", encoding="utf-8") as f:
+            json.dump(meta, f, ensure_ascii=False, indent=2)
 
         print()
         print_table("Pipeline Complete",
