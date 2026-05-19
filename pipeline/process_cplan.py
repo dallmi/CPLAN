@@ -208,6 +208,10 @@ def find_input_files(input_dir):
     for key, pattern in INPUT_FILES.items():
         matches = list(input_dir.glob(pattern))
         matches = [f for f in matches if not f.name.startswith("~$")]
+        # Active patterns ("internal"/"external") would otherwise also match
+        # the Archive files because of the trailing wildcard. Exclude them.
+        if key in ("internal", "external"):
+            matches = [f for f in matches if "Archive" not in f.name]
         if matches:
             newest = max(matches, key=lambda f: f.stat().st_mtime)
             found[key] = newest
