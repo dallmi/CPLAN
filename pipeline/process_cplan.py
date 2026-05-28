@@ -635,20 +635,11 @@ def write_table(df, table_name, parquet_name, full_refresh=False):
 
     con = duckdb.connect(str(DB_PATH))
     try:
-        if full_refresh:
-            con.execute(f"DROP TABLE IF EXISTS {table_name}")
-
-        con.execute(f"""
-            CREATE TABLE IF NOT EXISTS {table_name} AS
-            SELECT * FROM read_parquet(?)
-        """, [str(parquet_path)])
-
-        if not full_refresh:
-            con.execute(f"DELETE FROM {table_name}")
-            con.execute(f"""
-                INSERT INTO {table_name}
-                SELECT * FROM read_parquet(?)
-            """, [str(parquet_path)])
+        # Always recreate: positional INSERT against a stale schema breaks
+        # when the CSV column order shifts between exports (channel landing
+        # in start_date slot etc.).
+        con.execute(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM read_parquet(?)",
+                    [str(parquet_path)])
 
         row_count = con.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
         schema = con.execute(f"DESCRIBE {table_name}").fetchall()
