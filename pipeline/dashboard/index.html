@@ -11,220 +11,458 @@
         window.duckdb = duckdb;
         window.dispatchEvent(new Event('duckdb-ready'));
     </script>
+    <!-- ExcelJS for styled XLSX export (brand style guide §7 table formatting) -->
+    <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+    <!-- Flatpickr date picker -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
 
     <style>
         :root {
-            --primary: #E60000;
-            --primary-dark: #8A000A;
-            --danger: #BD000C;
-            --warning: #E4A911;
-            --success: #6F7A1A;
-            --info: #0C7EC6;
-            --dark-gray: #404040;
-            --medium-gray: #7A7870;
-            --light-gray: #CCCABC;
-            --gray-ii: #B8B3A2;
-            --gray-iii: #8E8D83;
-            --gray-v: #5A5D5C;
-            --surface: #ECEBE4;
-            --surface-alt: #F5F0E1;
-            --row-alt: #F8F7F2;
-            --white: #FFFFFF;
-            --black: #000000;
+            /* ── Corporate design-system tokens (design-system/corporate-design-system.css) ── */
+            --primary:      #E60000; /* Corporate Red */
+            --primary-dark: #8A000A; /* Bordeaux II — hover/active */
+            --white:        #FFFFFF;
+            --black:        #000000;
 
-            --bronze-i: #B98E2C;
-            --bronze-ii: #946F29;
-            --lagoon: #00759E;
-            --kiwi: #879420;
-            --aubergine: #4B2D58;
-            --sage: #469A6C;
-            --plum: #4972AC;
-            --blush: #AD3E4A;
-            --lavender: #8489BD;
-            --lake: #0C7EC6;
-            --mint: #45999C;
-            --chocolate: #785E4A;
+            --grey-1: #CCCABC;
+            --grey-2: #B8B3A2;
+            --grey-3: #8E8D83;
+            --grey-4: #7A7870;
+            --grey-5: #5A5D5C;
+            --grey-6: #404040;
 
-            --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-            --sidebar-width: 240px;
+            --bordeaux-1: #BD000C;
+            --bordeaux-2: #8A000A;
+            --bordeaux-3: #620004;
+
+            --bronze-1: #B98E2C;
+            --bronze-2: #946F29;
+            --bronze-3: #6C5312;
+
+            --bg:          #F7F7F5; /* page background — near-white warm tint */
+            --surface:     #ECEBE4; /* Pastel I — borders, headers, UI fills */
+            --surface-alt: #F5F0E1; /* Pastel II — column highlights */
+            --row-alt:     #F8F7F2; /* alternating table rows */
+
+            --success: #6F7A1A; /* RAG Green */
+            --warning: #E4A911; /* RAG Amber */
+            --danger:  #BD000C; /* RAG Red = Bordeaux I */
+            --info:    #0C7EC6; /* Lake50 — links / interactive only */
+
+            --radius: 2px;
+
+            /* ── Derived light tints (documented) — badge/alert/heatmap backgrounds only ── */
+            --success-tint: #E8ECD0; /* derived from RAG Green */
+            --warning-tint: #FDF3D7; /* derived from RAG Amber */
+            --danger-tint:  #F5D0D3; /* derived from RAG Red */
+            --warning-dark: #8A6800; /* derived dark amber for text on warning tint */
+            --bronze-tint:  #F3EAD2; /* derived from Bronze I */
+
+            /* Legacy aliases used throughout this file */
+            --dark-gray:   var(--grey-6);
+            --medium-gray: var(--grey-4);
+            --light-gray:  var(--grey-1);
+            --gray-ii:     var(--grey-2);
+            --gray-iii:    var(--grey-3);
+            --gray-v:      var(--grey-5);
+
+            --font: "Frutiger 45 Light", "Frutiger", "Helvetica Neue", Helvetica, Arial, "Segoe UI", Roboto, system-ui, sans-serif;
         }
 
         * { box-sizing: border-box; margin: 0; padding: 0; }
 
         body {
             font-family: var(--font);
-            background: var(--surface);
+            background: var(--bg);
             color: var(--black);
             line-height: 1.5;
         }
 
-        /* Layout */
-        .app { display: flex; min-height: 100vh; }
-
-        .sidebar {
-            width: var(--sidebar-width);
-            background: var(--black);
-            color: var(--white);
-            padding: 24px 0;
-            flex-shrink: 0;
-            position: fixed;
+        /* ── Sticky Topbar: header + tabs pinned together as one unit ── */
+        .topbar {
+            position: sticky;
             top: 0;
-            left: 0;
-            bottom: 0;
-            overflow-y: auto;
             z-index: 100;
         }
 
-        .sidebar-brand {
-            padding: 0 24px 24px;
-            font-size: 20px;
-            font-weight: 700;
-            letter-spacing: 0.05em;
-            border-bottom: 1px solid var(--dark-gray);
-            margin-bottom: 16px;
+        .header {
+            background: var(--white);
+            color: var(--black);
+            padding: 0.75rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--surface);
         }
 
-        .sidebar-brand span { color: var(--primary); }
+        .header h1 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--black);
+            padding-left: 0.75rem;
+            border-left: 3px solid var(--primary);
+            white-space: nowrap;
+        }
 
-        .sidebar-nav a {
+        .header-controls {
             display: flex;
+            gap: 1rem;
             align-items: center;
-            gap: 12px;
-            padding: 10px 24px;
-            color: var(--light-gray);
-            text-decoration: none;
-            font-size: 14px;
-            transition: background 0.15s, color 0.15s;
+        }
+
+        .date-filter {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .date-filter.loading {
+            opacity: 0.4;
+            pointer-events: none;
+        }
+
+        .date-presets {
+            display: flex;
+            gap: 0;
+            border: 1px solid var(--grey-1);
+            border-radius: var(--radius);
+            overflow: hidden;
+            margin-right: 0.5rem;
+        }
+
+        .date-preset {
+            padding: 0.35rem 0.6rem;
+            background: var(--white);
+            border: none;
+            border-right: 1px solid var(--grey-1);
+            cursor: pointer;
+            font-size: 0.75rem;
+            color: var(--grey-5);
+            white-space: nowrap;
+            transition: all 0.15s;
+            font-family: var(--font);
+        }
+
+        .date-preset:last-child { border-right: none; }
+        .date-preset:hover { background: var(--surface); color: var(--grey-6); }
+        .date-preset.active { background: var(--primary); color: var(--white); }
+
+        .export-btn {
+            padding: 0.35rem 0.75rem;
+            background: var(--white);
+            border: 1px solid var(--grey-1);
+            border-radius: var(--radius);
+            cursor: pointer;
+            font-size: 0.75rem;
+            color: var(--grey-6);
+            font-family: var(--font);
+            font-weight: 600;
+            white-space: nowrap;
+            transition: all 0.15s;
+        }
+        .export-btn:hover { background: var(--surface); border-color: var(--grey-2); }
+
+        .date-filter label {
+            font-size: 0.8rem;
+            color: var(--grey-4);
+        }
+
+        .date-filter input[type="text"] {
+            padding: 0.35rem 0.5rem;
+            border: 1px solid var(--grey-1);
+            border-radius: var(--radius);
+            font-size: 0.8rem;
+            font-family: var(--font);
+            width: 100px;
             cursor: pointer;
         }
 
-        .sidebar-nav a:hover,
-        .sidebar-nav a.active {
-            background: var(--dark-gray);
-            color: var(--white);
+        .date-filter input[type="text"]:focus {
+            outline: none;
+            border-color: var(--primary);
         }
 
-        .sidebar-nav a.active {
-            border-left: 3px solid var(--primary);
-            padding-left: 21px;
+        /* Flatpickr brand overrides */
+        .flatpickr-day.selected, .flatpickr-day.selected:hover { background: var(--primary); border-color: var(--primary); }
+        .flatpickr-day.today { border-color: var(--primary); }
+        .flatpickr-day:hover { background: var(--surface); }
+
+        /* Status indicator (functional dot — circle intended) */
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 6px;
         }
 
-        .sidebar-section {
-            padding: 16px 24px 8px;
-            font-size: 11px;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            color: var(--gray-iii);
-            font-weight: 600;
+        .status-dot.loading {
+            background: var(--warning);
+            animation: pulse 1s ease-in-out infinite;
         }
 
-        .main {
-            flex: 1;
-            padding: 32px;
-            margin-left: var(--sidebar-width);
-            overflow-y: auto;
-            min-height: 100vh;
+        .status-dot.ready { background: var(--success); }
+        .status-dot.error { background: var(--danger); }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
         }
 
-        .page-header { margin-bottom: 28px; }
+        .status-text {
+            font-size: 0.75rem;
+            color: var(--grey-4);
+            white-space: nowrap;
+        }
 
-        .page-header h1 {
-            font-size: 26px;
-            font-weight: 700;
+        /* ── Horizontal Nav Tabs (inside sticky topbar) ── */
+        .nav-tabs {
+            display: flex;
+            gap: 0;
+            background: var(--white);
+            border-bottom: 2px solid var(--surface);
+            overflow-x: auto;
+            padding: 0 2rem;
+        }
+
+        .nav-tab {
+            padding: 0.75rem 1.25rem;
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--grey-5);
+            border-bottom: 2px solid transparent;
+            margin-bottom: -2px;
+            transition: all 0.2s;
+            white-space: nowrap;
+            font-family: var(--font);
+        }
+
+        .nav-tab:hover {
             color: var(--black);
+            background: var(--surface);
         }
 
-        .page-header p {
-            color: var(--medium-gray);
-            font-size: 14px;
-            margin-top: 4px;
+        .nav-tab.active {
+            color: var(--black);
+            border-bottom-color: var(--primary);
         }
 
-        /* Stat Cards */
-        .stats-grid {
+        /* ── Sub-tabs (within a page) ── */
+        .sub-tabs {
+            display: flex;
+            gap: 0;
+            border-bottom: 1px solid var(--grey-1);
+            margin-bottom: 1rem;
+        }
+
+        .sub-tab {
+            padding: 0.5rem 1rem;
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            font-size: 0.8rem;
+            font-weight: 500;
+            color: var(--grey-5);
+            border-bottom: 2px solid transparent;
+            margin-bottom: -1px;
+            transition: all 0.15s;
+            white-space: nowrap;
+            font-family: var(--font);
+        }
+
+        .sub-tab:hover { color: var(--black); }
+
+        .sub-tab.active {
+            color: var(--black);
+            border-bottom-color: var(--grey-6);
+        }
+
+        .sub-page { display: none; }
+        .sub-page.active { display: block; }
+
+        /* ── Container ── */
+        .container {
+            max-width: 1800px;
+            margin: 0 auto;
+            padding: 1rem 2rem;
+        }
+
+        /* Page visibility */
+        .page { display: none; }
+        .page.active { display: block; }
+
+        /* ── Page head: title + one-line purpose ── */
+        .page-head {
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin: 4px 0 16px;
+        }
+
+        .page-head h2 {
+            font-size: 20px;
+            font-weight: 600;
+            color: var(--black);
+            line-height: 1.2;
+        }
+
+        .page-head .page-sub {
+            font-size: 13px;
+            color: var(--grey-4);
+            margin-top: 2px;
+        }
+
+        .page-head .page-meta {
+            font-size: 12px;
+            color: var(--grey-4);
+        }
+
+        /* ── KPI / Stat Cards — 3px left colour bar, light value ── */
+        .kpi-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
             gap: 16px;
-            margin-bottom: 28px;
+            margin-bottom: 24px;
         }
 
-        .stat-card {
+        .kpi-card {
             background: var(--white);
-            border: 1px solid var(--light-gray);
-            border-radius: 8px;
-            padding: 18px 22px;
+            border: 1px solid var(--surface);
+            border-left: 3px solid var(--grey-1);
+            border-radius: var(--radius);
+            padding: 14px 16px;
+            position: relative;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
         }
 
-        .stat-card .label {
-            font-size: 12px;
-            color: var(--medium-gray);
+        .kpi-card.highlight { border-left-color: var(--primary); }
+        .kpi-card.success   { border-left-color: var(--success); }
+        .kpi-card.warning   { border-left-color: var(--warning); }
+        .kpi-card.danger    { border-left-color: var(--danger); }
+        .kpi-card.info      { border-left-color: var(--info); }
+
+        .kpi-card .kpi-label {
+            font-size: 11px;
+            color: var(--grey-4);
             font-weight: 600;
             text-transform: uppercase;
-            letter-spacing: 0.04em;
+            letter-spacing: 0.05em;
+            margin-bottom: 4px;
         }
 
-        .stat-card .value {
-            font-size: 30px;
-            font-weight: 700;
-            margin-top: 2px;
+        .kpi-card .kpi-row {
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            gap: 8px;
+        }
+
+        .kpi-card .kpi-value {
+            font-size: 24px;
+            font-weight: 300;
             color: var(--black);
+            line-height: 1.1;
         }
 
-        .stat-card .sub {
-            font-size: 12px;
-            color: var(--medium-gray);
+        .kpi-card .kpi-unit {
+            font-size: 13px;
+            font-weight: 400;
+            color: var(--grey-4);
+            margin-left: 2px;
+        }
+
+        .kpi-card .kpi-sub {
+            font-size: 11px;
+            color: var(--grey-4);
             margin-top: 2px;
         }
 
-        .stat-card .accent-bar {
-            width: 40px;
-            height: 3px;
-            border-radius: 2px;
-            margin-bottom: 10px;
+        /* ── KPI info tooltip ── */
+        .kpi-info {
+            position: absolute;
+            top: 10px;
+            right: 12px;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: var(--surface);
+            color: var(--grey-4);
+            font-size: 10px;
+            font-weight: 700;
+            line-height: 16px;
+            text-align: center;
+            cursor: help;
+        }
+        .kpi-info:hover { background: var(--grey-1); color: var(--grey-6); }
+
+        .kpi-info .kpi-tooltip {
+            display: none;
+            position: absolute;
+            top: 24px;
+            right: -8px;
+            width: 240px;
+            padding: 10px 12px;
+            background: var(--grey-6);
+            color: var(--white);
+            font-size: 11px;
+            font-weight: 400;
+            line-height: 1.45;
+            letter-spacing: 0;
+            text-transform: none;
+            border-radius: var(--radius);
+            z-index: 100;
+            text-align: left;
+        }
+        .kpi-tooltip strong { color: var(--white); font-weight: 600; }
+        .kpi-info:hover .kpi-tooltip { display: block; }
+
+        /* ── Chart Cards ── */
+        .charts-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1rem;
+            margin-bottom: 1rem;
         }
 
-        /* Cards */
-        .card {
+        .chart-card {
             background: var(--white);
-            border: 1px solid var(--light-gray);
-            border-radius: 8px;
-            margin-bottom: 20px;
+            border-radius: var(--radius);
+            border: 1px solid var(--surface);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            overflow: hidden;
         }
 
-        .card-header {
-            padding: 14px 22px;
-            border-bottom: 1px solid var(--light-gray);
+        .chart-card.full-width { grid-column: 1 / -1; }
+
+        .chart-card-header {
+            padding: 12px 18px;
+            border-bottom: 1px solid var(--surface);
             font-weight: 600;
-            font-size: 15px;
+            font-size: 14px;
             display: flex;
             align-items: center;
             justify-content: space-between;
         }
 
-        .card-header .card-actions {
-            display: flex;
-            gap: 8px;
+        .chart-card-header .card-actions { display: flex; gap: 8px; }
+
+        .chart-card-body { padding: 0; }
+        .chart-card-body-padded { padding: 16px 18px; }
+
+        .card-context {
+            font-size: 12px;
+            color: var(--grey-4);
+            padding: 10px 18px 0;
         }
 
-        .card-body { padding: 0; }
-        .card-body-padded { padding: 20px 22px; }
-
-        /* Grid layouts */
-        .grid-2 {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
-            margin-bottom: 20px;
-        }
-
-        .grid-3 {
-            display: grid;
-            grid-template-columns: 1fr 1fr 1fr;
-            gap: 20px;
-            margin-bottom: 20px;
-        }
-
-        /* Tables */
+        /* ── Tables — financial style: white header, black rules, no all-caps ── */
         table {
             width: 100%;
             border-collapse: collapse;
@@ -233,52 +471,61 @@
 
         thead th {
             text-align: left;
-            padding: 10px 14px;
+            padding: 8px 14px;
             font-weight: 600;
-            font-size: 11px;
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
-            color: var(--medium-gray);
-            border-bottom: 2px solid var(--light-gray);
-            background: var(--surface-alt);
+            font-size: 12px;
+            color: var(--black);
+            background: var(--white);
+            border-bottom: 1px solid var(--black);
             white-space: nowrap;
+            position: sticky;
+            top: 0;
+            z-index: 1;
         }
 
         tbody tr { border-bottom: 1px solid var(--surface); }
-        tbody tr:nth-child(even) { background: var(--row-alt); }
-        tbody tr:hover { background: var(--surface); }
+        tbody tr:nth-child(even) td { background: var(--row-alt); }
+        tbody tr:hover td { background: var(--surface); }
 
         tbody td {
             padding: 8px 14px;
-            color: var(--dark-gray);
+            color: var(--grey-6);
             max-width: 250px;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
         }
-        td.group-name { font-weight: 600; vertical-align: top; border-bottom: 1px solid var(--light-gray); }
-        tr.grouped-row td:first-child { border-top: none; }
 
-        /* Badges */
+        thead th.sortable {
+            cursor: pointer;
+            user-select: none;
+        }
+
+        thead th.sortable:hover { color: var(--grey-4); }
+        thead th.sortable::after { content: " \2195"; font-size: 10px; opacity: 0.4; }
+        thead th.sort-asc::after { content: " \2191"; opacity: 0.9; font-size: 11px; }
+        thead th.sort-desc::after { content: " \2193"; opacity: 0.9; font-size: 11px; }
+
+        /* ── Badges — rectangular, 2px radius ── */
         .badge {
             display: inline-block;
-            padding: 2px 10px;
-            border-radius: 12px;
+            padding: 2px 8px;
+            border-radius: var(--radius);
             font-size: 11px;
             font-weight: 600;
             white-space: nowrap;
         }
 
-        .badge-success { background: #e8ecd0; color: var(--success); }
-        .badge-warning { background: #fdf3d7; color: #8a6800; }
-        .badge-danger  { background: #f5d0d3; color: var(--danger); }
-        .badge-info    { background: #d4eaf8; color: #065a96; }
-        .badge-default { background: var(--surface); color: var(--medium-gray); }
-        .badge-source-internal { background: #d4eaf8; color: #065a96; }
-        .badge-source-external { background: #e8ecd0; color: var(--success); }
+        .badge-success { background: var(--success-tint); color: var(--success); }
+        .badge-warning { background: var(--warning-tint); color: var(--warning-dark); }
+        .badge-danger  { background: var(--danger-tint);  color: var(--danger); }
+        .badge-default { background: var(--surface);      color: var(--grey-5); }
+        /* Internal/External: neutral entity pair — fixed grey/bronze, never blue/RAG */
+        .badge-source-internal { background: var(--surface);     color: var(--grey-6); }
+        .badge-source-external { background: var(--bronze-tint); color: var(--bronze-3); }
 
-        /* Bar chart (CSS-only) */
-        .bar-chart { padding: 16px 22px; }
+        /* ── Bar Charts (CSS-only) — single-series bars are one flat grey ── */
+        .bar-chart { padding: 16px 18px; }
 
         .bar-row {
             display: flex;
@@ -291,7 +538,7 @@
             width: 140px;
             flex-shrink: 0;
             font-size: 13px;
-            color: var(--dark-gray);
+            color: var(--grey-6);
             text-align: right;
             overflow: hidden;
             text-overflow: ellipsis;
@@ -300,15 +547,15 @@
 
         .bar-track {
             flex: 1;
-            height: 22px;
+            height: 20px;
             background: var(--surface);
-            border-radius: 4px;
+            border-radius: 0;
             overflow: hidden;
         }
 
         .bar-fill {
             height: 100%;
-            border-radius: 4px;
+            border-radius: 0;
             transition: width 0.4s ease;
             min-width: 2px;
         }
@@ -318,10 +565,10 @@
             flex-shrink: 0;
             font-size: 13px;
             font-weight: 600;
-            color: var(--dark-gray);
+            color: var(--grey-6);
         }
 
-        /* Donut chart (SVG) */
+        /* ── Donut Chart (SVG) — thin ring, white dividers ── */
         .donut-container {
             display: flex;
             align-items: center;
@@ -330,9 +577,7 @@
             padding: 20px;
         }
 
-        .donut-legend {
-            font-size: 13px;
-        }
+        .donut-legend { font-size: 13px; }
 
         .donut-legend-item {
             display: flex;
@@ -344,29 +589,29 @@
         .donut-legend-swatch {
             width: 12px;
             height: 12px;
-            border-radius: 3px;
+            border-radius: var(--radius);
             flex-shrink: 0;
         }
 
-        /* Calendar */
+        /* ── Calendar ── */
         .calendar-grid {
             display: grid;
             grid-template-columns: repeat(7, 1fr);
             gap: 1px;
-            background: var(--light-gray);
-            border: 1px solid var(--light-gray);
-            border-radius: 8px;
+            background: var(--grey-1);
+            border: 1px solid var(--grey-1);
+            border-radius: var(--radius);
             overflow: hidden;
         }
 
         .calendar-header-cell {
             padding: 8px;
             text-align: center;
-            font-size: 12px;
+            font-size: 11px;
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.04em;
-            color: var(--medium-gray);
+            color: var(--grey-4);
             background: var(--surface-alt);
         }
 
@@ -377,51 +622,32 @@
             vertical-align: top;
         }
 
-        .calendar-cell.other-month {
-            background: var(--surface);
-        }
-
-        .calendar-cell.today {
-            background: #fdf3d7;
-        }
+        .calendar-cell.other-month { background: var(--bg); }
+        .calendar-cell.today { background: var(--surface-alt); }
 
         .calendar-day {
             font-size: 13px;
             font-weight: 600;
-            color: var(--dark-gray);
+            color: var(--grey-6);
             margin-bottom: 4px;
         }
 
-        .calendar-cell.other-month .calendar-day {
-            color: var(--gray-ii);
-        }
+        .calendar-cell.other-month .calendar-day { color: var(--grey-2); }
 
         .calendar-event {
             font-size: 11px;
             padding: 2px 5px;
             margin-bottom: 2px;
-            border-radius: 3px;
+            border-radius: var(--radius);
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
             cursor: default;
         }
 
-        .calendar-event.internal {
-            background: #d4eaf8;
-            color: #065a96;
-        }
-
-        .calendar-event.external {
-            background: #e8ecd0;
-            color: var(--success);
-        }
-
-        .calendar-event.more {
-            background: var(--surface);
-            color: var(--medium-gray);
-            font-style: italic;
-        }
+        .calendar-event.internal { background: var(--surface);     color: var(--grey-6); }
+        .calendar-event.external { background: var(--bronze-tint); color: var(--bronze-3); }
+        .calendar-event.more { background: var(--bg); color: var(--grey-4); font-style: italic; }
 
         .calendar-nav {
             display: flex;
@@ -430,18 +656,17 @@
         }
 
         .calendar-nav button {
-            background: var(--surface);
-            border: 1px solid var(--light-gray);
-            border-radius: 4px;
+            background: var(--white);
+            border: 1px solid var(--grey-1);
+            border-radius: var(--radius);
             padding: 4px 12px;
             cursor: pointer;
             font-size: 13px;
-            color: var(--dark-gray);
+            color: var(--grey-6);
+            font-family: var(--font);
         }
 
-        .calendar-nav button:hover {
-            background: var(--light-gray);
-        }
+        .calendar-nav button:hover { background: var(--surface); }
 
         .calendar-nav .month-label {
             font-weight: 600;
@@ -450,11 +675,11 @@
             text-align: center;
         }
 
-        /* Upcoming list */
+        /* ── Upcoming List ── */
         .event-item {
             display: flex;
             gap: 14px;
-            padding: 12px 22px;
+            padding: 12px 18px;
             border-bottom: 1px solid var(--surface);
             align-items: flex-start;
         }
@@ -464,27 +689,27 @@
         .event-date-box {
             width: 48px;
             height: 48px;
-            border-radius: 6px;
+            border-radius: var(--radius);
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
             flex-shrink: 0;
-            font-weight: 700;
+            font-weight: 600;
         }
 
-        .event-date-box .day { font-size: 18px; line-height: 1; }
+        .event-date-box .day { font-size: 18px; font-weight: 300; line-height: 1; }
         .event-date-box .month { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; }
 
         .event-details { flex: 1; min-width: 0; }
         .event-title { font-weight: 600; font-size: 14px; color: var(--black); }
-        .event-meta { font-size: 12px; color: var(--medium-gray); margin-top: 2px; }
+        .event-meta { font-size: 12px; color: var(--grey-4); margin-top: 2px; }
 
-        /* Pill select */
+        /* ── Pill Toggle ── */
         .pill-group {
             display: inline-flex;
             background: var(--surface);
-            border-radius: 6px;
+            border-radius: var(--radius);
             padding: 2px;
         }
 
@@ -494,58 +719,359 @@
             background: transparent;
             font-size: 12px;
             font-weight: 600;
-            color: var(--medium-gray);
-            border-radius: 4px;
+            color: var(--grey-5);
+            border-radius: var(--radius);
             cursor: pointer;
+            font-family: var(--font);
         }
 
         .pill-group button.active {
             background: var(--white);
             color: var(--black);
-            box-shadow: 0 1px 2px rgba(0,0,0,0.08);
         }
 
-        /* Tooltip */
-        .calendar-event[title] { position: relative; }
-
-        /* Search/filter */
-        .filter-bar {
+        /* ── Source pills (Activities): tab-style with counts ── */
+        .source-pills {
             display: flex;
-            gap: 10px;
-            margin-bottom: 16px;
+            gap: 8px;
+            padding: 12px 18px 0;
             flex-wrap: wrap;
         }
 
-        .filter-bar input,
-        .filter-bar select {
+        .source-pill {
+            padding: 5px 14px;
+            border: 1px solid var(--grey-1);
+            border-radius: var(--radius);
+            background: var(--white);
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--grey-5);
+            cursor: pointer;
+            font-family: var(--font);
+            transition: all 0.15s;
+        }
+
+        .source-pill:hover { background: var(--surface); color: var(--black); }
+
+        .source-pill.active {
+            background: var(--grey-6);
+            border-color: var(--grey-6);
+            color: var(--white);
+        }
+
+        /* ── Activity Tables: Filters ── */
+        .act-filters {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            padding: 12px 18px 12px;
+        }
+
+        .act-filters-primary {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .act-filters-secondary {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .act-filters-extra {
+            display: none;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .act-filters-extra.open { display: flex; }
+
+        .trackid-wrap {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: var(--white);
+            border: 1px solid var(--grey-1);
+            border-radius: var(--radius);
+            padding: 0 10px;
+            transition: border-color 0.15s;
+        }
+
+        .trackid-wrap:focus-within { border-color: var(--primary); }
+
+        .trackid-label {
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--grey-4);
+            white-space: nowrap;
+        }
+
+        .trackid-input {
+            border: none;
+            background: transparent;
+            outline: none;
+            font-family: "Consolas", "Menlo", monospace;
+            font-size: 13px;
+            width: 160px;
+            padding: 6px 0;
+            color: var(--grey-6);
+        }
+
+        .act-search {
+            flex: 1;
+            min-width: 200px;
             padding: 6px 12px;
-            border: 1px solid var(--light-gray);
-            border-radius: 6px;
+            border: 1px solid var(--grey-1);
+            border-radius: var(--radius);
             font-size: 13px;
             font-family: var(--font);
             background: var(--white);
-            color: var(--dark-gray);
+            color: var(--grey-6);
         }
 
-        .filter-bar input:focus,
-        .filter-bar select:focus {
-            outline: none;
-            border-color: var(--info);
+        .act-search:focus { outline: none; border-color: var(--primary); }
+
+        .act-filters-secondary select,
+        .act-filters-extra select {
+            padding: 5px 8px;
+            border: 1px solid var(--grey-1);
+            border-radius: var(--radius);
+            font-size: 12px;
+            font-family: var(--font);
+            background: var(--white);
+            color: var(--grey-6);
+            cursor: pointer;
         }
 
-        .filter-bar input { width: 240px; }
+        .act-filters-secondary select:focus,
+        .act-filters-extra select:focus { outline: none; border-color: var(--primary); }
 
-        /* Page visibility */
-        .page { display: none; }
-        .page.active { display: block; }
+        .act-clear-btn, .act-more-btn {
+            padding: 5px 12px;
+            border: 1px solid var(--grey-1);
+            border-radius: var(--radius);
+            background: var(--white);
+            font-size: 12px;
+            font-family: var(--font);
+            color: var(--grey-5);
+            cursor: pointer;
+            transition: all 0.15s;
+        }
 
-        /* Loading */
+        .act-clear-btn:hover, .act-more-btn:hover { background: var(--surface); border-color: var(--grey-2); color: var(--grey-6); }
+        .act-more-btn.open { background: var(--surface); color: var(--black); }
+
+        .act-filter-count {
+            font-size: 12px;
+            color: var(--grey-4);
+            white-space: nowrap;
+            margin-left: 4px;
+        }
+
+        /* Active filter chips */
+        .filter-chips {
+            display: none;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+
+        .filter-chips.has-chips { display: flex; }
+
+        .filter-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 3px 8px;
+            background: var(--surface);
+            border-radius: var(--radius);
+            font-size: 11px;
+            color: var(--grey-6);
+        }
+
+        .filter-chip b { font-weight: 600; }
+
+        .filter-chip button {
+            border: none;
+            background: none;
+            cursor: pointer;
+            font-size: 12px;
+            line-height: 1;
+            color: var(--grey-4);
+            padding: 0;
+            font-family: var(--font);
+        }
+
+        .filter-chip button:hover { color: var(--danger); }
+
+        .act-table-wrap {
+            overflow-x: auto;
+            max-height: 620px;
+            overflow-y: auto;
+        }
+
+        /* tracking_id cell — data, not a link: black monospace */
+        td.col-tracking-id {
+            font-family: "Consolas", "Menlo", monospace;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--black) !important;
+            white-space: nowrap;
+            max-width: none !important;
+        }
+
+        /* ── Heatmap ── */
+        .heatmap-wrapper {
+            overflow-x: auto;
+            padding: 16px 18px;
+        }
+
+        .heatmap {
+            display: inline-grid;
+            gap: 2px;
+            font-size: 11px;
+        }
+
+        .heatmap-cell {
+            width: 100%;
+            min-width: 36px;
+            min-height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: var(--radius);
+            font-weight: 600;
+            font-size: 11px;
+        }
+
+        .heatmap-label {
+            display: flex;
+            align-items: center;
+            padding: 0 8px;
+            font-size: 12px;
+            color: var(--grey-6);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 140px;
+        }
+
+        .heatmap-col-label {
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            font-size: 10px;
+            color: var(--grey-4);
+            font-weight: 600;
+            text-transform: uppercase;
+            padding-bottom: 4px;
+        }
+
+        /* ── Gantt Chart ── */
+        .gantt-wrapper {
+            overflow-x: auto;
+            padding: 0 0 12px;
+        }
+
+        .gantt {
+            display: grid;
+            min-width: 700px;
+            font-size: 12px;
+        }
+
+        .gantt-header-cell {
+            padding: 8px 4px;
+            text-align: center;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: var(--grey-4);
+            background: var(--white);
+            border-bottom: 1px solid var(--black);
+            white-space: nowrap;
+        }
+
+        /* Current week: Pastel highlight block — not a warning state */
+        .gantt-header-cell.today-week {
+            background: var(--surface-alt);
+            color: var(--black);
+        }
+
+        .gantt-group-label {
+            grid-column: 1 / -1;
+            padding: 8px 16px;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--grey-6);
+            background: var(--surface);
+            border-bottom: 1px solid var(--grey-1);
+        }
+
+        .gantt-row-label {
+            padding: 4px 12px;
+            font-size: 11px;
+            color: var(--grey-6);
+            border-bottom: 1px solid var(--surface);
+            display: flex;
+            align-items: center;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            background: var(--white);
+            min-height: 28px;
+        }
+
+        .gantt-cell {
+            border-bottom: 1px solid var(--surface);
+            border-left: 1px solid var(--surface);
+            position: relative;
+            background: var(--white);
+            min-height: 28px;
+        }
+
+        .gantt-cell.today-col { background: var(--surface-alt); }
+
+        .gantt-bar {
+            position: absolute;
+            top: 5px;
+            bottom: 5px;
+            border-radius: 0;
+            min-width: 4px;
+            cursor: default;
+        }
+
+        /* Internal/External: fixed grey/bronze pair (greys carry charts) */
+        .gantt-bar.internal { background: var(--grey-6); }
+        .gantt-bar.external { background: var(--bronze-1); }
+
+        .load-threshold { stroke: var(--danger); stroke-width: 1.5; stroke-dasharray: 6 3; }
+
+        .lead-indicator {
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            margin-right: 6px;
+            flex-shrink: 0;
+        }
+
+        .lead-good { background: var(--success); }
+        .lead-warning { background: var(--warning); }
+        .lead-danger { background: var(--danger); }
+
+        /* ── Loading / Empty ── */
         .loading {
             display: flex;
             align-items: center;
             justify-content: center;
             height: 200px;
-            color: var(--medium-gray);
+            color: var(--grey-4);
             font-size: 14px;
         }
 
@@ -553,7 +1079,7 @@
             content: "";
             width: 20px;
             height: 20px;
-            border: 2px solid var(--light-gray);
+            border: 2px solid var(--grey-1);
             border-top-color: var(--primary);
             border-radius: 50%;
             animation: spin 0.6s linear infinite;
@@ -562,90 +1088,101 @@
 
         @keyframes spin { to { transform: rotate(360deg); } }
 
-        /* Empty state */
         .empty-state {
             padding: 40px 20px;
             text-align: center;
-            color: var(--medium-gray);
+            color: var(--grey-4);
         }
 
         .empty-state p { font-size: 14px; }
 
-        /* Responsive */
+        /* ── Responsive ── */
         @media (max-width: 1024px) {
-            .grid-2, .grid-3 { grid-template-columns: 1fr; }
+            .charts-grid { grid-template-columns: 1fr; }
+            .kpi-grid { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
         }
 
         @media (max-width: 768px) {
-            .sidebar { display: none; }
-            .main { margin-left: 0; padding: 16px; }
-            .stats-grid { grid-template-columns: 1fr 1fr; }
+            .header { flex-direction: column; gap: 0.5rem; padding: 0.5rem 1rem; }
+            .nav-tabs { padding: 0 1rem; }
+            .container { padding: 0.75rem 1rem; }
+            .kpi-grid { grid-template-columns: 1fr 1fr; }
             .calendar-cell { min-height: 60px; }
         }
     </style>
 </head>
 <body>
-    <div class="app">
-        <!-- Sidebar -->
-        <nav class="sidebar">
-            <div class="sidebar-brand"><span>C</span>PLAN</div>
-            <div class="sidebar-nav">
-                <div class="sidebar-section">Overview</div>
-                <a href="#" class="active" data-page="dashboard">&#9632; Dashboard</a>
-                <a href="#" data-page="calendar">&#9654; Calendar</a>
-                <div class="sidebar-section">Activities</div>
-                <a href="#" data-page="internal">&#9654; Internal</a>
-                <a href="#" data-page="external">&#9654; External</a>
-                <div class="sidebar-section">Analytics</div>
-                <a href="#" data-page="analytics">&#9654; Analytics</a>
+    <!-- ── Sticky topbar: header + tabs pinned together ── -->
+    <div class="topbar">
+        <header class="header">
+            <h1>CPLAN Communications</h1>
+            <div class="header-controls">
+                <div class="date-filter" id="date-filter">
+                    <div class="date-presets">
+                        <button class="date-preset" data-range="30d">30 D</button>
+                        <button class="date-preset" data-range="quarter">Quarter</button>
+                        <button class="date-preset" data-range="ytd">YTD</button>
+                        <button class="date-preset" data-range="12m">12 M</button>
+                        <button class="date-preset active" data-range="all">All</button>
+                    </div>
+                    <label>From</label>
+                    <input type="text" id="date-from" placeholder="dd.MM.yyyy" readonly>
+                    <label>To</label>
+                    <input type="text" id="date-to" placeholder="dd.MM.yyyy" readonly>
+                </div>
+                <button class="export-btn" id="export-xlsx" title="Export all activities to Excel">&#11123; Export XLSX</button>
+                <span class="status-text"><span class="status-dot loading" id="status-dot"></span><span id="status-label">Loading...</span></span>
             </div>
+        </header>
+
+        <nav class="nav-tabs">
+            <button class="nav-tab active" data-page="overview">Overview</button>
+            <button class="nav-tab" data-page="planning">Planning</button>
+            <button class="nav-tab" data-page="activities">Activities</button>
+            <button class="nav-tab" data-page="analytics">Analytics</button>
         </nav>
+    </div>
 
-        <!-- Main content -->
-        <div class="main">
-            <!-- ============================================================= -->
-            <!-- DASHBOARD PAGE -->
-            <!-- ============================================================= -->
-            <div class="page active" id="page-dashboard">
-                <div class="page-header">
-                    <h1>Communications Dashboard</h1>
-                    <p>Last data refresh: <span id="last-refresh">—</span></p>
+    <!-- ── Main Content ── -->
+    <div class="container">
+
+        <!-- OVERVIEW -->
+        <div class="page active" id="page-overview">
+            <div class="page-head">
+                <div>
+                    <h2>Overview</h2>
+                    <p class="page-sub">What is running now — current communications activity at a glance</p>
                 </div>
+                <p class="page-meta">Last data refresh: <span id="last-refresh">&mdash;</span></p>
+            </div>
 
-                <div class="stats-grid" id="dashboard-stats"></div>
+            <div class="kpi-grid" id="dashboard-stats"></div>
 
-                <div class="grid-2">
-                    <div class="card">
-                        <div class="card-header">Upcoming Activities (Next 30 Days)</div>
-                        <div class="card-body" id="upcoming-list">
-                            <div class="loading">Loading...</div>
-                        </div>
-                    </div>
-                    <div class="card">
-                        <div class="card-header">Channel Breakdown</div>
-                        <div class="card-body" id="channel-chart">
-                            <div class="loading">Loading...</div>
-                        </div>
-                    </div>
+            <div class="charts-grid">
+                <div class="chart-card">
+                    <div class="chart-card-header">Upcoming Activities (Next 30 Days)</div>
+                    <div class="chart-card-body" id="upcoming-list"><div class="loading">Loading...</div></div>
                 </div>
-
-                <div class="grid-2">
-                    <div class="card">
-                        <div class="card-header">Business Division</div>
-                        <div class="card-body" id="division-chart">
-                            <div class="loading">Loading...</div>
-                        </div>
-                    </div>
-                    <div class="card">
-                        <div class="card-header">Priority Distribution</div>
-                        <div class="card-body" id="priority-chart">
-                            <div class="loading">Loading...</div>
-                        </div>
-                    </div>
+                <div class="chart-card">
+                    <div class="chart-card-header">Channel Breakdown</div>
+                    <div class="chart-card-body" id="channel-chart"><div class="loading">Loading...</div></div>
                 </div>
+            </div>
 
-                <div class="card">
-                    <div class="card-header">
+            <div class="charts-grid">
+                <div class="chart-card">
+                    <div class="chart-card-header">Business Division</div>
+                    <div class="chart-card-body" id="division-chart"><div class="loading">Loading...</div></div>
+                </div>
+                <div class="chart-card">
+                    <div class="chart-card-header">Priority Distribution</div>
+                    <div class="chart-card-body" id="priority-chart"><div class="loading">Loading...</div></div>
+                </div>
+            </div>
+
+            <div class="charts-grid">
+                <div class="chart-card full-width">
+                    <div class="chart-card-header">
                         Monthly Activity Trend
                         <div class="card-actions">
                             <div class="pill-group" id="trend-toggle">
@@ -655,185 +1192,345 @@
                             </div>
                         </div>
                     </div>
-                    <div class="card-body card-body-padded" id="trend-chart">
-                        <div class="loading">Loading...</div>
-                    </div>
-                </div>
-
-                <div class="card">
-                    <div class="card-header">Recent Activities</div>
-                    <div class="card-body" id="recent-table">
-                        <div class="loading">Loading...</div>
-                    </div>
+                    <div class="chart-card-body chart-card-body-padded" id="trend-chart"><div class="loading">Loading...</div></div>
                 </div>
             </div>
 
-            <!-- ============================================================= -->
-            <!-- CALENDAR PAGE -->
-            <!-- ============================================================= -->
-            <div class="page" id="page-calendar">
-                <div class="page-header">
-                    <h1>Activity Calendar</h1>
-                    <p>Communication activities by start date</p>
-                </div>
-
-                <div class="card">
-                    <div class="card-header">
-                        <span>Calendar</span>
-                        <div class="calendar-nav">
-                            <button id="cal-prev">&larr;</button>
-                            <span class="month-label" id="cal-month-label"></span>
-                            <button id="cal-next">&rarr;</button>
-                            <button id="cal-today">Today</button>
-                        </div>
-                    </div>
-                    <div class="card-body card-body-padded">
-                        <div class="calendar-grid" id="calendar-grid"></div>
-                    </div>
-                </div>
-
-                <div class="card">
-                    <div class="card-header">Upcoming Events</div>
-                    <div class="card-body" id="calendar-upcoming"></div>
-                </div>
-            </div>
-
-            <!-- ============================================================= -->
-            <!-- INTERNAL PAGE -->
-            <!-- ============================================================= -->
-            <div class="page" id="page-internal">
-                <div class="page-header">
-                    <h1>Internal Communications</h1>
-                    <p>All internal communication activities</p>
-                </div>
-
-                <div class="stats-grid" id="internal-stats"></div>
-
-                <div class="card">
-                    <div class="card-header">
-                        <span>Internal Activities</span>
-                    </div>
-                    <div class="card-body">
-                        <div style="padding:12px 22px 0">
-                            <div class="filter-bar">
-                                <input type="text" placeholder="Search activities..." id="internal-search">
-                                <select id="internal-channel-filter"><option value="">All Channels</option></select>
-                                <select id="internal-priority-filter"><option value="">All Priorities</option></select>
-                            </div>
-                        </div>
-                        <div id="internal-table"><div class="loading">Loading...</div></div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ============================================================= -->
-            <!-- EXTERNAL PAGE -->
-            <!-- ============================================================= -->
-            <div class="page" id="page-external">
-                <div class="page-header">
-                    <h1>External Communications</h1>
-                    <p>All external communication activities</p>
-                </div>
-
-                <div class="stats-grid" id="external-stats"></div>
-
-                <div class="card">
-                    <div class="card-header">
-                        <span>External Activities</span>
-                    </div>
-                    <div class="card-body">
-                        <div style="padding:12px 22px 0">
-                            <div class="filter-bar">
-                                <input type="text" placeholder="Search activities..." id="external-search">
-                                <select id="external-channel-filter"><option value="">All Channels</option></select>
-                                <select id="external-priority-filter"><option value="">All Priorities</option></select>
-                            </div>
-                        </div>
-                        <div id="external-table"><div class="loading">Loading...</div></div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ============================================================= -->
-            <!-- ANALYTICS PAGE -->
-            <!-- ============================================================= -->
-            <div class="page" id="page-analytics">
-                <div class="page-header">
-                    <h1>Analytics</h1>
-                    <p>Communication activity insights and patterns</p>
-                </div>
-
-                <div class="stats-grid" id="analytics-stats"></div>
-
-                <div class="grid-2">
-                    <div class="card">
-                        <div class="card-header">Activities by Lead Team</div>
-                        <div class="card-body" id="lead-team-chart"></div>
-                    </div>
-                    <div class="card">
-                        <div class="card-header">Activities by Region</div>
-                        <div class="card-body" id="region-chart"></div>
-                    </div>
-                </div>
-
-                <div class="grid-2">
-                    <div class="card">
-                        <div class="card-header">Target Audience Breakdown</div>
-                        <div class="card-body" id="audience-chart"></div>
-                    </div>
-                    <div class="card">
-                        <div class="card-header">Strategic Objectives</div>
-                        <div class="card-body" id="objectives-chart"></div>
-                    </div>
-                </div>
-
-                <div class="grid-2">
-                    <div class="card">
-                        <div class="card-header">Top Leads by Activity Count</div>
-                        <div class="card-body" id="leads-chart"></div>
-                    </div>
-                    <div class="card">
-                        <div class="card-header">Campaign Distribution</div>
-                        <div class="card-body" id="campaign-chart"></div>
-                    </div>
-                </div>
-
-                <div class="card">
-                    <div class="card-header">News Digest Inclusion</div>
-                    <div class="card-body card-body-padded" id="digest-stats"></div>
+            <div class="charts-grid">
+                <div class="chart-card full-width">
+                    <div class="chart-card-header">Recent Activities</div>
+                    <div class="chart-card-body" id="recent-table"><div class="loading">Loading...</div></div>
                 </div>
             </div>
         </div>
+
+        <!-- PLANNING (Board + Calendar) -->
+        <div class="page" id="page-planning">
+            <div class="page-head">
+                <div>
+                    <h2>Planning</h2>
+                    <p class="page-sub">What is coming — forward-looking view for scheduling and capacity planning</p>
+                </div>
+            </div>
+
+            <div class="sub-tabs" id="planning-sub-tabs">
+                <button class="sub-tab active" data-sub="plan-board">Board</button>
+                <button class="sub-tab" data-sub="plan-calendar">Calendar</button>
+            </div>
+
+            <div class="sub-page active" id="sub-plan-board">
+                <div class="page-head" style="margin-bottom:12px">
+                    <div></div>
+                    <div class="pill-group" id="planning-horizon-toggle">
+                        <button class="active" data-weeks="8">8 Weeks</button>
+                        <button data-weeks="12">12 Weeks</button>
+                        <button data-weeks="26">6 Months</button>
+                    </div>
+                </div>
+
+                <div class="kpi-grid" id="planning-stats"></div>
+
+                <div class="charts-grid">
+                    <div class="chart-card full-width">
+                        <div class="chart-card-header">
+                            <span>Activity Timeline</span>
+                            <div class="card-actions">
+                                <div class="pill-group" id="gantt-group-toggle">
+                                    <button class="active" data-group="channel">By Channel</button>
+                                    <button data-group="campaign">By Campaign</button>
+                                    <button data-group="division">By Division</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="chart-card-body" id="planning-gantt"><div class="loading">Loading...</div></div>
+                    </div>
+                </div>
+
+                <div class="charts-grid">
+                    <div class="chart-card">
+                        <div class="chart-card-header">Weekly Load Forecast</div>
+                        <div class="chart-card-body chart-card-body-padded" id="planning-load"><div class="loading">Loading...</div></div>
+                    </div>
+                    <div class="chart-card">
+                        <div class="chart-card-header">Channel Availability</div>
+                        <div class="chart-card-body" id="planning-availability"><div class="loading">Loading...</div></div>
+                    </div>
+                </div>
+
+                <div class="charts-grid">
+                    <div class="chart-card full-width">
+                        <div class="chart-card-header">
+                            <span>Upcoming Pipeline</span>
+                        </div>
+                        <div class="chart-card-body" id="planning-pipeline"><div class="loading">Loading...</div></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sub-page" id="sub-plan-calendar">
+                <div class="charts-grid">
+                    <div class="chart-card full-width">
+                        <div class="chart-card-header">
+                            <span>Calendar</span>
+                            <div class="calendar-nav">
+                                <button id="cal-prev">&larr;</button>
+                                <span class="month-label" id="cal-month-label"></span>
+                                <button id="cal-next">&rarr;</button>
+                                <button id="cal-today">Today</button>
+                            </div>
+                        </div>
+                        <div class="chart-card-body chart-card-body-padded">
+                            <div class="calendar-grid" id="calendar-grid"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="charts-grid">
+                    <div class="chart-card full-width">
+                        <div class="chart-card-header">Upcoming Events</div>
+                        <div class="chart-card-body" id="calendar-upcoming"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ACTIVITIES (single view, source pills) -->
+        <div class="page" id="page-activities">
+            <div class="page-head">
+                <div>
+                    <h2>Activities</h2>
+                    <p class="page-sub">Search, filter and export all communication activities</p>
+                </div>
+            </div>
+
+            <div class="kpi-grid" id="all-stats"></div>
+
+            <div class="charts-grid">
+                <div class="chart-card full-width">
+                    <div class="chart-card-header">
+                        <span>All Activities</span>
+                        <button class="export-btn" id="all-export-xlsx">&#11123; Export XLSX</button>
+                    </div>
+                    <div class="chart-card-body">
+                        <div class="source-pills" id="all-source-pills">
+                            <button class="source-pill active" data-source="">All</button>
+                            <button class="source-pill" data-source="internal">Internal</button>
+                            <button class="source-pill" data-source="external">External</button>
+                        </div>
+                        <div class="act-filters">
+                            <div class="act-filters-primary">
+                                <div class="trackid-wrap">
+                                    <span class="trackid-label">Tracking ID</span>
+                                    <input type="text" class="trackid-input" id="all-trackid" placeholder="e.g. COM-2024-001">
+                                </div>
+                                <input type="text" class="act-search" id="all-search" placeholder="Search activity, lead, campaign&hellip;">
+                            </div>
+                            <div class="act-filters-secondary">
+                                <select id="all-channel-filter"><option value="">All Channels</option></select>
+                                <select id="all-priority-filter"><option value="">All Priorities</option></select>
+                                <select id="all-division-filter"><option value="">All Divisions</option></select>
+                                <select id="all-campaign-filter"><option value="">All Campaigns</option></select>
+                                <button class="act-more-btn" id="all-more-filters">More filters &#9662;</button>
+                                <button class="act-clear-btn" id="all-clear">Clear filters</button>
+                                <span class="act-filter-count" id="all-count"></span>
+                            </div>
+                            <div class="act-filters-extra" id="all-extra-filters">
+                                <select id="all-audience-filter"><option value="">All Audiences</option></select>
+                                <select id="all-lead-filter"><option value="">All Leads</option></select>
+                                <select id="all-leadteam-filter"><option value="">All Lead Teams</option></select>
+                                <select id="all-region-filter"><option value="">All Regions</option></select>
+                            </div>
+                            <div class="filter-chips" id="all-chips"></div>
+                        </div>
+                        <div id="all-table"><div class="loading">Loading...</div></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ANALYTICS (Overview / Strategic / Resources) -->
+        <div class="page" id="page-analytics">
+            <div class="page-head">
+                <div>
+                    <h2>Analytics</h2>
+                    <p class="page-sub">Patterns, strategic alignment and team coordination</p>
+                </div>
+            </div>
+
+            <div class="sub-tabs" id="analytics-sub-tabs">
+                <button class="sub-tab active" data-sub="ana-overview">Overview</button>
+                <button class="sub-tab" data-sub="ana-strategic">Strategic</button>
+                <button class="sub-tab" data-sub="ana-resources">Resources</button>
+            </div>
+
+            <div class="sub-page active" id="sub-ana-overview">
+                <div class="kpi-grid" id="analytics-stats"></div>
+
+                <div class="charts-grid">
+                    <div class="chart-card">
+                        <div class="chart-card-header">Activities by Lead Team</div>
+                        <div class="chart-card-body" id="lead-team-chart"></div>
+                    </div>
+                    <div class="chart-card">
+                        <div class="chart-card-header">Activities by Region</div>
+                        <div class="chart-card-body" id="region-chart"></div>
+                    </div>
+                </div>
+
+                <div class="charts-grid">
+                    <div class="chart-card">
+                        <div class="chart-card-header">Target Audience Breakdown</div>
+                        <div class="chart-card-body" id="audience-chart"></div>
+                    </div>
+                    <div class="chart-card">
+                        <div class="chart-card-header">Campaign Distribution</div>
+                        <div class="chart-card-body" id="campaign-chart"></div>
+                    </div>
+                </div>
+
+                <div class="charts-grid">
+                    <div class="chart-card full-width">
+                        <div class="chart-card-header">News Digest Inclusion</div>
+                        <div class="card-context">Share of activities flagged for the internal News Digest &mdash; how much of the portfolio reaches the digest audience.</div>
+                        <div class="chart-card-body chart-card-body-padded" id="digest-stats"></div>
+                    </div>
+                </div>
+
+                <div class="charts-grid">
+                    <div class="chart-card full-width">
+                        <div class="chart-card-header">Campaigns on Email &amp; Intranet article (News)</div>
+                        <div class="card-context">Communication packs launched on both Email and Intranet news &mdash; use the proximity filter to find coordinated (or colliding) cross-channel launches.</div>
+                        <div class="chart-card-body chart-card-body-padded" id="channel-overlap-table"><div class="loading">Loading...</div></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sub-page" id="sub-ana-strategic">
+                <div class="kpi-grid" id="strategic-stats"></div>
+
+                <div class="charts-grid">
+                    <div class="chart-card">
+                        <div class="chart-card-header">Objective Coverage by Channel</div>
+                        <div class="chart-card-body" id="strategic-objective-chart"><div class="loading">Loading...</div></div>
+                    </div>
+                    <div class="chart-card">
+                        <div class="chart-card-header">Objective &times; Division Matrix</div>
+                        <div class="chart-card-body" id="strategic-matrix"><div class="loading">Loading...</div></div>
+                    </div>
+                </div>
+
+                <div class="charts-grid">
+                    <div class="chart-card full-width">
+                        <div class="chart-card-header">Objective Trend (Monthly)</div>
+                        <div class="chart-card-body chart-card-body-padded" id="strategic-trend"><div class="loading">Loading...</div></div>
+                    </div>
+                </div>
+
+                <div class="charts-grid">
+                    <div class="chart-card full-width">
+                        <div class="chart-card-header">Unaligned Activities</div>
+                        <div class="chart-card-body" id="strategic-unaligned"><div class="loading">Loading...</div></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sub-page" id="sub-ana-resources">
+                <div class="kpi-grid" id="resource-stats"></div>
+
+                <div class="charts-grid">
+                    <div class="chart-card">
+                        <div class="chart-card-header">Team Workload</div>
+                        <div class="chart-card-body" id="resource-workload"><div class="loading">Loading...</div></div>
+                    </div>
+                    <div class="chart-card">
+                        <div class="chart-card-header">Team &times; Channel Mix</div>
+                        <div class="chart-card-body" id="resource-team-channel"><div class="loading">Loading...</div></div>
+                    </div>
+                </div>
+
+                <div class="charts-grid">
+                    <div class="chart-card full-width">
+                        <div class="chart-card-header">Campaign Scorecard</div>
+                        <div class="chart-card-body" id="resource-campaigns"><div class="loading">Loading...</div></div>
+                    </div>
+                </div>
+
+                <div class="charts-grid">
+                    <div class="chart-card full-width">
+                        <div class="chart-card-header">Overlap Detector</div>
+                        <div class="chart-card-body" id="resource-overlaps"><div class="loading">Loading...</div></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
     </div>
 
     <script>
     // =========================================================================
-    // CPLAN Dashboard — Self-contained analytics dashboard
-    // Data source: ../output/communications.json (generated by process_cplan.py)
+    // CPLAN Dashboard v2
     // =========================================================================
 
     let db = null;
     let conn = null;
 
-    // Chart color palette (corporate-approved)
-    const CHART_COLORS = [
-        "#0C7EC6", "#879420", "#B98E2C", "#804C95", "#469A6C",
-        "#AD3E4A", "#45999C", "#4972AC", "#785E4A", "#8489BD",
-        "#00759E", "#CC707A", "#4B2D58", "#946F29", "#654D16",
-        "#295B40", "#545A9C", "#07476F", "#AF8626", "#620004"
-    ];
+    // -------------------------------------------------------------------------
+    // Chart colours — design-system rules:
+    //   · greys carry charts; red only for data-driven criticality
+    //   · single-series bars = one flat Grey VI
+    //   · ≤~10-category donuts = grey + bronze sequence (never the complex palette)
+    //   · known entities (Division, Region, Internal/External) = fixed grey maps
+    //   · blue is reserved for links/interactive elements — never a chart fill
+    // -------------------------------------------------------------------------
 
-    const PRIORITY_COLORS = {
-        "High": "#BD000C",
-        "Medium": "#E4A911",
-        "Low": "#6F7A1A",
-        "Normal": "#0C7EC6"
+    const BAR_COLOR = '#404040'; // Grey VI — all single-series bars
+
+    // Grey + bronze sequence for ordinary donuts / small category sets
+    const DONUT_PALETTE = ['#404040','#B98E2C','#8E8D83','#CCCABC','#5A5D5C','#946F29','#B8B3A2','#7A7870','#6C5312'];
+
+    // Multi-series lines (grey/bronze alternation for separability)
+    const LINE_PALETTE = ['#404040','#B98E2C','#8E8D83','#6C5312','#B8B3A2'];
+
+    // Internal/External: neutral entity pair — fixed grey/bronze (never blue/RAG)
+    const SOURCE_COLORS = { internal: '#404040', external: '#B98E2C' };
+
+    // Fixed division map — same entity, same grey across all dashboards
+    const DIVISION_COLOR_MAP = {
+        'Investment Bank':              '#404040',
+        'IB':                           '#404040',
+        'Global Wealth Management':     '#B8B3A2',
+        'GWM':                          '#B8B3A2',
+        'Asset Management':             '#5A5D5C',
+        'AM':                           '#5A5D5C',
+        'Group Functions':              '#CCCABC',
+        'GF':                           '#CCCABC',
+        'Personal & Corporate Banking': '#7A7870',
+        'P&C':                          '#7A7870',
     };
+    const DIVISION_GRAYS_FALLBACK = ['#8E8D83', '#404040', '#B8B3A2', '#5A5D5C', '#CCCABC', '#7A7870'];
+    function divisionColor(name, i) {
+        return DIVISION_COLOR_MAP[name] || DIVISION_GRAYS_FALLBACK[i % DIVISION_GRAYS_FALLBACK.length];
+    }
+
+    const PRIORITY_COLORS_RAW = {
+        "critical": "#620004",
+        "high": "#BD000C",
+        "medium": "#E4A911",
+        "normal": "#B98E2C",
+        "low": "#6F7A1A"
+    };
+    function priorityColor(label) {
+        return PRIORITY_COLORS_RAW[String(label).toLowerCase()] || null;
+    }
 
     const MONTHS_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
     let DATA = null;
-    let calYear, calMonth; // calendar state
+    let calYear, calMonth;
+
+    // Global date filter state
+    let globalDateFrom = null;
+    let globalDateTo = null;
 
     // -------------------------------------------------------------------------
     // DuckDB-WASM data layer
@@ -861,15 +1558,45 @@
         conn = await db.connect();
     }
 
+    let dataRefreshDate = null;
+
+    async function loadMeta(paths) {
+        // Authoritative refresh timestamp from the pipeline.
+        // Cache-busted to avoid browser caching an old meta.json.
+        const bust = `?t=${Date.now()}`;
+        for (const p of paths) {
+            try {
+                const resp = await fetch(`${p}meta.json${bust}`, { cache: 'no-store' });
+                if (!resp.ok) continue;
+                const meta = await resp.json();
+                if (meta && meta.generated_at_iso) {
+                    dataRefreshDate = new Date(meta.generated_at_iso);
+                    return;
+                }
+                if (meta && meta.generated_at) {
+                    dataRefreshDate = new Date(meta.generated_at.replace(' ', 'T'));
+                    return;
+                }
+            } catch (e) { /* try next */ }
+        }
+    }
+
     async function loadParquetFiles() {
         const base = window.location.origin + window.location.pathname.replace(/\/[^\/]*$/, '');
         const paths = [`${base}/../output/`, `${window.location.origin}/output/`, `${base}/output/`];
+
+        await loadMeta(paths);
 
         async function load(view, file, required) {
             for (const p of paths) {
                 try {
                     const resp = await fetch(`${p}${file}`);
                     if (!resp.ok) continue;
+                    // Fallback: capture Last-Modified if meta.json was unavailable
+                    if (view === 'communications' && !dataRefreshDate) {
+                        const lm = resp.headers.get('Last-Modified');
+                        if (lm) dataRefreshDate = new Date(lm);
+                    }
                     const buf = new Uint8Array(await resp.arrayBuffer());
                     await db.registerFileBuffer(file, buf);
                     await conn.query(`CREATE VIEW ${view} AS SELECT * FROM read_parquet('${file}')`);
@@ -896,7 +1623,6 @@
             const obj = {};
             for (const key of Object.keys(row)) {
                 let val = row[key];
-                // Convert BigInt to Number for JSON compatibility
                 if (typeof val === 'bigint') val = Number(val);
                 obj[key] = val;
             }
@@ -908,11 +1634,77 @@
         const rows = await query('SELECT * FROM communications');
         const cols = rows.length > 0 ? Object.keys(rows[0]) : [];
         return {
-            generated_at: new Date().toLocaleDateString('en-GB'),
+            generated_at: dataRefreshDate
+                ? dataRefreshDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) + ' ' + dataRefreshDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+                : new Date().toLocaleDateString('en-GB'),
             row_count: rows.length,
             columns: cols,
             rows: rows
         };
+    }
+
+    // -------------------------------------------------------------------------
+    // Global date filter
+    // -------------------------------------------------------------------------
+
+    function getFilteredRows(rows) {
+        if (!globalDateFrom && !globalDateTo) return rows;
+        return rows.filter(r => {
+            const d = parseDate(r.start_date);
+            if (!d) return true;
+            if (globalDateFrom && d < globalDateFrom) return false;
+            if (globalDateTo && d > globalDateTo) return false;
+            return true;
+        });
+    }
+
+    function applyDatePreset(range) {
+        const now = new Date();
+        const y = now.getFullYear();
+        const m = now.getMonth();
+        const q = Math.floor(m / 3);
+
+        switch (range) {
+            case '30d':
+                globalDateFrom = new Date(y, m, now.getDate() - 30);
+                globalDateTo = now;
+                break;
+            case 'quarter':
+                globalDateFrom = new Date(y, q * 3, 1);
+                globalDateTo = new Date(y, q * 3 + 3, 0, 23, 59, 59);
+                break;
+            case 'ytd':
+                globalDateFrom = new Date(y, 0, 1);
+                globalDateTo = now;
+                break;
+            case '12m':
+                globalDateFrom = new Date(y - 1, m, now.getDate());
+                globalDateTo = now;
+                break;
+            case 'all':
+            default:
+                globalDateFrom = null;
+                globalDateTo = null;
+                break;
+        }
+
+        // Update date inputs (DD.MM.YYYY format)
+        const fromEl = document.getElementById('date-from');
+        const toEl = document.getElementById('date-to');
+        if (fpFrom) fpFrom.setDate(globalDateFrom || '', false);
+        if (fpTo) fpTo.setDate(globalDateTo || '', false);
+    }
+
+    function refreshAllPages() {
+        if (!DATA) return;
+        const data = { ...DATA, rows: getFilteredRows(DATA.rows) };
+        renderPlanningBoard(data);
+        renderDashboard(data);
+        renderCalendar(data);
+        renderActivitiesPage(data);
+        renderStrategicAlignment(data);
+        renderResourceCoordination(data);
+        renderAnalytics(data);
     }
 
     // -------------------------------------------------------------------------
@@ -931,24 +1723,41 @@
         return isNaN(d.getTime()) ? null : d;
     }
 
+    function fmtNum(v) {
+        if (v == null || v === '' || isNaN(v)) return v;
+        const n = Number(v);
+        if (!Number.isFinite(n)) return v;
+        // en-GB throughout — consistent with the date display locale
+        if (!Number.isInteger(n)) {
+            const parts = n.toFixed(1).split('.');
+            parts[0] = Number(parts[0]).toLocaleString('en-GB');
+            return parts.join('.');
+        }
+        return n.toLocaleString('en-GB');
+    }
+
+    function fmtDateEU(d) {
+        if (!d) return '';
+        const dd = String(d.getDate()).padStart(2, '0');
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        return `${dd}.${mm}.${d.getFullYear()}`;
+    }
+
     function fmtDate(d) {
-        if (!d) return "—";
+        if (!d) return "\u2014";
         return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
     }
 
     function fmtDateShort(d) {
-        if (!d) return "—";
+        if (!d) return "\u2014";
         return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
     }
-
-    function fmtNum(n) { return Number(n).toLocaleString(); }
 
     function countBy(rows, field) {
         const counts = {};
         for (const r of rows) {
             let vals = r[field];
             if (!vals || vals === "None" || vals === "null") continue;
-            // Handle multi-value fields (comma-separated or semicolon)
             const parts = String(vals).split(/[;,]/).map(s => s.trim()).filter(Boolean);
             for (const v of parts) {
                 if (v && v !== "None") counts[v] = (counts[v] || 0) + 1;
@@ -983,7 +1792,8 @@
         let html = '<div class="bar-chart">';
         entries.forEach(([label, count], i) => {
             const pct = max > 0 ? (count / max * 100) : 0;
-            const color = colorFn ? colorFn(label, i) : CHART_COLORS[i % CHART_COLORS.length];
+            // Single-series ranking: one flat grey — axis labels already separate categories
+            const color = colorFn ? colorFn(label, i) : BAR_COLOR;
             html += `
                 <div class="bar-row">
                     <div class="bar-label" title="${esc(label)}">${esc(label)}</div>
@@ -1011,6 +1821,8 @@
         const cx = size / 2;
         const cy = size / 2;
         const circumference = 2 * Math.PI * r;
+        // White dividers between segments (white page shows through the gap)
+        const gapPx = entries.length > 1 ? 2.5 : 0;
 
         let offset = 0;
         let arcs = "";
@@ -1018,14 +1830,14 @@
 
         entries.forEach(([label, count], i) => {
             const pct = count / total;
-            const color = colorFn ? colorFn(label, i) : CHART_COLORS[i % CHART_COLORS.length];
-            const dashLen = pct * circumference;
+            const color = colorFn ? colorFn(label, i) : DONUT_PALETTE[i % DONUT_PALETTE.length];
+            const dashLen = Math.max(pct * circumference - gapPx, 0.1);
             const dashGap = circumference - dashLen;
 
             arcs += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${color}"
                 stroke-width="${stroke}" stroke-dasharray="${dashLen} ${dashGap}"
                 stroke-dashoffset="${-offset}" transform="rotate(-90 ${cx} ${cy})"/>`;
-            offset += dashLen;
+            offset += pct * circumference;
 
             legend += `<div class="donut-legend-item">
                 <div class="donut-legend-swatch" style="background:${color}"></div>
@@ -1038,21 +1850,20 @@
                 <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
                     ${arcs}
                     <text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central"
-                        font-size="22" font-weight="700" fill="var(--dark-gray)">${fmtNum(total)}</text>
+                        font-size="22" font-weight="300" fill="var(--black)">${fmtNum(total)}</text>
                 </svg>
                 <div class="donut-legend">${legend}</div>
             </div>`;
     }
 
     // -------------------------------------------------------------------------
-    // Trend chart (SVG line/bar chart)
+    // Trend chart (SVG)
     // -------------------------------------------------------------------------
 
     function renderTrend(rows, mode) {
         const el = document.getElementById("trend-chart");
         const filtered = mode === "all" ? rows : rows.filter(r => r.source_type === mode);
 
-        // Group by year-month based on start_date
         const byMonth = {};
         for (const r of filtered) {
             const d = parseDate(r.start_date);
@@ -1070,7 +1881,7 @@
         const values = keys.map(k => byMonth[k]);
         const maxVal = Math.max(...values);
 
-        const W = 700, H = 200, padL = 40, padR = 20, padT = 20, padB = 30;
+        const W = 700, H = 200, padL = 20, padR = 20, padT = 20, padB = 30;
         const chartW = W - padL - padR;
         const chartH = H - padT - padB;
         const barW = Math.min(30, chartW / keys.length * 0.7);
@@ -1082,35 +1893,26 @@
             const x = padL + (i + 0.5) * (chartW / keys.length);
             const h = maxVal > 0 ? (values[i] / maxVal) * chartH : 0;
             const y = padT + chartH - h;
-            const color = mode === "internal" ? "#0C7EC6" : mode === "external" ? "#6F7A1A" : "#B98E2C";
 
+            // Single series in every mode — one flat grey (filtering ≠ recolouring)
             bars += `<rect x="${x - barW/2}" y="${y}" width="${barW}" height="${h}"
-                fill="${color}" rx="2" opacity="0.85"/>`;
+                fill="${BAR_COLOR}"/>`;
             bars += `<text x="${x}" y="${y - 4}" text-anchor="middle" font-size="10"
-                fill="var(--dark-gray)" font-weight="600">${fmtNum(values[i])}</text>`;
+                fill="var(--grey-6)" font-weight="600">${fmtNum(values[i])}</text>`;
 
-            // Show label for every Nth month depending on density
             const showEvery = keys.length > 12 ? 3 : keys.length > 6 ? 2 : 1;
             if (i % showEvery === 0) {
                 const [yr, mo] = k.split("-");
                 labels += `<text x="${x}" y="${H - 4}" text-anchor="middle" font-size="10"
-                    fill="var(--medium-gray)">${MONTHS_SHORT[parseInt(mo)-1]} ${yr.slice(2)}</text>`;
+                    fill="var(--grey-4)">${MONTHS_SHORT[parseInt(mo)-1]} ${yr.slice(2)}</text>`;
             }
         });
 
-        // Y axis gridlines
-        let grid = "";
-        const steps = 4;
-        for (let i = 0; i <= steps; i++) {
-            const y = padT + (chartH / steps) * i;
-            const val = Math.round(maxVal * (1 - i / steps));
-            grid += `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}"
-                stroke="var(--surface)" stroke-width="1"/>`;
-            grid += `<text x="${padL - 6}" y="${y + 3}" text-anchor="end" font-size="10"
-                fill="var(--medium-gray)">${val}</text>`;
-        }
+        // No gridlines, no y-axis (data labels carry the values) — one thin black baseline
+        const baseline = `<line x1="${padL}" y1="${padT + chartH}" x2="${W - padR}" y2="${padT + chartH}"
+            stroke="var(--black)" stroke-width="1"/>`;
 
-        el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px">${grid}${bars}${labels}</svg>`;
+        el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px">${bars}${baseline}${labels}</svg>`;
     }
 
     // -------------------------------------------------------------------------
@@ -1123,13 +1925,11 @@
         const internal = rows.filter(r => r.source_type === "internal");
         const external = rows.filter(r => r.source_type === "external");
 
-        // Upcoming activities (start_date in next 30 days)
         const upcoming = rows.filter(r => {
             const d = parseDate(r.start_date);
             return d && d >= now && daysBetween(now, d) <= 30;
         }).sort((a, b) => new Date(a.start_date) - new Date(b.start_date));
 
-        // This week's activities
         const weekEnd = new Date(now);
         weekEnd.setDate(weekEnd.getDate() + 7);
         const thisWeek = rows.filter(r => {
@@ -1137,67 +1937,45 @@
             return d && d >= now && d <= weekEnd;
         });
 
-        // Overdue (end_date passed, if we consider that meaningful)
         const active = rows.filter(r => {
             const s = parseDate(r.start_date);
             const e = parseDate(r.end_date);
             return s && s <= now && (!e || e >= now);
         });
 
-        // Stats
-        const statsHtml = `
-            <div class="stat-card">
-                <div class="accent-bar" style="background:var(--primary)"></div>
-                <div class="label">Total Activities</div>
-                <div class="value">${fmtNum(rows.length)}</div>
-                <div class="sub">${fmtNum(internal.length)} internal + ${fmtNum(external.length)} external</div>
+        document.getElementById("dashboard-stats").innerHTML = `
+            <div class="kpi-card highlight">
+                <div class="kpi-label">Total Activities</div>
+                <div class="kpi-row"><div><span class="kpi-value">${fmtNum(rows.length)}</span></div></div>
+                <div class="kpi-sub">${fmtNum(internal.length)} internal + ${fmtNum(external.length)} external</div>
             </div>
-            <div class="stat-card">
-                <div class="accent-bar" style="background:var(--info)"></div>
-                <div class="label">This Week</div>
-                <div class="value">${fmtNum(thisWeek.length)}</div>
-                <div class="sub">Activities starting in 7 days</div>
+            <div class="kpi-card success">
+                <div class="kpi-label">Active Now</div>
+                <div class="kpi-row"><div><span class="kpi-value">${fmtNum(active.length)}</span></div></div>
+                <div class="kpi-sub">Currently running</div>
             </div>
-            <div class="stat-card">
-                <div class="accent-bar" style="background:var(--warning)"></div>
-                <div class="label">Next 30 Days</div>
-                <div class="value">${fmtNum(upcoming.length)}</div>
-                <div class="sub">Upcoming activities</div>
+            <div class="kpi-card info">
+                <div class="kpi-label">This Week</div>
+                <div class="kpi-row"><div><span class="kpi-value">${fmtNum(thisWeek.length)}</span></div></div>
+                <div class="kpi-sub">Starting in 7 days</div>
             </div>
-            <div class="stat-card">
-                <div class="accent-bar" style="background:var(--success)"></div>
-                <div class="label">Active Now</div>
-                <div class="value">${fmtNum(active.length)}</div>
-                <div class="sub">Currently running</div>
-            </div>
-            <div class="stat-card">
-                <div class="accent-bar" style="background:var(--dark-gray)"></div>
-                <div class="label">Data Fields</div>
-                <div class="value">${(data.columns || []).length}</div>
-                <div class="sub">Columns tracked</div>
+            <div class="kpi-card warning">
+                <div class="kpi-label">Next 30 Days</div>
+                <div class="kpi-row"><div><span class="kpi-value">${fmtNum(upcoming.length)}</span></div></div>
+                <div class="kpi-sub">Upcoming activities</div>
             </div>`;
-        document.getElementById("dashboard-stats").innerHTML = statsHtml;
-        document.getElementById("last-refresh").textContent = data.generated_at || "—";
 
-        // Upcoming list
+        document.getElementById("last-refresh").textContent = data.generated_at || "\u2014";
+
         renderUpcomingList("upcoming-list", upcoming.slice(0, 8));
-
-        // Channel chart
         renderBarChart("channel-chart", topN(countBy(rows, "channel"), 8));
-
-        // Business division chart
-        renderDonut("division-chart", topN(countBy(rows, "business_division"), 8));
-
-        // Priority chart
-        const priorityEntries = topN(countBy(rows, "priority"), 6);
-        let priFallbackIdx = 0;
-        renderDonut("priority-chart", priorityEntries,
-            (label) => PRIORITY_COLORS[label] || CHART_COLORS[priFallbackIdx++ % CHART_COLORS.length]);
-
-        // Trend
+        // Division = known business entity → fixed grey map, same across all dashboards
+        renderDonut("division-chart", topN(countBy(rows, "business_division"), 8),
+            (label, i) => divisionColor(label, i));
+        // Priority = data-driven criticality → RAG colours are legitimate here
+        renderDonut("priority-chart", topN(countBy(rows, "priority"), 6),
+            (label, i) => priorityColor(label) || DONUT_PALETTE[i % DONUT_PALETTE.length]);
         renderTrend(rows, "all");
-
-        // Recent table
         renderActivityTable("recent-table", rows.slice(-20).reverse(),
             ["activity_name", "source_type", "channel", "start_date", "priority", "lead", "business_division"]);
     }
@@ -1217,8 +1995,9 @@
         for (const r of events) {
             const d = parseDate(r.start_date);
             const isInternal = r.source_type === "internal";
-            const bgColor = isInternal ? "#d4eaf8" : "#e8ecd0";
-            const textColor = isInternal ? "#065a96" : "var(--success)";
+            // Internal/External = neutral entity → grey / bronze tint (never blue/RAG)
+            const bgColor = isInternal ? "var(--surface)" : "var(--bronze-tint)";
+            const textColor = isInternal ? "var(--grey-6)" : "var(--bronze-3)";
             const typeBadge = isInternal ? "Internal" : "External";
 
             html += `
@@ -1251,55 +2030,33 @@
             return;
         }
 
-        // Group rows by activity_name to consolidate channels
-        const grouped = [];
-        const byName = {};
-        for (const row of rows) {
-            const name = row.activity_name || "";
-            if (!byName[name]) {
-                byName[name] = { key: name, rows: [] };
-                grouped.push(byName[name]);
-            }
-            byName[name].rows.push(row);
-        }
-
-        // Columns excluding channel (shown inline) and activity_name (shown as group header)
-        const detailCols = columns.filter(c => c !== "activity_name" && c !== "channel");
-
         let html = "<table><thead><tr>";
-        html += `<th>activity name</th><th>channel</th>`;
-        for (const col of detailCols) {
-            html += `<th>${esc(col.replace(/_/g, " "))}</th>`;
+        for (const col of columns) {
+            // Header labels are title-case in the markup — the brand forbids all-caps,
+            // so the CSS no longer transforms them.
+            html += `<th>${esc(col.replace(/_/g, " ").replace(/\b\w/g, ch => ch.toUpperCase()))}</th>`;
         }
         html += "</tr></thead><tbody>";
 
-        for (const group of grouped) {
-            group.rows.forEach((row, ri) => {
-                html += ri === 0 ? "<tr>" : '<tr class="grouped-row">';
-                // Activity name: show on first row, span if multiple
-                if (ri === 0) {
-                    const rs = group.rows.length > 1 ? ` rowspan="${group.rows.length}"` : "";
-                    html += `<td${rs} title="${esc(group.key)}" class="group-name">${esc(group.key || "—")}</td>`;
+        for (const row of rows) {
+            html += "<tr>";
+            for (const col of columns) {
+                let val = row[col];
+                if (col === "start_date" || col === "end_date" || col === "created" || col === "modified") {
+                    val = fmtDate(parseDate(val));
                 }
-                // Channel
-                html += `<td>${esc(String(row.channel || "—"))}</td>`;
-                for (const col of detailCols) {
-                    let val = row[col];
-                    if (col === "start_date" || col === "end_date" || col === "created" || col === "modified") {
-                        val = fmtDate(parseDate(val));
-                    }
-                    if (col === "source_type") {
-                        const cls = val === "internal" ? "badge-source-internal" : "badge-source-external";
-                        html += `<td><span class="badge ${cls}">${esc(String(val || ""))}</span></td>`;
-                    } else if (col === "priority") {
-                        const color = PRIORITY_COLORS[val] || "var(--medium-gray)";
-                        html += `<td><span class="badge" style="background:${color}20;color:${color}">${esc(String(val || "—"))}</span></td>`;
-                    } else {
-                        html += `<td title="${esc(String(val ?? ""))}">${esc(String(val ?? "—"))}</td>`;
-                    }
+                if (col === "source_type") {
+                    const cls = val === "internal" ? "badge-source-internal" : "badge-source-external";
+                    const label = val ? String(val).charAt(0).toUpperCase() + String(val).slice(1) : "";
+                    html += `<td><span class="badge ${cls}">${esc(label)}</span></td>`;
+                } else if (col === "priority") {
+                    const color = priorityColor(val) || "var(--medium-gray)";
+                    html += `<td><span class="badge" style="background:${color}20;color:${color}">${esc(String(val || "\u2014"))}</span></td>`;
+                } else {
+                    html += `<td title="${esc(String(val ?? ""))}">${esc(String(val ?? "\u2014"))}</td>`;
                 }
-                html += "</tr>";
-            });
+            }
+            html += "</tr>";
         }
         html += "</tbody></table>";
         el.innerHTML = html;
@@ -1340,7 +2097,6 @@
 
         label.textContent = `${MONTHS_SHORT[calMonth]} ${calYear}`;
 
-        // Build event map: dateKey -> [events]
         const eventMap = {};
         for (const r of rows) {
             const d = parseDate(r.start_date);
@@ -1350,40 +2106,34 @@
             eventMap[key].push(r);
         }
 
-        // Calendar math
         const firstDay = new Date(calYear, calMonth, 1);
         const lastDay = new Date(calYear, calMonth + 1, 0);
-        const startDow = (firstDay.getDay() + 6) % 7; // Monday = 0
+        const startDow = (firstDay.getDay() + 6) % 7;
         const daysInMonth = lastDay.getDate();
 
         const today = new Date();
         const todayKey = `${today.getFullYear()}-${today.getMonth()}-${today.getDate()}`;
 
-        // Previous month padding
         const prevMonthLast = new Date(calYear, calMonth, 0);
         const prevDays = prevMonthLast.getDate();
 
         let html = "";
-        // Header row
         const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
         for (const dn of dayNames) {
             html += `<div class="calendar-header-cell">${dn}</div>`;
         }
 
-        // Calendar cells
         const totalCells = Math.ceil((startDow + daysInMonth) / 7) * 7;
         for (let i = 0; i < totalCells; i++) {
             let day, month, year, isOther = false;
 
             if (i < startDow) {
-                // Previous month
                 day = prevDays - startDow + i + 1;
                 month = calMonth - 1;
                 year = calYear;
                 if (month < 0) { month = 11; year--; }
                 isOther = true;
             } else if (i - startDow >= daysInMonth) {
-                // Next month
                 day = i - startDow - daysInMonth + 1;
                 month = calMonth + 1;
                 year = calYear;
@@ -1410,7 +2160,7 @@
             for (let e = 0; e < Math.min(events.length, maxShow); e++) {
                 const ev = events[e];
                 const evCls = ev.source_type === "internal" ? "internal" : "external";
-                html += `<div class="calendar-event ${evCls}" title="${esc(ev.activity_name || "")} — ${esc(ev.channel || "")} (${esc(ev.source_type || "")})">${esc(ev.activity_name || "Untitled")}</div>`;
+                html += `<div class="calendar-event ${evCls}" title="${esc(ev.activity_name || "")} \u2014 ${esc(ev.channel || "")} (${esc(ev.source_type || "")})">${esc(ev.activity_name || "Untitled")}</div>`;
             }
             if (events.length > maxShow) {
                 html += `<div class="calendar-event more">+${events.length - maxShow} more</div>`;
@@ -1421,12 +2171,15 @@
 
         grid.innerHTML = html;
 
-        // Upcoming events: tomorrow onwards within this month
-        const tomorrow = new Date(); tomorrow.setHours(0,0,0,0); tomorrow.setDate(tomorrow.getDate() + 1);
+        const monthStart = new Date(calYear, calMonth, 1);
         const monthEnd = new Date(calYear, calMonth + 1, 0, 23, 59, 59);
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        tomorrow.setHours(0, 0, 0, 0);
+        const upcomingStart = tomorrow > monthStart ? tomorrow : monthStart;
         const monthEvents = rows.filter(r => {
             const d = parseDate(r.start_date);
-            return d && d >= tomorrow && d <= monthEnd;
+            return d && d >= upcomingStart && d <= monthEnd;
         }).sort((a, b) => new Date(a.start_date) - new Date(b.start_date));
 
         renderUpcomingList("calendar-upcoming", monthEvents.slice(0, 15));
@@ -1436,90 +2189,353 @@
     // Internal / External pages
     // -------------------------------------------------------------------------
 
-    function renderSourcePage(type, data) {
-        const rows = (data.rows || []).filter(r => r.source_type === type);
+    const ACT_TABLE_COLS = [
+        { key: 'tracking_id',        label: 'Tracking ID',         wch: 18 },
+        { key: 'activity_name',      label: 'Activity',            wch: 50 },
+        { key: 'channel',            label: 'Channel',             wch: 20 },
+        { key: 'start_date',         label: 'Start Date',          wch: 14 },
+        { key: 'end_date',           label: 'End Date',            wch: 14 },
+        { key: 'priority',           label: 'Priority',            wch: 12 },
+        { key: 'lead',               label: 'Lead',                wch: 25 },
+        { key: 'lead_team',          label: 'Lead Team',           wch: 25 },
+        { key: 'business_division',  label: 'Division',            wch: 25 },
+        { key: 'target_audience',    label: 'Target Audience',     wch: 30 },
+        { key: 'region',             label: 'Region',              wch: 20 },
+        { key: 'campaign',           label: 'Campaign',            wch: 25 },
+        { key: 'strategic_objectives', label: 'Strategic Objectives', wch: 35 },
+    ];
+
+    // Extra cols included in XLSX export only (not shown in the UI table)
+    const ACT_EXPORT_EXTRA_COLS = [
+        { key: 'news_digest',   label: 'News Digest',    wch: 12 },
+        { key: 'source_type',   label: 'Source Type',    wch: 14 },
+        { key: 'created',       label: 'Created',        wch: 20 },
+        { key: 'author',        label: 'Created By',     wch: 25 },
+        { key: 'author_email',  label: 'Creator Email',  wch: 30 },
+        { key: 'modified',      label: 'Last Modified',  wch: 20 },
+    ];
+
+    function renderEnhancedTable(containerId, rows, sortCol, sortDir, onSort) {
+        const el = document.getElementById(containerId);
+        if (!rows.length) {
+            el.innerHTML = '<div class="empty-state"><p>No activities match the current filters</p></div>';
+            return;
+        }
+
+        let html = '<div class="act-table-wrap"><table><thead><tr>';
+        for (const col of ACT_TABLE_COLS) {
+            const isSorting = sortCol === col.key;
+            const sortCls = isSorting ? (sortDir === 1 ? ' sort-asc' : ' sort-desc') : '';
+            html += `<th class="sortable${sortCls}" data-col="${esc(col.key)}">${esc(col.label)}</th>`;
+        }
+        html += '</tr></thead><tbody>';
+
+        for (const row of rows) {
+            html += '<tr>';
+            for (const col of ACT_TABLE_COLS) {
+                let val = row[col.key];
+                if (col.key === 'start_date' || col.key === 'end_date') {
+                    val = fmtDate(parseDate(val));
+                    html += `<td>${esc(val)}</td>`;
+                } else if (col.key === 'tracking_id') {
+                    html += `<td class="col-tracking-id" title="${esc(String(row[col.key] ?? ''))}">${esc(String(row[col.key] ?? '\u2014'))}</td>`;
+                } else if (col.key === 'priority') {
+                    const color = priorityColor(val) || 'var(--medium-gray)';
+                    html += `<td><span class="badge" style="background:${color}20;color:${color}">${esc(String(val || '\u2014'))}</span></td>`;
+                } else {
+                    html += `<td title="${esc(String(val ?? ''))}">${esc(String(val ?? '\u2014'))}</td>`;
+                }
+            }
+            html += '</tr>';
+        }
+        html += '</tbody></table></div>';
+        el.innerHTML = html;
+
+        el.querySelectorAll('th.sortable').forEach(th => {
+            th.addEventListener('click', () => onSort(th.dataset.col));
+        });
+    }
+
+    // -------------------------------------------------------------------------
+    // Corporate XLSX export (brand style guide §7 — same logic as the CampaignWe
+    // report): plain header carried by thin black rules, no vertical gridlines,
+    // Pastel-I alternating rows, Arial, foot rule on the last data row.
+    // -------------------------------------------------------------------------
+
+    const XL_BLACK      = 'FF000000';
+    const XL_THIN       = { style: 'thin',   color: { argb: XL_BLACK } };   // ~0.75pt
+    const XL_MEDIUM     = { style: 'medium', color: { argb: XL_BLACK } };   // ~1pt (Total rows)
+    const XL_ALT_FILL   = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECEBE4' } }; // Pastel I
+    const XL_HEADER_FONT = { name: 'Arial', bold: true, size: 9, color: { argb: XL_BLACK } };
+    const XL_DATA_FONT   = { name: 'Arial', size: 10, color: { argb: XL_BLACK } };
+    const XL_TOTAL_FONT  = { name: 'Arial', size: 10, bold: true, color: { argb: XL_BLACK } };
+
+    // cols: [{ label, wch?, numeric? }] · rows: array of value arrays
+    // opts: { totalLabels: Set|Array of first-column labels rendered as Total rows }
+    function xlAddSheet(wb, sheetLabel, cols, rows, opts = {}) {
+        const ws = wb.addWorksheet(sheetLabel);
+        const totals = new Set(opts.totalLabels || []);
+        const sample = rows.slice(0, 100);
+
+        // A column is numeric when every non-empty sampled value is a number.
+        const numeric = cols.map((c, ci) => {
+            if (c.numeric !== undefined) return c.numeric;
+            const vals = sample.map(r => r[ci]).filter(v => v !== '' && v !== null && v !== undefined);
+            return vals.length > 0 && vals.every(v => typeof v === 'number');
+        });
+        const align = ci => ({ horizontal: numeric[ci] ? 'right' : 'left', vertical: 'top', wrapText: true });
+
+        // Header — no fill, black bold Arial 9, 0.75pt black rule above and below,
+        // never a vertical border.
+        const hdr = ws.addRow(cols.map(c => c.label));
+        hdr.height = 20;
+        hdr.eachCell((cell, col) => {
+            cell.font = XL_HEADER_FONT;
+            cell.alignment = align(col - 1);
+            cell.border = { top: XL_THIN, bottom: XL_THIN };
+        });
+
+        // Data rows — no gridlines; Pastel-I on every second row; foot rule at the end.
+        rows.forEach((row, ri) => {
+            const isTotal = totals.has(String(row[0] ?? '').trim());
+            const isLast = ri === rows.length - 1;
+            const dr = ws.addRow(cols.map((c, ci) => (row[ci] === null || row[ci] === undefined ? '' : row[ci])));
+            dr.eachCell({ includeEmpty: true }, (cell, col) => {
+                const ci = col - 1;
+                cell.font = isTotal ? XL_TOTAL_FONT : XL_DATA_FONT;
+                cell.alignment = align(ci);
+                if (ri % 2 === 1 && !isTotal) cell.fill = XL_ALT_FILL;
+                if (isTotal) cell.border = { top: XL_MEDIUM, bottom: XL_MEDIUM };
+                else if (isLast) cell.border = { bottom: XL_THIN };
+            });
+        });
+
+        // Column widths: explicit wch, otherwise auto from the sampled content.
+        cols.forEach((c, ci) => {
+            let w = c.wch;
+            if (!w) {
+                w = c.label.length;
+                sample.forEach(r => { w = Math.max(w, String(r[ci] ?? '').length); });
+                w += 2;
+            }
+            ws.getColumn(ci + 1).width = Math.min(w, 50);
+        });
+
+        ws.views = [{ state: 'frozen', ySplit: 1 }];
+        ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: cols.length } };
+        return ws;
+    }
+
+    async function xlSave(wb, filename) {
+        const buffer = await wb.xlsx.writeBuffer();
+        const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    async function exportActivityXLSX(rows, filename, sheetLabel) {
+        if (!rows.length) return;
+
+        const exportCols = [...ACT_TABLE_COLS, ...ACT_EXPORT_EXTRA_COLS];
+        const DATE_KEYS = new Set(['start_date', 'end_date', 'created', 'modified']);
+
+        const dataRows = rows.map(row => exportCols.map(c => {
+            const v = row[c.key];
+            if (DATE_KEYS.has(c.key)) {
+                const d = parseDate(v);
+                return d ? fmtDate(d) : '';
+            }
+            return v ?? '';
+        }));
+
+        const wb = new ExcelJS.Workbook();
+        xlAddSheet(wb, sheetLabel, exportCols, dataRows);
+        await xlSave(wb, filename);
+    }
+
+    // Activities page — single view; Internal/External switched via source pills
+    // (replaces the former triplicated All/Internal/External sub-pages)
+
+    let activitySource = '';        // '' | 'internal' | 'external'
+    let activitiesWired = false;    // listeners attached exactly once
+
+    const ACT_FILTER_DEFS = [
+        { id: 'all-channel-filter',  key: 'channel',           label: 'Channel',   all: 'All Channels' },
+        { id: 'all-priority-filter', key: 'priority',          label: 'Priority',  all: 'All Priorities' },
+        { id: 'all-division-filter', key: 'business_division', label: 'Division',  all: 'All Divisions' },
+        { id: 'all-campaign-filter', key: 'campaign',          label: 'Campaign',  all: 'All Campaigns' },
+        { id: 'all-audience-filter', key: 'target_audience',   label: 'Audience',  all: 'All Audiences' },
+        { id: 'all-lead-filter',     key: 'lead',              label: 'Lead',      all: 'All Leads' },
+        { id: 'all-leadteam-filter', key: 'lead_team',         label: 'Lead Team', all: 'All Lead Teams' },
+        { id: 'all-region-filter',   key: 'region',            label: 'Region',    all: 'All Regions' },
+    ];
+
+    let actSortCol = 'start_date';
+    let actSortDir = -1;  // -1 = desc, 1 = asc
+    let actCurrentFiltered = [];
+    let actRows = [];
+
+    function renderActivitiesPage(data) {
+        actRows = data.rows || [];
         const now = new Date();
-        const prefix = type;
 
-        // Stats
-        const upcoming = rows.filter(r => { const d = parseDate(r.start_date); return d && d >= now; });
-        const channels = countBy(rows, "channel");
-        const topChannel = channels.length ? channels[0][0] : "—";
+        const internalCount = actRows.filter(r => r.source_type === 'internal').length;
+        const externalCount = actRows.length - internalCount;
+        const upcoming = actRows.filter(r => { const d = parseDate(r.start_date); return d && d >= now; });
+        const channels = countBy(actRows, 'channel');
+        const topChannel = channels.length ? channels[0][0] : '—';
 
-        document.getElementById(`${prefix}-stats`).innerHTML = `
-            <div class="stat-card">
-                <div class="accent-bar" style="background:${type === "internal" ? "var(--info)" : "var(--success)"}"></div>
-                <div class="label">Total ${type}</div>
-                <div class="value">${fmtNum(rows.length)}</div>
-                <div class="sub">Communication activities</div>
+        document.getElementById('all-stats').innerHTML = `
+            <div class="kpi-card highlight">
+                <div class="kpi-label">Total Activities</div>
+                <div class="kpi-row"><div><span class="kpi-value">${fmtNum(actRows.length)}</span></div></div>
+                <div class="kpi-sub">${fmtNum(internalCount)} internal · ${fmtNum(externalCount)} external</div>
             </div>
-            <div class="stat-card">
-                <div class="accent-bar" style="background:var(--warning)"></div>
-                <div class="label">Upcoming</div>
-                <div class="value">${fmtNum(upcoming.length)}</div>
-                <div class="sub">Future start date</div>
+            <div class="kpi-card warning">
+                <div class="kpi-label">Upcoming</div>
+                <div class="kpi-row"><div><span class="kpi-value">${fmtNum(upcoming.length)}</span></div></div>
+                <div class="kpi-sub">Future start date</div>
             </div>
-            <div class="stat-card">
-                <div class="accent-bar" style="background:var(--primary)"></div>
-                <div class="label">Top Channel</div>
-                <div class="value" style="font-size:20px">${esc(topChannel)}</div>
-                <div class="sub">${channels.length ? channels[0][1] + " activities" : ""}</div>
+            <div class="kpi-card">
+                <div class="kpi-label">Top Channel</div>
+                <div class="kpi-row"><div><span class="kpi-value" style="font-size:18px">${esc(topChannel)}</span></div></div>
+                <div class="kpi-sub">${channels.length ? fmtNum(channels[0][1]) + ' activities' : ''}</div>
             </div>
-            <div class="stat-card">
-                <div class="accent-bar" style="background:var(--dark-gray)"></div>
-                <div class="label">Unique Channels</div>
-                <div class="value">${fmtNum(channels.length)}</div>
-                <div class="sub">Communication channels</div>
+            <div class="kpi-card">
+                <div class="kpi-label">Unique Channels</div>
+                <div class="kpi-row"><div><span class="kpi-value">${fmtNum(channels.length)}</span></div></div>
+                <div class="kpi-sub">Communication channels</div>
             </div>`;
 
-        // Populate filter dropdowns
-        const channelSelect = document.getElementById(`${prefix}-channel-filter`);
-        const prioritySelect = document.getElementById(`${prefix}-priority-filter`);
+        // Source pill counts (pattern: tab labels always show counts)
+        document.querySelectorAll('#all-source-pills .source-pill').forEach(btn => {
+            const src = btn.dataset.source;
+            const n = src === '' ? actRows.length : (src === 'internal' ? internalCount : externalCount);
+            const name = src === '' ? 'All' : (src === 'internal' ? 'Internal' : 'External');
+            btn.textContent = `${name} (${fmtNum(n)})`;
+        });
 
-        const channelValues = [...new Set(rows.map(r => r.channel).filter(Boolean))].sort();
-        const priorityValues = [...new Set(rows.map(r => r.priority).filter(Boolean))].sort();
-
-        for (const v of channelValues) {
-            channelSelect.innerHTML += `<option value="${esc(v)}">${esc(v)}</option>`;
+        // Populate dropdowns, preserving the current selection where still valid
+        for (const def of ACT_FILTER_DEFS) {
+            const el = document.getElementById(def.id);
+            const cur = el.value;
+            const values = [...new Set(actRows.map(r => r[def.key]).filter(v => v && v !== 'None' && v !== 'null'))].sort();
+            el.innerHTML = `<option value="">${def.all}</option>`;
+            for (const v of values) el.innerHTML += `<option value="${esc(v)}">${esc(v)}</option>`;
+            if (values.includes(cur)) el.value = cur;
         }
-        for (const v of priorityValues) {
-            prioritySelect.innerHTML += `<option value="${esc(v)}">${esc(v)}</option>`;
-        }
 
-        const tableCols = ["activity_name", "channel", "start_date", "end_date", "priority", "lead", "business_division", "target_audience"];
+        if (!activitiesWired) { wireActivityFilters(); activitiesWired = true; }
+        applyActivityFilters();
+    }
 
-        function applyFilters() {
-            const search = document.getElementById(`${prefix}-search`).value.toLowerCase();
-            const chFilter = channelSelect.value;
-            const prFilter = prioritySelect.value;
+    function setActivitySource(src) {
+        activitySource = src;
+        document.querySelectorAll('#all-source-pills .source-pill').forEach(b =>
+            b.classList.toggle('active', b.dataset.source === src));
+    }
 
-            let filtered = rows;
-            if (search) {
-                filtered = filtered.filter(r =>
-                    Object.values(r).some(v => String(v || "").toLowerCase().includes(search))
-                );
+    // Active filters shown as removable chips below the filter rows
+    function renderFilterChips() {
+        const chipWrap = document.getElementById('all-chips');
+        const chips = [];
+        if (activitySource) chips.push({ label: 'Source', value: activitySource, clear: () => setActivitySource('') });
+        const tid = document.getElementById('all-trackid').value;
+        if (tid) chips.push({ label: 'Tracking ID', value: tid, clear: () => { document.getElementById('all-trackid').value = ''; } });
+        const q = document.getElementById('all-search').value;
+        if (q) chips.push({ label: 'Search', value: q, clear: () => { document.getElementById('all-search').value = ''; } });
+        for (const def of ACT_FILTER_DEFS) {
+            const el = document.getElementById(def.id);
+            if (el.value) {
+                chips.push({ label: def.label, value: el.value, clear: () => { el.value = ''; } });
             }
-            if (chFilter) filtered = filtered.filter(r => r.channel === chFilter);
-            if (prFilter) filtered = filtered.filter(r => r.priority === prFilter);
-
-            // Sort by start_date descending
-            filtered.sort((a, b) => {
-                const da = parseDate(a.start_date);
-                const db = parseDate(b.start_date);
-                if (!da && !db) return 0;
-                if (!da) return 1;
-                if (!db) return -1;
-                return db - da;
+        }
+        chipWrap.classList.toggle('has-chips', chips.length > 0);
+        chipWrap.innerHTML = chips.map((c, i) =>
+            `<span class="filter-chip"><b>${esc(c.label)}:</b> ${esc(String(c.value))} <button data-chip="${i}" title="Remove filter">&times;</button></span>`).join('');
+        chipWrap.querySelectorAll('button[data-chip]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                chips[Number(btn.dataset.chip)].clear();
+                applyActivityFilters();
             });
+        });
+    }
 
-            renderActivityTable(`${prefix}-table`, filtered, tableCols);
+    function applyActivityFilters() {
+        const trackId = document.getElementById('all-trackid').value.toLowerCase();
+        const search  = document.getElementById('all-search').value.toLowerCase();
+
+        let filtered = actRows;
+        if (activitySource) filtered = filtered.filter(r => r.source_type === activitySource);
+        if (trackId) filtered = filtered.filter(r => String(r.tracking_id || '').toLowerCase().includes(trackId));
+        if (search)  filtered = filtered.filter(r => Object.values(r).some(v => String(v || '').toLowerCase().includes(search)));
+        for (const def of ACT_FILTER_DEFS) {
+            const val = document.getElementById(def.id).value;
+            if (val) filtered = filtered.filter(r => r[def.key] === val);
         }
 
-        document.getElementById(`${prefix}-search`).addEventListener("input", applyFilters);
-        channelSelect.addEventListener("change", applyFilters);
-        prioritySelect.addEventListener("change", applyFilters);
+        filtered = [...filtered].sort((a, b) => {
+            let va = a[actSortCol] ?? '', vb = b[actSortCol] ?? '';
+            if (actSortCol === 'start_date' || actSortCol === 'end_date') {
+                va = parseDate(va) || new Date(0);
+                vb = parseDate(vb) || new Date(0);
+                return (va - vb) * actSortDir;
+            }
+            return String(va).localeCompare(String(vb)) * actSortDir;
+        });
 
-        applyFilters();
+        actCurrentFiltered = filtered;
+        document.getElementById('all-count').textContent =
+            `${fmtNum(filtered.length)} of ${fmtNum(actRows.length)}`;
+        renderFilterChips();
+
+        renderEnhancedTable('all-table', filtered, actSortCol, actSortDir, (col) => {
+            if (actSortCol === col) actSortDir *= -1;
+            else { actSortCol = col; actSortDir = 1; }
+            applyActivityFilters();
+        });
+    }
+
+    function wireActivityFilters() {
+        document.getElementById('all-trackid').addEventListener('input', applyActivityFilters);
+        document.getElementById('all-search').addEventListener('input', applyActivityFilters);
+        for (const def of ACT_FILTER_DEFS) {
+            document.getElementById(def.id).addEventListener('change', applyActivityFilters);
+        }
+
+        document.querySelectorAll('#all-source-pills .source-pill').forEach(btn => {
+            btn.addEventListener('click', () => {
+                setActivitySource(btn.dataset.source);
+                applyActivityFilters();
+            });
+        });
+
+        const moreBtn = document.getElementById('all-more-filters');
+        moreBtn.addEventListener('click', () => {
+            const extra = document.getElementById('all-extra-filters');
+            const open = extra.classList.toggle('open');
+            moreBtn.classList.toggle('open', open);
+            moreBtn.innerHTML = open ? 'Fewer filters ▴' : 'More filters ▾';
+        });
+
+        document.getElementById('all-clear').addEventListener('click', () => {
+            document.getElementById('all-trackid').value = '';
+            document.getElementById('all-search').value = '';
+            for (const def of ACT_FILTER_DEFS) document.getElementById(def.id).value = '';
+            setActivitySource('');
+            applyActivityFilters();
+        });
+
+        document.getElementById('all-export-xlsx').addEventListener('click', () => {
+            const dateStr = new Date().toISOString().slice(0, 10);
+            const label = activitySource === 'internal' ? 'Internal Activities'
+                : activitySource === 'external' ? 'External Activities' : 'All Activities';
+            exportActivityXLSX(actCurrentFiltered, `CPLAN_activities_${dateStr}.xlsx`, label);
+        });
     }
 
     // -------------------------------------------------------------------------
@@ -1528,9 +2544,7 @@
 
     function renderAnalytics(data) {
         const rows = data.rows || [];
-        const now = new Date();
 
-        // High-level analytics stats
         const uniqueLeads = new Set(rows.map(r => r.lead).filter(Boolean)).size;
         const uniqueChannels = new Set(rows.map(r => r.channel).filter(Boolean)).size;
         const uniqueDivisions = new Set(rows.map(r => r.business_division).filter(Boolean)).size;
@@ -1547,40 +2561,33 @@
         })();
 
         document.getElementById("analytics-stats").innerHTML = `
-            <div class="stat-card">
-                <div class="accent-bar" style="background:var(--primary)"></div>
-                <div class="label">Avg. per Month</div>
-                <div class="value">${fmtNum(avgPerMonth)}</div>
-                <div class="sub">Activities per month</div>
+            <div class="kpi-card highlight">
+                <div class="kpi-label">Avg. per Month</div>
+                <div class="kpi-row"><div><span class="kpi-value">${fmtNum(avgPerMonth)}</span></div></div>
+                <div class="kpi-sub">Activities per month</div>
             </div>
-            <div class="stat-card">
-                <div class="accent-bar" style="background:var(--info)"></div>
-                <div class="label">Unique Leads</div>
-                <div class="value">${fmtNum(uniqueLeads)}</div>
-                <div class="sub">Activity owners</div>
+            <div class="kpi-card info">
+                <div class="kpi-label">Unique Leads</div>
+                <div class="kpi-row"><div><span class="kpi-value">${fmtNum(uniqueLeads)}</span></div></div>
+                <div class="kpi-sub">Activity owners</div>
             </div>
-            <div class="stat-card">
-                <div class="accent-bar" style="background:var(--success)"></div>
-                <div class="label">Channels</div>
-                <div class="value">${fmtNum(uniqueChannels)}</div>
-                <div class="sub">Communication channels</div>
+            <div class="kpi-card success">
+                <div class="kpi-label">Channels</div>
+                <div class="kpi-row"><div><span class="kpi-value">${fmtNum(uniqueChannels)}</span></div></div>
+                <div class="kpi-sub">Communication channels</div>
             </div>
-            <div class="stat-card">
-                <div class="accent-bar" style="background:var(--bronze-i)"></div>
-                <div class="label">Divisions</div>
-                <div class="value">${fmtNum(uniqueDivisions)}</div>
-                <div class="sub">Business divisions</div>
+            <div class="kpi-card">
+                <div class="kpi-label">Divisions</div>
+                <div class="kpi-row"><div><span class="kpi-value">${fmtNum(uniqueDivisions)}</span></div></div>
+                <div class="kpi-sub">Business divisions</div>
             </div>`;
 
-        // Charts
+        // Curated set — objectives live on the Strategic sub-tab, leads are a filter on Activities
         renderBarChart("lead-team-chart", topN(countBy(rows, "lead_team"), 10));
         renderBarChart("region-chart", topN(countBy(rows, "region"), 10));
         renderBarChart("audience-chart", topN(countBy(rows, "target_audience"), 10));
-        renderBarChart("objectives-chart", topN(countBy(rows, "strategic_objectives"), 10));
-        renderBarChart("leads-chart", topN(countBy(rows, "lead"), 10));
         renderBarChart("campaign-chart", topN(countBy(rows, "campaign"), 10));
 
-        // News digest stats
         const digestYes = rows.filter(r => r.news_digest === true || r.news_digest === "True" || r.news_digest === "true").length;
         const digestNo = rows.length - digestYes;
         const digestPct = rows.length > 0 ? ((digestYes / rows.length) * 100).toFixed(1) : "0";
@@ -1588,45 +2595,1206 @@
         document.getElementById("digest-stats").innerHTML = `
             <div style="display:flex;align-items:center;gap:24px;flex-wrap:wrap">
                 <div>
-                    <div style="font-size:13px;color:var(--medium-gray);font-weight:600;text-transform:uppercase;letter-spacing:0.04em">Included in News Digest</div>
-                    <div style="font-size:28px;font-weight:700;color:var(--success)">${fmtNum(digestYes)}</div>
+                    <div style="font-size:11px;color:var(--grey-4);font-weight:600;text-transform:uppercase;letter-spacing:0.05em">Included in News Digest</div>
+                    <div style="font-size:26px;font-weight:300;color:var(--black)">${fmtNum(digestYes)}</div>
                 </div>
                 <div>
-                    <div style="font-size:13px;color:var(--medium-gray);font-weight:600;text-transform:uppercase;letter-spacing:0.04em">Not Included</div>
-                    <div style="font-size:28px;font-weight:700;color:var(--medium-gray)">${fmtNum(digestNo)}</div>
+                    <div style="font-size:11px;color:var(--grey-4);font-weight:600;text-transform:uppercase;letter-spacing:0.05em">Not Included</div>
+                    <div style="font-size:26px;font-weight:300;color:var(--grey-4)">${fmtNum(digestNo)}</div>
                 </div>
                 <div>
-                    <div style="font-size:13px;color:var(--medium-gray);font-weight:600;text-transform:uppercase;letter-spacing:0.04em">Digest Rate</div>
-                    <div style="font-size:28px;font-weight:700;color:var(--dark-gray)">${digestPct}%</div>
+                    <div style="font-size:11px;color:var(--grey-4);font-weight:600;text-transform:uppercase;letter-spacing:0.05em">Digest Rate</div>
+                    <div style="font-size:26px;font-weight:300;color:var(--black)">${digestPct}%</div>
                 </div>
                 <div style="flex:1;min-width:200px">
-                    <div style="height:14px;background:var(--surface);border-radius:7px;overflow:hidden">
-                        <div style="height:100%;width:${digestPct}%;background:var(--success);border-radius:7px"></div>
+                    <div style="height:12px;background:var(--surface);overflow:hidden">
+                        <div style="height:100%;width:${digestPct}%;background:var(--grey-6)"></div>
                     </div>
                 </div>
             </div>`;
+
+        renderChannelOverlap(rows);
+    }
+
+    // Find communication packs launched via BOTH Email and Intranet article (News).
+    // Packs are the real campaign unit, identified by tracking_pack_id (CLUSTER-PACKNUM)
+    // parsed from tracking_id = CLUSTER-PACKNUM-YYMMDD-ACTNUM-CHANNEL.
+    // Channel detection uses both the tracking channel abbreviation (EMI, INA, etc.)
+    // and the textual channel field for robustness.
+    const CH_OVERLAP_EMAIL_ABBRS = new Set(['EMI', 'EMA', 'EML', 'EMX']);
+    const CH_OVERLAP_INTRANET_ABBRS = new Set(['INA', 'IAN', 'INN', 'IAR']);
+    const chOverlapExpanded = new Set();
+
+    function chOverlapSplitChannels(v) {
+        return (v && v !== 'None')
+            ? String(v).split(/[;,]/).map(s => s.trim()).filter(Boolean)
+            : [];
+    }
+    function chOverlapClassify(r) {
+        const abbr = (r.tracking_channel_abbr || '').toString().trim().toUpperCase();
+        const texts = chOverlapSplitChannels(r.channel);
+        const email = CH_OVERLAP_EMAIL_ABBRS.has(abbr) || texts.some(ch => /e[\s-]?mail/i.test(ch));
+        const intranet = CH_OVERLAP_INTRANET_ABBRS.has(abbr) ||
+            texts.some(ch => /intranet/i.test(ch) && /news|article/i.test(ch));
+        return { email, intranet };
+    }
+
+    function computeChannelOverlapPacks(rows) {
+        const packs = {};
+        let missingPackId = 0;
+        let totalRows = 0;
+        for (const r of rows) {
+            totalRows++;
+            const packId = r.tracking_pack_id;
+            if (!packId || packId === 'None') { missingPackId++; continue; }
+            const cls = chOverlapClassify(r);
+            if (!cls.email && !cls.intranet) continue;
+            if (!packs[packId]) packs[packId] = {
+                packId,
+                campaigns: new Set(),
+                clusters: new Set(),
+                emailCount: 0, intranetCount: 0,
+                leads: new Set(), divisions: new Set(),
+                firstDate: null, lastDate: null,
+                emailFirstDate: null, intranetFirstDate: null,
+                activities: []
+            };
+            const entry = packs[packId];
+            entry.activities.push({ row: r, cls });
+            if (r.campaign && r.campaign !== 'None') entry.campaigns.add(r.campaign);
+            if (r.tracking_cluster_id) entry.clusters.add(r.tracking_cluster_id);
+            if (r.lead) entry.leads.add(r.lead);
+            if (r.business_division) entry.divisions.add(r.business_division);
+            const d = parseDate(r.start_date);
+            if (d) {
+                if (!entry.firstDate || d < entry.firstDate) entry.firstDate = d;
+                if (!entry.lastDate || d > entry.lastDate) entry.lastDate = d;
+                if (cls.email && (!entry.emailFirstDate || d < entry.emailFirstDate)) entry.emailFirstDate = d;
+                if (cls.intranet && (!entry.intranetFirstDate || d < entry.intranetFirstDate)) entry.intranetFirstDate = d;
+            }
+            if (cls.email) entry.emailCount++;
+            if (cls.intranet) entry.intranetCount++;
+        }
+        return { packs, missingPackId, totalRows };
+    }
+
+    function chOverlapFmtDate(d) {
+        return d ? d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' }) : '\u2014';
+    }
+
+    function renderChannelOverlap(rows) {
+        const el = document.getElementById("channel-overlap-table");
+        if (!el) return;
+
+        const { packs, missingPackId, totalRows } = computeChannelOverlapPacks(rows);
+        const dayDiff = (a, b) => Math.round(Math.abs(a - b) / 86400000);
+
+        const proximityInput = document.getElementById('channel-overlap-proximity');
+        const proximityDays = proximityInput ? parseInt(proximityInput.value, 10) : -1;
+
+        const allCrossChannel = Object.values(packs).filter(p => p.emailCount > 0 && p.intranetCount > 0);
+        const overlap = allCrossChannel
+            .map(p => {
+                const gap = (p.emailFirstDate && p.intranetFirstDate)
+                    ? dayDiff(p.emailFirstDate, p.intranetFirstDate) : null;
+                return {
+                    packId: p.packId,
+                    cluster: [...p.clusters].join(', '),
+                    campaign: [...p.campaigns].join(' / ') || '\u2014',
+                    emailCount: p.emailCount,
+                    intranetCount: p.intranetCount,
+                    total: p.emailCount + p.intranetCount,
+                    activityCount: p.activities.length,
+                    leads: [...p.leads].join(', '),
+                    divisions: [...p.divisions].join(', '),
+                    gap,
+                    firstChannel: (p.emailFirstDate && p.intranetFirstDate)
+                        ? (p.emailFirstDate < p.intranetFirstDate ? 'Email first'
+                          : p.intranetFirstDate < p.emailFirstDate ? 'Intranet first'
+                          : 'Same day')
+                        : '\u2014',
+                    window: p.firstDate && p.lastDate
+                        ? (p.firstDate.getTime() === p.lastDate.getTime()
+                            ? chOverlapFmtDate(p.firstDate)
+                            : `${chOverlapFmtDate(p.firstDate)} \u2013 ${chOverlapFmtDate(p.lastDate)}`)
+                        : '\u2014',
+                    activities: p.activities
+                };
+            })
+            .filter(p => proximityDays < 0 || (p.gap !== null && p.gap <= proximityDays))
+            .sort((a, b) => b.total - a.total);
+
+        const totalOverlapPacks = allCrossChannel.length;
+        const missingPct = totalRows > 0 ? (missingPackId / totalRows * 100).toFixed(1) : '0.0';
+
+        const proximityLabel = proximityDays < 0
+            ? 'Loose (any time distance)'
+            : proximityDays === 0 ? 'Same day only' : `Within ${proximityDays} days`;
+
+        window.__allRowsForOverlap = rows;
+        window.__chOverlapCurrent = overlap;
+
+        const controlsHtml = `
+            <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:12px;padding:12px;background:var(--surface);border-radius:2px">
+                <div>
+                    <div style="font-size:11px;color:var(--medium-gray);text-transform:uppercase;letter-spacing:0.05em;font-weight:600">Proximity filter</div>
+                    <div style="font-size:13px;color:var(--dark-gray);margin-top:2px">${esc(proximityLabel)}</div>
+                </div>
+                <div style="flex:1;min-width:200px;display:flex;align-items:center;gap:8px">
+                    <span style="font-size:11px;color:var(--medium-gray)">Loose</span>
+                    <input type="range" id="channel-overlap-proximity" min="-1" max="30" step="1"
+                           value="${proximityDays}" style="flex:1"
+                           oninput="renderChannelOverlap(window.__allRowsForOverlap||[])">
+                    <span style="font-size:11px;color:var(--medium-gray)">30d</span>
+                </div>
+                <div style="text-align:right">
+                    <div style="font-size:11px;color:var(--medium-gray);text-transform:uppercase;letter-spacing:0.05em;font-weight:600">Data quality</div>
+                    <div style="font-size:13px;color:var(--dark-gray);margin-top:2px">${fmtNum(missingPackId)} / ${fmtNum(totalRows)} rows missing pack ID (${missingPct}%)</div>
+                </div>
+                <button class="export-btn" id="channel-overlap-export" ${overlap.length === 0 ? 'disabled style="opacity:0.5;cursor:not-allowed"' : ''}>&#11123; Export XLSX</button>
+            </div>`;
+
+        if (overlap.length === 0) {
+            el.innerHTML = controlsHtml + `<div style="padding:24px;text-align:center;color:var(--medium-gray)">
+                No communication packs match. ${totalOverlapPacks > 0 ? `<br>${fmtNum(totalOverlapPacks)} pack${totalOverlapPacks === 1 ? '' : 's'} use both channels but fall outside the proximity window.` : 'No packs use both Email and Intranet article (News).'}
+            </div>`;
+            return;
+        }
+
+        const summary = `<div style="margin-bottom:12px;font-size:13px;color:var(--medium-gray)">
+            <strong style="color:var(--dark-gray);font-size:15px">${fmtNum(overlap.length)}</strong> of ${fmtNum(totalOverlapPacks)} cross-channel pack${totalOverlapPacks === 1 ? '' : 's'} match the current filter. Click a row to expand and see the tracking IDs of all activities in that pack. Channel-gap = days between first Email and first Intranet (News) activity.
+        </div>`;
+
+        const gapCell = c => {
+            if (c.gap === null) return '\u2014';
+            const color = c.gap <= 1 ? 'var(--success)' : c.gap <= 7 ? 'var(--dark-gray)' : 'var(--warning)';
+            return `<span style="color:${color};font-weight:600">${c.gap}d</span>`;
+        };
+
+        const channelBadge = cls => {
+            // Channel class = neutral category → grey/bronze, not RAG/blue
+            if (cls.email && cls.intranet) return `<span class="badge" style="background:var(--grey-6);color:var(--white)">Email + Intranet</span>`;
+            if (cls.email) return `<span class="badge" style="background:var(--surface);color:var(--grey-6)">Email</span>`;
+            if (cls.intranet) return `<span class="badge" style="background:var(--bronze-tint);color:var(--bronze-3)">Intranet (News)</span>`;
+            return '\u2014';
+        };
+
+        const drilldownHtml = c => {
+            const sorted = [...c.activities].sort((a, b) => {
+                const da = parseDate(a.row.start_date);
+                const db = parseDate(b.row.start_date);
+                return (da?.getTime() || 0) - (db?.getTime() || 0);
+            });
+            const rows = sorted.map(({ row, cls }) => `
+                <tr>
+                    <td style="font-family:monospace;font-size:11px;white-space:nowrap">${esc(row.tracking_id || '\u2014')}</td>
+                    <td>${channelBadge(cls)}</td>
+                    <td style="white-space:nowrap">${esc(chOverlapFmtDate(parseDate(row.start_date)))}</td>
+                    <td>${esc(row.activity_name || '\u2014')}</td>
+                    <td>${esc(row.lead || '\u2014')}</td>
+                    <td>${esc(row.target_audience || '\u2014')}</td>
+                    <td>${esc(row.region || '\u2014')}</td>
+                    <td>${esc(row.business_division || '\u2014')}</td>
+                </tr>`).join('');
+            return `
+                <tr class="ch-overlap-drill">
+                    <td colspan="10" style="padding:0;background:var(--surface-alt,#F5F0E1)">
+                        <div style="padding:12px 16px">
+                            <div style="font-size:11px;color:var(--medium-gray);text-transform:uppercase;letter-spacing:0.05em;font-weight:600;margin-bottom:8px">
+                                ${fmtNum(c.activityCount)} activities in pack ${esc(c.packId)}
+                            </div>
+                            <div style="overflow-x:auto">
+                                <table style="width:100%;background:white">
+                                    <thead>
+                                        <tr>
+                                            <th>Tracking ID</th>
+                                            <th>Channel</th>
+                                            <th>Start Date</th>
+                                            <th>Activity</th>
+                                            <th>Lead</th>
+                                            <th>Audience</th>
+                                            <th>Region</th>
+                                            <th>Division</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>${rows}</tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </td>
+                </tr>`;
+        };
+
+        const rowsHtml = overlap.map(c => {
+            const isOpen = chOverlapExpanded.has(c.packId);
+            const caret = isOpen ? '\u25BE' : '\u25B8';
+            return `
+                <tr class="ch-overlap-row" data-pack-id="${esc(c.packId)}" style="cursor:pointer">
+                    <td style="font-family:monospace;font-size:12px;white-space:nowrap">
+                        <span style="display:inline-block;width:12px;color:var(--medium-gray)">${caret}</span>
+                        ${esc(c.packId)}
+                    </td>
+                    <td>${esc(c.cluster)}</td>
+                    <td style="font-weight:600">${esc(c.campaign)}</td>
+                    <td class="num">${fmtNum(c.emailCount)}</td>
+                    <td class="num">${fmtNum(c.intranetCount)}</td>
+                    <td class="num" style="white-space:nowrap">${gapCell(c)}</td>
+                    <td style="white-space:nowrap">${esc(c.firstChannel)}</td>
+                    <td style="white-space:nowrap">${esc(c.window)}</td>
+                    <td>${esc(c.leads)}</td>
+                    <td>${esc(c.divisions)}</td>
+                </tr>
+                ${isOpen ? drilldownHtml(c) : ''}`;
+        }).join('');
+
+        el.innerHTML = controlsHtml + summary + `
+            <div style="overflow-x:auto">
+                <table style="width:100%">
+                    <thead>
+                        <tr>
+                            <th>Pack ID</th>
+                            <th>Cluster</th>
+                            <th>Campaign</th>
+                            <th class="num">Email</th>
+                            <th class="num">Intranet (News)</th>
+                            <th class="num">Gap</th>
+                            <th>Order</th>
+                            <th>Window</th>
+                            <th>Leads</th>
+                            <th>Divisions</th>
+                        </tr>
+                    </thead>
+                    <tbody>${rowsHtml}</tbody>
+                </table>
+            </div>`;
+
+        // Row click toggles drill-down
+        el.querySelectorAll('tr.ch-overlap-row').forEach(tr => {
+            tr.addEventListener('click', () => {
+                const pid = tr.dataset.packId;
+                if (chOverlapExpanded.has(pid)) chOverlapExpanded.delete(pid);
+                else chOverlapExpanded.add(pid);
+                renderChannelOverlap(window.__allRowsForOverlap || []);
+            });
+        });
+
+        const btn = document.getElementById('channel-overlap-export');
+        if (btn) btn.addEventListener('click', () => exportChannelOverlapXLSX(overlap));
+    }
+    window.renderChannelOverlap = renderChannelOverlap;
+
+    // Two-sheet XLSX: (1) Packs summary, (2) Flat activity list for all matching packs.
+    async function exportChannelOverlapXLSX(overlap) {
+        if (!overlap || !overlap.length) return;
+
+        const wb = new ExcelJS.Workbook();
+        const writeSheet = (label, cols, dataRows) => xlAddSheet(wb, label, cols, dataRows);
+
+        // Sheet 1: Packs summary
+        const packCols = [
+            { key: 'packId',         label: 'Pack ID',           wch: 20 },
+            { key: 'cluster',        label: 'Cluster',           wch: 14 },
+            { key: 'campaign',       label: 'Campaign',          wch: 35 },
+            { key: 'emailCount',     label: 'Email Activities',  wch: 16 },
+            { key: 'intranetCount',  label: 'Intranet (News) Activities', wch: 22 },
+            { key: 'activityCount',  label: 'Total Activities',  wch: 16 },
+            { key: 'gap',            label: 'Channel Gap (days)', wch: 18 },
+            { key: 'firstChannel',   label: 'Launch Order',      wch: 16 },
+            { key: 'window',         label: 'Activity Window',   wch: 28 },
+            { key: 'leads',          label: 'Leads',             wch: 35 },
+            { key: 'divisions',      label: 'Divisions',         wch: 35 },
+        ];
+        const packRows = overlap.map(p => packCols.map(c => {
+            const v = p[c.key];
+            return v === null || v === undefined ? '' : v;
+        }));
+        writeSheet('Cross-Channel Packs', packCols, packRows);
+
+        // Sheet 2: Flat activity list
+        const actCols = [
+            { key: 'tracking_pack_id', label: 'Pack ID',           wch: 20 },
+            { key: 'tracking_id',      label: 'Tracking ID',       wch: 34 },
+            { key: 'channel_class',    label: 'Channel Class',     wch: 18 },
+            { key: 'tracking_channel_abbr', label: 'Channel Abbr', wch: 12 },
+            { key: 'channel',          label: 'Channel (text)',    wch: 24 },
+            { key: 'start_date',       label: 'Start Date',        wch: 14 },
+            { key: 'activity_name',    label: 'Activity',          wch: 50 },
+            { key: 'priority',         label: 'Priority',          wch: 12 },
+            { key: 'lead',             label: 'Lead',              wch: 25 },
+            { key: 'lead_team',        label: 'Lead Team',         wch: 25 },
+            { key: 'target_audience',  label: 'Target Audience',   wch: 28 },
+            { key: 'region',           label: 'Region',            wch: 18 },
+            { key: 'business_division', label: 'Division',         wch: 25 },
+            { key: 'campaign',         label: 'Campaign (text)',   wch: 28 },
+            { key: 'strategic_objectives', label: 'Strategic Objectives', wch: 35 },
+            { key: 'source_type',      label: 'Source Type',       wch: 14 },
+            { key: 'news_digest',      label: 'News Digest',       wch: 12 },
+        ];
+        const activityRows = [];
+        for (const p of overlap) {
+            const sorted = [...p.activities].sort((a, b) => {
+                const da = parseDate(a.row.start_date);
+                const db = parseDate(b.row.start_date);
+                return (da?.getTime() || 0) - (db?.getTime() || 0);
+            });
+            for (const { row, cls } of sorted) {
+                const channelClass = cls.email && cls.intranet ? 'Email + Intranet'
+                    : cls.email ? 'Email'
+                    : cls.intranet ? 'Intranet (News)' : '';
+                activityRows.push(actCols.map(c => {
+                    if (c.key === 'channel_class') return channelClass;
+                    let v = row[c.key];
+                    if (c.key === 'start_date') {
+                        const d = parseDate(v);
+                        return d ? chOverlapFmtDate(d) : '';
+                    }
+                    return v ?? '';
+                }));
+            }
+        }
+        writeSheet('Activities', actCols, activityRows);
+
+        const dateStr = new Date().toISOString().slice(0, 10);
+        await xlSave(wb, `CPLAN_Channel_Overlap_${dateStr}.xlsx`);
     }
 
     // -------------------------------------------------------------------------
-    // Navigation
+    // Strategic Alignment page
+    // -------------------------------------------------------------------------
+
+    function renderStrategicAlignment(data) {
+        const rows = data.rows || [];
+
+        const total = rows.length;
+        const aligned = rows.filter(r => r.strategic_objectives && r.strategic_objectives !== 'None' && String(r.strategic_objectives).trim()).length;
+        const unaligned = total - aligned;
+        const objectives = countBy(rows, 'strategic_objectives');
+        const uniqueObj = objectives.length;
+
+        document.getElementById('strategic-stats').innerHTML = `
+            <div class="kpi-card success">
+                <div class="kpi-label">Aligned Activities</div>
+                <div class="kpi-row"><div><span class="kpi-value">${fmtNum(aligned)}</span></div></div>
+                <div class="kpi-sub">${total > 0 ? (aligned / total * 100).toFixed(0) : 0}% of total</div>
+            </div>
+            <div class="kpi-card danger">
+                <div class="kpi-label">Unaligned</div>
+                <div class="kpi-row"><div><span class="kpi-value">${fmtNum(unaligned)}</span></div></div>
+                <div class="kpi-sub">No objective assigned</div>
+            </div>
+            <div class="kpi-card info">
+                <div class="kpi-label">Unique Objectives</div>
+                <div class="kpi-row"><div><span class="kpi-value">${fmtNum(uniqueObj)}</span></div></div>
+                <div class="kpi-sub">Strategic objectives tracked</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Avg Activities/Objective</div>
+                <div class="kpi-row"><div><span class="kpi-value">${uniqueObj > 0 ? fmtNum(parseFloat((aligned / uniqueObj).toFixed(1))) : '0'}</span></div></div>
+                <div class="kpi-sub">Distribution evenness</div>
+            </div>`;
+
+        renderBarChart('strategic-objective-chart', topN(objectives, 12));
+
+        renderObjectiveDivisionMatrix(rows);
+        renderObjectiveTrend(rows);
+
+        const unalignedRows = rows.filter(r => !r.strategic_objectives || r.strategic_objectives === 'None' || !String(r.strategic_objectives).trim());
+        unalignedRows.sort((a, b) => {
+            const da = parseDate(a.start_date);
+            const db = parseDate(b.start_date);
+            if (!da && !db) return 0; if (!da) return 1; if (!db) return -1;
+            return db - da;
+        });
+        renderActivityTable('strategic-unaligned', unalignedRows.slice(0, 30),
+            ['activity_name', 'source_type', 'business_division', 'lead_team', 'channel', 'start_date']);
+    }
+
+    function renderObjectiveDivisionMatrix(rows) {
+        const el = document.getElementById('strategic-matrix');
+        const matrix = {};
+        const objs = new Set();
+        const divs = new Set();
+
+        for (const r of rows) {
+            const obj = r.strategic_objectives;
+            const div = r.business_division;
+            if (!obj || obj === 'None' || !div || div === 'None') continue;
+            const objParts = String(obj).split(/[;,]/).map(s => s.trim()).filter(Boolean);
+            const divParts = String(div).split(/[;,]/).map(s => s.trim()).filter(Boolean);
+            for (const o of objParts) {
+                for (const d of divParts) {
+                    objs.add(o);
+                    divs.add(d);
+                    matrix[`${o}|||${d}`] = (matrix[`${o}|||${d}`] || 0) + 1;
+                }
+            }
+        }
+
+        const objList = [...objs].sort();
+        const divList = [...divs].sort();
+
+        if (!objList.length || !divList.length) {
+            el.innerHTML = '<div class="empty-state"><p>No data</p></div>';
+            return;
+        }
+
+        let html = `<div class="heatmap-wrapper"><div class="heatmap" style="grid-template-columns: 140px repeat(${divList.length}, minmax(50px, 1fr))">`;
+        html += `<div class="heatmap-label"></div>`;
+        for (const d of divList) {
+            html += `<div class="heatmap-col-label" title="${esc(d)}">${esc(d.length > 8 ? d.slice(0, 7) + '\u2026' : d)}</div>`;
+        }
+
+        for (const obj of objList) {
+            html += `<div class="heatmap-label" title="${esc(obj)}">${esc(obj.length > 18 ? obj.slice(0, 17) + '\u2026' : obj)}</div>`;
+            for (const d of divList) {
+                const count = matrix[`${obj}|||${d}`] || 0;
+                // Neutral intensity → warm grey sequential ramp (never RAG/blue for counts)
+                let bg, fg;
+                if (count === 0) { bg = 'var(--bg)'; fg = 'var(--grey-1)'; }
+                else if (count <= 2) { bg = 'var(--surface)'; fg = 'var(--black)'; }
+                else if (count <= 5) { bg = 'var(--grey-1)'; fg = 'var(--black)'; }
+                else { bg = 'var(--grey-3)'; fg = 'var(--white)'; }
+                html += `<div class="heatmap-cell" style="background:${bg};color:${fg}">${count ? fmtNum(count) : ''}</div>`;
+            }
+        }
+
+        html += '</div></div>';
+        el.innerHTML = html;
+    }
+
+    function renderObjectiveTrend(rows) {
+        const el = document.getElementById('strategic-trend');
+        const byMonth = {};
+        const allObjs = new Set();
+
+        for (const r of rows) {
+            const ym = r.year_month;
+            const obj = r.strategic_objectives;
+            if (!ym || !obj || obj === 'None') continue;
+            const parts = String(obj).split(/[;,]/).map(s => s.trim()).filter(Boolean);
+            for (const o of parts) {
+                allObjs.add(o);
+                if (!byMonth[ym]) byMonth[ym] = {};
+                byMonth[ym][o] = (byMonth[ym][o] || 0) + 1;
+            }
+        }
+
+        const months = Object.keys(byMonth).sort().slice(-12);
+        const objList = [...allObjs];
+        const objTotals = {};
+        for (const o of objList) {
+            objTotals[o] = months.reduce((s, m) => s + (byMonth[m]?.[o] || 0), 0);
+        }
+        const topObjs = Object.entries(objTotals).sort((a, b) => b[1] - a[1]).slice(0, 5).map(e => e[0]);
+
+        if (!months.length || !topObjs.length) {
+            el.innerHTML = '<div class="empty-state"><p>No objective trend data</p></div>';
+            return;
+        }
+
+        const maxVal = Math.max(...months.map(m => Math.max(...topObjs.map(o => byMonth[m]?.[o] || 0))), 1);
+        const W = 700, H = 220, padL = 40, padR = 20, padT = 20, padB = 40;
+        const chartW = W - padL - padR;
+        const chartH = H - padT - padB;
+
+        // No gridlines — y-axis tick labels only, plus one thin black baseline
+        let svg = '';
+        for (let i = 0; i <= 4; i++) {
+            const y = padT + (chartH / 4) * i;
+            const val = Math.round(maxVal * (1 - i / 4));
+            svg += `<text x="${padL - 6}" y="${y + 3}" text-anchor="end" font-size="10" fill="var(--grey-4)">${fmtNum(val)}</text>`;
+        }
+        svg += `<line x1="${padL}" y1="${padT + chartH}" x2="${W - padR}" y2="${padT + chartH}" stroke="var(--black)" stroke-width="1"/>`;
+
+        topObjs.forEach((obj, oi) => {
+            const color = LINE_PALETTE[oi % LINE_PALETTE.length];
+            const points = months.map((m, mi) => {
+                const x = padL + (mi + 0.5) * (chartW / months.length);
+                const v = byMonth[m]?.[obj] || 0;
+                const y = padT + chartH - (v / maxVal) * chartH;
+                return `${x},${y}`;
+            });
+            svg += `<polyline points="${points.join(' ')}" fill="none" stroke="${color}" stroke-width="2"/>`;
+            months.forEach((m, mi) => {
+                const x = padL + (mi + 0.5) * (chartW / months.length);
+                const v = byMonth[m]?.[obj] || 0;
+                const y = padT + chartH - (v / maxVal) * chartH;
+                svg += `<circle cx="${x}" cy="${y}" r="3" fill="${color}"/>`;
+            });
+        });
+
+        months.forEach((m, i) => {
+            const x = padL + (i + 0.5) * (chartW / months.length);
+            const showEvery = months.length > 8 ? 2 : 1;
+            if (i % showEvery === 0) {
+                const [yr, mo] = m.split('-');
+                svg += `<text x="${x}" y="${H - 4}" text-anchor="middle" font-size="10" fill="var(--medium-gray)">${MONTHS_SHORT[parseInt(mo)-1]} ${yr.slice(2)}</text>`;
+            }
+        });
+
+        let legendHtml = '<div style="display:flex;flex-wrap:wrap;gap:14px;margin-top:8px">';
+        topObjs.forEach((obj, i) => {
+            legendHtml += `<div style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--dark-gray)">
+                <div style="width:14px;height:3px;background:${LINE_PALETTE[i % LINE_PALETTE.length]}"></div>${esc(obj.length > 30 ? obj.slice(0, 29) + '\u2026' : obj)}</div>`;
+        });
+        legendHtml += '</div>';
+
+        el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px">${svg}</svg>${legendHtml}`;
+    }
+
+    // -------------------------------------------------------------------------
+    // Resource & Coordination page
+    // -------------------------------------------------------------------------
+
+    function renderResourceCoordination(data) {
+        const rows = data.rows || [];
+
+        const teams = countBy(rows, 'lead_team');
+        const campaigns = countBy(rows, 'campaign');
+        const partners = countBy(rows, 'partner_team');
+
+        document.getElementById('resource-stats').innerHTML = `
+            <div class="kpi-card highlight">
+                <div class="kpi-label">Active Teams</div>
+                <div class="kpi-row"><div><span class="kpi-value">${fmtNum(teams.length)}</span></div></div>
+                <div class="kpi-sub">Lead teams with activities</div>
+            </div>
+            <div class="kpi-card info">
+                <div class="kpi-label">Campaigns</div>
+                <div class="kpi-row"><div><span class="kpi-value">${fmtNum(campaigns.length)}</span></div></div>
+                <div class="kpi-sub">Active campaigns</div>
+            </div>
+            <div class="kpi-card success">
+                <div class="kpi-label">Partner Teams</div>
+                <div class="kpi-row"><div><span class="kpi-value">${fmtNum(partners.length)}</span></div></div>
+                <div class="kpi-sub">Cross-team collaborations</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Avg per Team</div>
+                <div class="kpi-row"><div><span class="kpi-value">${teams.length > 0 ? fmtNum(parseFloat((rows.length / teams.length).toFixed(1))) : '0'}</span></div></div>
+                <div class="kpi-sub">Activities per lead team</div>
+            </div>`;
+
+        renderTeamWorkload(rows);
+        renderTeamChannelMatrix(rows);
+        renderCampaignScorecard(rows);
+        renderOverlapDetector(rows);
+    }
+
+    function renderTeamWorkload(rows) {
+        const el = document.getElementById('resource-workload');
+        const teamData = {};
+        for (const r of rows) {
+            const t = r.lead_team;
+            if (!t || t === 'None') continue;
+            const parts = String(t).split(/[;,]/).map(s => s.trim()).filter(Boolean);
+            for (const p of parts) {
+                if (!teamData[p]) teamData[p] = { internal: 0, external: 0 };
+                if (r.source_type === 'internal') teamData[p].internal++;
+                else teamData[p].external++;
+            }
+        }
+
+        const sorted = Object.entries(teamData).sort((a, b) => (b[1].internal + b[1].external) - (a[1].internal + a[1].external));
+        const top = sorted.slice(0, 12);
+        if (!top.length) { el.innerHTML = '<div class="empty-state"><p>No team data</p></div>'; return; }
+
+        const maxTotal = top[0][1].internal + top[0][1].external;
+
+        let html = '<div class="bar-chart">';
+        for (const [team, counts] of top) {
+            const total = counts.internal + counts.external;
+            const intPct = maxTotal > 0 ? (counts.internal / maxTotal * 100) : 0;
+            const extPct = maxTotal > 0 ? (counts.external / maxTotal * 100) : 0;
+            // Internal/External stacks: fixed grey/bronze pair — white divider between segments
+            html += `<div class="bar-row">
+                <div class="bar-label" title="${esc(team)}">${esc(team)}</div>
+                <div class="bar-track" style="display:flex;gap:1px">
+                    <div style="width:${intPct}%;background:${SOURCE_COLORS.internal};height:100%;min-width:${counts.internal ? '2px' : '0'}"></div>
+                    <div style="width:${extPct}%;background:${SOURCE_COLORS.external};height:100%;min-width:${counts.external ? '2px' : '0'}"></div>
+                </div>
+                <div class="bar-value">${fmtNum(total)}</div>
+            </div>`;
+        }
+        html += `<div style="display:flex;gap:16px;margin-top:8px;padding-left:150px">
+            <div style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--grey-6)">
+                <div style="width:10px;height:10px;border-radius:2px;background:${SOURCE_COLORS.internal}"></div>Internal</div>
+            <div style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--grey-6)">
+                <div style="width:10px;height:10px;border-radius:2px;background:${SOURCE_COLORS.external}"></div>External</div>
+        </div>`;
+        html += '</div>';
+        el.innerHTML = html;
+    }
+
+    function renderTeamChannelMatrix(rows) {
+        const el = document.getElementById('resource-team-channel');
+        const matrix = {};
+        const teams = new Set();
+        const channels = new Set();
+
+        for (const r of rows) {
+            const t = r.lead_team;
+            const ch = r.channel;
+            if (!t || t === 'None' || !ch || ch === 'None') continue;
+            const tParts = String(t).split(/[;,]/).map(s => s.trim()).filter(Boolean);
+            const chParts = String(ch).split(/[;,]/).map(s => s.trim()).filter(Boolean);
+            for (const tp of tParts) {
+                for (const cp of chParts) {
+                    teams.add(tp);
+                    channels.add(cp);
+                    matrix[`${tp}|||${cp}`] = (matrix[`${tp}|||${cp}`] || 0) + 1;
+                }
+            }
+        }
+
+        const teamTotals = {};
+        for (const t of teams) {
+            teamTotals[t] = [...channels].reduce((s, c) => s + (matrix[`${t}|||${c}`] || 0), 0);
+        }
+        const teamList = Object.entries(teamTotals).sort((a, b) => b[1] - a[1]).slice(0, 10).map(e => e[0]);
+        const chList = [...channels].sort();
+
+        if (!teamList.length || !chList.length) {
+            el.innerHTML = '<div class="empty-state"><p>No data</p></div>';
+            return;
+        }
+
+        let html = `<div class="heatmap-wrapper"><div class="heatmap" style="grid-template-columns: 140px repeat(${chList.length}, minmax(42px, 1fr))">`;
+        html += '<div class="heatmap-label"></div>';
+        for (const c of chList) {
+            html += `<div class="heatmap-col-label" title="${esc(c)}">${esc(c.length > 7 ? c.slice(0, 6) + '\u2026' : c)}</div>`;
+        }
+
+        for (const t of teamList) {
+            html += `<div class="heatmap-label" title="${esc(t)}">${esc(t)}</div>`;
+            for (const c of chList) {
+                const count = matrix[`${t}|||${c}`] || 0;
+                // Neutral intensity → warm grey sequential ramp (never RAG/blue for counts)
+                let bg, fg;
+                if (count === 0) { bg = 'var(--bg)'; fg = 'var(--grey-1)'; }
+                else if (count <= 2) { bg = 'var(--surface)'; fg = 'var(--black)'; }
+                else if (count <= 5) { bg = 'var(--grey-1)'; fg = 'var(--black)'; }
+                else { bg = 'var(--grey-3)'; fg = 'var(--white)'; }
+                html += `<div class="heatmap-cell" style="background:${bg};color:${fg}">${count ? fmtNum(count) : ''}</div>`;
+            }
+        }
+
+        html += '</div></div>';
+        el.innerHTML = html;
+    }
+
+    function renderCampaignScorecard(rows) {
+        const el = document.getElementById('resource-campaigns');
+        const campaigns = {};
+
+        for (const r of rows) {
+            const c = r.campaign;
+            if (!c || c === 'None') continue;
+            const parts = String(c).split(/[;,]/).map(s => s.trim()).filter(Boolean);
+            for (const p of parts) {
+                if (!campaigns[p]) {
+                    campaigns[p] = { count: 0, channels: new Set(), divisions: new Set(), audiences: new Set(), minDate: null, maxDate: null, objectives: new Set() };
+                }
+                campaigns[p].count++;
+                if (r.channel && r.channel !== 'None') String(r.channel).split(/[;,]/).map(s=>s.trim()).filter(Boolean).forEach(v => campaigns[p].channels.add(v));
+                if (r.business_division && r.business_division !== 'None') String(r.business_division).split(/[;,]/).map(s=>s.trim()).filter(Boolean).forEach(v => campaigns[p].divisions.add(v));
+                if (r.target_audience && r.target_audience !== 'None') String(r.target_audience).split(/[;,]/).map(s=>s.trim()).filter(Boolean).forEach(v => campaigns[p].audiences.add(v));
+                if (r.strategic_objectives && r.strategic_objectives !== 'None') String(r.strategic_objectives).split(/[;,]/).map(s=>s.trim()).filter(Boolean).forEach(v => campaigns[p].objectives.add(v));
+                const sd = parseDate(r.start_date);
+                const ed = parseDate(r.end_date);
+                if (sd && (!campaigns[p].minDate || sd < campaigns[p].minDate)) campaigns[p].minDate = sd;
+                if (ed && (!campaigns[p].maxDate || ed > campaigns[p].maxDate)) campaigns[p].maxDate = ed;
+            }
+        }
+
+        const sorted = Object.entries(campaigns).sort((a, b) => b[1].count - a[1].count);
+
+        if (!sorted.length) {
+            el.innerHTML = '<div class="empty-state"><p>No campaign data available</p></div>';
+            return;
+        }
+
+        let html = '<table><thead><tr>';
+        html += '<th>Campaign</th><th class="num">Activities</th><th class="num">Channels</th><th class="num">Divisions</th><th class="num">Audiences</th><th class="num">Objectives</th><th>Date Range</th>';
+        html += '</tr></thead><tbody>';
+
+        for (const [name, data] of sorted.slice(0, 20)) {
+            const dateRange = data.minDate && data.maxDate
+                ? `${fmtDateShort(data.minDate)} \u2013 ${fmtDateShort(data.maxDate)}`
+                : '\u2014';
+            const chBadge = data.channels.size === 1
+                ? `<span class="badge badge-warning">${data.channels.size}</span>`
+                : `<span class="badge badge-success">${data.channels.size}</span>`;
+
+            html += `<tr>
+                <td title="${esc(name)}">${esc(name)}</td>
+                <td class="num"><strong>${fmtNum(data.count)}</strong></td>
+                <td class="num">${chBadge}</td>
+                <td class="num">${fmtNum(data.divisions.size)}</td>
+                <td class="num">${fmtNum(data.audiences.size)}</td>
+                <td class="num">${data.objectives.size}</td>
+                <td style="font-size:12px">${dateRange}</td>
+            </tr>`;
+        }
+
+        html += '</tbody></table>';
+        el.innerHTML = html;
+    }
+
+    function renderOverlapDetector(rows) {
+        const el = document.getElementById('resource-overlaps');
+        const now = new Date();
+        const sixMonthsAgo = new Date(now); sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+        const weekMap = {};
+
+        for (const r of rows) {
+            const sd = parseDate(r.start_date);
+            const ed = parseDate(r.end_date) || sd;
+            if (!sd || sd < sixMonthsAgo) continue;
+            const ch = r.channel;
+            const aud = r.target_audience;
+            if (!ch || ch === 'None' || !aud || aud === 'None') continue;
+
+            const chParts = String(ch).split(/[;,]/).map(s => s.trim()).filter(Boolean);
+            const audParts = String(aud).split(/[;,]/).map(s => s.trim()).filter(Boolean);
+
+            for (const c of chParts) {
+                for (const a of audParts) {
+                    const weekStart = new Date(sd);
+                    weekStart.setDate(weekStart.getDate() - weekStart.getDay() + 1);
+                    const weekKey = `${weekStart.getFullYear()}-${String(weekStart.getMonth()+1).padStart(2,'0')}-${String(weekStart.getDate()).padStart(2,'0')}`;
+                    const groupKey = `${weekKey}|||${a}|||${c}`;
+
+                    if (!weekMap[groupKey]) weekMap[groupKey] = { week: weekKey, audience: a, channel: c, activities: [] };
+                    weekMap[groupKey].activities.push(r.activity_name || 'Untitled');
+                }
+            }
+        }
+
+        const overlapGroups = Object.values(weekMap).filter(g => g.activities.length > 1).sort((a, b) => b.activities.length - a.activities.length);
+
+        if (!overlapGroups.length) {
+            el.innerHTML = '<div class="empty-state"><p>No overlapping activities detected in the last 6 months</p></div>';
+            return;
+        }
+
+        let html = '<table><thead><tr>';
+        html += '<th>Week</th><th>Audience</th><th>Channel</th><th class="num">Count</th><th>Activities</th>';
+        html += '</tr></thead><tbody>';
+
+        for (const g of overlapGroups.slice(0, 20)) {
+            // RAG only where it means something: 5+ collisions = problem, 3–4 = attention, 2 = neutral
+            const severity = g.activities.length >= 5 ? 'badge-danger' : g.activities.length >= 3 ? 'badge-warning' : 'badge-default';
+            html += `<tr>
+                <td>${esc(g.week)}</td>
+                <td title="${esc(g.audience)}">${esc(g.audience)}</td>
+                <td>${esc(g.channel)}</td>
+                <td class="num"><span class="badge ${severity}">${fmtNum(g.activities.length)}</span></td>
+                <td title="${esc(g.activities.join(', '))}">${esc(g.activities.slice(0, 3).join(', '))}${g.activities.length > 3 ? '...' : ''}</td>
+            </tr>`;
+        }
+
+        html += '</tbody></table>';
+        el.innerHTML = html;
+    }
+
+    // -------------------------------------------------------------------------
+    // Planning Board
+    // -------------------------------------------------------------------------
+
+    let planningWeeks = 8;
+    let ganttGroupBy = 'channel';
+
+    function getWeekLabel(d) {
+        const day = d.getDate();
+        const mon = MONTHS_SHORT[d.getMonth()];
+        return `${day} ${mon}`;
+    }
+
+    function getWeeksBetween(start, numWeeks) {
+        const weeks = [];
+        const d = new Date(start);
+        d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+        d.setHours(0, 0, 0, 0);
+        for (let i = 0; i < numWeeks; i++) {
+            const wStart = new Date(d);
+            wStart.setDate(wStart.getDate() + i * 7);
+            const wEnd = new Date(wStart);
+            wEnd.setDate(wEnd.getDate() + 6);
+            wEnd.setHours(23, 59, 59);
+            weeks.push({ start: wStart, end: wEnd, label: getWeekLabel(wStart) });
+        }
+        return weeks;
+    }
+
+    function renderPlanningBoard(data) {
+        const rows = data.rows || [];
+        const now = new Date();
+        const weeks = getWeeksBetween(now, planningWeeks);
+        const horizonEnd = weeks[weeks.length - 1].end;
+
+        const future = rows.filter(r => {
+            const sd = parseDate(r.start_date);
+            const ed = parseDate(r.end_date) || sd;
+            return sd && ed >= now && sd <= horizonEnd;
+        }).sort((a, b) => new Date(a.start_date) - new Date(b.start_date));
+
+        const reactive = future.filter(r => r.planning_lead_days != null && r.planning_lead_days < 7 && r.planning_lead_days >= 0);
+        const avgLead = (() => {
+            const vals = future.map(r => r.planning_lead_days).filter(v => v != null && !isNaN(v) && v >= 0);
+            return vals.length ? (vals.reduce((s, v) => s + v, 0) / vals.length).toFixed(0) : '\u2014';
+        })();
+        // Peak week within the selected horizon
+        const peak = (() => {
+            let best = null;
+            for (const w of weeks) {
+                let n = 0;
+                for (const r of future) {
+                    const sd = parseDate(r.start_date);
+                    const ed = parseDate(r.end_date) || sd;
+                    if (sd && sd <= w.end && ed >= w.start) n++;
+                }
+                if (!best || n > best.n) best = { n, label: w.label };
+            }
+            return best || { n: 0, label: '\u2014' };
+        })();
+
+        // "This Week" / "Next 30 Days" live on the Overview page \u2014 not repeated here
+        document.getElementById('planning-stats').innerHTML = `
+            <div class="kpi-card highlight">
+                <div class="kpi-label">In Horizon</div>
+                <div class="kpi-row"><div><span class="kpi-value">${fmtNum(future.length)}</span></div></div>
+                <div class="kpi-sub">Activities in the next ${planningWeeks} weeks</div>
+            </div>
+            <div class="kpi-card warning">
+                <div class="kpi-label">Short Notice</div>
+                <span class="kpi-info">i<span class="kpi-tooltip"><strong>Short notice</strong> = created less than 7 days before the start date. A high number signals reactive, unplanned work.</span></span>
+                <div class="kpi-row"><div><span class="kpi-value">${fmtNum(reactive.length)}</span></div></div>
+                <div class="kpi-sub">Created &lt;7 days before start</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Avg Lead Time</div>
+                <span class="kpi-info">i<span class="kpi-tooltip"><strong>Lead time</strong> = days between an activity being created and its start date, averaged over the horizon. Longer is better-planned.</span></span>
+                <div class="kpi-row"><div><span class="kpi-value">${fmtNum(avgLead)}</span><span class="kpi-unit"> d</span></div></div>
+                <div class="kpi-sub">Days from creation to start</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Peak Week</div>
+                <div class="kpi-row"><div><span class="kpi-value">${fmtNum(peak.n)}</span></div></div>
+                <div class="kpi-sub">Week of ${esc(peak.label)}</div>
+            </div>`;
+
+        renderGantt(future, weeks);
+        renderWeeklyLoadForecast(future, weeks);
+        renderChannelAvailability(future, weeks);
+        renderPlanningPipeline(future);
+    }
+
+    function renderGantt(activities, weeks) {
+        const el = document.getElementById('planning-gantt');
+        if (!activities.length) {
+            el.innerHTML = '<div class="empty-state"><p>No upcoming activities to display</p></div>';
+            return;
+        }
+
+        const groups = {};
+        for (const r of activities) {
+            let groupVal = r[ganttGroupBy] || 'Unassigned';
+            if (groupVal === 'None' || groupVal === 'null') groupVal = 'Unassigned';
+            const firstVal = String(groupVal).split(/[;,]/)[0].trim();
+            if (!groups[firstVal]) groups[firstVal] = [];
+            groups[firstVal].push(r);
+        }
+
+        const sortedGroups = Object.entries(groups).sort((a, b) => b[1].length - a[1].length);
+        const numWeeks = weeks.length;
+        const now = new Date();
+        const todayWeekIdx = weeks.findIndex(w => now >= w.start && now <= w.end);
+
+        let html = `<div class="gantt-wrapper"><div class="gantt" style="grid-template-columns: 180px repeat(${numWeeks}, minmax(60px, 1fr))">`;
+
+        html += '<div class="gantt-header-cell">Activity</div>';
+        for (let wi = 0; wi < numWeeks; wi++) {
+            // Current week: Pastel highlight block — "today" is not a warning state
+            const isTodayWeek = wi === todayWeekIdx;
+            html += `<div class="gantt-header-cell${isTodayWeek ? ' today-week' : ''}">${weeks[wi].label}</div>`;
+        }
+
+        for (const [groupName, items] of sortedGroups) {
+            html += `<div class="gantt-group-label">${esc(groupName)} (${fmtNum(items.length)})</div>`;
+
+            for (const r of items.slice(0, 15)) {
+                const name = r.activity_name || 'Untitled';
+                const sd = parseDate(r.start_date);
+                const ed = parseDate(r.end_date) || sd;
+                const isInternal = r.source_type === 'internal';
+
+                html += `<div class="gantt-row-label" title="${esc(name)}">${esc(name.length > 22 ? name.slice(0, 21) + '\u2026' : name)}</div>`;
+
+                for (let wi = 0; wi < numWeeks; wi++) {
+                    const wStart = weeks[wi].start;
+                    const wEnd = weeks[wi].end;
+                    const isTodayWeek = wi === todayWeekIdx;
+                    let cellHtml = '';
+
+                    if (sd <= wEnd && ed >= wStart) {
+                        const barStartDay = Math.max(0, (sd - wStart) / (1000 * 60 * 60 * 24));
+                        const barEndDay = Math.min(7, (ed - wStart) / (1000 * 60 * 60 * 24) + 1);
+                        const leftPct = (barStartDay / 7) * 100;
+                        const widthPct = ((barEndDay - barStartDay) / 7) * 100;
+                        const cls = isInternal ? 'internal' : 'external';
+                        cellHtml = `<div class="gantt-bar ${cls}" style="left:${leftPct}%;width:${widthPct}%" title="${esc(name)}\n${fmtDateShort(sd)} \u2013 ${fmtDateShort(ed)}\n${esc(r.channel || '')}"></div>`;
+                    }
+
+                    html += `<div class="gantt-cell${isTodayWeek ? ' today-col' : ''}">${cellHtml}</div>`;
+                }
+            }
+
+            if (items.length > 15) {
+                html += `<div class="gantt-row-label" style="color:var(--medium-gray);font-style:italic">+${items.length - 15} more</div>`;
+                for (let wi = 0; wi < numWeeks; wi++) html += '<div class="gantt-cell"></div>';
+            }
+        }
+
+        html += '</div></div>';
+
+        html += `<div style="padding:8px 18px;display:flex;gap:16px;font-size:11px;color:var(--grey-6);border-top:1px solid var(--surface)">
+            <div style="display:flex;align-items:center;gap:4px"><div style="width:20px;height:8px;background:${SOURCE_COLORS.internal}"></div>Internal</div>
+            <div style="display:flex;align-items:center;gap:4px"><div style="width:20px;height:8px;background:${SOURCE_COLORS.external}"></div>External</div>
+            <div style="display:flex;align-items:center;gap:4px"><div style="width:12px;height:12px;background:var(--surface-alt);border:1px solid var(--grey-1)"></div>Current week</div>
+        </div>`;
+
+        el.innerHTML = html;
+    }
+
+    function renderWeeklyLoadForecast(activities, weeks) {
+        const el = document.getElementById('planning-load');
+        const numWeeks = weeks.length;
+
+        const weeklyLoad = weeks.map(w => {
+            let internal = 0, external = 0;
+            for (const r of activities) {
+                const sd = parseDate(r.start_date);
+                const ed = parseDate(r.end_date) || sd;
+                if (sd && sd <= w.end && ed >= w.start) {
+                    if (r.source_type === 'internal') internal++;
+                    else external++;
+                }
+            }
+            return { internal, external, total: internal + external, label: w.label };
+        });
+
+        const maxLoad = Math.max(...weeklyLoad.map(w => w.total), 1);
+        const avg = weeklyLoad.reduce((s, w) => s + w.total, 0) / numWeeks;
+        const stddev = Math.sqrt(weeklyLoad.reduce((s, w) => s + (w.total - avg) ** 2, 0) / numWeeks);
+        const threshold = Math.max(Math.round(avg + stddev), 5);
+
+        const W = 700, H = 220, padL = 40, padR = 20, padT = 20, padB = 36;
+        const chartW = W - padL - padR;
+        const chartH = H - padT - padB;
+        const barW = Math.min(28, chartW / numWeeks * 0.6);
+        const yMax = Math.max(maxLoad, threshold + 2);
+
+        // No gridlines/y-axis — bars carry data labels; one thin black baseline below
+        let svg = '';
+
+        // Threshold line: data-driven capacity signal → red dashed line is legitimate RAG use
+        const threshY = padT + chartH - (threshold / yMax) * chartH;
+        svg += `<line x1="${padL}" y1="${threshY}" x2="${W - padR}" y2="${threshY}" class="load-threshold"/>`;
+        svg += `<text x="${W - padR + 4}" y="${threshY + 3}" font-size="9" fill="var(--danger)" font-weight="600">Busy (${threshold})</text>`;
+
+        const todayWeekIdx = weeks.findIndex(w => {
+            const now = new Date();
+            return now >= w.start && now <= w.end;
+        });
+
+        weeklyLoad.forEach((w, i) => {
+            const x = padL + (i + 0.5) * (chartW / numWeeks);
+            const intH = (w.internal / yMax) * chartH;
+            const extH = (w.external / yMax) * chartH;
+            const topY = padT + chartH - intH - extH;
+            const intY = padT + chartH - intH;
+            const isOverThreshold = w.total >= threshold;
+            const isTodayWeek = i === todayWeekIdx;
+
+            // Stacked bar: internal (grey) below, external (bronze) on top — colours stay
+            // neutral; the red data label + threshold line signal overload
+            svg += `<rect x="${x - barW/2}" y="${intY}" width="${barW}" height="${intH}" fill="${SOURCE_COLORS.internal}"/>`;
+            svg += `<rect x="${x - barW/2}" y="${topY}" width="${barW}" height="${Math.max(extH - 1, 0)}" fill="${SOURCE_COLORS.external}"/>`;
+
+            if (w.total > 0) {
+                svg += `<text x="${x}" y="${topY - 4}" text-anchor="middle" font-size="10" fill="${isOverThreshold ? 'var(--danger)' : 'var(--grey-6)'}" font-weight="600">${fmtNum(w.total)}</text>`;
+            }
+
+            svg += `<text x="${x}" y="${H - 4}" text-anchor="middle" font-size="9" fill="${isTodayWeek ? 'var(--black)' : 'var(--grey-4)'}" font-weight="${isTodayWeek ? '700' : '400'}">${w.label}</text>`;
+        });
+
+        svg += `<line x1="${padL}" y1="${padT + chartH}" x2="${W - padR}" y2="${padT + chartH}" stroke="var(--black)" stroke-width="1"/>`;
+
+        svg += `<rect x="${W - 200}" y="4" width="10" height="10" fill="${SOURCE_COLORS.internal}"/>`;
+        svg += `<text x="${W - 185}" y="13" font-size="10" fill="var(--grey-6)">Internal</text>`;
+        svg += `<rect x="${W - 130}" y="4" width="10" height="10" fill="${SOURCE_COLORS.external}"/>`;
+        svg += `<text x="${W - 115}" y="13" font-size="10" fill="var(--grey-6)">External</text>`;
+
+        el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px">${svg}</svg>`;
+    }
+
+    function renderChannelAvailability(activities, weeks) {
+        const el = document.getElementById('planning-availability');
+        const numWeeks = weeks.length;
+
+        const channels = new Set();
+        const matrix = {};
+
+        for (const r of activities) {
+            const ch = r.channel;
+            if (!ch || ch === 'None') continue;
+            const sd = parseDate(r.start_date);
+            const ed = parseDate(r.end_date) || sd;
+            if (!sd) continue;
+
+            const chParts = String(ch).split(/[;,]/).map(s => s.trim()).filter(Boolean);
+            for (const c of chParts) {
+                channels.add(c);
+                for (let wi = 0; wi < numWeeks; wi++) {
+                    if (sd <= weeks[wi].end && ed >= weeks[wi].start) {
+                        const key = `${c}|||${wi}`;
+                        matrix[key] = (matrix[key] || 0) + 1;
+                    }
+                }
+            }
+        }
+
+        const chList = [...channels].sort();
+        if (!chList.length) {
+            el.innerHTML = '<div class="empty-state"><p>No channel data available</p></div>';
+            return;
+        }
+
+        const todayWeekIdx = weeks.findIndex(w => {
+            const now = new Date();
+            return now >= w.start && now <= w.end;
+        });
+
+        let html = `<div class="heatmap-wrapper"><div class="heatmap" style="grid-template-columns: 140px repeat(${numWeeks}, minmax(48px, 1fr))">`;
+
+        html += '<div class="heatmap-label"></div>';
+        for (let wi = 0; wi < numWeeks; wi++) {
+            const isTodayWeek = wi === todayWeekIdx;
+            html += `<div class="heatmap-col-label" style="${isTodayWeek ? 'color:var(--black);font-weight:700' : ''}">${weeks[wi].label}</div>`;
+        }
+
+        for (const ch of chList) {
+            html += `<div class="heatmap-label" title="${esc(ch)}">${esc(ch)}</div>`;
+            for (let wi = 0; wi < numWeeks; wi++) {
+                const count = matrix[`${ch}|||${wi}`] || 0;
+                // Capacity status = data-driven RAG (documented derived tints)
+                let bg, fg, text;
+                if (count === 0) { bg = 'var(--bg)'; fg = 'var(--success)'; text = '\u2713'; }
+                else if (count <= 2) { bg = 'var(--success-tint)'; fg = 'var(--success)'; text = fmtNum(count); }
+                else if (count <= 4) { bg = 'var(--warning-tint)'; fg = 'var(--warning-dark)'; text = fmtNum(count); }
+                else { bg = 'var(--danger-tint)'; fg = 'var(--danger)'; text = fmtNum(count); }
+                html += `<div class="heatmap-cell" style="background:${bg};color:${fg}" title="${esc(ch)} \u2014 Week of ${weeks[wi].label}: ${fmtNum(count)} activities">${text}</div>`;
+            }
+        }
+
+        html += '</div></div>';
+
+        html += `<div style="padding:8px 18px;display:flex;gap:16px;font-size:11px;color:var(--dark-gray)">
+            <div style="display:flex;align-items:center;gap:4px"><div style="width:12px;height:12px;border-radius:2px;background:var(--bg);border:1px solid var(--grey-1)"></div>Open</div>
+            <div style="display:flex;align-items:center;gap:4px"><div style="width:12px;height:12px;border-radius:2px;background:var(--success-tint)"></div>Light (1\u20132)</div>
+            <div style="display:flex;align-items:center;gap:4px"><div style="width:12px;height:12px;border-radius:2px;background:var(--warning-tint)"></div>Busy (3\u20134)</div>
+            <div style="display:flex;align-items:center;gap:4px"><div style="width:12px;height:12px;border-radius:2px;background:var(--danger-tint)"></div>Saturated (5+)</div>
+        </div>`;
+
+        el.innerHTML = html;
+    }
+
+    function renderPlanningPipeline(activities) {
+        const el = document.getElementById('planning-pipeline');
+        if (!activities.length) {
+            el.innerHTML = '<div class="empty-state"><p>No upcoming activities</p></div>';
+            return;
+        }
+
+        let html = '<table><thead><tr>';
+        html += '<th></th><th>Activity</th><th>Type</th><th>Channel</th><th>Start</th><th>End</th><th class="num">Lead Time</th><th>Priority</th><th>Lead Team</th><th>Target Audience</th>';
+        html += '</tr></thead><tbody>';
+
+        for (const r of activities.slice(0, 40)) {
+            const sd = parseDate(r.start_date);
+            const ed = parseDate(r.end_date);
+            const leadDays = r.planning_lead_days;
+            let leadClass = 'lead-good';
+            if (leadDays != null) {
+                if (leadDays < 3) leadClass = 'lead-danger';
+                else if (leadDays < 14) leadClass = 'lead-warning';
+            }
+
+            const typeBadge = r.source_type === 'internal'
+                ? '<span class="badge badge-source-internal">Internal</span>'
+                : '<span class="badge badge-source-external">External</span>';
+
+            const priColor = priorityColor(r.priority) || 'var(--medium-gray)';
+
+            html += `<tr>
+                <td><span class="lead-indicator ${leadClass}" title="Lead time: ${leadDays != null ? leadDays + ' days' : 'unknown'}"></span></td>
+                <td title="${esc(r.activity_name || '')}">${esc(r.activity_name || 'Untitled')}</td>
+                <td>${typeBadge}</td>
+                <td>${esc(r.channel || '\u2014')}</td>
+                <td>${fmtDateShort(sd)}</td>
+                <td>${fmtDateShort(ed)}</td>
+                <td class="num" style="font-weight:600;color:${leadDays != null && leadDays < 7 ? 'var(--danger)' : 'var(--dark-gray)'}">${leadDays != null ? fmtNum(leadDays) + 'd' : '\u2014'}</td>
+                <td><span class="badge" style="background:${priColor}20;color:${priColor}">${esc(r.priority || '\u2014')}</span></td>
+                <td title="${esc(r.lead_team || '')}">${esc(r.lead_team || '\u2014')}</td>
+                <td title="${esc(r.target_audience || '')}">${esc((r.target_audience || '\u2014').length > 25 ? r.target_audience.slice(0, 24) + '\u2026' : r.target_audience || '\u2014')}</td>
+            </tr>`;
+        }
+
+        if (activities.length > 40) {
+            html += `<tr><td colspan="10" style="text-align:center;color:var(--medium-gray);font-style:italic;padding:12px">+${fmtNum(activities.length - 40)} more activities</td></tr>`;
+        }
+
+        html += '</tbody></table>';
+        el.innerHTML = html;
+    }
+
+    // -------------------------------------------------------------------------
+    // Navigation — horizontal tabs
     // -------------------------------------------------------------------------
 
     function switchPage(pageName) {
         document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
-        document.querySelectorAll(".sidebar-nav a").forEach(a => a.classList.remove("active"));
+        document.querySelectorAll(".nav-tab").forEach(t => t.classList.remove("active"));
 
         const page = document.getElementById(`page-${pageName}`);
         if (page) page.classList.add("active");
 
-        const link = document.querySelector(`.sidebar-nav a[data-page="${pageName}"]`);
-        if (link) link.classList.add("active");
+        const tab = document.querySelector(`.nav-tab[data-page="${pageName}"]`);
+        if (tab) tab.classList.add("active");
     }
 
-    document.querySelectorAll(".sidebar-nav a").forEach(link => {
-        link.addEventListener("click", e => {
-            e.preventDefault();
-            const page = link.dataset.page;
+    document.querySelectorAll(".nav-tab").forEach(tab => {
+        tab.addEventListener("click", () => {
+            const page = tab.dataset.page;
             if (page) switchPage(page);
+        });
+    });
+
+    // Sub-tab navigation
+    document.querySelectorAll(".sub-tabs").forEach(container => {
+        container.addEventListener("click", e => {
+            const btn = e.target.closest(".sub-tab");
+            if (!btn) return;
+            const subId = btn.dataset.sub;
+            // Deactivate siblings
+            container.querySelectorAll(".sub-tab").forEach(t => t.classList.remove("active"));
+            btn.classList.add("active");
+            // Show/hide sub-pages within the same parent page
+            const parentPage = container.parentElement;
+            parentPage.querySelectorAll(".sub-page").forEach(sp => sp.classList.remove("active"));
+            const target = document.getElementById(`sub-${subId}`);
+            if (target) target.classList.add("active");
         });
     });
 
@@ -1636,7 +3804,66 @@
         if (!btn || !DATA) return;
         document.querySelectorAll("#trend-toggle button").forEach(b => b.classList.remove("active"));
         btn.classList.add("active");
-        renderTrend(DATA.rows || [], btn.dataset.mode);
+        renderTrend(getFilteredRows(DATA.rows || []), btn.dataset.mode);
+    });
+
+    // Planning horizon toggle
+    document.getElementById("planning-horizon-toggle").addEventListener("click", e => {
+        const btn = e.target.closest("button");
+        if (!btn || !DATA) return;
+        document.querySelectorAll("#planning-horizon-toggle button").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        planningWeeks = parseInt(btn.dataset.weeks);
+        renderPlanningBoard({ ...DATA, rows: getFilteredRows(DATA.rows) });
+    });
+
+    // Gantt group-by toggle
+    document.getElementById("gantt-group-toggle").addEventListener("click", e => {
+        const btn = e.target.closest("button");
+        if (!btn || !DATA) return;
+        document.querySelectorAll("#gantt-group-toggle button").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        ganttGroupBy = btn.dataset.group;
+        renderPlanningBoard({ ...DATA, rows: getFilteredRows(DATA.rows) });
+    });
+
+    // Date filter presets
+    document.querySelectorAll('.date-preset').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.date-preset').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            applyDatePreset(btn.dataset.range);
+            refreshAllPages();
+        });
+    });
+
+    // Flatpickr date pickers (dd.MM.yyyy format)
+    const fpOpts = {
+        dateFormat: 'd.m.Y',
+        allowInput: false,
+        onChange() {
+            globalDateFrom = fpFrom.selectedDates[0] || null;
+            globalDateTo = fpTo.selectedDates[0] || null;
+            if (globalDateTo) globalDateTo.setHours(23, 59, 59);
+            document.querySelectorAll('.date-preset').forEach(b => b.classList.remove('active'));
+            refreshAllPages();
+        }
+    };
+    const fpFrom = flatpickr('#date-from', fpOpts);
+    const fpTo = flatpickr('#date-to', fpOpts);
+
+    // Export to XLSX (all activities — global header export)
+    document.getElementById('export-xlsx').addEventListener('click', async () => {
+        if (!DATA || !DATA.rows || !DATA.rows.length) return;
+        const rows = getFilteredRows(DATA.rows);
+        const keys = Object.keys(rows[0]);
+        const cols = keys.map(k => ({ label: k.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) }));
+        const dataRows = rows.map(r => keys.map(k => r[k] ?? ''));
+
+        const wb = new ExcelJS.Workbook();
+        xlAddSheet(wb, 'Activities', cols, dataRows);
+        const dateStr = new Date().toISOString().slice(0, 10);
+        await xlSave(wb, `CPLAN_Activities_${dateStr}.xlsx`);
     });
 
     // -------------------------------------------------------------------------
@@ -1644,26 +3871,44 @@
     // -------------------------------------------------------------------------
 
     (async function init() {
+        const dot = document.getElementById('status-dot');
+        const label = document.getElementById('status-label');
+
         try {
             await initDuckDB();
+            label.textContent = 'Loading data...';
             await loadParquetFiles();
 
             const data = await loadData();
             DATA = data;
 
+            dot.className = 'status-dot ready';
+            if (dataRefreshDate) {
+                label.textContent = `Refreshed: ${dataRefreshDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} ${dataRefreshDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;
+            } else {
+                label.textContent = `${fmtNum(data.row_count)} activities`;
+            }
+
+            renderPlanningBoard(data);
             renderDashboard(data);
             initCalendar(data);
-            renderSourcePage("internal", data);
-            renderSourcePage("external", data);
+            renderActivitiesPage(data);
+            renderStrategicAlignment(data);
+            renderResourceCoordination(data);
             renderAnalytics(data);
-        } catch (err) {
+            } catch (err) {
             console.error("Init error:", err);
-            document.querySelector(".main").innerHTML = `
-                <div class="page-header"><h1>Communications Dashboard</h1></div>
-                <div class="card"><div class="card-body card-body-padded">
-                    <div class="empty-state"><p>Failed to initialize: ${err.message}<br>
-                    Run <code>python process_cplan.py</code> first, then serve via <code>python -m http.server</code>.</p></div>
-                </div></div>`;
+            dot.className = 'status-dot error';
+            label.textContent = 'Error';
+            document.querySelector(".container").innerHTML = `
+                <div style="padding:2rem">
+                    <div class="chart-card">
+                        <div class="chart-card-body chart-card-body-padded">
+                            <div class="empty-state"><p>Failed to initialize: ${esc(err.message)}<br>
+                            Run <code>python process_cplan.py</code> first, then serve via <code>python -m http.server</code>.</p></div>
+                        </div>
+                    </div>
+                </div>`;
         }
     })();
     </script>

@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-SRC_HTML = SCRIPT_DIR / "dashboard" / "index-v3.html"
+SRC_HTML = SCRIPT_DIR / "dashboard" / "index.html"
 OUTPUT_DIR = SCRIPT_DIR / "output"
 OUT_HTML = OUTPUT_DIR / "cplan_dashboard_standalone.html"
 
