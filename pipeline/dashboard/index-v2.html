@@ -11,8 +11,8 @@
         window.duckdb = duckdb;
         window.dispatchEvent(new Event('duckdb-ready'));
     </script>
-    <!-- xlsx-js-style for formatted XLSX export (superset of SheetJS) -->
-    <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+    <!-- ExcelJS for styled XLSX export (brand style guide §7 table formatting) -->
+    <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
     <!-- Flatpickr date picker -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
@@ -2280,68 +2280,105 @@
         });
     }
 
-    function exportActivityXLSX(rows, filename, sheetLabel) {
+    // -------------------------------------------------------------------------
+    // Corporate XLSX export (brand style guide §7 — same logic as the CampaignWe
+    // report): plain header carried by thin black rules, no vertical gridlines,
+    // Pastel-I alternating rows, Arial, foot rule on the last data row.
+    // -------------------------------------------------------------------------
+
+    const XL_BLACK      = 'FF000000';
+    const XL_THIN       = { style: 'thin',   color: { argb: XL_BLACK } };   // ~0.75pt
+    const XL_MEDIUM     = { style: 'medium', color: { argb: XL_BLACK } };   // ~1pt (Total rows)
+    const XL_ALT_FILL   = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECEBE4' } }; // Pastel I
+    const XL_HEADER_FONT = { name: 'Arial', bold: true, size: 9, color: { argb: XL_BLACK } };
+    const XL_DATA_FONT   = { name: 'Arial', size: 10, color: { argb: XL_BLACK } };
+    const XL_TOTAL_FONT  = { name: 'Arial', size: 10, bold: true, color: { argb: XL_BLACK } };
+
+    // cols: [{ label, wch?, numeric? }] · rows: array of value arrays
+    // opts: { totalLabels: Set|Array of first-column labels rendered as Total rows }
+    function xlAddSheet(wb, sheetLabel, cols, rows, opts = {}) {
+        const ws = wb.addWorksheet(sheetLabel);
+        const totals = new Set(opts.totalLabels || []);
+        const sample = rows.slice(0, 100);
+
+        // A column is numeric when every non-empty sampled value is a number.
+        const numeric = cols.map((c, ci) => {
+            if (c.numeric !== undefined) return c.numeric;
+            const vals = sample.map(r => r[ci]).filter(v => v !== '' && v !== null && v !== undefined);
+            return vals.length > 0 && vals.every(v => typeof v === 'number');
+        });
+        const align = ci => ({ horizontal: numeric[ci] ? 'right' : 'left', vertical: 'top', wrapText: true });
+
+        // Header — no fill, black bold Arial 9, 0.75pt black rule above and below,
+        // never a vertical border.
+        const hdr = ws.addRow(cols.map(c => c.label));
+        hdr.height = 20;
+        hdr.eachCell((cell, col) => {
+            cell.font = XL_HEADER_FONT;
+            cell.alignment = align(col - 1);
+            cell.border = { top: XL_THIN, bottom: XL_THIN };
+        });
+
+        // Data rows — no gridlines; Pastel-I on every second row; foot rule at the end.
+        rows.forEach((row, ri) => {
+            const isTotal = totals.has(String(row[0] ?? '').trim());
+            const isLast = ri === rows.length - 1;
+            const dr = ws.addRow(cols.map((c, ci) => (row[ci] === null || row[ci] === undefined ? '' : row[ci])));
+            dr.eachCell({ includeEmpty: true }, (cell, col) => {
+                const ci = col - 1;
+                cell.font = isTotal ? XL_TOTAL_FONT : XL_DATA_FONT;
+                cell.alignment = align(ci);
+                if (ri % 2 === 1 && !isTotal) cell.fill = XL_ALT_FILL;
+                if (isTotal) cell.border = { top: XL_MEDIUM, bottom: XL_MEDIUM };
+                else if (isLast) cell.border = { bottom: XL_THIN };
+            });
+        });
+
+        // Column widths: explicit wch, otherwise auto from the sampled content.
+        cols.forEach((c, ci) => {
+            let w = c.wch;
+            if (!w) {
+                w = c.label.length;
+                sample.forEach(r => { w = Math.max(w, String(r[ci] ?? '').length); });
+                w += 2;
+            }
+            ws.getColumn(ci + 1).width = Math.min(w, 50);
+        });
+
+        ws.views = [{ state: 'frozen', ySplit: 1 }];
+        ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: cols.length } };
+        return ws;
+    }
+
+    async function xlSave(wb, filename) {
+        const buffer = await wb.xlsx.writeBuffer();
+        const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    async function exportActivityXLSX(rows, filename, sheetLabel) {
         if (!rows.length) return;
 
         const exportCols = [...ACT_TABLE_COLS, ...ACT_EXPORT_EXTRA_COLS];
-        const headers = exportCols.map(c => c.label);
-        const wsData = [headers];
-
         const DATE_KEYS = new Set(['start_date', 'end_date', 'created', 'modified']);
 
-        for (const row of rows) {
-            wsData.push(exportCols.map(c => {
-                let v = row[c.key];
-                if (DATE_KEYS.has(c.key)) {
-                    const d = parseDate(v);
-                    return d ? fmtDate(d) : '';
-                }
-                return v ?? '';
-            }));
-        }
-
-        const wb = XLSX.utils.book_new();
-        const ws = XLSX.utils.aoa_to_sheet(wsData);
-
-        ws['!cols'] = exportCols.map(c => ({ wch: c.wch }));
-        ws['!rows'] = [{ hpt: 28 }];
-        ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: wsData.length - 1, c: exportCols.length - 1 } }) };
-
-        const headerStyle = {
-            font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 11, name: 'Calibri' },
-            fill: { fgColor: { rgb: '404040' } },
-            border: {
-                bottom: { style: 'medium', color: { rgb: 'E60000' } },
-                top:    { style: 'thin',   color: { rgb: '404040' } },
-                left:   { style: 'thin',   color: { rgb: '404040' } },
-                right:  { style: 'thin',   color: { rgb: '404040' } }
-            },
-            alignment: { vertical: 'center', wrapText: false }
-        };
-        const thinBorder = {
-            top:    { style: 'thin', color: { rgb: 'CCCABC' } },
-            bottom: { style: 'thin', color: { rgb: 'CCCABC' } },
-            left:   { style: 'thin', color: { rgb: 'CCCABC' } },
-            right:  { style: 'thin', color: { rgb: 'CCCABC' } }
-        };
-        const evenRowStyle = { font: { sz: 10, name: 'Calibri', color: { rgb: '000000' } }, fill: { fgColor: { rgb: 'FFFFFF' } }, border: thinBorder, alignment: { vertical: 'center' } };
-        const oddRowStyle  = { font: { sz: 10, name: 'Calibri', color: { rgb: '000000' } }, fill: { fgColor: { rgb: 'F8F7F2' } }, border: thinBorder, alignment: { vertical: 'center' } };
-
-        for (let c = 0; c < exportCols.length; c++) {
-            const ref = XLSX.utils.encode_cell({ r: 0, c });
-            if (ws[ref]) ws[ref].s = headerStyle;
-        }
-        for (let r = 1; r < wsData.length; r++) {
-            const style = r % 2 === 1 ? oddRowStyle : evenRowStyle;
-            for (let c = 0; c < exportCols.length; c++) {
-                const ref = XLSX.utils.encode_cell({ r, c });
-                if (!ws[ref]) ws[ref] = { v: '', t: 's' };
-                ws[ref].s = style;
+        const dataRows = rows.map(row => exportCols.map(c => {
+            const v = row[c.key];
+            if (DATE_KEYS.has(c.key)) {
+                const d = parseDate(v);
+                return d ? fmtDate(d) : '';
             }
-        }
+            return v ?? '';
+        }));
 
-        XLSX.utils.book_append_sheet(wb, ws, sheetLabel);
-        XLSX.writeFile(wb, filename);
+        const wb = new ExcelJS.Workbook();
+        xlAddSheet(wb, sheetLabel, exportCols, dataRows);
+        await xlSave(wb, filename);
     }
 
     function renderSourcePage(type, data) {
@@ -2839,51 +2876,11 @@
     window.renderChannelOverlap = renderChannelOverlap;
 
     // Two-sheet XLSX: (1) Packs summary, (2) Flat activity list for all matching packs.
-    function exportChannelOverlapXLSX(overlap) {
+    async function exportChannelOverlapXLSX(overlap) {
         if (!overlap || !overlap.length) return;
 
-        const wb = XLSX.utils.book_new();
-
-        const headerStyle = {
-            font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 11, name: 'Calibri' },
-            fill: { fgColor: { rgb: '404040' } },
-            border: {
-                bottom: { style: 'medium', color: { rgb: 'E60000' } },
-                top:    { style: 'thin',   color: { rgb: '404040' } },
-                left:   { style: 'thin',   color: { rgb: '404040' } },
-                right:  { style: 'thin',   color: { rgb: '404040' } }
-            },
-            alignment: { vertical: 'center', wrapText: false }
-        };
-        const thinBorder = {
-            top:    { style: 'thin', color: { rgb: 'CCCABC' } },
-            bottom: { style: 'thin', color: { rgb: 'CCCABC' } },
-            left:   { style: 'thin', color: { rgb: 'CCCABC' } },
-            right:  { style: 'thin', color: { rgb: 'CCCABC' } }
-        };
-        const evenRow = { font: { sz: 10, name: 'Calibri' }, fill: { fgColor: { rgb: 'FFFFFF' } }, border: thinBorder, alignment: { vertical: 'center' } };
-        const oddRow  = { font: { sz: 10, name: 'Calibri' }, fill: { fgColor: { rgb: 'F8F7F2' } }, border: thinBorder, alignment: { vertical: 'center' } };
-
-        const writeSheet = (label, cols, dataRows) => {
-            const wsData = [cols.map(c => c.label), ...dataRows];
-            const ws = XLSX.utils.aoa_to_sheet(wsData);
-            ws['!cols'] = cols.map(c => ({ wch: c.wch }));
-            ws['!rows'] = [{ hpt: 28 }];
-            ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: wsData.length - 1, c: cols.length - 1 } }) };
-            for (let c = 0; c < cols.length; c++) {
-                const ref = XLSX.utils.encode_cell({ r: 0, c });
-                if (ws[ref]) ws[ref].s = headerStyle;
-            }
-            for (let r = 1; r < wsData.length; r++) {
-                const style = r % 2 === 1 ? oddRow : evenRow;
-                for (let c = 0; c < cols.length; c++) {
-                    const ref = XLSX.utils.encode_cell({ r, c });
-                    if (!ws[ref]) ws[ref] = { v: '', t: 's' };
-                    ws[ref].s = style;
-                }
-            }
-            XLSX.utils.book_append_sheet(wb, ws, label);
-        };
+        const wb = new ExcelJS.Workbook();
+        const writeSheet = (label, cols, dataRows) => xlAddSheet(wb, label, cols, dataRows);
 
         // Sheet 1: Packs summary
         const packCols = [
@@ -2950,7 +2947,7 @@
         writeSheet('Activities', actCols, activityRows);
 
         const dateStr = new Date().toISOString().slice(0, 10);
-        XLSX.writeFile(wb, `CPLAN_Channel_Overlap_${dateStr}.xlsx`);
+        await xlSave(wb, `CPLAN_Channel_Overlap_${dateStr}.xlsx`);
     }
 
     // -------------------------------------------------------------------------
@@ -3828,55 +3825,17 @@
     const fpTo = flatpickr('#date-to', fpOpts);
 
     // Export to XLSX (all activities — global header export)
-    document.getElementById('export-xlsx').addEventListener('click', () => {
+    document.getElementById('export-xlsx').addEventListener('click', async () => {
         if (!DATA || !DATA.rows || !DATA.rows.length) return;
         const rows = getFilteredRows(DATA.rows);
-        const cols = Object.keys(rows[0]);
-        const headers = cols.map(c => c.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()));
-        const wsData = [headers, ...rows.map(r => cols.map(c => r[c] ?? ''))];
-        const wb = XLSX.utils.book_new();
-        const ws = XLSX.utils.aoa_to_sheet(wsData);
+        const keys = Object.keys(rows[0]);
+        const cols = keys.map(k => ({ label: k.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) }));
+        const dataRows = rows.map(r => keys.map(k => r[k] ?? ''));
 
-        ws['!cols'] = cols.map(() => ({ wch: 20 }));
-        ws['!rows'] = [{ hpt: 28 }];
-        ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: wsData.length - 1, c: cols.length - 1 } }) };
-
-        const headerStyle = {
-            font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 11, name: 'Calibri' },
-            fill: { fgColor: { rgb: '404040' } },
-            border: {
-                bottom: { style: 'medium', color: { rgb: 'E60000' } },
-                top:    { style: 'thin',   color: { rgb: '404040' } },
-                left:   { style: 'thin',   color: { rgb: '404040' } },
-                right:  { style: 'thin',   color: { rgb: '404040' } }
-            },
-            alignment: { vertical: 'center', wrapText: false }
-        };
-        const thinBorder = {
-            top:    { style: 'thin', color: { rgb: 'CCCABC' } },
-            bottom: { style: 'thin', color: { rgb: 'CCCABC' } },
-            left:   { style: 'thin', color: { rgb: 'CCCABC' } },
-            right:  { style: 'thin', color: { rgb: 'CCCABC' } }
-        };
-        const evenRowStyle = { font: { sz: 10, name: 'Calibri', color: { rgb: '000000' } }, fill: { fgColor: { rgb: 'FFFFFF' } }, border: thinBorder, alignment: { vertical: 'center' } };
-        const oddRowStyle  = { font: { sz: 10, name: 'Calibri', color: { rgb: '000000' } }, fill: { fgColor: { rgb: 'F8F7F2' } }, border: thinBorder, alignment: { vertical: 'center' } };
-
-        for (let c = 0; c < cols.length; c++) {
-            const ref = XLSX.utils.encode_cell({ r: 0, c });
-            if (ws[ref]) ws[ref].s = headerStyle;
-        }
-        for (let r = 1; r < wsData.length; r++) {
-            const style = r % 2 === 1 ? oddRowStyle : evenRowStyle;
-            for (let c = 0; c < cols.length; c++) {
-                const ref = XLSX.utils.encode_cell({ r, c });
-                if (!ws[ref]) ws[ref] = { v: '', t: 's' };
-                ws[ref].s = style;
-            }
-        }
-
-        XLSX.utils.book_append_sheet(wb, ws, 'Activities');
+        const wb = new ExcelJS.Workbook();
+        xlAddSheet(wb, 'Activities', cols, dataRows);
         const dateStr = new Date().toISOString().slice(0, 10);
-        XLSX.writeFile(wb, `CPLAN_Activities_${dateStr}.xlsx`);
+        await xlSave(wb, `CPLAN_Activities_${dateStr}.xlsx`);
     });
 
     // -------------------------------------------------------------------------
