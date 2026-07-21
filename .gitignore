@@ -27,6 +27,9 @@ pipeline/input/*.csv
 # Pictures
 pictures/
 
+# Browser-automation artifacts
+.playwright-mcp/
+
 # OS
 .DS_Store
 Thumbs.db
