@@ -23,16 +23,16 @@ pip install pandas duckdb pyarrow
 
 ```bash
 # Process all input CSVs and generate outputs
-python pipeline/process_cplan.py
+python pipeline/scripts/process_cplan.py
 
 # Preview data without writing outputs
-python pipeline/process_cplan.py --preview
+python pipeline/scripts/process_cplan.py --preview
 
 # Full refresh (delete DB and reprocess)
-python pipeline/process_cplan.py --full-refresh
+python pipeline/scripts/process_cplan.py --full-refresh
 
 # Build the standalone (double-clickable) dashboard from the current outputs
-python pipeline/build_standalone.py
+python pipeline/scripts/build_standalone.py
 ```
 
 ## Input

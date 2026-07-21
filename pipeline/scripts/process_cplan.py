@@ -15,9 +15,9 @@ Known input files:
   - ExternalCommunicationActivities*.csv
 
 Usage:
-    python process_cplan.py                # process all input files
-    python process_cplan.py --preview      # read and print without saving
-    python process_cplan.py --full-refresh # delete DB and reprocess everything
+    python pipeline/scripts/process_cplan.py                # process all input files
+    python pipeline/scripts/process_cplan.py --preview      # read and print without saving
+    python pipeline/scripts/process_cplan.py --full-refresh # delete DB and reprocess everything
 
 Output:
     - data/cplan.db                        (DuckDB database)
@@ -40,9 +40,10 @@ import duckdb
 import pandas as pd
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-LOCAL_INPUT_DIR = SCRIPT_DIR / "input"
-OUTPUT_DIR = SCRIPT_DIR / "output"
-DB_PATH = SCRIPT_DIR / "data" / "cplan.db"
+PIPELINE_DIR = SCRIPT_DIR.parent          # scripts/ lives inside pipeline/
+LOCAL_INPUT_DIR = PIPELINE_DIR / "input"
+OUTPUT_DIR = PIPELINE_DIR / "output"
+DB_PATH = PIPELINE_DIR / "data" / "cplan.db"
 
 # Relative path inside OneDrive to the Power Automate output folder
 ONEDRIVE_INPUT_DIR = Path("Projekte") / "CPLAN" / "Input"

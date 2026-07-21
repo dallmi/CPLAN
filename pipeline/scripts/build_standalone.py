@@ -8,7 +8,7 @@ shim intercepts requests for the known data files and serves them from the
 embedded buffers; the existing DuckDB-WASM load logic is left untouched.
 
 Usage:
-    python pipeline/build_standalone.py
+    python pipeline/scripts/build_standalone.py
 
 Output:
     pipeline/output/cplan_dashboard_standalone.html
@@ -19,8 +19,9 @@ import sys
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-SRC_HTML = SCRIPT_DIR / "dashboard" / "index.html"
-OUTPUT_DIR = SCRIPT_DIR / "output"
+PIPELINE_DIR = SCRIPT_DIR.parent          # scripts/ lives inside pipeline/
+SRC_HTML = PIPELINE_DIR / "dashboard" / "index.html"
+OUTPUT_DIR = PIPELINE_DIR / "output"
 OUT_HTML = OUTPUT_DIR / "cplan_dashboard_standalone.html"
 
 # Files to embed: (filename, required)
@@ -86,7 +87,7 @@ def main():
         if not path.exists():
             if required:
                 log(f"ERROR: required data file missing: {path}")
-                log("       Run 'python pipeline/process_cplan.py' first.")
+                log("       Run 'python pipeline/scripts/process_cplan.py' first.")
                 sys.exit(1)
             log(f"  Skipping optional file (not found): {name}")
             continue
