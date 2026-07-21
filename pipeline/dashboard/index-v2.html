@@ -453,7 +453,10 @@
         .chart-card-body { padding: 0; }
         .chart-card-body-padded { padding: 16px 18px; }
 
-        /* ── Tables ── */
+        /* ── Tables ──
+           Brand default financial table (style guide §7.1): header without fill,
+           black text, 0.75pt black rule below; no vertical gridlines and no row
+           dividers; Pastel-I alternating rows; black rule at the table foot. */
         table {
             width: 100%;
             border-collapse: collapse;
@@ -464,24 +467,23 @@
             text-align: left;
             padding: 10px 14px;
             font-weight: 600;
-            font-size: 11px;
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
-            color: var(--medium-gray);
-            border-bottom: 2px solid var(--light-gray);
-            background: var(--surface);
+            font-size: 12px;
+            color: var(--black);
+            border-bottom: 1px solid var(--black);
+            background: var(--white);
             white-space: nowrap;
             position: sticky;
             top: 0;
             z-index: 1;
         }
 
-        tbody tr { border-bottom: 1px solid var(--surface); }
-        tbody tr:nth-child(even) td { background: var(--row-alt); }
-        tbody tr:hover td { background: var(--surface); }
+        tbody tr:nth-child(even) td { background: var(--surface); }
+        tbody tr:hover td { background: var(--surface-alt); }
+        tbody tr:last-child td { border-bottom: 1px solid var(--black); }
 
         tbody td {
             padding: 8px 14px;
+            vertical-align: top;
             color: var(--dark-gray);
             max-width: 250px;
             overflow: hidden;
@@ -489,19 +491,21 @@
             white-space: nowrap;
         }
 
+        th.num, td.num { text-align: right; }
+
         thead th.sortable {
             cursor: pointer;
             user-select: none;
         }
 
-        thead th.sortable:hover { color: var(--dark-gray); }
+        thead th.sortable:hover { color: var(--primary); }
         thead th.sortable::after { content: " \2195"; font-size: 10px; opacity: 0.4; }
 
         /* ── Badges ── */
         .badge {
             display: inline-block;
             padding: 2px 10px;
-            border-radius: 12px;
+            border-radius: 2px;
             font-size: 11px;
             font-weight: 600;
             white-space: nowrap;
@@ -2059,7 +2063,9 @@
 
         let html = "<table><thead><tr>";
         for (const col of columns) {
-            html += `<th>${esc(col.replace(/_/g, " "))}</th>`;
+            // Header labels are title-case in the markup — the brand forbids all-caps,
+            // so the CSS no longer transforms them.
+            html += `<th>${esc(col.replace(/_/g, " ").replace(/\b\w/g, ch => ch.toUpperCase()))}</th>`;
         }
         html += "</tr></thead><tbody>";
 
@@ -2072,7 +2078,8 @@
                 }
                 if (col === "source_type") {
                     const cls = val === "internal" ? "badge-source-internal" : "badge-source-external";
-                    html += `<td><span class="badge ${cls}">${esc(String(val || ""))}</span></td>`;
+                    const label = val ? String(val).charAt(0).toUpperCase() + String(val).slice(1) : "";
+                    html += `<td><span class="badge ${cls}">${esc(label)}</span></td>`;
                 } else if (col === "priority") {
                     const color = priorityColor(val) || "var(--medium-gray)";
                     html += `<td><span class="badge" style="background:${color}20;color:${color}">${esc(String(val || "\u2014"))}</span></td>`;
@@ -2828,9 +2835,9 @@
                     </td>
                     <td>${esc(c.cluster)}</td>
                     <td style="font-weight:600">${esc(c.campaign)}</td>
-                    <td style="text-align:right">${fmtNum(c.emailCount)}</td>
-                    <td style="text-align:right">${fmtNum(c.intranetCount)}</td>
-                    <td style="text-align:right;white-space:nowrap">${gapCell(c)}</td>
+                    <td class="num">${fmtNum(c.emailCount)}</td>
+                    <td class="num">${fmtNum(c.intranetCount)}</td>
+                    <td class="num" style="white-space:nowrap">${gapCell(c)}</td>
                     <td style="white-space:nowrap">${esc(c.firstChannel)}</td>
                     <td style="white-space:nowrap">${esc(c.window)}</td>
                     <td>${esc(c.leads)}</td>
@@ -2847,9 +2854,9 @@
                             <th>Pack ID</th>
                             <th>Cluster</th>
                             <th>Campaign</th>
-                            <th style="text-align:right">Email</th>
-                            <th style="text-align:right">Intranet (News)</th>
-                            <th style="text-align:right">Gap</th>
+                            <th class="num">Email</th>
+                            <th class="num">Intranet (News)</th>
+                            <th class="num">Gap</th>
                             <th>Order</th>
                             <th>Window</th>
                             <th>Leads</th>
@@ -3303,7 +3310,7 @@
         }
 
         let html = '<table><thead><tr>';
-        html += '<th>Campaign</th><th>Activities</th><th>Channels</th><th>Divisions</th><th>Audiences</th><th>Objectives</th><th>Date Range</th>';
+        html += '<th>Campaign</th><th class="num">Activities</th><th class="num">Channels</th><th class="num">Divisions</th><th class="num">Audiences</th><th class="num">Objectives</th><th>Date Range</th>';
         html += '</tr></thead><tbody>';
 
         for (const [name, data] of sorted.slice(0, 20)) {
@@ -3316,11 +3323,11 @@
 
             html += `<tr>
                 <td title="${esc(name)}">${esc(name)}</td>
-                <td><strong>${fmtNum(data.count)}</strong></td>
-                <td>${chBadge}</td>
-                <td>${fmtNum(data.divisions.size)}</td>
-                <td>${fmtNum(data.audiences.size)}</td>
-                <td>${data.objectives.size}</td>
+                <td class="num"><strong>${fmtNum(data.count)}</strong></td>
+                <td class="num">${chBadge}</td>
+                <td class="num">${fmtNum(data.divisions.size)}</td>
+                <td class="num">${fmtNum(data.audiences.size)}</td>
+                <td class="num">${data.objectives.size}</td>
                 <td style="font-size:12px">${dateRange}</td>
             </tr>`;
         }
@@ -3367,7 +3374,7 @@
         }
 
         let html = '<table><thead><tr>';
-        html += '<th>Week</th><th>Audience</th><th>Channel</th><th>Count</th><th>Activities</th>';
+        html += '<th>Week</th><th>Audience</th><th>Channel</th><th class="num">Count</th><th>Activities</th>';
         html += '</tr></thead><tbody>';
 
         for (const g of overlapGroups.slice(0, 20)) {
@@ -3376,7 +3383,7 @@
                 <td>${esc(g.week)}</td>
                 <td title="${esc(g.audience)}">${esc(g.audience)}</td>
                 <td>${esc(g.channel)}</td>
-                <td><span class="badge ${severity}">${fmtNum(g.activities.length)}</span></td>
+                <td class="num"><span class="badge ${severity}">${fmtNum(g.activities.length)}</span></td>
                 <td title="${esc(g.activities.join(', '))}">${esc(g.activities.slice(0, 3).join(', '))}${g.activities.length > 3 ? '...' : ''}</td>
             </tr>`;
         }
@@ -3690,7 +3697,7 @@
         }
 
         let html = '<table><thead><tr>';
-        html += '<th></th><th>Activity</th><th>Type</th><th>Channel</th><th>Start</th><th>End</th><th>Lead Time</th><th>Priority</th><th>Lead Team</th><th>Target Audience</th>';
+        html += '<th></th><th>Activity</th><th>Type</th><th>Channel</th><th>Start</th><th>End</th><th class="num">Lead Time</th><th>Priority</th><th>Lead Team</th><th>Target Audience</th>';
         html += '</tr></thead><tbody>';
 
         for (const r of activities.slice(0, 40)) {
@@ -3716,7 +3723,7 @@
                 <td>${esc(r.channel || '\u2014')}</td>
                 <td>${fmtDateShort(sd)}</td>
                 <td>${fmtDateShort(ed)}</td>
-                <td style="font-weight:600;color:${leadDays != null && leadDays < 7 ? 'var(--danger)' : 'var(--dark-gray)'}">${leadDays != null ? fmtNum(leadDays) + 'd' : '\u2014'}</td>
+                <td class="num" style="font-weight:600;color:${leadDays != null && leadDays < 7 ? 'var(--danger)' : 'var(--dark-gray)'}">${leadDays != null ? fmtNum(leadDays) + 'd' : '\u2014'}</td>
                 <td><span class="badge" style="background:${priColor}20;color:${priColor}">${esc(r.priority || '\u2014')}</span></td>
                 <td title="${esc(r.lead_team || '')}">${esc(r.lead_team || '\u2014')}</td>
                 <td title="${esc(r.target_audience || '')}">${esc((r.target_audience || '\u2014').length > 25 ? r.target_audience.slice(0, 24) + '\u2026' : r.target_audience || '\u2014')}</td>
