@@ -1,0 +1,53 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - heading "CPLAN Communications" [level=1] [ref=e3]
+    - generic [ref=e4]:
+      - generic [ref=e5]:
+        - generic [ref=e6]:
+          - button "30 D" [ref=e7] [cursor=pointer]
+          - button "Quarter" [ref=e8] [cursor=pointer]
+          - button "YTD" [ref=e9] [cursor=pointer]
+          - button "12 M" [ref=e10] [cursor=pointer]
+          - button "All" [ref=e11] [cursor=pointer]
+        - generic [ref=e12]: From
+        - textbox "dd.MM.yyyy" [ref=e13] [cursor=pointer]
+        - generic [ref=e14]: To
+        - textbox "dd.MM.yyyy" [ref=e15] [cursor=pointer]
+      - button "⭳ Export XLSX" [ref=e16] [cursor=pointer]
+      - generic [ref=e17]: Loading...
+  - navigation [ref=e19]:
+    - button "Operations" [ref=e20] [cursor=pointer]
+    - button "Planning" [ref=e21] [cursor=pointer]
+    - button "Activities" [ref=e22] [cursor=pointer]
+    - button "Analytics" [ref=e23] [cursor=pointer]
+  - generic [ref=e25]:
+    - generic [ref=e26]:
+      - button "Dashboard" [ref=e27] [cursor=pointer]
+      - button "Calendar" [ref=e28] [cursor=pointer]
+    - generic [ref=e29]:
+      - paragraph [ref=e31]: "Last data refresh: —"
+      - generic [ref=e32]:
+        - generic [ref=e33]:
+          - generic [ref=e34]: Upcoming Activities (Next 30 Days)
+          - generic [ref=e35]: Loading...
+        - generic [ref=e37]:
+          - generic [ref=e38]: Channel Breakdown
+          - generic [ref=e39]: Loading...
+      - generic [ref=e41]:
+        - generic [ref=e42]:
+          - generic [ref=e43]: Business Division
+          - generic [ref=e44]: Loading...
+        - generic [ref=e46]:
+          - generic [ref=e47]: Priority Distribution
+          - generic [ref=e48]: Loading...
+      - generic [ref=e51]:
+        - generic [ref=e52]:
+          - text: Monthly Activity Trend
+          - generic [ref=e54]:
+            - button "All" [ref=e55] [cursor=pointer]
+            - button "Internal" [ref=e56] [cursor=pointer]
+            - button "External" [ref=e57] [cursor=pointer]
+        - generic [ref=e58]: Loading...
+      - generic [ref=e61]:
+        - generic [ref=e62]: Recent Activities
+        - generic [ref=e63]: Loading...

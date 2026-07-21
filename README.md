@@ -30,6 +30,9 @@ python pipeline/process_cplan.py --preview
 
 # Full refresh (delete DB and reprocess)
 python pipeline/process_cplan.py --full-refresh
+
+# Build the standalone (double-clickable) dashboard from the current outputs
+python pipeline/build_standalone.py
 ```
 
 ## Input
@@ -50,4 +53,5 @@ Expected files:
 | `pipeline/data/cplan.db` | DuckDB database |
 | `pipeline/output/communications.parquet` | Combined data as Parquet |
 | `pipeline/output/communications.json` | JSON for the HTML dashboard |
-| `pipeline/dashboard/index.html` | Self-contained HTML dashboard |
+| `pipeline/dashboard/index.html` | HTML dashboard (loads Parquet via HTTP — needs a local web server) |
+| `pipeline/output/cplan_dashboard_standalone.html` | Standalone dashboard — Parquet + meta.json embedded as base64, runs from `file://` by double-click (CDN libs still require internet) |

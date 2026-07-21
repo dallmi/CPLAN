@@ -12,6 +12,7 @@ venv/
 pipeline/data/*.db
 pipeline/output/*.parquet
 pipeline/output/*.json
+pipeline/output/*.html
 
 # Pipeline docs (internal only)
 pipeline/docs/
