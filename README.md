@@ -8,6 +8,15 @@ The organisation-neutral domain model, current SharePoint-backed entry forms, tr
 
 Source screenshots are local reference material only. The `pictures/` directory is ignored and must never be committed. Repository content must use generic organisation terminology and synthetic examples; do not include company branding, personal names, production identifiers, or confidential source content.
 
+## Dashboard versions
+
+Two planning studios sit alongside the original Parquet-fed dashboard described below:
+
+- **V6** (`pipeline/dashboard-v6-postgres/`) — the go-forward planning studio. Same analytics as V4, backed by a local FastAPI + PostgreSQL/SQLite API instead of a static snapshot. See [`pipeline/api_v6/README.md`](pipeline/api_v6/README.md) for setup.
+- **V4** (`pipeline/dashboard-v4/`) — read-only analytical snapshot with browser-local draft edits. Superseded by V6 for new work; kept as an isolated reference implementation and untouched.
+
+V6's `GET /api/activities` deliberately returns the full result set with no pagination — the deployment target is local, single-user use. Revisit if the dataset outgrows an unpaginated response.
+
 ## Architecture
 
 ```

@@ -12,6 +12,42 @@ V6 keeps the V4 analytics and planning experience but replaces the browser-local
 - V4 and earlier dashboard implementations remain untouched
 - explicit persisted backend selection; no silent PostgreSQL-to-SQLite fallback
 - SQLite foreign keys, WAL journal mode and five-second busy timeout
+- server-generated, uniqueness-enforced tracking IDs on activity creation
+- computed read-only fields (`planning_lead_days`, `tracking_pack_id`) on every activity read
+- blank-string input on create/patch normalized to `NULL` for optional fields
+
+## Activity fields and generated values
+
+### Tracking IDs
+
+`tracking_id` is never client-supplied — `POST /api/activities` rejects a `tracking_id` in the request body (the payload model forbids extra fields) and generates one on save in the format:
+
+```
+CLUSTER-PACKNUM-YYMMDD-ACTNUM-CHANNELABBR
+```
+
+- `CLUSTER-PACKNUM` is taken from `communication_pack_cpid` when it matches `^[A-Z0-9]+-[0-9]+$`; otherwise it falls back to the standalone prefix `STA-0000000`.
+- `YYMMDD` is the activity's `start_date` converted to `Europe/Zurich`, or the current Zurich date when `start_date` is unset.
+- `ACTNUM` is a global 7-digit sequence: one more than the highest activity number found across *all* existing tracking IDs, regardless of pack.
+- `CHANNELABBR` is a majority vote of the abbreviation already used by other activities sharing the same `channel` value. With no precedent it falls back to the first three alphabetic characters of the channel, uppercased; if that yields fewer than two characters (or no channel was given), it falls back to `GEN`.
+- Uniqueness is enforced by a partial unique index (`ix_activities_tracking_id_v6_unique`, `WHERE legacy_sp_id IS NULL`) — legacy-imported rows are exempt because the source system genuinely contains duplicate tracking IDs. A read-then-check pass narrows collisions before insert; a concurrent collision that still reaches the database surfaces as an `IntegrityError` and is retried with an incremented activity number. Both the pre-check and the commit-retry loop are bounded and raise HTTP 500 `tracking_id_generation_exhausted` if their retry budget runs out.
+
+### `time_zone`
+
+`time_zone` is a nullable `String(64)` column on `Activity`. Databases created before this column existed are topped up automatically: `ensure_schema()` (in `pipeline/api_v6/database.py`) runs right after `Base.metadata.create_all()` on every app startup and issues a plain `ALTER TABLE ... ADD COLUMN` for any model column the live table is missing, on both SQLite and PostgreSQL.
+
+### Empty-string-to-null normalization
+
+On both `POST /api/activities` and `PATCH /api/activities/{id}`, an empty or whitespace-only string supplied for an optional string field is normalized to `null` before validation — so `{"channel": ""}` clears the field the same way `{"channel": null}` does. The one exception is `activity_name`: it stays required, so an explicit empty string is rejected rather than silently cleared.
+
+### Computed fields
+
+Every activity returned by the API (list or single) carries two read-only computed fields alongside the stored columns:
+
+- `planning_lead_days` — whole days between the activity's `start_date` and a reference timestamp (`source_created_at` when set, else `created_at`); negative values mean the start date precedes the reference and are returned as-is.
+- `tracking_pack_id` — the `CLUSTER-PACKNUM` prefix of `tracking_id` (its first two `-`-separated segments), or `null` when there is no tracking ID.
+
+These exist so `pipeline/dashboard-v6-postgres/analytics.js` — kept byte-identical to `pipeline/dashboard-v4/analytics.js` — can consume the same field names from both the V4 static snapshot and the V6 live API without forking the analytics code.
 
 ## Choose the backend once
 

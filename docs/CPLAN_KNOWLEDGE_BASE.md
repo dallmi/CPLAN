@@ -152,21 +152,25 @@ V5 does **not** currently provide a create-new-activity form or a SharePoint ite
 
 ### V6 local database
 
-V6 introduces a local database API with create, list, and versioned patch operations. Its current dashboard form covers only a subset of the source-system fields. PostgreSQL is the preferred backend; SQLite is the explicit fallback.
+V6 introduces a local database API with create, list, and versioned patch operations. PostgreSQL is the preferred backend; SQLite is the explicit fallback.
+
+The dashboard now includes a create-activity flow with separate internal and external variants, each with its own required-field set. Tracking IDs are no longer entered manually: the API generates them on save (`CLUSTER-PACKNUM-YYMMDD-ACTNUM-CHANNELABBR`, derived from the communication pack, the activity's start date, and its channel) and rejects a client-supplied `tracking_id`, matching the SharePoint behaviour noted above. A `time_zone` field is now stored per activity. The dashboard's "Estimated audience size" band selector (`< 1000`, `1–10k`, `10–50k`, `50–100k`, `> 100k`) is backed by the existing `audience` column — this is a mapping assumption (the ETL only records it as a generic SharePoint lookup field, `"Audience"` → `audience`, with no confirmed link to the "Estimated audience size" label) and should be verified against the live SharePoint field definition. The dashboard form still covers only a subset of the source-system fields; see the gaps below.
+
+### Archiving
+
+The SharePoint source splits internal and external activities into an "active" list and a separate "Archive" list purely because SharePoint list views cap at roughly 5,000 items — archiving is a view-size workaround, not a signal that an activity is less relevant. `pipeline/scripts/process_cplan.py` already merges both lists (de-duplicated) into one dataset with an `is_archived` flag, and V6's `Activity.is_archive` column carries this forward. V6 treats archived rows as regular data: nothing in the dashboard or its analytics filters on `is_archive`, so archived activities count in every KPI. The intent is to make periodic archiving unnecessary once V6 is the system of record — a database has no 5k-item view limit.
 
 ## Implementation gaps to resolve
 
 Before implementing feature-complete creation, align the database, API, and UI with the source forms:
 
 - model communication packs and tracking clusters as first-class records;
-- add the missing internal/external activity fields, including audience size, time zone, visibility, communication pillars, executive involvement, and Pitch state;
+- add the still-missing internal/external activity fields: hide-from-public-view visibility, executive involvement, and Pitch state (audience size, time zone, and communication pillars are now implemented — see the audience mapping assumption above);
 - add the missing pack fields, including category, launch date, alignment dimensions, and cluster relation;
 - define lookup-list sources and whether fields are single- or multi-select;
-- define required fields separately for internal activity, external activity, and pack creation;
-- generate tracking IDs centrally and enforce uniqueness;
+- define required fields for pack creation (now defined separately for internal and external activity creation);
 - preserve source identifiers and optimistic-concurrency metadata during migration;
-- decide whether current post-creation relationship immutability remains a business rule in V6;
-- keep internal and external form differences explicit rather than forcing one universal form.
+- decide whether current post-creation relationship immutability remains a business rule in V6.
 
 ## Repository privacy and branding policy
 

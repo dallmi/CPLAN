@@ -48,6 +48,21 @@ class DashboardV6Tests(unittest.TestCase):
         self.assertTrue((ROOT / "pipeline" / "dashboard-v4" / "index.html").exists())
         self.assertNotEqual(DASHBOARD, ROOT / "pipeline" / "dashboard-v4")
 
+    def test_v6_analytics_js_is_byte_identical_to_v4(self):
+        # Divergence guard: analytics.js is shared, unforked logic between V4
+        # (static snapshot) and V6 (live API). Any schema gap between the two
+        # must be closed in the API layer (e.g. the `planning_lead_days` and
+        # `tracking_pack_id` computed fields) rather than by editing this copy
+        # — a fork here would silently split V4/V6 analytics behaviour.
+        v6_bytes = (DASHBOARD / "analytics.js").read_bytes()
+        v4_bytes = (ROOT / "pipeline" / "dashboard-v4" / "analytics.js").read_bytes()
+        self.assertEqual(
+            v6_bytes,
+            v4_bytes,
+            "dashboard-v6-postgres/analytics.js has diverged from dashboard-v4/analytics.js; "
+            "resolve any schema gap in pipeline/api_v6/app.py instead of forking this file",
+        )
+
     def test_v6_uses_stable_id_for_row_identity_and_guards_edits(self):
         app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
 
