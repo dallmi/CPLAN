@@ -2,6 +2,7 @@ import json
 import os
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import Column, MetaData, Table, inspect
 from sqlalchemy.orm import Session
 
@@ -308,8 +309,6 @@ def test_ensure_schema_adds_synced_version_and_sync_runs_table_to_a_legacy_db(tm
 
 
 def test_ui_patch_bumps_version_but_leaves_synced_version_untouched(database_url):
-    from fastapi.testclient import TestClient
-
     engine = create_cplan_engine(database_url)
     with Session(engine) as session:
         activity = Activity(
