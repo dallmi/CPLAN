@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CPLAN Planning Studio V4</title>
+  <link rel="stylesheet" href="styles.css">
+  <script type="module">
+    import * as duckdb from 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.28.0/+esm';
+    window.duckdb = duckdb;
+    window.dispatchEvent(new Event('duckdb-ready'));
+  </script>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand-block">
+        <div class="brand-mark"></div>
+        <div>
+          <h1>CPLAN Planning Studio <span class="version-tag">V4</span></h1>
+          <p>Campaign planning, coordination and readiness</p>
+        </div>
+      </div>
+      <div class="top-actions">
+        <div class="freshness" id="freshness">
+          <span class="status-dot loading" id="status-dot"></span>
+          <div><strong id="status-label">Loading data</strong><small id="snapshot-time">Analytics snapshot: —</small></div>
+        </div>
+        <button class="btn secondary" id="open-change-queue">Draft changes <span class="count-badge" id="draft-count">0</span></button>
+        <button class="btn secondary" id="export-changes">Export changes</button>
+      </div>
+    </header>
+
+    <nav class="main-nav" aria-label="Main navigation">
+      <button class="nav-item active" data-page="overview">Overview</button>
+      <button class="nav-item" data-page="planning">Planning</button>
+      <button class="nav-item" data-page="activities">Activities</button>
+      <button class="nav-item" data-page="analytics">Analytics</button>
+    </nav>
+
+    <main class="content">
+      <section class="page active" id="page-overview">
+        <div class="page-heading">
+          <div><p class="eyebrow">Portfolio control</p><h2>Overview</h2><p>What needs attention now and what is coming next.</p></div>
+          <div class="as-of" id="overview-as-of">Operational view: local snapshot</div>
+        </div>
+        <div class="kpi-grid" id="overview-kpis"></div>
+        <div class="grid two-one">
+          <article class="card priority-card">
+            <div class="card-head"><div><h3>Attention required</h3><p>Planning issues ranked by severity and proximity</p></div><span class="badge danger" id="attention-count">0</span></div>
+            <div class="card-body flush" id="attention-list"></div>
+          </article>
+          <article class="card">
+            <div class="card-head"><div><h3>Planning readiness</h3><p>Completeness across the selected portfolio</p></div></div>
+            <div class="card-body" id="readiness-summary"></div>
+          </article>
+        </div>
+        <div class="grid two">
+          <article class="card"><div class="card-head"><div><h3>Next 30 days</h3><p>Upcoming activities by start date</p></div></div><div class="card-body flush" id="upcoming-list"></div></article>
+          <article class="card"><div class="card-head"><div><h3>Channel load</h3><p>Activity volume, not configured capacity</p></div></div><div class="card-body" id="channel-load"></div></article>
+        </div>
+      </section>
+
+      <section class="page" id="page-planning">
+        <div class="page-heading"><div><p class="eyebrow">Forward view</p><h2>Planning</h2><p>Coordinate timing, conflicts, load and portfolio coverage.</p></div></div>
+        <div class="subnav" data-subnav="planning">
+          <button class="subnav-item active" data-sub="board">Board</button>
+          <button class="subnav-item" data-sub="calendar">Calendar</button>
+          <button class="subnav-item" data-sub="conflicts">Conflicts</button>
+          <button class="subnav-item" data-sub="capacity">Capacity &amp; Coverage</button>
+        </div>
+
+        <div class="subpage active" id="sub-board">
+          <div class="toolbar"><div class="segmented" id="horizon-toggle"><button class="active" data-weeks="8">8 weeks</button><button data-weeks="12">12 weeks</button><button data-weeks="26">6 months</button></div></div>
+          <div class="kpi-grid" id="planning-kpis"></div>
+          <article class="card"><div class="card-head"><div><h3>Activity timeline</h3><p>Upcoming work grouped by channel</p></div></div><div class="card-body" id="planning-board"></div></article>
+        </div>
+
+        <div class="subpage" id="sub-calendar">
+          <div class="toolbar"><button class="btn secondary" id="cal-prev">←</button><strong id="calendar-title"></strong><button class="btn secondary" id="cal-next">→</button><button class="btn secondary" id="cal-today">Today</button></div>
+          <article class="card"><div class="card-body" id="planning-calendar"></div></article>
+        </div>
+
+        <div class="subpage" id="sub-conflicts">
+          <div class="toolbar wrap">
+            <label>Proximity <select id="conflict-proximity"><option value="0">Same day</option><option value="1">Within 1 day</option><option value="3">Within 3 days</option><option value="7">Within 7 days</option></select></label>
+            <label>Type <select id="conflict-type"><option value="conflict">Conflicts only</option><option value="">All including orchestration</option><option value="orchestration">Orchestration only</option></select></label>
+            <label>Severity <select id="conflict-severity"><option value="">All severities</option><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option></select></label>
+          </div>
+          <div class="kpi-grid" id="conflict-kpis"></div>
+          <article class="card"><div class="card-head"><div><h3>Conflict workbench</h3><p>Shared audience and channel within the selected proximity window</p></div></div><div class="card-body flush" id="conflict-list"></div></article>
+        </div>
+
+        <div class="subpage" id="sub-capacity">
+          <div class="notice"><strong>Load, not capacity.</strong> The current model shows activity volume. Capacity status will only be enabled after effort points and maintained channel/team limits exist.</div>
+          <div class="grid two">
+            <article class="card"><div class="card-head"><div><h3>Weekly load forecast</h3><p>Activity starts across the next 12 weeks</p></div></div><div class="card-body" id="weekly-load"></div></article>
+            <article class="card"><div class="card-head"><div><h3>Forward coverage</h3><p>Coverage by planning horizon</p></div></div><div class="card-body" id="forward-coverage"></div></article>
+          </div>
+          <article class="card"><div class="card-head"><div><h3>Coverage by dimension</h3><p>Future activities by division, objective and lead team</p></div></div><div class="card-body" id="coverage-dimensions"></div></article>
+        </div>
+      </section>
+
+      <section class="page" id="page-activities">
+        <div class="page-heading"><div><p class="eyebrow">Operational workspace</p><h2>Activities</h2><p>Find, inspect and locally edit planning records.</p></div><button class="btn primary" id="activity-export">Export filtered CSV</button></div>
+        <div class="filterbar">
+          <input id="activity-search" type="search" placeholder="Search activity, campaign, lead or tracking ID">
+          <select id="activity-source"><option value="">All sources</option><option value="internal">Internal</option><option value="external">External</option></select>
+          <select id="activity-channel"><option value="">All channels</option></select>
+          <select id="activity-priority"><option value="">All priorities</option></select>
+          <select id="activity-readiness"><option value="">All readiness</option><option value="complete">Complete</option><option value="incomplete">Incomplete</option><option value="draft">Locally edited</option></select>
+          <button class="btn secondary" id="activity-clear">Clear</button>
+          <span id="activity-result-count"></span>
+        </div>
+        <article class="card"><div class="table-wrap"><table><thead><tr><th>Activity</th><th>Tracking ID</th><th>Channel</th><th>Start</th><th>Priority</th><th>Lead team</th><th>Campaign / pack</th><th>Readiness</th></tr></thead><tbody id="activity-table-body"></tbody></table></div></article>
+      </section>
+
+      <section class="page" id="page-analytics">
+        <div class="page-heading"><div><p class="eyebrow">Decision intelligence</p><h2>Analytics</h2><p>Planning health, strategic alignment and campaign orchestration.</p></div></div>
+        <div class="subnav" data-subnav="analytics">
+          <button class="subnav-item active" data-sub="planning-health">Planning Health</button>
+          <button class="subnav-item" data-sub="strategic">Strategic</button>
+          <button class="subnav-item" data-sub="campaign-quality">Campaign Quality</button>
+          <button class="subnav-item" data-sub="data-quality">Data Quality</button>
+        </div>
+
+        <div class="subpage active" id="sub-planning-health">
+          <div class="kpi-grid" id="health-kpis"></div>
+          <div class="grid two"><article class="card"><div class="card-head"><div><h3>Lead-time distribution</h3><p>P25, median and P75; invalid values excluded</p></div></div><div class="card-body" id="lead-distribution"></div></article><article class="card"><div class="card-head"><div><h3>Missing planning fields</h3><p>Records requiring remediation</p></div></div><div class="card-body" id="missing-fields"></div></article></div>
+          <article class="card"><div class="card-head"><div><h3>Planning health by team</h3><p>Completeness and short-notice rate</p></div></div><div class="card-body flush" id="team-health"></div></article>
+        </div>
+
+        <div class="subpage" id="sub-strategic">
+          <div class="kpi-grid" id="strategic-kpis"></div>
+          <div class="grid two"><article class="card"><div class="card-head"><div><h3>Objective coverage</h3></div></div><div class="card-body" id="objective-coverage"></div></article><article class="card"><div class="card-head"><div><h3>Division coverage</h3></div></div><div class="card-body" id="division-coverage"></div></article></div>
+          <article class="card"><div class="card-head"><div><h3>Unaligned activities</h3><p>No strategic objective assigned</p></div></div><div class="card-body flush" id="unaligned-list"></div></article>
+        </div>
+
+        <div class="subpage" id="sub-campaign-quality">
+          <div class="kpi-grid" id="campaign-kpis"></div>
+          <article class="card"><div class="card-head"><div><h3>Campaign &amp; pack orchestration</h3><p>Channel breadth, sequencing and activity window</p></div></div><div class="card-body flush" id="campaign-scorecard"></div></article>
+        </div>
+
+        <div class="subpage" id="sub-data-quality">
+          <div class="kpi-grid" id="quality-kpis"></div>
+          <div class="grid two"><article class="card"><div class="card-head"><div><h3>Trust diagnostics</h3></div></div><div class="card-body" id="quality-diagnostics"></div></article><article class="card"><div class="card-head"><div><h3>Refresh &amp; reconciliation</h3></div></div><div class="card-body" id="reconciliation"></div></article></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <aside class="drawer" id="activity-drawer" aria-hidden="true">
+    <div class="drawer-backdrop" data-close-drawer></div>
+    <div class="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+      <div class="drawer-head"><div><p class="eyebrow">Activity detail</p><h2 id="drawer-title">Activity</h2><p id="drawer-tracking"></p></div><button class="icon-btn" data-close-drawer aria-label="Close">×</button></div>
+      <div class="drawer-mode"><span class="badge neutral" id="drawer-mode-label">Read only</span><button class="btn primary" id="drawer-edit">Edit locally</button></div>
+      <form id="activity-form">
+        <fieldset><legend>Basics</legend><label>Activity name<input name="activity_name" required></label><label>Priority<select name="priority"><option value="">Unassigned</option><option>Critical</option><option>High</option><option>Medium</option><option>Normal</option><option>Low</option></select></label><label>Campaign<input name="campaign"></label></fieldset>
+        <fieldset><legend>Schedule</legend><div class="form-grid"><label>Start date<input type="datetime-local" name="start_date"></label><label>End date<input type="datetime-local" name="end_date"></label></div></fieldset>
+        <fieldset><legend>Audience &amp; channel</legend><label>Channel<input name="channel"></label><label>Target audience<input name="target_audience"></label><label>Region<input name="region"></label></fieldset>
+        <fieldset><legend>Ownership &amp; alignment</legend><label>Lead<input name="lead"></label><label>Lead team<input name="lead_team"></label><label>Strategic objectives<textarea name="strategic_objectives" rows="3"></textarea></label></fieldset>
+        <div class="validation-message" id="form-validation"></div>
+        <div class="drawer-actions"><button type="button" class="btn secondary" id="drawer-cancel">Cancel</button><button type="submit" class="btn primary" id="drawer-save">Save draft</button></div>
+      </form>
+    </div>
+  </aside>
+
+  <aside class="queue-panel" id="change-queue" aria-hidden="true">
+    <div class="drawer-backdrop" data-close-queue></div>
+    <div class="queue-content"><div class="drawer-head"><div><p class="eyebrow">Local draft repository</p><h2>Change queue</h2><p>Prepared for a future SharePoint write adapter</p></div><button class="icon-btn" data-close-queue>×</button></div><div id="change-list"></div><div class="drawer-actions"><button class="btn danger-outline" id="discard-all-changes">Discard all</button><button class="btn primary" id="queue-export">Export JSON</button></div></div>
+  </aside>
+
+  <div class="toast" id="toast" role="status"></div>
+  <script src="analytics.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
