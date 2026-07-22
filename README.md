@@ -50,6 +50,20 @@ python pipeline/scripts/process_cplan.py --full-refresh
 python pipeline/scripts/build_standalone.py
 ```
 
+## Daily workflow (V6)
+
+For the V6 database-backed dashboard, `pipeline/scripts/daily_refresh.py` runs the whole daily refresh as one command: the CSV pipeline above, then the database sync (`pipeline/api_v6/sync_snapshot.py`) that mirrors the result into the CPLAN V6 database.
+
+```bash
+# Pipeline + sync (the normal daily run)
+PYTHONPATH=. .venv/bin/python -m pipeline.scripts.daily_refresh
+
+# Sync only — reuse the parquet snapshot already on disk, skip the CSV step
+PYTHONPATH=. .venv/bin/python -m pipeline.scripts.daily_refresh --skip-pipeline
+```
+
+**Parallel operation.** V6 is not a one-shot migration: activities created directly in V6 (no `legacy_sp_id`) and activities mirrored in from the SharePoint source live in the same database at the same time. Each daily sync updates only the mirrored rows — source wins on conflicts, nothing is ever deleted — while V6-created activities are left completely untouched. This lets V6 be used for real planning work before the source system is retired; see [`pipeline/api_v6/README.md`](pipeline/api_v6/README.md#daily-snapshot-sync) for the full sync policy.
+
 ## Input
 
 The pipeline looks for CSV files in this order:

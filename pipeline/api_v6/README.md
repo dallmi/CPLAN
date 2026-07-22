@@ -95,6 +95,8 @@ PYTHONPATH=. .venv/bin/python -m pipeline.api_v6.sync_snapshot
 
 Policy (binding): SharePoint is the system of record, so a row changed in both the source and locally in V6 is overwritten by the source value and reported as a **conflict** (field-level diff). Rows created in V6 (`legacy_sp_id IS NULL`) are never touched and are counted as **local-only**. Rows are never deleted — a `(source_type, legacy_sp_id)` missing from the snapshot is reported as **vanished** and left as-is. Records without an `sp_id` are **skipped**. Every run writes one `sync_runs` row (counts + a JSON detail blob capped at 50 entries each for conflicts/vanished); `GET /api/sync-runs/latest` returns it, or `{"status": "never_synced"}` before the first run. Accepts the same `--settings`/`--parquet` flags as `import_snapshot`.
 
+`pipeline/scripts/daily_refresh.py` is the recommended one-command entry point: it runs the CSV pipeline (`process_cplan.py`) and this sync in sequence, or `--skip-pipeline` to run the sync alone against the parquet already on disk — see the top-level [`README.md`](../../README.md#daily-workflow-v6). The dashboard's Analytics → Data Quality → "Refresh & reconciliation" card reads `GET /api/sync-runs/latest` to surface the last sync timestamp, the created/updated/conflicts/local-only counts, and a warning line when conflicts overrode local edits.
+
 ## Run with Docker Compose
 
 Docker Desktop must be running. Keep the password outside Git:

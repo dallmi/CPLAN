@@ -1,0 +1,109 @@
+#!/usr/bin/env python3
+"""Daily workflow glue: run the CSV pipeline, then sync its output into the CPLAN V6 database.
+
+One command for the daily refresh:
+  1. `process_cplan.main()` reads the SharePoint CSV export and writes
+     `pipeline/output/communications.parquet`.
+  2. `sync_snapshot.sync_parquet()` upserts that parquet into the CPLAN V6 database:
+     source wins, conflicts are recorded, nothing is ever deleted (binding policy —
+     see `pipeline/api_v6/sync_snapshot.py`).
+
+Activities created directly in V6 (no `legacy_sp_id`) are never touched by the sync
+and keep running alongside the mirrored SharePoint rows — parallel operation until
+the corp system migrates onto V6.
+
+Usage:
+    python -m pipeline.scripts.daily_refresh                  # pipeline + sync
+    python -m pipeline.scripts.daily_refresh --skip-pipeline  # sync only
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+from typing import Callable
+
+from pipeline.api_v6.import_snapshot import resolve_database_url
+from pipeline.api_v6.setup_backend import default_settings_path
+from pipeline.api_v6.sync_snapshot import SyncReport, format_report, sync_parquet
+
+PIPELINE_DIR = Path(__file__).resolve().parent.parent  # pipeline/scripts/ -> pipeline/
+DEFAULT_PARQUET = PIPELINE_DIR / "output" / "communications.parquet"
+
+
+def _banner(title: str) -> None:
+    print()
+    print(f"=== {title} ===")
+
+
+def run_pipeline_step(pipeline_main: Callable[[], None] | None = None) -> bool:
+    """Run the snapshot pipeline's `main()` in-process. Returns True on success.
+
+    `pipeline_main` defaults to `process_cplan.main`, imported lazily right here
+    rather than at module scope: `process_cplan.py` requires `pandas`/`duckdb`, which
+    are not installed in the lean, API-only environment this module also needs to
+    import into (e.g. a `--skip-pipeline`-only sync run, or this module's own tests) —
+    an eager import would make `daily_refresh` itself require those packages just to
+    parse `--skip-pipeline`.
+
+    `process_cplan.main()` reads its own flags (`--preview`, `--full-refresh`) straight
+    off `sys.argv` and calls `sys.exit(1)` when no input CSVs are found. `sys.argv` is
+    swapped to just the program name for the duration of the call so daily_refresh's
+    own arguments (e.g. `--skip-pipeline`) can never be misread as a process_cplan
+    flag; the resulting `SystemExit` is caught here instead of tearing down the whole
+    command.
+    """
+    if pipeline_main is None:
+        from pipeline.scripts.process_cplan import main as pipeline_main
+
+    _banner("Step 1/2 - Snapshot pipeline (process_cplan)")
+    original_argv = sys.argv
+    sys.argv = original_argv[:1]
+    try:
+        pipeline_main()
+    except SystemExit as exc:
+        code = exc.code if isinstance(exc.code, int) else 1
+        if code != 0:
+            print(f"Snapshot pipeline failed (exit code {code}); skipping database sync.")
+            return False
+    finally:
+        sys.argv = original_argv
+    return True
+
+
+def run_sync_step(settings_path: Path, parquet_path: Path) -> SyncReport:
+    _banner("Step 2/2 - Database sync (sync_snapshot)")
+    database_url = resolve_database_url(settings_path)
+    report = sync_parquet(database_url, parquet_path)
+    print(format_report(report))
+    return report
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--settings", type=Path, default=default_settings_path())
+    parser.add_argument("--parquet", type=Path, default=DEFAULT_PARQUET)
+    parser.add_argument(
+        "--skip-pipeline",
+        action="store_true",
+        help="Skip the CSV pipeline step and sync the existing parquet snapshot only.",
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> None:
+    args = build_parser().parse_args(argv)
+
+    if args.skip_pipeline:
+        print("Skipping snapshot pipeline (--skip-pipeline); syncing the existing parquet snapshot only.")
+    elif not run_pipeline_step():
+        sys.exit(1)
+
+    run_sync_step(args.settings, args.parquet)
+    print()
+    print("Daily refresh complete.")
+
+
+if __name__ == "__main__":
+    main()

@@ -3,7 +3,7 @@
 
   const A = window.CplanAnalytics;
   const COLORS = {grey:'#404040', bronze:'#B98E2C'};
-  const state = {snapshotRows:[], rows:[], meta:null, horizonWeeks:8, calendarDate:new Date(), selected:null, editing:false, creating:false, dirty:false, filteredRows:[], collisionsCache:new Map(), drawerOpener:null, discardModalOpen:false};
+  const state = {snapshotRows:[], rows:[], meta:null, syncRun:null, horizonWeeks:8, calendarDate:new Date(), selected:null, editing:false, creating:false, dirty:false, filteredRows:[], collisionsCache:new Map(), drawerOpener:null, discardModalOpen:false};
 
   const esc = A.escapeHtml;
   const fmtNum = value => Number(value || 0).toLocaleString('en-GB');
@@ -65,6 +65,7 @@
     }
     listActivities() { return this.request('/api/activities'); }
     health() { return this.request('/api/health'); }
+    latestSyncRun() { return this.request('/api/sync-runs/latest'); }
     createActivity(payload) {
       return this.request('/api/activities', {method:'POST',body:JSON.stringify(payload)});
     }
@@ -95,6 +96,18 @@
   async function loadData() {
     const [result,health] = await Promise.all([repository.listActivities(),repository.health()]);
     return {rows:result.items,meta:{generated_at:new Date().toISOString(),backend:health.database}};
+  }
+
+  // Best-effort: the sync-runs endpoint is informational only. A missing endpoint,
+  // network failure, or unexpected shape must never take down page init or the
+  // rest of the Data Quality page — it just falls back to a "status unavailable"
+  // line in the reconciliation card.
+  async function loadSyncRun() {
+    try {
+      return await repository.latestSyncRun();
+    } catch (error) {
+      return null;
+    }
   }
 
   function refreshRows() {
@@ -292,11 +305,32 @@
     document.getElementById('campaign-scorecard').innerHTML=cards.length?`<table><thead><tr><th>Campaign / pack</th><th class="num">Activities</th><th class="num">Channels</th><th>Channel mix</th><th class="num">Objectives</th><th class="num">Audiences</th><th>Activity window</th><th class="num">Gap</th></tr></thead><tbody>${cards.slice(0,50).map(card=>`<tr><td>${esc(card.campaign)}</td><td class="num">${card.activities}</td><td class="num"><span class="badge ${card.channels>1?'success':'warning'}">${card.channels}</span></td><td title="${esc(card.channelNames.join(', '))}">${esc(card.channelNames.join(', ')||'—')}</td><td class="num">${card.objectives}</td><td class="num">${card.audiences}</td><td>${fmtDate(card.firstDate)} – ${fmtDate(card.lastDate)}</td><td class="num">${card.channelGapDays===null?'—':card.channelGapDays+'d'}</td></tr>`).join('')}</tbody></table>`:emptyState(EMPTY_ICONS.layers, 'No campaign or pack identifiers available', 'Add a campaign, pack ID, or tracking pack to group activities.');
   }
 
+  // Renders the sync-runs portion of the "Refresh & reconciliation" card from
+  // state.syncRun: null (fetch failed or endpoint missing), {status:'never_synced'}
+  // (endpoint reachable, no sync has ever run), or a full sync-run record.
+  function syncRunSummaryHtml() {
+    const sync = state.syncRun;
+    if (!sync) {
+      return `<div class="metric-line"><span>Source sync</span><strong>Status unavailable</strong></div>`;
+    }
+    if (sync.status === 'never_synced') {
+      return `<div class="metric-line"><span>Source sync</span><strong>No source sync yet</strong></div>`;
+    }
+    const lines = [
+      `<div class="metric-line"><span>Last source sync</span><strong>${esc(String(sync.ran_at))}</strong></div>`,
+      `<div class="metric-line"><span>Sync summary</span><strong>+${fmtNum(sync.created)} new · ${fmtNum(sync.updated)} updated · ${fmtNum(sync.conflicts)} conflicts · ${fmtNum(sync.local_only)} local-only</strong></div>`,
+    ];
+    if (sync.conflicts > 0) {
+      lines.push(`<div class="notice" style="border-left-color:var(--warning);background:var(--warning-tint)"><strong>${fmtNum(sync.conflicts)} source conflicts overrode local edits (source wins).</strong></div>`);
+    }
+    return lines.join('');
+  }
+
   function renderDataQuality() {
     const q=A.dataQuality(state.rows),generated=state.meta&&(state.meta.generated_at_iso||state.meta.generated_at)||'Unknown';
     document.getElementById('quality-kpis').innerHTML=[kpi('Complete records',`${q.completenessRate}%`,`${q.incomplete} incomplete`,'highlight'),kpi('Duplicate IDs',q.duplicateTrackingIds,'Unique duplicated identifiers',q.duplicateTrackingIds?'danger':'success'),kpi('Missing IDs',q.missingTrackingIds,'Cannot safely edit',q.missingTrackingIds?'danger':'success'),kpi('Invalid dates',q.invalidDateRanges,'End before start',q.invalidDateRanges?'danger':'success')].join('');
     document.getElementById('quality-diagnostics').innerHTML=[['Missing campaign / pack',q.missingPackIds],['Incomplete planning records',q.incomplete],['Duplicate tracking IDs',q.duplicateTrackingIds],['Missing tracking IDs',q.missingTrackingIds],['Invalid date ranges',q.invalidDateRanges]].map(([label,value])=>`<div class="metric-line"><span>${esc(label)}</span><strong>${fmtNum(value)}</strong></div>`).join('');
-    document.getElementById('reconciliation').innerHTML=`<div class="metric-line"><span>API refresh</span><strong>${esc(String(generated))}</strong></div><div class="metric-line"><span>${esc(backendLabel())} rows</span><strong>${fmtNum(state.snapshotRows.length)}</strong></div><div class="metric-line"><span>Write adapter</span><strong>${esc(backendLabel())} REST API</strong></div><div class="notice"><strong>Versioned writes:</strong> stale updates are rejected with HTTP 409 and must be reviewed against the current database record.</div>`;
+    document.getElementById('reconciliation').innerHTML=`<div class="metric-line"><span>API refresh</span><strong>${esc(String(generated))}</strong></div><div class="metric-line"><span>${esc(backendLabel())} rows</span><strong>${fmtNum(state.snapshotRows.length)}</strong></div><div class="metric-line"><span>Write adapter</span><strong>${esc(backendLabel())} REST API</strong></div>${syncRunSummaryHtml()}<div class="notice"><strong>Versioned writes:</strong> stale updates are rejected with HTTP 409 and must be reviewed against the current database record.</div>`;
   }
 
   function updateActivitiesCount() {
@@ -699,7 +733,8 @@
   async function init() {
     wireEvents();
     try {
-      const loaded=await loadData();state.snapshotRows=loaded.rows;state.meta=loaded.meta;refreshRows();
+      const [loaded,syncRun]=await Promise.all([loadData(),loadSyncRun()]);
+      state.snapshotRows=loaded.rows;state.meta=loaded.meta;state.syncRun=syncRun;refreshRows();
       const generated=loaded.meta&&(loaded.meta.generated_at_iso||loaded.meta.generated_at);
       document.getElementById('status-dot').className='status-dot ready';document.getElementById('status-label').textContent=`${fmtNum(loaded.rows.length)} activities loaded`;document.getElementById('snapshot-time').textContent=`${backendLabel()} API: ${generated||'unknown'}`;
       renderAll();

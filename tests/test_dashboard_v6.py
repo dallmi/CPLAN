@@ -262,6 +262,39 @@ class DashboardV6Tests(unittest.TestCase):
         # against reverting to that naive per-marker rendering.
         self.assertNotIn("point=(v,label)=>v===null?'':", app)
 
+    def test_v6_sync_run_fetch_present_and_graceful_on_failure(self):
+        app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+
+        # Sync-runs status is fetched via the repository, alongside — not blocking —
+        # the critical activities/health load, and a failure must resolve to null
+        # rather than reject (so Promise.all([loadData(),loadSyncRun()]) never
+        # throws just because sync status is unavailable).
+        self.assertIn("latestSyncRun() { return this.request('/api/sync-runs/latest'); }", app)
+        self.assertIn("async function loadSyncRun()", app)
+        self.assertIn("return null;", app)
+        self.assertIn("Promise.all([loadData(),loadSyncRun()])", app)
+        self.assertIn("state.syncRun=syncRun", app)
+
+    def test_v6_sync_run_reconciliation_card_markup(self):
+        app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("function syncRunSummaryHtml()", app)
+        # Wired into the reconciliation card body, not just defined and unused.
+        self.assertIn("${syncRunSummaryHtml()}", app)
+        # never_synced and fetch-failure fallback copy.
+        self.assertIn("No source sync yet", app)
+        self.assertIn("Status unavailable", app)
+        # Metric-line counts in the specified format.
+        self.assertIn("new · ${fmtNum(sync.updated)} updated · ${fmtNum(sync.conflicts)} conflicts · ${fmtNum(sync.local_only)} local-only", app)
+        # Conflict warning line, RAG amber via the existing --warning/--warning-tint vars.
+        self.assertIn("source conflicts overrode local edits (source wins).", app)
+        self.assertIn("sync.conflicts > 0", app)
+        self.assertIn("var(--warning)", app)
+        self.assertIn("var(--warning-tint)", app)
+        # Reuses the existing metric-line/notice design-system classes, no new ones.
+        self.assertIn('class="metric-line"', app)
+        self.assertIn('class="notice"', app)
+
     def test_v6_inline_svg_favicon_no_network(self):
         html = (DASHBOARD / "index.html").read_text(encoding="utf-8")
 
