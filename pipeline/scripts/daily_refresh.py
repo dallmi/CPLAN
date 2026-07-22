@@ -37,15 +37,32 @@ def _banner(title: str) -> None:
     print(f"=== {title} ===")
 
 
+def _default_pipeline_main() -> Callable[[], None]:
+    """Lazily resolve `process_cplan.main`.
+
+    Kept as its own function (rather than inlined into `run_pipeline_step`) purely so
+    tests can monkeypatch just this import step to simulate a missing dependency,
+    deterministically, regardless of whether `pandas`/`duckdb` actually happen to be
+    installed in the environment running the test.
+    """
+    from pipeline.scripts.process_cplan import main as pipeline_main
+
+    return pipeline_main
+
+
 def run_pipeline_step(pipeline_main: Callable[[], None] | None = None) -> bool:
     """Run the snapshot pipeline's `main()` in-process. Returns True on success.
 
-    `pipeline_main` defaults to `process_cplan.main`, imported lazily right here
-    rather than at module scope: `process_cplan.py` requires `pandas`/`duckdb`, which
-    are not installed in the lean, API-only environment this module also needs to
-    import into (e.g. a `--skip-pipeline`-only sync run, or this module's own tests) —
-    an eager import would make `daily_refresh` itself require those packages just to
-    parse `--skip-pipeline`.
+    `pipeline_main` defaults to `process_cplan.main`, resolved lazily via
+    `_default_pipeline_main()` rather than at module scope: `process_cplan.py`
+    requires `pandas`/`duckdb`, which are not installed in the lean, API-only
+    environment this module also needs to import into (e.g. a `--skip-pipeline`-only
+    sync run, or this module's own tests) — an eager import would make `daily_refresh`
+    itself require those packages just to parse `--skip-pipeline`. If that import
+    fails, it is caught here and turned into an actionable message — naming the
+    missing dependency, the install command, and the `--skip-pipeline` alternative —
+    instead of a bare traceback; the command then exits nonzero before the sync step
+    runs, same as any other pipeline failure.
 
     `process_cplan.main()` reads its own flags (`--preview`, `--full-refresh`) straight
     off `sys.argv` and calls `sys.exit(1)` when no input CSVs are found. `sys.argv` is
@@ -55,7 +72,14 @@ def run_pipeline_step(pipeline_main: Callable[[], None] | None = None) -> bool:
     command.
     """
     if pipeline_main is None:
-        from pipeline.scripts.process_cplan import main as pipeline_main
+        try:
+            pipeline_main = _default_pipeline_main()
+        except ImportError as exc:
+            missing = exc.name or str(exc)
+            print(f"Cannot run the snapshot pipeline: missing dependency '{missing}'.")
+            print("Install the pipeline dependencies with: pip install pandas duckdb pyarrow")
+            print("Or run with --skip-pipeline to sync the existing parquet snapshot only.")
+            return False
 
     _banner("Step 1/2 - Snapshot pipeline (process_cplan)")
     original_argv = sys.argv

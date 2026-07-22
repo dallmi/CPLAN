@@ -115,6 +115,26 @@ def test_run_pipeline_step_returns_true_on_normal_completion():
     assert calls == ["pipeline"]
 
 
+def test_run_pipeline_step_reports_missing_dependency_instead_of_raising(monkeypatch, capsys):
+    # process_cplan.py requires pandas/duckdb, absent from this lean, API-only
+    # environment. Simulated via the import-resolution seam (_default_pipeline_main)
+    # rather than relying on this environment actually lacking the packages, so the
+    # test stays deterministic either way.
+    def fake_default_pipeline_main():
+        raise ModuleNotFoundError("No module named 'duckdb'", name="duckdb")
+
+    monkeypatch.setattr(daily_refresh, "_default_pipeline_main", fake_default_pipeline_main)
+
+    result = daily_refresh.run_pipeline_step()
+
+    assert result is False
+    output = capsys.readouterr().out
+    assert "missing dependency" in output
+    assert "duckdb" in output
+    assert "pip install pandas duckdb pyarrow" in output
+    assert "--skip-pipeline" in output
+
+
 # --- run_sync_step ------------------------------------------------------------
 
 
@@ -176,4 +196,27 @@ def test_main_stops_before_sync_and_exits_nonzero_when_pipeline_step_fails(monke
         daily_refresh.main([])
 
     assert exc_info.value.code == 1
+    assert calls == []  # sync never invoked
+
+
+def test_main_reports_missing_dependency_and_stops_before_sync(monkeypatch, capsys):
+    # End-to-end: a missing pandas/duckdb install must exit the whole command
+    # nonzero, with an actionable message, and never reach the sync step.
+    calls = []
+    _stub_sync(monkeypatch, calls)
+
+    def fake_default_pipeline_main():
+        raise ModuleNotFoundError("No module named 'duckdb'", name="duckdb")
+
+    monkeypatch.setattr(daily_refresh, "_default_pipeline_main", fake_default_pipeline_main)
+
+    with pytest.raises(SystemExit) as exc_info:
+        daily_refresh.main([])
+
+    assert exc_info.value.code == 1
+    output = capsys.readouterr().out
+    assert "missing dependency" in output
+    assert "duckdb" in output
+    assert "pip install pandas duckdb pyarrow" in output
+    assert "--skip-pipeline" in output
     assert calls == []  # sync never invoked
