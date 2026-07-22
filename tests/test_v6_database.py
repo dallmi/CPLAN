@@ -1,8 +1,10 @@
 import pytest
-from sqlalchemy import text
+from sqlalchemy import Column, MetaData, Table, inspect, select, text
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
-from pipeline.api_v6.database import backend_from_url, create_cplan_engine
+from pipeline.api_v6.app import Activity, Base
+from pipeline.api_v6.database import backend_from_url, create_cplan_engine, ensure_schema
 
 
 def test_backend_is_derived_from_sqlalchemy_url():
@@ -37,4 +39,64 @@ def test_sqlite_foreign_keys_are_enforced(tmp_path):
         )
         with pytest.raises(IntegrityError):
             connection.execute(text("INSERT INTO child (id, parent_id) VALUES (1, 99)"))
+    engine.dispose()
+
+
+def _create_legacy_activities_table_without_time_zone(engine) -> None:
+    """Recreate the `activities` table as it looked before `time_zone` existed."""
+    activities = Base.metadata.tables["activities"]
+    legacy_metadata = MetaData()
+    legacy_columns = [
+        Column(
+            column.name,
+            column.type,
+            primary_key=column.primary_key,
+            nullable=column.nullable,
+            server_default=column.server_default,
+        )
+        for column in activities.columns
+        if column.name != "time_zone"
+    ]
+    Table(activities.name, legacy_metadata, *legacy_columns)
+    legacy_metadata.create_all(engine)
+
+
+def test_ensure_schema_adds_missing_column_to_an_existing_table(tmp_path):
+    engine = create_cplan_engine(f"sqlite:///{tmp_path / 'schema-topup.sqlite3'}")
+    _create_legacy_activities_table_without_time_zone(engine)
+
+    columns_before = {column["name"] for column in inspect(engine).get_columns("activities")}
+    assert "time_zone" not in columns_before
+
+    ensure_schema(engine, Base.metadata)
+
+    columns_after = {column["name"] for column in inspect(engine).get_columns("activities")}
+    assert "time_zone" in columns_after
+
+    with Session(engine) as session:
+        session.add(
+            Activity(
+                source_type="internal",
+                activity_name="Legacy row upgraded by schema top-up",
+                time_zone="Europe/Zurich",
+            )
+        )
+        session.commit()
+        stored = session.scalar(
+            select(Activity).where(Activity.activity_name == "Legacy row upgraded by schema top-up")
+        )
+        assert stored.time_zone == "Europe/Zurich"
+    engine.dispose()
+
+
+def test_ensure_schema_is_a_no_op_when_schema_is_already_current(tmp_path):
+    engine = create_cplan_engine(f"sqlite:///{tmp_path / 'schema-current.sqlite3'}")
+    Base.metadata.create_all(engine)
+
+    columns_before = {column["name"] for column in inspect(engine).get_columns("activities")}
+
+    ensure_schema(engine, Base.metadata)
+
+    columns_after = {column["name"] for column in inspect(engine).get_columns("activities")}
+    assert columns_after == columns_before
     engine.dispose()

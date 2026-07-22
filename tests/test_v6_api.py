@@ -1,11 +1,15 @@
 import os
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
 
-from pipeline.api_v6.app import ActivityRead, Base, create_app, create_environment_app
+from pipeline.api_v6.app import Activity, ActivityRead, Base, create_app, create_environment_app
+
+TRACKING_ID_PATTERN = re.compile(r"^[A-Z0-9]+-[0-9]+-\d{6}-\d{7}-[A-Z]{2,4}$")
 
 
 TEST_DATABASE_URL = os.environ.get("CPLAN_TEST_DATABASE_URL")
@@ -46,7 +50,6 @@ def create_activity(client):
         "/api/activities",
         json={
             "source_type": "internal",
-            "tracking_id": "CPLAN-V6-TEST-001",
             "activity_name": "Initial planning activity",
             "activity_description": "Created by the V6 API integration test.",
             "start_date": "2026-08-03T09:00:00+02:00",
@@ -248,18 +251,18 @@ def test_activity_create_and_list_include_computed_analytics_fields(client):
         "/api/activities",
         json={
             "source_type": "internal",
-            "tracking_id": "CLUSTER-PACKNUM-EXTRA",
+            "communication_pack_cpid": "QRREP-0000058",
             "activity_name": "Analytics fields activity",
             "start_date": "2026-08-03T09:00:00+02:00",
             "source_created_at": "2026-07-20T09:00:00+02:00",
         },
     ).json()
 
-    assert created["tracking_pack_id"] == "CLUSTER-PACKNUM"
+    assert created["tracking_pack_id"] == "QRREP-0000058"
     assert created["planning_lead_days"] == 14
 
     listed = client.get("/api/activities").json()["items"][0]
-    assert listed["tracking_pack_id"] == "CLUSTER-PACKNUM"
+    assert listed["tracking_pack_id"] == "QRREP-0000058"
     assert listed["planning_lead_days"] == 14
 
 
@@ -330,3 +333,127 @@ def test_patch_explicit_null_clears_channel(client):
 
     assert response.status_code == 200
     assert response.json()["channel"] is None
+
+
+def _seed_activity(client, **overrides):
+    """Insert an Activity row directly, bypassing the API, to seed a fixed tracking_id/channel pair."""
+    fields = dict(
+        source_type="internal",
+        activity_name="Seed activity",
+        tracking_id="STA-0000000-250101-0000001-EMI",
+        channel="Email",
+    )
+    fields.update(overrides)
+    with Session(client.app.state.engine) as session:
+        session.add(Activity(**fields))
+        session.commit()
+
+
+def test_create_rejects_a_client_supplied_tracking_id(client):
+    response = client.post(
+        "/api/activities",
+        json={
+            "source_type": "internal",
+            "activity_name": "Client supplied tracking id",
+            "tracking_id": "MANUAL-0000001-260101-0000001-EMI",
+        },
+    )
+
+    assert response.status_code == 422
+    errors = response.json()["detail"]
+    assert any(err["type"] == "extra_forbidden" for err in errors)
+
+
+def test_generated_tracking_id_matches_the_documented_format(client):
+    created = create_activity(client)
+
+    assert TRACKING_ID_PATTERN.match(created["tracking_id"])
+
+
+def test_generated_tracking_id_uses_the_communication_pack_cpid_as_prefix(client):
+    created = client.post(
+        "/api/activities",
+        json={
+            "source_type": "internal",
+            "activity_name": "Pack-linked activity",
+            "communication_pack_cpid": "QRREP-0000058",
+        },
+    ).json()
+
+    assert created["tracking_id"].startswith("QRREP-0000058-")
+
+
+def test_generated_tracking_id_falls_back_to_the_standalone_prefix(client):
+    created = client.post(
+        "/api/activities",
+        json={"source_type": "internal", "activity_name": "Standalone activity"},
+    ).json()
+
+    assert created["tracking_id"].startswith("STA-0000000-")
+
+
+def test_generated_tracking_id_activity_number_increments_across_creates(client):
+    first = client.post(
+        "/api/activities",
+        json={"source_type": "internal", "activity_name": "First sequenced activity"},
+    ).json()
+    second = client.post(
+        "/api/activities",
+        json={"source_type": "internal", "activity_name": "Second sequenced activity"},
+    ).json()
+
+    first_number = int(first["tracking_id"].split("-")[3])
+    second_number = int(second["tracking_id"].split("-")[3])
+    assert second_number == first_number + 1
+
+
+def test_generated_tracking_id_channel_abbr_uses_majority_vote_from_existing_rows(client):
+    _seed_activity(client, tracking_id="STA-0000000-250101-0000001-EMI", channel="Email")
+    _seed_activity(client, tracking_id="STA-0000000-250102-0000002-EMI", channel="Email")
+    _seed_activity(client, tracking_id="STA-0000000-250103-0000003-EML", channel="Email")
+
+    created = client.post(
+        "/api/activities",
+        json={"source_type": "internal", "activity_name": "Majority vote activity", "channel": "Email"},
+    ).json()
+
+    assert created["tracking_id"].split("-")[4] == "EMI"
+
+
+def test_generated_tracking_id_channel_abbr_falls_back_to_channel_name_without_a_vote(client):
+    created = client.post(
+        "/api/activities",
+        json={"source_type": "internal", "activity_name": "Webinar activity", "channel": "Webinar"},
+    ).json()
+
+    assert created["tracking_id"].split("-")[4] == "WEB"
+
+
+def test_generated_tracking_id_channel_abbr_is_gen_without_a_channel(client):
+    created = client.post(
+        "/api/activities",
+        json={"source_type": "internal", "activity_name": "Channel-less activity"},
+    ).json()
+
+    assert created["tracking_id"].split("-")[4] == "GEN"
+
+
+def test_time_zone_round_trips_through_create_patch_and_read(client):
+    created = client.post(
+        "/api/activities",
+        json={
+            "source_type": "internal",
+            "activity_name": "Time zone activity",
+            "time_zone": "Europe/Zurich",
+        },
+    ).json()
+    assert created["time_zone"] == "Europe/Zurich"
+
+    patched = client.patch(
+        f"/api/activities/{created['id']}",
+        json={"version": created["version"], "time_zone": "America/New_York"},
+    ).json()
+    assert patched["time_zone"] == "America/New_York"
+
+    listed = client.get("/api/activities").json()["items"][0]
+    assert listed["time_zone"] == "America/New_York"

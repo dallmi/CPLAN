@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import os
+import re
 import uuid
+from collections import Counter
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal, get_args
+from typing import Any, Literal, Sequence, get_args
+from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, HTTPException, status
 from fastapi.staticfiles import StaticFiles
@@ -24,7 +27,7 @@ from sqlalchemy import Boolean, DateTime, Integer, String, Text, Uuid, func, sel
 from sqlalchemy.engine import URL
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
-from .database import backend_from_url, create_cplan_engine
+from .database import backend_from_url, create_cplan_engine, ensure_schema
 
 
 def as_utc(value: datetime | None) -> datetime | None:
@@ -93,6 +96,7 @@ class Activity(Base):
     lead: Mapped[str | None] = mapped_column(Text, nullable=True)
     start_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     end_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    time_zone: Mapped[str | None] = mapped_column(String(64), nullable=True)
     news_digest: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     priority: Mapped[str | None] = mapped_column(Text, nullable=True)
     strategic_objectives: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -120,7 +124,6 @@ class ActivityFields(BaseModel):
 
     source_type: Literal["internal", "external"]
     legacy_sp_id: int | None = None
-    tracking_id: str | None = Field(default=None, max_length=160)
     activity_name: str = Field(min_length=1, max_length=500)
     activity_description: str | None = None
     target_audience: str | None = None
@@ -134,6 +137,7 @@ class ActivityFields(BaseModel):
     lead: str | None = None
     start_date: datetime | None = None
     end_date: datetime | None = None
+    time_zone: str | None = None
     news_digest: bool | None = None
     priority: str | None = None
     strategic_objectives: str | None = None
@@ -192,6 +196,7 @@ class ActivityPatch(BaseModel):
     lead: str | None = None
     start_date: datetime | None = None
     end_date: datetime | None = None
+    time_zone: str | None = None
     news_digest: bool | None = None
     priority: str | None = None
     strategic_objectives: str | None = None
@@ -229,6 +234,7 @@ class ActivityRead(ActivityFields):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
+    tracking_id: str | None = Field(default=None, max_length=160)
     version: int
     created_at: datetime
     updated_at: datetime
@@ -274,6 +280,93 @@ class ActivityList(BaseModel):
     total: int
 
 
+ZURICH = ZoneInfo("Europe/Zurich")
+STANDALONE_PACK_PREFIX = "STA-0000000"
+_CPID_PATTERN = re.compile(r"^[A-Z0-9]+-[0-9]+$")
+MAX_TRACKING_ID_GENERATION_ATTEMPTS = 10_000
+
+
+def _pack_prefix(communication_pack_cpid: str | None) -> str:
+    if communication_pack_cpid and _CPID_PATTERN.match(communication_pack_cpid):
+        return communication_pack_cpid
+    return STANDALONE_PACK_PREFIX
+
+
+def _next_activity_number(existing_tracking_ids: Sequence[str]) -> int:
+    max_number = 0
+    for tracking_id in existing_tracking_ids:
+        parts = tracking_id.split("-")
+        if len(parts) >= 4 and parts[3].isdigit():
+            max_number = max(max_number, int(parts[3]))
+    return max_number + 1
+
+
+def _channel_abbr(channel: str | None, existing: Sequence[tuple[str | None, str]]) -> str:
+    if not channel or not channel.strip():
+        return "GEN"
+    votes: Counter[str] = Counter()
+    for existing_channel, tracking_id in existing:
+        if existing_channel != channel:
+            continue
+        parts = tracking_id.split("-")
+        if len(parts) == 5:
+            votes[parts[4]] += 1
+    if votes:
+        return votes.most_common(1)[0][0]
+    alphabetic = "".join(char for char in channel if char.isalpha())
+    return alphabetic[:3].upper() or "GEN"
+
+
+def generate_tracking_id(
+    existing: Sequence[tuple[str | None, str]],
+    *,
+    communication_pack_cpid: str | None,
+    start_date: datetime | None,
+    channel: str | None,
+) -> str:
+    """Build the next server-generated tracking ID.
+
+    `existing` holds the `(channel, tracking_id)` pairs of every activity
+    that already carries a tracking_id — used both to derive the next
+    activity number (across all pack prefixes) and the per-channel
+    abbreviation majority vote. Pure/unit-testable without a database.
+    """
+    pack_prefix = _pack_prefix(communication_pack_cpid)
+    reference = start_date.astimezone(ZURICH) if start_date else datetime.now(ZURICH)
+    date_part = reference.strftime("%y%m%d")
+    activity_number = _next_activity_number([tracking_id for _, tracking_id in existing])
+    channel_abbr = _channel_abbr(channel, existing)
+    return f"{pack_prefix}-{date_part}-{activity_number:07d}-{channel_abbr}"
+
+
+def _increment_activity_number(tracking_id: str) -> str:
+    parts = tracking_id.split("-")
+    parts[3] = f"{int(parts[3]) + 1:07d}"
+    return "-".join(parts)
+
+
+def _generate_unique_tracking_id(session: Session, payload: ActivityCreate) -> str:
+    existing = [
+        (channel, tracking_id)
+        for channel, tracking_id in session.execute(
+            select(Activity.channel, Activity.tracking_id).where(Activity.tracking_id.isnot(None))
+        ).all()
+    ]
+    tracking_id = generate_tracking_id(
+        existing,
+        communication_pack_cpid=payload.communication_pack_cpid,
+        start_date=payload.start_date,
+        channel=payload.channel,
+    )
+    attempts = 0
+    while session.scalar(select(Activity.id).where(Activity.tracking_id == tracking_id)) is not None:
+        attempts += 1
+        if attempts > MAX_TRACKING_ID_GENERATION_ATTEMPTS:
+            raise HTTPException(status_code=500, detail={"code": "tracking_id_generation_exhausted"})
+        tracking_id = _increment_activity_number(tracking_id)
+    return tracking_id
+
+
 def create_app(database_url: str | URL | None = None) -> FastAPI:
     resolved_url = database_url or os.environ.get("CPLAN_DATABASE_URL")
     if not resolved_url:
@@ -286,6 +379,7 @@ def create_app(database_url: str | URL | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         Base.metadata.create_all(engine)
+        ensure_schema(engine, Base.metadata)
         yield
         engine.dispose()
 
@@ -301,7 +395,8 @@ def create_app(database_url: str | URL | None = None) -> FastAPI:
     @app.post("/api/activities", response_model=ActivityRead, status_code=status.HTTP_201_CREATED)
     def create_activity(payload: ActivityCreate):
         with Session(engine) as session:
-            activity = Activity(**payload.model_dump())
+            tracking_id = _generate_unique_tracking_id(session, payload)
+            activity = Activity(**payload.model_dump(), tracking_id=tracking_id)
             session.add(activity)
             session.commit()
             session.refresh(activity)
