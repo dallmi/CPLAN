@@ -3,7 +3,7 @@
 
   const A = window.CplanAnalytics;
   const COLORS = {grey:'#404040', bronze:'#B98E2C'};
-  const state = {snapshotRows:[], rows:[], meta:null, horizonWeeks:8, calendarDate:new Date(), selected:null, editing:false, filteredRows:[]};
+  const state = {snapshotRows:[], rows:[], meta:null, horizonWeeks:8, calendarDate:new Date(), selected:null, editing:false, dirty:false, filteredRows:[]};
 
   const esc = A.escapeHtml;
   const fmtNum = value => Number(value || 0).toLocaleString('en-GB');
@@ -20,12 +20,29 @@
   const nonempty = value => value !== null && value !== undefined && String(value).trim() && value !== 'None' && value !== 'null';
   const split = value => A.normalizeMulti(value);
 
+  const apiErrorMessage = (detail, status) => {
+    if (Array.isArray(detail)) {
+      return detail.map(item => {
+        const loc = Array.isArray(item.loc) ? (item.loc[0] === 'body' ? item.loc.slice(1) : item.loc).join('.') : '';
+        return loc ? `${loc}: ${item.msg}` : (item.msg || 'Invalid value');
+      }).join('; ');
+    }
+    if (detail && typeof detail === 'object') {
+      if (detail.code === 'version_conflict') return 'This activity changed since you opened it. Reload and review before saving.';
+      if (detail.code === 'invalid_date_range') return 'End date cannot be before start date.';
+      if (detail.code === 'invalid_source_field') return detail.message || 'Invalid source field.';
+      return detail.message || `Request failed (${status})`;
+    }
+    if (typeof detail === 'string' && detail) return detail;
+    return `Request failed (${status})`;
+  };
+
   class DatabasePlanningRepository {
     async request(path, options) {
       const response = await fetch(path, Object.assign({headers:{'Content-Type':'application/json'}}, options || {}));
       const body = await response.json().catch(() => ({}));
       if (!response.ok) {
-        const error = new Error(body.detail && body.detail.code === 'version_conflict' ? 'This activity changed since you opened it. Reload and review before saving.' : (body.detail || `Request failed (${response.status})`));
+        const error = new Error(apiErrorMessage(body.detail, response.status));
         error.status = response.status;
         throw error;
       }
@@ -105,9 +122,9 @@
       kpi('Conflicts',fmtNum(collisions.length),'Shared audience and channel',collisions.length?'danger':'success')
     ].join('');
     document.getElementById('attention-count').textContent = attention.length;
-    document.getElementById('attention-list').innerHTML = attention.length ? attention.slice(0,18).map(item=>`<div class="list-row" data-open-id="${esc(item.row.tracking_id||'')}"><span class="severity-line ${esc(item.severity)}"></span><div><div class="list-title">${esc(item.row.activity_name||'Untitled')}</div><div class="list-meta">${esc(item.type.replace('-',' '))} · ${esc(item.detail)}</div></div><span class="badge ${esc(item.severity)}">${esc(item.severity)}</span></div>`).join('') : '<div class="empty">No planning issues detected</div>';
+    document.getElementById('attention-list').innerHTML = attention.length ? attention.slice(0,18).map(item=>`<div class="list-row" data-open-id="${esc(item.row.id||'')}"><span class="severity-line ${esc(item.severity)}"></span><div><div class="list-title">${esc(item.row.activity_name||'Untitled')}</div><div class="list-meta">${esc(item.type.replace('-',' '))} · ${esc(item.detail)}</div></div><span class="badge ${esc(item.severity)}">${esc(item.severity)}</span></div>`).join('') : '<div class="empty">No planning issues detected</div>';
     document.getElementById('readiness-summary').innerHTML = `<div class="metric-line"><span>Fully complete</span><strong>${fmtNum(rows.length-quality.incomplete)}</strong></div><div class="progress"><span style="width:${quality.completenessRate}%"></span></div><div class="metric-line"><span>Missing pack/campaign</span><strong>${fmtNum(quality.missingPackIds)}</strong></div><div class="metric-line"><span>Invalid date range</span><strong>${fmtNum(quality.invalidDateRanges)}</strong></div><div class="metric-line"><span>Persisted records</span><strong>${fmtNum(rows.length)}</strong></div>`;
-    document.getElementById('upcoming-list').innerHTML = upcoming.length ? upcoming.slice(0,12).map(row=>`<div class="list-row" data-open-id="${esc(row.tracking_id||'')}"><span class="severity-line medium"></span><div><div class="list-title">${esc(row.activity_name||'Untitled')}</div><div class="list-meta">${fmtDate(row.start_date)} · ${esc(row.channel||'No channel')} · ${esc(row.lead_team||row.lead||'Unassigned')}</div></div><span class="badge ${row.source_type==='external'?'info':'neutral'}">${esc(row.source_type||'')}</span></div>`).join('') : '<div class="empty">No activities starting in the next 30 days</div>';
+    document.getElementById('upcoming-list').innerHTML = upcoming.length ? upcoming.slice(0,12).map(row=>`<div class="list-row" data-open-id="${esc(row.id||'')}"><span class="severity-line medium"></span><div><div class="list-title">${esc(row.activity_name||'Untitled')}</div><div class="list-meta">${fmtDate(row.start_date)} · ${esc(row.channel||'No channel')} · ${esc(row.lead_team||row.lead||'Unassigned')}</div></div><span class="badge ${row.source_type==='external'?'info':'neutral'}">${esc(row.source_type||'')}</span></div>`).join('') : '<div class="empty">No activities starting in the next 30 days</div>';
     document.getElementById('channel-load').innerHTML = barList(countBy(rows,'channel'));
   }
 
@@ -126,7 +143,7 @@
     let html=`<div class="timeline"><div class="timeline-grid" style="grid-template-columns:190px repeat(${weeks.length},minmax(58px,1fr))"><div class="timeline-head">Activity</div>${weeks.map(w=>`<div class="timeline-head">${fmtDate(w.from).replace(/\s\d{4}$/,'')}</div>`).join('')}`;
     rows.slice(0,45).forEach(row=>{
       const start=A.parseDate(row.start_date),end=A.parseDate(row.end_date)||start;
-      html+=`<div class="timeline-label" data-open-id="${esc(row.tracking_id||'')}" title="${esc(row.activity_name||'')}">${esc(row.activity_name||'Untitled')}</div>`;
+      html+=`<div class="timeline-label" data-open-id="${esc(row.id||'')}" title="${esc(row.activity_name||'')}">${esc(row.activity_name||'Untitled')}</div>`;
       weeks.forEach(w=>{const overlaps=start&&start<w.to&&end>=w.from;html+=`<div class="timeline-cell">${overlaps?`<span class="timeline-dot ${row.source_type==='external'?'external':''}" title="${esc(row.channel||'')}"></span>`:''}</div>`;});
     });
     html+='</div></div>';
@@ -138,7 +155,7 @@
     document.getElementById('calendar-title').textContent=date.toLocaleDateString('en-GB',{month:'long',year:'numeric'});
     const first=new Date(year,month,1),days=new Date(year,month+1,0).getDate(),offset=(first.getDay()+6)%7,total=Math.ceil((offset+days)/7)*7;
     const today=new Date(); let html=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d=>`<div class="calendar-head">${d}</div>`).join('');
-    for(let i=0;i<total;i+=1){const d=new Date(year,month,i-offset+1),other=d.getMonth()!==month,isToday=d.toDateString()===today.toDateString();const events=state.rows.filter(row=>{const rd=A.parseDate(row.start_date);return rd&&rd.toDateString()===d.toDateString();});html+=`<div class="calendar-day ${other?'other':''} ${isToday?'today':''}"><div class="cal-number">${d.getDate()}</div>${events.slice(0,4).map(row=>`<div class="cal-event ${row.source_type==='external'?'external':''}" data-open-id="${esc(row.tracking_id||'')}" title="${esc(row.activity_name||'')}">${esc(row.activity_name||'Untitled')}</div>`).join('')}${events.length>4?`<div class="cal-event">+${events.length-4} more</div>`:''}</div>`;}
+    for(let i=0;i<total;i+=1){const d=new Date(year,month,i-offset+1),other=d.getMonth()!==month,isToday=d.toDateString()===today.toDateString();const events=state.rows.filter(row=>{const rd=A.parseDate(row.start_date);return rd&&rd.toDateString()===d.toDateString();});html+=`<div class="calendar-day ${other?'other':''} ${isToday?'today':''}"><div class="cal-number">${d.getDate()}</div>${events.slice(0,4).map(row=>`<div class="cal-event ${row.source_type==='external'?'external':''}" data-open-id="${esc(row.id||'')}" title="${esc(row.activity_name||'')}">${esc(row.activity_name||'Untitled')}</div>`).join('')}${events.length>4?`<div class="cal-event">+${events.length-4} more</div>`:''}</div>`;}
     document.getElementById('planning-calendar').innerHTML=`<div class="calendar">${html}</div>`;
   }
 
@@ -151,7 +168,7 @@
     const all=A.detectCollisions(state.rows,{proximityDays:Number(document.getElementById('conflict-proximity').value)}),items=filteredConflicts();
     const conflicts=all.filter(i=>i.kind==='conflict'),orchestration=all.filter(i=>i.kind==='orchestration');
     document.getElementById('conflict-kpis').innerHTML=[kpi('Matching pairs',items.length,'Current filters','highlight'),kpi('Critical',conflicts.filter(i=>i.severity==='critical').length,'Requires review','danger'),kpi('Other conflicts',conflicts.filter(i=>i.severity!=='critical').length,'Potential competition','warning'),kpi('Orchestration',orchestration.length,'Same-pack coordination','')].join('');
-    document.getElementById('conflict-list').innerHTML=items.length?items.slice(0,60).map(item=>`<div class="conflict-row"><div class="conflict-top"><div><span class="badge ${esc(item.severity)}">${esc(item.severity)}</span> <span class="badge ${item.kind==='orchestration'?'info':'neutral'}">${esc(item.kind)}</span></div><span class="list-meta">${item.gapDays} day gap · ${esc(item.left.channel||'')}</span></div><div class="conflict-pair"><div class="conflict-item" data-open-id="${esc(item.left.tracking_id||'')}"><strong>${esc(item.left.activity_name||'Untitled')}</strong><br>${esc(item.left.campaign||item.left.tracking_pack_id||'No campaign')}</div><div class="conflict-vs">VS</div><div class="conflict-item" data-open-id="${esc(item.right.tracking_id||'')}"><strong>${esc(item.right.activity_name||'Untitled')}</strong><br>${esc(item.right.campaign||item.right.tracking_pack_id||'No campaign')}</div></div></div>`).join(''):'<div class="empty">No matching conflicts</div>';
+    document.getElementById('conflict-list').innerHTML=items.length?items.slice(0,60).map(item=>`<div class="conflict-row"><div class="conflict-top"><div><span class="badge ${esc(item.severity)}">${esc(item.severity)}</span> <span class="badge ${item.kind==='orchestration'?'info':'neutral'}">${esc(item.kind)}</span></div><span class="list-meta">${item.gapDays} day gap · ${esc(item.left.channel||'')}</span></div><div class="conflict-pair"><div class="conflict-item" data-open-id="${esc(item.left.id||'')}"><strong>${esc(item.left.activity_name||'Untitled')}</strong><br>${esc(item.left.campaign||item.left.tracking_pack_id||'No campaign')}</div><div class="conflict-vs">VS</div><div class="conflict-item" data-open-id="${esc(item.right.id||'')}"><strong>${esc(item.right.activity_name||'Untitled')}</strong><br>${esc(item.right.campaign||item.right.tracking_pack_id||'No campaign')}</div></div></div>`).join(''):'<div class="empty">No matching conflicts</div>';
   }
 
   function renderCapacity() {
@@ -177,7 +194,7 @@
     }).sort((a,b)=>(A.parseDate(b.start_date)||0)-(A.parseDate(a.start_date)||0));
     state.filteredRows=rows;
     document.getElementById('activity-result-count').textContent=`${fmtNum(rows.length)} of ${fmtNum(state.rows.length)}`;
-    document.getElementById('activity-table-body').innerHTML=rows.map(row=>{const ready=A.planningCompleteness(row);return `<tr data-open-id="${esc(row.id||row.tracking_id||'')}"><td title="${esc(row.activity_name||'')}">${esc(row.activity_name||'Untitled')}</td><td>${esc(row.tracking_id||'—')}</td><td>${esc(row.channel||'—')}</td><td>${fmtDate(row.start_date)}</td><td>${esc(row.priority||'—')}</td><td>${esc(row.lead_team||row.lead||'—')}</td><td>${esc(row.campaign||row.tracking_pack_id||'—')}</td><td><span class="badge ${ready.score===100?'success':'warning'}">${ready.score}%</span></td></tr>`;}).join('')||'<tr><td colspan="8" class="empty">No activities match the filters</td></tr>';
+    document.getElementById('activity-table-body').innerHTML=rows.map(row=>{const ready=A.planningCompleteness(row);return `<tr data-open-id="${esc(row.id||'')}"><td title="${esc(row.activity_name||'')}">${esc(row.activity_name||'Untitled')}</td><td>${esc(row.tracking_id||'—')}</td><td>${esc(row.channel||'—')}</td><td>${fmtDate(row.start_date)}</td><td>${esc(row.priority||'—')}</td><td>${esc(row.lead_team||row.lead||'—')}</td><td>${esc(row.campaign||row.tracking_pack_id||'—')}</td><td><span class="badge ${ready.score===100?'success':'warning'}">${ready.score}%</span></td></tr>`;}).join('')||'<tr><td colspan="8" class="empty">No activities match the filters</td></tr>';
   }
 
   function renderPlanningHealth() {
@@ -196,7 +213,7 @@
     document.getElementById('strategic-kpis').innerHTML=[kpi('Aligned',`${rows.length?Math.round(aligned.length/rows.length*100):0}%`,`${aligned.length} activities`,'success'),kpi('Unaligned',unaligned.length,'No objective','danger'),kpi('Objectives',objectives.length,'Unique values',''),kpi('Divisions',divisions.length,'Represented','')].join('');
     document.getElementById('objective-coverage').innerHTML=barList(objectives);
     document.getElementById('division-coverage').innerHTML=barList(divisions,true);
-    document.getElementById('unaligned-list').innerHTML=unaligned.length?unaligned.slice(0,30).map(row=>`<div class="list-row" data-open-id="${esc(row.tracking_id||'')}"><span class="severity-line high"></span><div><div class="list-title">${esc(row.activity_name||'Untitled')}</div><div class="list-meta">${fmtDate(row.start_date)} · ${esc(row.lead_team||row.lead||'Unassigned')}</div></div><span class="badge warning">Unaligned</span></div>`).join(''):'<div class="empty">All activities have a strategic objective</div>';
+    document.getElementById('unaligned-list').innerHTML=unaligned.length?unaligned.slice(0,30).map(row=>`<div class="list-row" data-open-id="${esc(row.id||'')}"><span class="severity-line high"></span><div><div class="list-title">${esc(row.activity_name||'Untitled')}</div><div class="list-meta">${fmtDate(row.start_date)} · ${esc(row.lead_team||row.lead||'Unassigned')}</div></div><span class="badge warning">Unaligned</span></div>`).join(''):'<div class="empty">All activities have a strategic objective</div>';
   }
 
   function renderCampaignQuality() {
@@ -217,7 +234,7 @@
   }
 
   function bindOpenRows() {
-    document.querySelectorAll('[data-open-id]').forEach(el=>{el.onclick=()=>{const key=String(el.dataset.openId);const row=state.rows.find(item=>String(item.id||'')===key||String(item.tracking_id||'')===key);if(row)openDrawer(row);};});
+    document.querySelectorAll('[data-open-id]').forEach(el=>{el.onclick=()=>{const key=String(el.dataset.openId);const row=state.rows.find(item=>String(item.id)===key);if(row)openDrawer(row);};});
   }
 
   function populateDrawerForm(row) {
@@ -236,11 +253,15 @@
   }
 
   function closeDrawer() {
-    document.getElementById('activity-drawer').classList.remove('open');document.getElementById('activity-drawer').setAttribute('aria-hidden','true');state.selected=null;state.editing=false;
+    document.getElementById('activity-drawer').classList.remove('open');document.getElementById('activity-drawer').setAttribute('aria-hidden','true');state.selected=null;state.editing=false;state.dirty=false;
+  }
+
+  function confirmDiscardIfDirty() {
+    return !(state.editing && state.dirty) || window.confirm('Discard unsaved changes?');
   }
 
   function setDrawerEditing(editing) {
-    state.editing=editing;const form=document.getElementById('activity-form');
+    state.editing=editing;state.dirty=false;const form=document.getElementById('activity-form');
     Array.from(form.elements).forEach(el=>{if(el.name)el.disabled=!editing;});
     document.getElementById('drawer-mode-label').textContent=editing?`${backendLabel()} edit mode`:'Read only';
     document.getElementById('drawer-mode-label').className=`badge ${editing?'info':'neutral'}`;
@@ -252,7 +273,7 @@
   async function saveDraft(event) {
     event.preventDefault();if(!state.selected||!state.selected.id||!state.selected.version)return;
     const data=new FormData(event.currentTarget),patch={};
-    data.forEach((value,key)=>{let normalized=String(value);if((key==='start_date'||key==='end_date')&&normalized)normalized=new Date(normalized).toISOString();if(A.fieldValueChanged(key,state.selected[key],normalized))patch[key]=normalized;});
+    data.forEach((value,key)=>{let normalized=String(value);if((key==='start_date'||key==='end_date')&&normalized)normalized=new Date(normalized).toISOString();if(A.fieldValueChanged(key,state.selected[key],normalized))patch[key]=normalized===''?null:normalized;});
     if(!patch.activity_name&&data.get('activity_name').trim()===''){document.getElementById('form-validation').textContent='Activity name is required.';return;}
     const start=A.parseDate(patch.start_date||state.selected.start_date),end=A.parseDate(patch.end_date||state.selected.end_date);if(start&&end&&end<start){document.getElementById('form-validation').textContent='End date cannot be before start date.';return;}
     if(!Object.keys(patch).length){toast('No changes to save');setDrawerEditing(false);return;}
@@ -262,8 +283,15 @@
       state.snapshotRows=state.snapshotRows.map(row=>row.id===updated.id?updated:row);
       toast(`Activity saved to ${backendLabel()}`);closeDrawer();renderAll();
     } catch(error) {
-      validation.textContent=error.message;
-      if(error.status===409){const loaded=await loadData();state.snapshotRows=loaded.rows;state.meta=loaded.meta;refreshRows();}
+      if(error.status===409){
+        const loaded=await loadData();
+        state.snapshotRows=loaded.rows;state.meta=loaded.meta;refreshRows();
+        const fresh=state.rows.find(row=>String(row.id)===String(state.selected.id));
+        if(fresh)state.selected=fresh;
+        validation.textContent='This activity changed in the database since you opened it. Your entries are kept — review them, then save again to apply, or cancel to discard.';
+      } else {
+        validation.textContent=error.message;
+      }
     }
   }
 
@@ -284,11 +312,14 @@
     ['activity-search','activity-source','activity-channel','activity-priority','activity-readiness'].forEach(id=>{const el=document.getElementById(id);el.addEventListener(id==='activity-search'?'input':'change',()=>{applyActivityFilters();bindOpenRows();});});
     document.getElementById('activity-clear').onclick=()=>{['activity-search','activity-source','activity-channel','activity-priority','activity-readiness'].forEach(id=>document.getElementById(id).value='');applyActivityFilters();bindOpenRows();};
     document.getElementById('activity-export').onclick=exportFilteredCsv;
-    document.querySelectorAll('[data-close-drawer]').forEach(el=>el.onclick=closeDrawer);
+    document.querySelectorAll('[data-close-drawer]').forEach(el=>el.onclick=()=>{if(confirmDiscardIfDirty())closeDrawer();});
     document.getElementById('drawer-edit').onclick=()=>{if(!state.selected||!state.selected.id){toast('Database ID required for safe editing');return;}setDrawerEditing(true);};
-    document.getElementById('drawer-cancel').onclick=()=>{if(state.selected)populateDrawerForm(state.selected);setDrawerEditing(false);};
-    document.getElementById('activity-form').onsubmit=saveDraft;
-    document.addEventListener('keydown',event=>{if(event.key==='Escape')closeDrawer();});
+    document.getElementById('drawer-cancel').onclick=()=>{if(!confirmDiscardIfDirty())return;if(state.selected)populateDrawerForm(state.selected);setDrawerEditing(false);};
+    const activityForm=document.getElementById('activity-form');
+    activityForm.onsubmit=saveDraft;
+    activityForm.addEventListener('input',()=>{if(state.editing)state.dirty=true;});
+    activityForm.addEventListener('change',()=>{if(state.editing)state.dirty=true;});
+    document.addEventListener('keydown',event=>{if(event.key==='Escape'&&confirmDiscardIfDirty())closeDrawer();});
   }
 
   async function init() {

@@ -27,6 +27,18 @@ class DashboardV6Tests(unittest.TestCase):
         self.assertTrue((ROOT / "pipeline" / "dashboard-v4" / "index.html").exists())
         self.assertNotEqual(DASHBOARD, ROOT / "pipeline" / "dashboard-v4")
 
+    def test_v6_uses_stable_id_for_row_identity_and_guards_edits(self):
+        app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+
+        self.assertNotIn('data-open-id="${esc(row.tracking_id', app)
+        self.assertIn(
+            "This activity changed in the database since you opened it. "
+            "Your entries are kept — review them, then save again to apply, "
+            "or cancel to discard.",
+            app,
+        )
+        self.assertIn("Discard unsaved changes?", app)
+
 
 if __name__ == "__main__":
     unittest.main()
