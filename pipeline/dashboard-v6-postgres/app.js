@@ -19,6 +19,12 @@
   };
   const nonempty = value => value !== null && value !== undefined && String(value).trim() && value !== 'None' && value !== 'null';
   const split = value => A.normalizeMulti(value);
+  const STANDALONE_PACK_PREFIX = 'STA-0000000';
+  const campaignLabel = row => {
+    const candidates = [row.campaign, row.communication_pack, row.tracking_pack_id];
+    const found = candidates.find(value => nonempty(value) && value !== STANDALONE_PACK_PREFIX);
+    return found || null;
+  };
 
   const AUDIENCE_BANDS = ['< 1000', '1–10k', '10–50k', '50–100k', '> 100k'];
   const MULTISELECT_FIELDS = ['strategic_objectives', 'business_division', 'region'];
@@ -209,7 +215,7 @@
     const all=collisionsFor(Number(document.getElementById('conflict-proximity').value)),items=filteredConflicts();
     const conflicts=all.filter(i=>i.kind==='conflict'),orchestration=all.filter(i=>i.kind==='orchestration');
     document.getElementById('conflict-kpis').innerHTML=[kpi('Matching pairs',items.length,'Current filters','highlight'),kpi('Critical',conflicts.filter(i=>i.severity==='critical').length,'Requires review','danger'),kpi('Other conflicts',conflicts.filter(i=>i.severity!=='critical').length,'Potential competition','warning'),kpi('Orchestration',orchestration.length,'Same-pack coordination','')].join('');
-    document.getElementById('conflict-list').innerHTML=items.length?items.slice(0,60).map(item=>`<div class="conflict-row"><div class="conflict-top"><div><span class="badge ${esc(item.severity)}">${esc(item.severity)}</span> <span class="badge ${item.kind==='orchestration'?'info':'neutral'}">${esc(item.kind)}</span></div><span class="list-meta">${item.gapDays} day gap · ${esc(item.left.channel||'')}</span></div><div class="conflict-pair"><div class="conflict-item" data-open-id="${esc(item.left.id||'')}"><strong>${esc(item.left.activity_name||'Untitled')}</strong><br>${esc(item.left.campaign||item.left.tracking_pack_id||'No campaign')}</div><div class="conflict-vs">VS</div><div class="conflict-item" data-open-id="${esc(item.right.id||'')}"><strong>${esc(item.right.activity_name||'Untitled')}</strong><br>${esc(item.right.campaign||item.right.tracking_pack_id||'No campaign')}</div></div></div>`).join(''):emptyState(EMPTY_ICONS.checkCircle, 'No matching conflicts', 'Try widening the proximity window or clearing filters.');
+    document.getElementById('conflict-list').innerHTML=items.length?items.slice(0,60).map(item=>`<div class="conflict-row"><div class="conflict-top"><div><span class="badge ${esc(item.severity)}">${esc(item.severity)}</span> <span class="badge ${item.kind==='orchestration'?'info':'neutral'}">${esc(item.kind)}</span></div><span class="list-meta">${item.gapDays} day gap · ${esc(item.left.channel||'')}</span></div><div class="conflict-pair"><div class="conflict-item" data-open-id="${esc(item.left.id||'')}"><strong>${esc(item.left.activity_name||'Untitled')}</strong><br>${esc(campaignLabel(item.left)||'No campaign')}</div><div class="conflict-vs">VS</div><div class="conflict-item" data-open-id="${esc(item.right.id||'')}"><strong>${esc(item.right.activity_name||'Untitled')}</strong><br>${esc(campaignLabel(item.right)||'No campaign')}</div></div></div>`).join(''):emptyState(EMPTY_ICONS.checkCircle, 'No matching conflicts', 'Try widening the proximity window or clearing filters.');
   }
 
   function renderCapacity() {
@@ -235,7 +241,7 @@
     }).sort((a,b)=>(A.parseDate(b.start_date)||0)-(A.parseDate(a.start_date)||0));
     state.filteredRows=rows;
     document.getElementById('activity-result-count').textContent=`${fmtNum(rows.length)} of ${fmtNum(state.rows.length)}`;
-    document.getElementById('activity-table-body').innerHTML=rows.map(row=>{const ready=A.planningCompleteness(row);return `<tr data-open-id="${esc(row.id||'')}"><td title="${esc(row.activity_name||'')}">${esc(row.activity_name||'Untitled')}</td><td>${esc(row.tracking_id||'—')}</td><td>${esc(row.channel||'—')}</td><td>${fmtDate(row.start_date)}</td><td>${esc(row.priority||'—')}</td><td>${esc(row.lead_team||row.lead||'—')}</td><td>${esc(row.campaign||row.tracking_pack_id||'—')}</td><td><span class="badge ${ready.score===100?'success':'warning'}">${ready.score}%</span></td></tr>`;}).join('')||`<tr><td colspan="8">${emptyState(EMPTY_ICONS.search, 'No activities match the filters', 'Clear filters or adjust your search to see more results.')}</td></tr>`;
+    document.getElementById('activity-table-body').innerHTML=rows.map(row=>{const ready=A.planningCompleteness(row);return `<tr data-open-id="${esc(row.id||'')}"><td title="${esc(row.activity_name||'')}">${esc(row.activity_name||'Untitled')}</td><td>${esc(row.tracking_id||'—')}</td><td>${esc(row.channel||'—')}</td><td>${fmtDate(row.start_date)}</td><td>${esc(row.priority||'—')}</td><td>${esc(row.lead_team||row.lead||'—')}</td><td>${esc(campaignLabel(row)||'—')}</td><td><span class="badge ${ready.score===100?'success':'warning'}">${ready.score}%</span></td></tr>`;}).join('')||`<tr><td colspan="8">${emptyState(EMPTY_ICONS.search, 'No activities match the filters', 'Clear filters or adjust your search to see more results.')}</td></tr>`;
   }
 
   function renderPlanningHealth() {
@@ -296,11 +302,15 @@
   function msValues(container) { return split(msHidden(container).value); }
 
   function msUpdateTrigger(container) {
-    const values=msValues(container),valueEl=container.querySelector('.ms-value');
-    if(!values.length){valueEl.textContent='Select…';valueEl.classList.add('placeholder');return;}
+    const label=FIELD_LABELS[container.dataset.multiselect]||'options';
+    const emptyLabel=`Select ${label}…`;
+    const values=msValues(container),valueEl=container.querySelector('.ms-value'),trigger=container.querySelector('.ms-trigger');
+    if(!values.length){valueEl.textContent=emptyLabel;valueEl.classList.add('placeholder');trigger.setAttribute('aria-label',emptyLabel);return;}
     valueEl.classList.remove('placeholder');
     const joined=values.join(', ');
-    valueEl.textContent=(values.length<=3&&joined.length<=32)?joined:`${values.length} selected`;
+    const summary=(values.length<=3&&joined.length<=32)?joined:`${values.length} selected`;
+    valueEl.textContent=summary;
+    trigger.setAttribute('aria-label',`${label}: ${summary}`);
   }
 
   function msRender(container, options) {

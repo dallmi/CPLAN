@@ -194,6 +194,30 @@ class DashboardV6Tests(unittest.TestCase):
         self.assertIn('data-multiselect="business_division"', html)
         self.assertIn('data-multiselect="region"', html)
 
+    def test_v6_campaign_label_hides_standalone_placeholder(self):
+        app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("campaignLabel = row =>", app)
+        self.assertIn("STA-0000000", app)
+        # Both call sites must go through the shared helper, not the raw
+        # campaign||tracking_pack_id fallback that leaks the generic
+        # standalone-activity prefix as if it were a real campaign name.
+        self.assertNotIn("row.campaign||row.tracking_pack_id", app)
+        self.assertNotIn("item.left.campaign||item.left.tracking_pack_id", app)
+        self.assertNotIn("item.right.campaign||item.right.tracking_pack_id", app)
+        self.assertIn("campaignLabel(row)", app)
+        self.assertIn("campaignLabel(item.left)", app)
+        self.assertIn("campaignLabel(item.right)", app)
+
+    def test_v6_multiselect_trigger_labels_are_field_specific(self):
+        app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("function msUpdateTrigger(", app)
+        # Empty-state placeholder must be derived per field from FIELD_LABELS,
+        # not a single hardcoded "Select…" string shared by all multiselects.
+        self.assertIn("FIELD_LABELS[container.dataset.multiselect]", app)
+        self.assertIn("trigger.setAttribute('aria-label'", app)
+
 
 if __name__ == "__main__":
     unittest.main()
