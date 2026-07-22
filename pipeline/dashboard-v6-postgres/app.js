@@ -3,7 +3,7 @@
 
   const A = window.CplanAnalytics;
   const COLORS = {grey:'#404040', bronze:'#B98E2C'};
-  const state = {snapshotRows:[], rows:[], meta:null, horizonWeeks:8, calendarDate:new Date(), selected:null, editing:false, dirty:false, filteredRows:[]};
+  const state = {snapshotRows:[], rows:[], meta:null, horizonWeeks:8, calendarDate:new Date(), selected:null, editing:false, dirty:false, filteredRows:[], collisionsCache:new Map(), drawerOpener:null};
 
   const esc = A.escapeHtml;
   const fmtNum = value => Number(value || 0).toLocaleString('en-GB');
@@ -81,11 +81,40 @@
 
   function refreshRows() {
     state.rows = state.snapshotRows.slice();
+    state.collisionsCache = new Map();
     updateDraftCount();
   }
 
   function updateDraftCount() {
     document.getElementById('overview-as-of').textContent = `Operational view: ${backendLabel()} live data`;
+  }
+
+  function collisionsFor(proximityDays) {
+    if (!state.collisionsCache.has(proximityDays)) {
+      state.collisionsCache.set(proximityDays, A.detectCollisions(state.rows, {proximityDays}));
+    }
+    return state.collisionsCache.get(proximityDays);
+  }
+
+  function debounce(fn, wait) {
+    let timer;
+    return (...args) => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => fn(...args), wait);
+    };
+  }
+
+  const EMPTY_ICONS = {
+    checkCircle: '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline>',
+    calendar: '<rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line>',
+    search: '<circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>',
+    layers: '<polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline>',
+    barChart: '<line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line>',
+    alertTriangle: '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line>'
+  };
+
+  function emptyState(svgPath, title, subtext) {
+    return `<div class="empty"><svg class="empty-icon" viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${svgPath}</svg><strong class="empty-title">${esc(title)}</strong>${subtext?`<p class="empty-subtext">${esc(subtext)}</p>`:''}</div>`;
   }
 
   function kpi(label, value, sub, tone) {
@@ -99,7 +128,7 @@
   }
 
   function barList(entries, bronze) {
-    if (!entries.length) return '<div class="empty">No data available</div>';
+    if (!entries.length) return emptyState(EMPTY_ICONS.barChart, 'No data available', 'Nothing to show for the current selection.');
     const max = Math.max(...entries.map(item=>item[1]),1);
     return `<div class="bar-list">${entries.slice(0,12).map(([label,value])=>`<div class="bar-row"><div class="bar-label" title="${esc(label)}">${esc(label)}</div><div class="bar-track"><div class="bar-fill ${bronze?'bronze':''}" style="width:${value/max*100}%"></div></div><div class="bar-value">${fmtNum(value)}</div></div>`).join('')}</div>`;
   }
@@ -111,7 +140,7 @@
     const active = rows.filter(row => {const s=A.parseDate(row.start_date),e=A.parseDate(row.end_date)||s;return s&&s<=now&&e>=now;});
     const upcoming = rows.filter(row => {const d=A.parseDate(row.start_date);return d&&d>=now&&d<=future30;}).sort((a,b)=>A.parseDate(a.start_date)-A.parseDate(b.start_date));
     const attention = A.attentionItems(rows,{shortNoticeDays:7});
-    const collisions = A.detectCollisions(rows,{proximityDays:1}).filter(item=>item.kind==='conflict');
+    const collisions = collisionsFor(1).filter(item=>item.kind==='conflict');
     collisions.forEach(item => attention.push({type:'collision',severity:item.severity,row:item.left,detail:`With ${item.right.activity_name||'another activity'} · ${item.gapDays}d gap`}));
     const quality = A.dataQuality(rows);
     const lead = A.leadTimeStats(rows,7);
@@ -122,9 +151,9 @@
       kpi('Conflicts',fmtNum(collisions.length),'Shared audience and channel',collisions.length?'danger':'success')
     ].join('');
     document.getElementById('attention-count').textContent = attention.length;
-    document.getElementById('attention-list').innerHTML = attention.length ? attention.slice(0,18).map(item=>`<div class="list-row" data-open-id="${esc(item.row.id||'')}"><span class="severity-line ${esc(item.severity)}"></span><div><div class="list-title">${esc(item.row.activity_name||'Untitled')}</div><div class="list-meta">${esc(item.type.replace('-',' '))} · ${esc(item.detail)}</div></div><span class="badge ${esc(item.severity)}">${esc(item.severity)}</span></div>`).join('') : '<div class="empty">No planning issues detected</div>';
+    document.getElementById('attention-list').innerHTML = attention.length ? attention.slice(0,18).map(item=>`<div class="list-row" data-open-id="${esc(item.row.id||'')}"><span class="severity-line ${esc(item.severity)}"></span><div><div class="list-title">${esc(item.row.activity_name||'Untitled')}</div><div class="list-meta">${esc(item.type.replace('-',' '))} · ${esc(item.detail)}</div></div><span class="badge ${esc(item.severity)}">${esc(item.severity)}</span></div>`).join('') : emptyState(EMPTY_ICONS.checkCircle, 'No planning issues detected', 'Nothing needs review right now.');
     document.getElementById('readiness-summary').innerHTML = `<div class="metric-line"><span>Fully complete</span><strong>${fmtNum(rows.length-quality.incomplete)}</strong></div><div class="progress"><span style="width:${quality.completenessRate}%"></span></div><div class="metric-line"><span>Missing pack/campaign</span><strong>${fmtNum(quality.missingPackIds)}</strong></div><div class="metric-line"><span>Invalid date range</span><strong>${fmtNum(quality.invalidDateRanges)}</strong></div><div class="metric-line"><span>Persisted records</span><strong>${fmtNum(rows.length)}</strong></div>`;
-    document.getElementById('upcoming-list').innerHTML = upcoming.length ? upcoming.slice(0,12).map(row=>`<div class="list-row" data-open-id="${esc(row.id||'')}"><span class="severity-line medium"></span><div><div class="list-title">${esc(row.activity_name||'Untitled')}</div><div class="list-meta">${fmtDate(row.start_date)} · ${esc(row.channel||'No channel')} · ${esc(row.lead_team||row.lead||'Unassigned')}</div></div><span class="badge ${row.source_type==='external'?'info':'neutral'}">${esc(row.source_type||'')}</span></div>`).join('') : '<div class="empty">No activities starting in the next 30 days</div>';
+    document.getElementById('upcoming-list').innerHTML = upcoming.length ? upcoming.slice(0,12).map(row=>`<div class="list-row" data-open-id="${esc(row.id||'')}"><span class="severity-line medium"></span><div><div class="list-title">${esc(row.activity_name||'Untitled')}</div><div class="list-meta">${fmtDate(row.start_date)} · ${esc(row.channel||'No channel')} · ${esc(row.lead_team||row.lead||'Unassigned')}</div></div><span class="badge ${row.source_type==='external'?'info':'neutral'}">${esc(row.source_type||'')}</span></div>`).join('') : emptyState(EMPTY_ICONS.calendar, 'No activities in the next 30 days', 'Check back later or widen the planning horizon.');
     document.getElementById('channel-load').innerHTML = barList(countBy(rows,'channel'));
   }
 
@@ -147,7 +176,7 @@
       weeks.forEach(w=>{const overlaps=start&&start<w.to&&end>=w.from;html+=`<div class="timeline-cell">${overlaps?`<span class="timeline-dot ${row.source_type==='external'?'external':''}" title="${esc(row.channel||'')}"></span>`:''}</div>`;});
     });
     html+='</div></div>';
-    document.getElementById('planning-board').innerHTML=rows.length?html:'<div class="empty">No upcoming activities in this horizon</div>';
+    document.getElementById('planning-board').innerHTML=rows.length?html:emptyState(EMPTY_ICONS.calendar, 'No upcoming activities in this horizon', 'Extend the horizon or adjust filters to see more.');
   }
 
   function renderCalendar() {
@@ -161,14 +190,14 @@
 
   function filteredConflicts() {
     const proximity=Number(document.getElementById('conflict-proximity').value),type=document.getElementById('conflict-type').value,severity=document.getElementById('conflict-severity').value;
-    return A.detectCollisions(state.rows,{proximityDays:proximity}).filter(item=>(!type||item.kind===type)&&(!severity||item.severity===severity));
+    return collisionsFor(proximity).filter(item=>(!type||item.kind===type)&&(!severity||item.severity===severity));
   }
 
   function renderConflicts() {
-    const all=A.detectCollisions(state.rows,{proximityDays:Number(document.getElementById('conflict-proximity').value)}),items=filteredConflicts();
+    const all=collisionsFor(Number(document.getElementById('conflict-proximity').value)),items=filteredConflicts();
     const conflicts=all.filter(i=>i.kind==='conflict'),orchestration=all.filter(i=>i.kind==='orchestration');
     document.getElementById('conflict-kpis').innerHTML=[kpi('Matching pairs',items.length,'Current filters','highlight'),kpi('Critical',conflicts.filter(i=>i.severity==='critical').length,'Requires review','danger'),kpi('Other conflicts',conflicts.filter(i=>i.severity!=='critical').length,'Potential competition','warning'),kpi('Orchestration',orchestration.length,'Same-pack coordination','')].join('');
-    document.getElementById('conflict-list').innerHTML=items.length?items.slice(0,60).map(item=>`<div class="conflict-row"><div class="conflict-top"><div><span class="badge ${esc(item.severity)}">${esc(item.severity)}</span> <span class="badge ${item.kind==='orchestration'?'info':'neutral'}">${esc(item.kind)}</span></div><span class="list-meta">${item.gapDays} day gap · ${esc(item.left.channel||'')}</span></div><div class="conflict-pair"><div class="conflict-item" data-open-id="${esc(item.left.id||'')}"><strong>${esc(item.left.activity_name||'Untitled')}</strong><br>${esc(item.left.campaign||item.left.tracking_pack_id||'No campaign')}</div><div class="conflict-vs">VS</div><div class="conflict-item" data-open-id="${esc(item.right.id||'')}"><strong>${esc(item.right.activity_name||'Untitled')}</strong><br>${esc(item.right.campaign||item.right.tracking_pack_id||'No campaign')}</div></div></div>`).join(''):'<div class="empty">No matching conflicts</div>';
+    document.getElementById('conflict-list').innerHTML=items.length?items.slice(0,60).map(item=>`<div class="conflict-row"><div class="conflict-top"><div><span class="badge ${esc(item.severity)}">${esc(item.severity)}</span> <span class="badge ${item.kind==='orchestration'?'info':'neutral'}">${esc(item.kind)}</span></div><span class="list-meta">${item.gapDays} day gap · ${esc(item.left.channel||'')}</span></div><div class="conflict-pair"><div class="conflict-item" data-open-id="${esc(item.left.id||'')}"><strong>${esc(item.left.activity_name||'Untitled')}</strong><br>${esc(item.left.campaign||item.left.tracking_pack_id||'No campaign')}</div><div class="conflict-vs">VS</div><div class="conflict-item" data-open-id="${esc(item.right.id||'')}"><strong>${esc(item.right.activity_name||'Untitled')}</strong><br>${esc(item.right.campaign||item.right.tracking_pack_id||'No campaign')}</div></div></div>`).join(''):emptyState(EMPTY_ICONS.checkCircle, 'No matching conflicts', 'Try widening the proximity window or clearing filters.');
   }
 
   function renderCapacity() {
@@ -194,7 +223,7 @@
     }).sort((a,b)=>(A.parseDate(b.start_date)||0)-(A.parseDate(a.start_date)||0));
     state.filteredRows=rows;
     document.getElementById('activity-result-count').textContent=`${fmtNum(rows.length)} of ${fmtNum(state.rows.length)}`;
-    document.getElementById('activity-table-body').innerHTML=rows.map(row=>{const ready=A.planningCompleteness(row);return `<tr data-open-id="${esc(row.id||'')}"><td title="${esc(row.activity_name||'')}">${esc(row.activity_name||'Untitled')}</td><td>${esc(row.tracking_id||'—')}</td><td>${esc(row.channel||'—')}</td><td>${fmtDate(row.start_date)}</td><td>${esc(row.priority||'—')}</td><td>${esc(row.lead_team||row.lead||'—')}</td><td>${esc(row.campaign||row.tracking_pack_id||'—')}</td><td><span class="badge ${ready.score===100?'success':'warning'}">${ready.score}%</span></td></tr>`;}).join('')||'<tr><td colspan="8" class="empty">No activities match the filters</td></tr>';
+    document.getElementById('activity-table-body').innerHTML=rows.map(row=>{const ready=A.planningCompleteness(row);return `<tr data-open-id="${esc(row.id||'')}"><td title="${esc(row.activity_name||'')}">${esc(row.activity_name||'Untitled')}</td><td>${esc(row.tracking_id||'—')}</td><td>${esc(row.channel||'—')}</td><td>${fmtDate(row.start_date)}</td><td>${esc(row.priority||'—')}</td><td>${esc(row.lead_team||row.lead||'—')}</td><td>${esc(row.campaign||row.tracking_pack_id||'—')}</td><td><span class="badge ${ready.score===100?'success':'warning'}">${ready.score}%</span></td></tr>`;}).join('')||`<tr><td colspan="8">${emptyState(EMPTY_ICONS.search, 'No activities match the filters', 'Clear filters or adjust your search to see more results.')}</td></tr>`;
   }
 
   function renderPlanningHealth() {
@@ -213,13 +242,13 @@
     document.getElementById('strategic-kpis').innerHTML=[kpi('Aligned',`${rows.length?Math.round(aligned.length/rows.length*100):0}%`,`${aligned.length} activities`,'success'),kpi('Unaligned',unaligned.length,'No objective','danger'),kpi('Objectives',objectives.length,'Unique values',''),kpi('Divisions',divisions.length,'Represented','')].join('');
     document.getElementById('objective-coverage').innerHTML=barList(objectives);
     document.getElementById('division-coverage').innerHTML=barList(divisions,true);
-    document.getElementById('unaligned-list').innerHTML=unaligned.length?unaligned.slice(0,30).map(row=>`<div class="list-row" data-open-id="${esc(row.id||'')}"><span class="severity-line high"></span><div><div class="list-title">${esc(row.activity_name||'Untitled')}</div><div class="list-meta">${fmtDate(row.start_date)} · ${esc(row.lead_team||row.lead||'Unassigned')}</div></div><span class="badge warning">Unaligned</span></div>`).join(''):'<div class="empty">All activities have a strategic objective</div>';
+    document.getElementById('unaligned-list').innerHTML=unaligned.length?unaligned.slice(0,30).map(row=>`<div class="list-row" data-open-id="${esc(row.id||'')}"><span class="severity-line high"></span><div><div class="list-title">${esc(row.activity_name||'Untitled')}</div><div class="list-meta">${fmtDate(row.start_date)} · ${esc(row.lead_team||row.lead||'Unassigned')}</div></div><span class="badge warning">Unaligned</span></div>`).join(''):emptyState(EMPTY_ICONS.checkCircle, 'All activities have a strategic objective', 'Nothing left to align.');
   }
 
   function renderCampaignQuality() {
     const cards=A.campaignScorecards(state.rows),multi=cards.filter(c=>c.channels>1),single=cards.filter(c=>c.channels===1),avg=cards.length?Math.round(cards.reduce((s,c)=>s+c.activities,0)/cards.length*10)/10:0;
     document.getElementById('campaign-kpis').innerHTML=[kpi('Packs / campaigns',cards.length,'Identified planning units','highlight'),kpi('Multi-channel',multi.length,`${cards.length?Math.round(multi.length/cards.length*100):0}% of units`,'success'),kpi('Single-channel',single.length,'Review orchestration','warning'),kpi('Avg activities',avg,'Per planning unit','')].join('');
-    document.getElementById('campaign-scorecard').innerHTML=cards.length?`<table><thead><tr><th>Campaign / pack</th><th class="num">Activities</th><th class="num">Channels</th><th>Channel mix</th><th class="num">Objectives</th><th class="num">Audiences</th><th>Activity window</th><th class="num">Gap</th></tr></thead><tbody>${cards.slice(0,50).map(card=>`<tr><td>${esc(card.campaign)}</td><td class="num">${card.activities}</td><td class="num"><span class="badge ${card.channels>1?'success':'warning'}">${card.channels}</span></td><td title="${esc(card.channelNames.join(', '))}">${esc(card.channelNames.join(', ')||'—')}</td><td class="num">${card.objectives}</td><td class="num">${card.audiences}</td><td>${fmtDate(card.firstDate)} – ${fmtDate(card.lastDate)}</td><td class="num">${card.channelGapDays===null?'—':card.channelGapDays+'d'}</td></tr>`).join('')}</tbody></table>`:'<div class="empty">No campaign or pack identifiers available</div>';
+    document.getElementById('campaign-scorecard').innerHTML=cards.length?`<table><thead><tr><th>Campaign / pack</th><th class="num">Activities</th><th class="num">Channels</th><th>Channel mix</th><th class="num">Objectives</th><th class="num">Audiences</th><th>Activity window</th><th class="num">Gap</th></tr></thead><tbody>${cards.slice(0,50).map(card=>`<tr><td>${esc(card.campaign)}</td><td class="num">${card.activities}</td><td class="num"><span class="badge ${card.channels>1?'success':'warning'}">${card.channels}</span></td><td title="${esc(card.channelNames.join(', '))}">${esc(card.channelNames.join(', ')||'—')}</td><td class="num">${card.objectives}</td><td class="num">${card.audiences}</td><td>${fmtDate(card.firstDate)} – ${fmtDate(card.lastDate)}</td><td class="num">${card.channelGapDays===null?'—':card.channelGapDays+'d'}</td></tr>`).join('')}</tbody></table>`:emptyState(EMPTY_ICONS.layers, 'No campaign or pack identifiers available', 'Add a campaign, pack ID, or tracking pack to group activities.');
   }
 
   function renderDataQuality() {
@@ -229,31 +258,61 @@
     document.getElementById('reconciliation').innerHTML=`<div class="metric-line"><span>API refresh</span><strong>${esc(String(generated))}</strong></div><div class="metric-line"><span>${esc(backendLabel())} rows</span><strong>${fmtNum(state.snapshotRows.length)}</strong></div><div class="metric-line"><span>Write adapter</span><strong>${esc(backendLabel())} REST API</strong></div><div class="notice"><strong>Versioned writes:</strong> stale updates are rejected with HTTP 409 and must be reviewed against the current database record.</div>`;
   }
 
+  function updateActivitiesCount() {
+    document.getElementById('activities-count').textContent = fmtNum(state.rows.length);
+  }
+
   function renderAll() {
-    refreshRows(); renderOverview(); renderBoard(); renderCalendar(); renderConflicts(); renderCapacity(); populateActivityFilters(); applyActivityFilters(); renderPlanningHealth(); renderStrategic(); renderCampaignQuality(); renderDataQuality(); bindOpenRows();
+    refreshRows(); renderOverview(); renderBoard(); renderCalendar(); renderConflicts(); renderCapacity(); populateActivityFilters(); applyActivityFilters(); renderPlanningHealth(); renderStrategic(); renderCampaignQuality(); renderDataQuality(); updateActivitiesCount(); bindOpenRows();
   }
 
   function bindOpenRows() {
-    document.querySelectorAll('[data-open-id]').forEach(el=>{el.onclick=()=>{const key=String(el.dataset.openId);const row=state.rows.find(item=>String(item.id)===key);if(row)openDrawer(row);};});
+    document.querySelectorAll('[data-open-id]').forEach(el=>{
+      el.setAttribute('tabindex','0');
+      el.setAttribute('role','button');
+      const activate=()=>{const key=String(el.dataset.openId);const row=state.rows.find(item=>String(item.id)===key);if(row)openDrawer(row,el);};
+      el.onclick=activate;
+      el.onkeydown=event=>{if(event.key==='Enter'||event.key===' '||event.key==='Spacebar'){event.preventDefault();activate();}};
+    });
   }
 
   function populateDrawerForm(row) {
     const form=document.getElementById('activity-form');
-    Array.from(form.elements).forEach(el=>{if(!el.name)return;el.value=(el.type==='datetime-local'?isoLocal(row[el.name]):row[el.name])||'';});
+    Array.from(form.elements).forEach(el=>{
+      if(!el.name)return;
+      const value=(el.type==='datetime-local'?isoLocal(row[el.name]):row[el.name])||'';
+      if(el.tagName==='SELECT'){
+        Array.from(el.querySelectorAll('option[data-injected]')).forEach(opt=>opt.remove());
+        if(value&&!Array.from(el.options).some(opt=>opt.value===value)){
+          const extra=document.createElement('option');
+          extra.value=value;extra.textContent=value;extra.dataset.injected='true';
+          el.appendChild(extra);
+        }
+      }
+      el.value=value;
+    });
   }
 
-  function openDrawer(row) {
-    state.selected=row;state.editing=false;
+  function drawerFocusables() {
+    const panel=document.querySelector('.drawer-panel');
+    return Array.from(panel.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')).filter(el=>el.offsetParent!==null);
+  }
+
+  function openDrawer(row, opener) {
+    state.selected=row;state.editing=false;state.drawerOpener=opener||document.activeElement;
     document.getElementById('drawer-title').textContent=row.activity_name||'Untitled activity';
     document.getElementById('drawer-tracking').textContent=row.tracking_id||'No tracking ID';
     populateDrawerForm(row);
     setDrawerEditing(false);
     document.getElementById('activity-drawer').classList.add('open');
     document.getElementById('activity-drawer').setAttribute('aria-hidden','false');
+    document.getElementById('drawer-close').focus();
   }
 
   function closeDrawer() {
     document.getElementById('activity-drawer').classList.remove('open');document.getElementById('activity-drawer').setAttribute('aria-hidden','true');state.selected=null;state.editing=false;state.dirty=false;
+    const opener=state.drawerOpener;state.drawerOpener=null;
+    if(opener&&typeof opener.focus==='function')opener.focus();
   }
 
   function confirmDiscardIfDirty() {
@@ -309,8 +368,11 @@
     document.getElementById('cal-prev').onclick=()=>{state.calendarDate=new Date(state.calendarDate.getFullYear(),state.calendarDate.getMonth()-1,1);renderCalendar();bindOpenRows();};
     document.getElementById('cal-next').onclick=()=>{state.calendarDate=new Date(state.calendarDate.getFullYear(),state.calendarDate.getMonth()+1,1);renderCalendar();bindOpenRows();};
     document.getElementById('cal-today').onclick=()=>{state.calendarDate=new Date();renderCalendar();bindOpenRows();};
-    ['activity-search','activity-source','activity-channel','activity-priority','activity-readiness'].forEach(id=>{const el=document.getElementById(id);el.addEventListener(id==='activity-search'?'input':'change',()=>{applyActivityFilters();bindOpenRows();});});
-    document.getElementById('activity-clear').onclick=()=>{['activity-search','activity-source','activity-channel','activity-priority','activity-readiness'].forEach(id=>document.getElementById(id).value='');applyActivityFilters();bindOpenRows();};
+    const runActivityFilters=()=>{applyActivityFilters();bindOpenRows();};
+    const debouncedActivityFilters=debounce(runActivityFilters,200);
+    document.getElementById('activity-search').addEventListener('input',debouncedActivityFilters);
+    ['activity-source','activity-channel','activity-priority','activity-readiness'].forEach(id=>document.getElementById(id).addEventListener('change',runActivityFilters));
+    document.getElementById('activity-clear').onclick=()=>{['activity-search','activity-source','activity-channel','activity-priority','activity-readiness'].forEach(id=>document.getElementById(id).value='');runActivityFilters();};
     document.getElementById('activity-export').onclick=exportFilteredCsv;
     document.querySelectorAll('[data-close-drawer]').forEach(el=>el.onclick=()=>{if(confirmDiscardIfDirty())closeDrawer();});
     document.getElementById('drawer-edit').onclick=()=>{if(!state.selected||!state.selected.id){toast('Database ID required for safe editing');return;}setDrawerEditing(true);};
@@ -319,7 +381,17 @@
     activityForm.onsubmit=saveDraft;
     activityForm.addEventListener('input',()=>{if(state.editing)state.dirty=true;});
     activityForm.addEventListener('change',()=>{if(state.editing)state.dirty=true;});
-    document.addEventListener('keydown',event=>{if(event.key==='Escape'&&confirmDiscardIfDirty())closeDrawer();});
+    document.addEventListener('keydown',event=>{
+      const isOpen=document.getElementById('activity-drawer').classList.contains('open');
+      if(event.key==='Escape'){if(confirmDiscardIfDirty())closeDrawer();return;}
+      if(isOpen&&event.key==='Tab'){
+        const focusable=drawerFocusables();
+        if(!focusable.length)return;
+        const first=focusable[0],last=focusable[focusable.length-1];
+        if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}
+        else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}
+      }
+    });
   }
 
   async function init() {
@@ -332,7 +404,7 @@
     } catch(error) {
       console.error('CPLAN V6 initialization failed',error);
       document.getElementById('status-dot').className='status-dot error';document.getElementById('status-label').textContent='Data load failed';document.getElementById('snapshot-time').textContent=error.message;
-      document.querySelector('.content').innerHTML=`<div class="card"><div class="empty"><strong>CPLAN V6 could not initialize.</strong><br>${esc(error.message)}<br><br>Start the configured local database API and reload this page.</div></div>`;
+      document.querySelector('.content').innerHTML=`<div class="card">${emptyState(EMPTY_ICONS.alertTriangle, 'CPLAN V6 could not initialize', `${error.message} Start the configured local database API and reload this page.`)}</div>`;
     }
   }
 

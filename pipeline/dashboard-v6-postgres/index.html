@@ -28,7 +28,7 @@
     <nav class="main-nav" aria-label="Main navigation">
       <button class="nav-item active" data-page="overview">Overview</button>
       <button class="nav-item" data-page="planning">Planning</button>
-      <button class="nav-item" data-page="activities">Activities</button>
+      <button class="nav-item" data-page="activities">Activities <span class="count-badge" id="activities-count">0</span></button>
       <button class="nav-item" data-page="analytics">Analytics</button>
     </nav>
 
@@ -146,11 +146,11 @@
   <aside class="drawer" id="activity-drawer" aria-hidden="true">
     <div class="drawer-backdrop" data-close-drawer></div>
     <div class="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
-      <div class="drawer-head"><div><p class="eyebrow">Activity detail</p><h2 id="drawer-title">Activity</h2><p id="drawer-tracking"></p></div><button class="icon-btn" data-close-drawer aria-label="Close">×</button></div>
+      <div class="drawer-head"><div><p class="eyebrow">Activity detail</p><h2 id="drawer-title">Activity</h2><p id="drawer-tracking"></p></div><button class="icon-btn" id="drawer-close" data-close-drawer aria-label="Close">×</button></div>
       <div class="drawer-mode"><span class="badge neutral" id="drawer-mode-label">Read only</span><button class="btn primary" id="drawer-edit">Edit activity</button></div>
       <form id="activity-form">
         <fieldset><legend>Basics</legend><label>Activity name<input name="activity_name" required></label><label>Priority<select name="priority"><option value="">Unassigned</option><option>Critical</option><option>High</option><option>Medium</option><option>Normal</option><option>Low</option></select></label><label>Campaign<input name="campaign"></label></fieldset>
-        <fieldset><legend>Schedule</legend><div class="form-grid"><label>Start date<input type="datetime-local" name="start_date"></label><label>End date<input type="datetime-local" name="end_date"></label></div></fieldset>
+        <fieldset><legend>Schedule</legend><div class="form-grid"><label>Start date (local time)<input type="datetime-local" name="start_date"></label><label>End date (local time)<input type="datetime-local" name="end_date"></label></div><label>Time zone<select name="time_zone"><option value="">Not set</option><option value="Europe/Zurich">Europe/Zurich</option><option value="Europe/London">Europe/London</option><option value="Europe/Berlin">Europe/Berlin</option><option value="America/New_York">America/New_York</option><option value="America/Chicago">America/Chicago</option><option value="America/Los_Angeles">America/Los_Angeles</option><option value="Asia/Singapore">Asia/Singapore</option><option value="Asia/Hong_Kong">Asia/Hong_Kong</option><option value="Asia/Tokyo">Asia/Tokyo</option><option value="Australia/Sydney">Australia/Sydney</option><option value="UTC">UTC</option></select></label></fieldset>
         <fieldset><legend>Audience &amp; channel</legend><label>Channel<input name="channel"></label><label>Target audience<input name="target_audience"></label><label>Region<input name="region"></label></fieldset>
         <fieldset><legend>Ownership &amp; alignment</legend><label>Lead<input name="lead"></label><label>Lead team<input name="lead_team"></label><label>Strategic objectives<textarea name="strategic_objectives" rows="3"></textarea></label></fieldset>
         <div class="validation-message" id="form-validation"></div>
