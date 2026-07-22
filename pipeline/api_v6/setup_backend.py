@@ -26,7 +26,8 @@ class BackendConfig:
 
 
 def default_cplan_home() -> Path:
-    return Path(os.environ.get("CPLAN_HOME", Path.home() / ".cplan")).expanduser().resolve()
+    repo_data_dir = Path(__file__).resolve().parents[1] / "data"
+    return Path(os.environ.get("CPLAN_HOME", repo_data_dir)).expanduser().resolve()
 
 
 def default_settings_path() -> Path:

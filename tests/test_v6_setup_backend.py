@@ -1,5 +1,6 @@
 import json
 import stat
+from pathlib import Path
 
 import pytest
 
@@ -10,6 +11,8 @@ from pipeline.api_v6.setup_backend import (
     load_backend_config,
     resolve_backend_database_url,
 )
+
+REPO_PIPELINE_DATA = Path(setup_backend.__file__).resolve().parents[1] / "data"
 
 
 def test_sqlite_backend_configuration_is_persisted_and_validated(tmp_path):
@@ -83,3 +86,44 @@ def test_missing_configuration_never_creates_an_implicit_fallback(tmp_path):
         load_backend_config(settings_path)
 
     assert not (tmp_path / "cplan.sqlite3").exists()
+
+
+def test_default_cplan_home_resolves_to_repo_pipeline_data(monkeypatch, tmp_path):
+    monkeypatch.delenv("CPLAN_HOME", raising=False)
+    monkeypatch.chdir(tmp_path)  # proves resolution is module-relative, not cwd-relative
+
+    assert setup_backend.default_cplan_home() == REPO_PIPELINE_DATA
+
+
+def test_cplan_home_env_var_still_overrides_default(monkeypatch, tmp_path):
+    override = tmp_path / "custom-home"
+    monkeypatch.setenv("CPLAN_HOME", str(override))
+
+    assert setup_backend.default_cplan_home() == override.resolve()
+
+
+def test_configure_backend_default_settings_path_lands_in_repo_data_dir(monkeypatch, tmp_path):
+    monkeypatch.delenv("CPLAN_HOME", raising=False)
+    monkeypatch.chdir(tmp_path)  # proves cwd-independence, not just default-arg convenience
+
+    expected_settings = REPO_PIPELINE_DATA / "cplan-settings.json"
+    expected_settings_tmp = expected_settings.with_suffix(expected_settings.suffix + ".tmp")
+    original_mode = stat.S_IMODE(REPO_PIPELINE_DATA.stat().st_mode)
+    expected_settings.unlink(missing_ok=True)
+    expected_settings_tmp.unlink(missing_ok=True)
+
+    database_path = tmp_path / "cplan.sqlite3"
+    try:
+        configured = configure_backend(
+            backend="sqlite",
+            database_url=f"sqlite:///{database_path}",
+        )
+
+        assert configured.backend == "sqlite"
+        assert expected_settings.parent == REPO_PIPELINE_DATA
+        persisted = json.loads(expected_settings.read_text(encoding="utf-8"))
+        assert persisted["backend"] == "sqlite"
+    finally:
+        expected_settings.unlink(missing_ok=True)
+        expected_settings_tmp.unlink(missing_ok=True)
+        REPO_PIPELINE_DATA.chmod(original_mode)

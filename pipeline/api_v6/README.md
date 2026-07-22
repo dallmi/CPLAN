@@ -52,7 +52,7 @@ These exist so `pipeline/dashboard-v6-postgres/analytics.js` — kept byte-ident
 
 ## Choose the backend once
 
-Settings default to `~/.cplan/cplan-settings.json`. Override that user-owned directory with `CPLAN_HOME` if needed.
+Settings default to `pipeline/data/cplan-settings.json` (the SQLite database, when chosen, lands alongside it at `pipeline/data/cplan.sqlite3`), resolved relative to the repository regardless of the current working directory. Override that directory with `CPLAN_HOME` if needed — do not point it at a OneDrive-synced folder (SQLite's WAL journal mode does not tolerate concurrent file sync and risks corruption).
 
 Preferred PostgreSQL configuration (provide `CPLAN_DATABASE_URL` through the current process environment; do not pass credentials as command arguments):
 
