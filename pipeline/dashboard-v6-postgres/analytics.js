@@ -7,7 +7,7 @@
 
   const REQUIRED_FIELDS = [
     'activity_name', 'start_date', 'channel', 'lead_team',
-    'target_audience', 'priority', 'strategic_objectives', 'campaign_or_pack'
+    'target_audience', 'priority', 'strategic_objectives', 'activity_description'
   ];
 
   const empty = value => value === null || value === undefined || String(value).trim() === '' || value === 'None' || value === 'null';
@@ -34,9 +34,7 @@
   function planningCompleteness(row) {
     const missing = [];
     for (const field of REQUIRED_FIELDS) {
-      if (field === 'campaign_or_pack') {
-        if (!hasCampaignOrPack(row)) missing.push(field);
-      } else if (field === 'lead_team') {
+      if (field === 'lead_team') {
         if (empty(row.lead_team) && empty(row.lead)) missing.push(field);
       } else if (empty(row[field])) missing.push(field);
     }
@@ -113,23 +111,38 @@
 
   function detectCollisions(rows, options) {
     const proximityDays = Number.isFinite(options && options.proximityDays) ? options.proximityDays : 0;
-    const collisions = [];
+    // Precompute epoch-day (same Date.UTC day math as dayGap) once per row, then sort
+    // indices by day and slide a window instead of comparing every pair — O(n log n + n*k)
+    // instead of O(n^2) for the n rows this app renders (5k+).
+    const epochDay = rows.map(row => {
+      const start = parseDate(row.start_date);
+      return start ? Date.UTC(start.getFullYear(), start.getMonth(), start.getDate()) / 86400000 : null;
+    });
+    const sortedIdx = [];
     for (let i = 0; i < rows.length; i += 1) {
-      for (let j = i + 1; j < rows.length; j += 1) {
-        const left = rows[i];
-        const right = rows[j];
-        const leftStart = parseDate(left.start_date);
-        const rightStart = parseDate(right.start_date);
-        if (!leftStart || !rightStart || dayGap(leftStart, rightStart) > proximityDays) continue;
+      if (epochDay[i] !== null) sortedIdx.push(i);
+    }
+    sortedIdx.sort((a, b) => epochDay[a] - epochDay[b]);
+
+    const collisions = [];
+    for (let a = 0; a < sortedIdx.length; a += 1) {
+      for (let b = a + 1; b < sortedIdx.length; b += 1) {
+        const idxA = sortedIdx[a];
+        const idxB = sortedIdx[b];
+        if (epochDay[idxB] - epochDay[idxA] > proximityDays) break;
+        const leftIdx = Math.min(idxA, idxB);
+        const rightIdx = Math.max(idxA, idxB);
+        const left = rows[leftIdx];
+        const right = rows[rightIdx];
         if (!sharesDimension(left, right, 'channel') || !sharesDimension(left, right, 'target_audience')) continue;
         const samePack = !empty(left.tracking_pack_id) && left.tracking_pack_id === right.tracking_pack_id;
         const rank = Math.max(priorityRank(left.priority), priorityRank(right.priority));
         const severity = samePack ? 'info' : rank >= 4 ? 'critical' : rank >= 3 ? 'high' : 'medium';
         collisions.push({
-          id: `${left.tracking_id || i}::${right.tracking_id || j}`,
+          id: `${left.tracking_id || leftIdx}::${right.tracking_id || rightIdx}`,
           left,
           right,
-          gapDays: dayGap(leftStart, rightStart),
+          gapDays: Math.abs(epochDay[leftIdx] - epochDay[rightIdx]),
           kind: samePack ? 'orchestration' : 'conflict',
           severity
         });

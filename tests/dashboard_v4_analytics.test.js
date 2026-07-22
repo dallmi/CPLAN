@@ -6,6 +6,7 @@ const base = {
   tracking_id: 'AAA-0000001-260801-0000001-EMI',
   tracking_pack_id: 'AAA-0000001',
   activity_name: 'Launch email',
+  activity_description: 'Announce the summer launch to employees.',
   start_date: '2026-08-01T09:00:00+02:00',
   end_date: '2026-08-01T17:00:00+02:00',
   created: '2026-07-10T09:00:00+02:00',
@@ -20,10 +21,146 @@ const base = {
   source_type: 'internal'
 };
 
+// --- Brute-force collision reference (kept independent from analytics.js's optimized implementation) ---
+
+function refEmpty(value) {
+  return value === null || value === undefined || String(value).trim() === '' || value === 'None' || value === 'null';
+}
+
+function refNormalizeMulti(value) {
+  if (refEmpty(value)) return [];
+  if (Array.isArray(value)) return value.map(String).map(v => v.trim()).filter(Boolean);
+  return String(value).split(/[;,]/).map(v => v.trim()).filter(Boolean);
+}
+
+function refSharesDimension(a, b, field) {
+  const right = new Set(refNormalizeMulti(b[field]).map(v => v.toLowerCase()));
+  return refNormalizeMulti(a[field]).some(v => right.has(v.toLowerCase()));
+}
+
+function refPriorityRank(value) {
+  const ranks = {critical: 4, high: 3, medium: 2, normal: 1, low: 0};
+  return ranks[String(value || '').toLowerCase()] ?? 1;
+}
+
+function refDayGap(a, b) {
+  const leftDay = Date.UTC(a.getFullYear(), a.getMonth(), a.getDate());
+  const rightDay = Date.UTC(b.getFullYear(), b.getMonth(), b.getDate());
+  return Math.abs(leftDay - rightDay) / 86400000;
+}
+
+// Deliberately O(n^2) — mirrors the pre-optimization detectCollisions semantics exactly,
+// so it can serve as an oracle for the sort + sliding-window rewrite.
+function bruteForceCollisions(rows, proximityDays) {
+  const collisions = [];
+  for (let i = 0; i < rows.length; i += 1) {
+    for (let j = i + 1; j < rows.length; j += 1) {
+      const left = rows[i];
+      const right = rows[j];
+      const leftStart = analytics.parseDate(left.start_date);
+      const rightStart = analytics.parseDate(right.start_date);
+      if (!leftStart || !rightStart || refDayGap(leftStart, rightStart) > proximityDays) continue;
+      if (!refSharesDimension(left, right, 'channel') || !refSharesDimension(left, right, 'target_audience')) continue;
+      const samePack = !refEmpty(left.tracking_pack_id) && left.tracking_pack_id === right.tracking_pack_id;
+      const rank = Math.max(refPriorityRank(left.priority), refPriorityRank(right.priority));
+      const severity = samePack ? 'info' : rank >= 4 ? 'critical' : rank >= 3 ? 'high' : 'medium';
+      collisions.push({
+        id: `${left.tracking_id || i}::${right.tracking_id || j}`,
+        kind: samePack ? 'orchestration' : 'conflict',
+        severity,
+        gapDays: refDayGap(leftStart, rightStart)
+      });
+    }
+  }
+  return collisions;
+}
+
+// Deterministic LCG so the generated dataset is reproducible across runs/machines.
+function makeLcg(seed) {
+  let state = seed >>> 0;
+  return function next() {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    return state / 4294967296;
+  };
+}
+
+function buildRandomRows(count, seed) {
+  const rand = makeLcg(seed);
+  const channels = ['Email', 'Intranet article (News)', 'Event', 'Social post', 'Video'];
+  const audiences = ['Employees', 'Managers', 'Customers', 'Partners'];
+  const packs = ['AAA-0000001', 'BBB-0000002', 'CCC-0000003', '', ''];
+  const priorities = ['Critical', 'High', 'Medium', 'Normal', 'Low'];
+  const baseMs = Date.UTC(2026, 6, 1);
+  const rows = [];
+  for (let i = 0; i < count; i += 1) {
+    const hasDate = rand() > 0.08;
+    const dayOffset = Math.floor(rand() * 120);
+    rows.push({
+      tracking_id: `SEED-${i}`,
+      tracking_pack_id: packs[Math.floor(rand() * packs.length)],
+      channel: channels[Math.floor(rand() * channels.length)],
+      target_audience: audiences[Math.floor(rand() * audiences.length)],
+      priority: priorities[Math.floor(rand() * priorities.length)],
+      start_date: hasDate ? new Date(baseMs + dayOffset * 86400000).toISOString() : null
+    });
+  }
+  return rows;
+}
+
+test('optimized collision detector matches the brute-force reference across proximities', () => {
+  const rows = buildRandomRows(200, 123456789);
+  for (const proximityDays of [0, 1, 3, 7]) {
+    const optimized = analytics.detectCollisions(rows, {proximityDays});
+    const reference = bruteForceCollisions(rows, proximityDays);
+    const toSet = list => new Set(list.map(c => JSON.stringify([c.id, c.kind, c.severity, c.gapDays])));
+    assert.equal(optimized.length, reference.length);
+    assert.deepEqual(toSet(optimized), toSet(reference));
+  }
+});
+
+test('optimized collision detector output stays sorted by severity desc then gap days asc', () => {
+  const rows = buildRandomRows(200, 987654321);
+  const result = analytics.detectCollisions(rows, {proximityDays: 3});
+  assert.ok(result.length > 0);
+  const order = {critical: 4, high: 3, medium: 2, info: 1};
+  for (let i = 1; i < result.length; i += 1) {
+    const prevRank = order[result[i - 1].severity];
+    const curRank = order[result[i].severity];
+    assert.ok(
+      prevRank > curRank || (prevRank === curRank && result[i - 1].gapDays <= result[i].gapDays)
+    );
+  }
+});
+
+test('collision left/right ordering follows original input index even when dates sort differently', () => {
+  const rows = [
+    {...base, tracking_id: 'idx0-later-date', start_date: '2026-08-02T09:00:00+02:00'},
+    {...base, tracking_id: 'idx1-earlier-date', start_date: '2026-08-01T09:00:00+02:00'}
+  ];
+  const result = analytics.detectCollisions(rows, {proximityDays: 1});
+  assert.equal(result.length, 1);
+  assert.equal(result[0].left.tracking_id, 'idx0-later-date');
+  assert.equal(result[0].right.tracking_id, 'idx1-earlier-date');
+  assert.equal(result[0].id, 'idx0-later-date::idx1-earlier-date');
+});
+
 test('planning completeness identifies missing applicable fields', () => {
   const result = analytics.planningCompleteness({...base, priority: ''});
   assert.equal(result.score, 88);
   assert.deepEqual(result.missing, ['priority']);
+});
+
+test('planning completeness scores a standalone activity 100% when it has no campaign or pack', () => {
+  const standalone = {...base, tracking_pack_id: '', communication_pack: '', campaign: ''};
+  const result = analytics.planningCompleteness(standalone);
+  assert.equal(result.score, 100);
+  assert.deepEqual(result.missing, []);
+});
+
+test('planning completeness flags a missing activity description', () => {
+  const result = analytics.planningCompleteness({...base, activity_description: ''});
+  assert.equal(result.score, 88);
+  assert.deepEqual(result.missing, ['activity_description']);
 });
 
 test('lead time stats report distribution, short notice, and exclusions', () => {

@@ -158,6 +158,10 @@ The dashboard now includes a create-activity flow with separate internal and ext
 
 Another assumption to verify against the source system: `start_date`/`end_date` are entered through a `datetime-local` field, so the dashboard reads them in whatever wall-clock time zone the browser is running in, converts that to a UTC instant on save, and stores only the instant. The per-activity `time_zone` field is independent, descriptive metadata (e.g. for display) — it does not re-interpret or shift the stored instant, so an activity's displayed local time depends on the viewer's browser time zone, not on its `time_zone` value.
 
+### Planning completeness
+
+Both dashboards score each activity's planning completeness against the fields a planner actually controls in the entry form: activity name, start date, channel, lead team (or lead), target audience, priority, strategic objectives, and activity description. Pack/campaign linkage is intentionally excluded from this score and tracked as its own metric (`missingPackIds`, shown as "Missing pack/campaign"), because pack membership must never be guessed onto an activity — a legitimate standalone activity is fully complete once its own fields are filled in, even with no pack.
+
 ### Archiving
 
 The SharePoint source splits internal and external activities into an "active" list and a separate "Archive" list purely because SharePoint list views cap at roughly 5,000 items — archiving is a view-size workaround, not a signal that an activity is less relevant. `pipeline/scripts/process_cplan.py` already merges both lists (de-duplicated) into one dataset with an `is_archived` flag, and V6's `Activity.is_archive` column carries this forward. V6 treats archived rows as regular data: nothing in the dashboard or its analytics filters on `is_archive`, so archived activities count in every KPI. The intent is to make periodic archiving unnecessary once V6 is the system of record — a database has no 5k-item view limit.
