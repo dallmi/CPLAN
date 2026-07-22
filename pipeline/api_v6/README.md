@@ -15,6 +15,7 @@ V6 keeps the V4 analytics and planning experience but replaces the browser-local
 - server-generated, uniqueness-enforced tracking IDs on activity creation
 - computed read-only fields (`planning_lead_days`, `tracking_pack_id`) on every activity read
 - blank-string input on create/patch normalized to `NULL` for optional fields
+- daily snapshot sync: upserts the SharePoint mirror into the database (source wins, conflicts reported, nothing deleted) alongside V6-created activities
 
 ## Activity fields and generated values
 
@@ -84,6 +85,16 @@ Open <http://127.0.0.1:8780/>. API documentation is available at <http://127.0.0
 
 The seed command is intentionally idempotent: if the activities table already contains records, it imports nothing. The importer resolves the database the same way the API does: an explicit `CPLAN_DATABASE_URL` first, then `CPLAN_DB_HOST`/`_PORT`/`_NAME`/`_USER`/`_PASSWORD` composed into one (see the Docker Compose section below — this is what lets the seed command work inside the `api` container, which only sets the `CPLAN_DB_*` variables), then the persisted backend settings file.
 
+## Daily snapshot sync
+
+Once seeded, `pipeline/api_v6/sync_snapshot.py` keeps the database in step with the daily SharePoint export (`pipeline/output/communications.parquet`) without disturbing activities created directly in V6:
+
+```bash
+PYTHONPATH=. .venv/bin/python -m pipeline.api_v6.sync_snapshot
+```
+
+Policy (binding): SharePoint is the system of record, so a row changed in both the source and locally in V6 is overwritten by the source value and reported as a **conflict** (field-level diff). Rows created in V6 (`legacy_sp_id IS NULL`) are never touched and are counted as **local-only**. Rows are never deleted — a `(source_type, legacy_sp_id)` missing from the snapshot is reported as **vanished** and left as-is. Records without an `sp_id` are **skipped**. Every run writes one `sync_runs` row (counts + a JSON detail blob capped at 50 entries each for conflicts/vanished); `GET /api/sync-runs/latest` returns it, or `{"status": "never_synced"}` before the first run. Accepts the same `--settings`/`--parquet` flags as `import_snapshot`.
+
 ## Run with Docker Compose
 
 Docker Desktop must be running. Keep the password outside Git:
@@ -107,6 +118,7 @@ Then open <http://127.0.0.1:8780/>. Both published ports bind only to localhost.
 ```bash
 PYTHONPATH=. .venv/bin/python -m pytest tests/test_v6_api.py tests/test_v6_import.py -q
 PYTHONPATH=. .venv/bin/python -m pytest tests/test_v6_database.py tests/test_v6_setup_backend.py -q
+PYTHONPATH=. .venv/bin/python -m pytest tests/test_v6_sync.py -q
 python3 tests/test_dashboard_v6.py -v
 node --check pipeline/dashboard-v6-postgres/app.js
 ```

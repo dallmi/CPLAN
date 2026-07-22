@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import uuid
@@ -7,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from pipeline.api_v6.app import Activity, ActivityRead, Base, create_app, create_environment_app
+from pipeline.api_v6.app import Activity, ActivityRead, Base, SyncRun, create_app, create_environment_app
 
 TRACKING_ID_PATTERN = re.compile(r"^[A-Z0-9]+-[0-9]+-\d{6}-\d{7}-[A-Z]{2,4}$")
 
@@ -570,3 +571,43 @@ def test_time_zone_round_trips_through_create_patch_and_read(client):
 
     listed = client.get("/api/activities").json()["items"][0]
     assert listed["time_zone"] == "America/New_York"
+
+
+def test_sync_runs_latest_reports_never_synced_when_no_run_exists(client):
+    response = client.get("/api/sync-runs/latest")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "never_synced"}
+
+
+def test_sync_runs_latest_returns_the_most_recently_run_sync(client):
+    with Session(client.app.state.engine) as session:
+        session.add(
+            SyncRun(
+                snapshot_path="older.parquet",
+                ran_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                created=1,
+                details=json.dumps({"conflicts": [], "vanished": []}),
+            )
+        )
+        session.add(
+            SyncRun(
+                snapshot_path="newer.parquet",
+                ran_at=datetime(2026, 1, 2, tzinfo=timezone.utc),
+                updated=5,
+                conflicts=2,
+                details=json.dumps({"conflicts": [{"field": "activity_name"}], "vanished": []}),
+            )
+        )
+        session.commit()
+
+    response = client.get("/api/sync-runs/latest")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["snapshot_path"] == "newer.parquet"
+    assert body["ran_at"] == "2026-01-02T00:00:00Z"
+    assert body["updated"] == 5
+    assert body["conflicts"] == 2
+    assert body["created"] == 0
+    assert body["details"]["conflicts"] == [{"field": "activity_name"}]

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import uuid
@@ -127,10 +128,47 @@ class Activity(Base):
     source_modified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     is_archive: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    # Set to `version` after every sync write (insert or update) by sync_snapshot.py;
+    # never touched by the UI PATCH endpoint. NULL means "never synced" (either a
+    # V6-created row, or a legacy row imported before this column existed). A row is
+    # locally dirty iff `version > synced_version` — see sync_snapshot.py.
+    synced_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
+
+
+class SyncRun(Base):
+    """One row per `sync_snapshot.py` run: counts + a capped JSON detail blob.
+
+    Never written by the UI or the import_snapshot one-time seeder — only by the
+    daily sync job. `GET /api/sync-runs/latest` reads the most recent row.
+    """
+
+    __tablename__ = "sync_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    # Both a Python-side default (used by every ORM insert, so `GET
+    # /api/sync-runs/latest` can order by it with microsecond resolution — SQLite's
+    # CURRENT_TIMESTAMP, which server_default=func.now() renders to, only has
+    # second-level precision and would tie two same-second runs) and a server
+    # default (so a row inserted outside the ORM still gets a sensible timestamp).
+    ran_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+    )
+    snapshot_path: Mapped[str] = mapped_column(Text, nullable=False)
+    created: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    unchanged: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    conflicts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    vanished: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    local_only: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    skipped_no_id: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    details: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class ActivityFields(BaseModel):
@@ -518,6 +556,25 @@ def create_app(database_url: str | URL | None = None) -> FastAPI:
             session.commit()
             session.refresh(updated)
             return updated
+
+    @app.get("/api/sync-runs/latest")
+    def latest_sync_run():
+        with Session(engine) as session:
+            run = session.scalar(select(SyncRun).order_by(SyncRun.ran_at.desc()))
+            if run is None:
+                return {"status": "never_synced"}
+            return {
+                "ran_at": as_utc(run.ran_at).isoformat().replace("+00:00", "Z"),
+                "snapshot_path": run.snapshot_path,
+                "created": run.created,
+                "updated": run.updated,
+                "unchanged": run.unchanged,
+                "conflicts": run.conflicts,
+                "vanished": run.vanished,
+                "local_only": run.local_only,
+                "skipped_no_id": run.skipped_no_id,
+                "details": json.loads(run.details) if run.details else None,
+            }
 
     dashboard_dir = Path(__file__).resolve().parents[1] / "dashboard-v6-postgres"
     app.mount("/", StaticFiles(directory=dashboard_dir, html=True), name="dashboard")
