@@ -100,3 +100,49 @@ def test_ensure_schema_is_a_no_op_when_schema_is_already_current(tmp_path):
     columns_after = {column["name"] for column in inspect(engine).get_columns("activities")}
     assert columns_after == columns_before
     engine.dispose()
+
+
+def test_tracking_id_unique_index_blocks_duplicates_among_v6_created_rows(tmp_path):
+    """The partial unique index only covers rows without legacy_sp_id (V6-created rows)."""
+    engine = create_cplan_engine(f"sqlite:///{tmp_path / 'unique-index.sqlite3'}")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        session.add(
+            Activity(source_type="internal", activity_name="First", tracking_id="STA-0000000-260101-0000001-GEN")
+        )
+        session.commit()
+
+    with Session(engine) as session:
+        session.add(
+            Activity(source_type="internal", activity_name="Second", tracking_id="STA-0000000-260101-0000001-GEN")
+        )
+        with pytest.raises(IntegrityError):
+            session.commit()
+    engine.dispose()
+
+
+def test_tracking_id_unique_index_allows_duplicates_among_legacy_rows(tmp_path):
+    """Legacy imports (carrying legacy_sp_id) are exempt, since duplicate tracking IDs exist in the source data."""
+    engine = create_cplan_engine(f"sqlite:///{tmp_path / 'legacy-duplicates.sqlite3'}")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        session.add_all(
+            [
+                Activity(
+                    source_type="internal",
+                    activity_name="Legacy first",
+                    legacy_sp_id=1,
+                    tracking_id="QRREP-0000058-240709-0000060-EMI",
+                ),
+                Activity(
+                    source_type="internal",
+                    activity_name="Legacy second",
+                    legacy_sp_id=2,
+                    tracking_id="QRREP-0000058-240709-0000060-EMI",
+                ),
+            ]
+        )
+        session.commit()  # must not raise
+    engine.dispose()

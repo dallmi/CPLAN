@@ -438,6 +438,38 @@ def test_generated_tracking_id_channel_abbr_is_gen_without_a_channel(client):
     assert created["tracking_id"].split("-")[4] == "GEN"
 
 
+def test_generated_tracking_id_channel_abbr_falls_back_to_gen_when_alphabetic_prefix_is_too_short(client):
+    created = client.post(
+        "/api/activities",
+        json={"source_type": "internal", "activity_name": "Short alphabetic channel activity", "channel": "5G"},
+    ).json()
+
+    assert created["tracking_id"].split("-")[4] == "GEN"
+
+
+def test_create_retries_on_tracking_id_collision_from_a_concurrent_insert(client, monkeypatch):
+    """The SELECT-based fast path can miss a same-instant concurrent insert (TOCTOU race).
+
+    Simulate that by forcing the initial generation to return an ID that already
+    exists in the DB; the create route must catch the resulting IntegrityError,
+    roll back, and retry with an incremented activity number instead of erroring.
+    """
+    duplicate_tracking_id = "STA-0000000-260101-0000001-GEN"
+    _seed_activity(client, tracking_id=duplicate_tracking_id, legacy_sp_id=None)
+
+    import pipeline.api_v6.app as app_module
+
+    monkeypatch.setattr(app_module, "_generate_unique_tracking_id", lambda session, payload: duplicate_tracking_id)
+
+    response = client.post(
+        "/api/activities",
+        json={"source_type": "internal", "activity_name": "Collides with concurrent insert"},
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["tracking_id"] == "STA-0000000-260101-0000002-GEN"
+
+
 def test_time_zone_round_trips_through_create_patch_and_read(client):
     created = client.post(
         "/api/activities",

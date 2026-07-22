@@ -23,8 +23,9 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-from sqlalchemy import Boolean, DateTime, Integer, String, Text, Uuid, func, select, update
+from sqlalchemy import Boolean, DateTime, Index, Integer, String, Text, Uuid, func, select, text, update
 from sqlalchemy.engine import URL
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
 from .database import backend_from_url, create_cplan_engine, ensure_schema
@@ -78,6 +79,19 @@ class Base(DeclarativeBase):
 
 class Activity(Base):
     __tablename__ = "activities"
+    __table_args__ = (
+        # Tracking IDs must be unique among V6-generated rows (legacy_sp_id IS NULL).
+        # Legacy-imported rows (legacy_sp_id set) are exempt: the source system
+        # genuinely contains duplicate tracking IDs, so a table-wide unique
+        # constraint would break import_snapshot seeding.
+        Index(
+            "ix_activities_tracking_id_v6_unique",
+            "tracking_id",
+            unique=True,
+            sqlite_where=text("legacy_sp_id IS NULL"),
+            postgresql_where=text("legacy_sp_id IS NULL"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     legacy_sp_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
@@ -284,6 +298,7 @@ ZURICH = ZoneInfo("Europe/Zurich")
 STANDALONE_PACK_PREFIX = "STA-0000000"
 _CPID_PATTERN = re.compile(r"^[A-Z0-9]+-[0-9]+$")
 MAX_TRACKING_ID_GENERATION_ATTEMPTS = 10_000
+MAX_TRACKING_ID_COMMIT_RETRIES = 5
 
 
 def _pack_prefix(communication_pack_cpid: str | None) -> str:
@@ -314,7 +329,10 @@ def _channel_abbr(channel: str | None, existing: Sequence[tuple[str | None, str]
     if votes:
         return votes.most_common(1)[0][0]
     alphabetic = "".join(char for char in channel if char.isalpha())
-    return alphabetic[:3].upper() or "GEN"
+    abbr = alphabetic[:3].upper()
+    # The format contract requires 2-4 letters; a channel with fewer than 2
+    # alphabetic characters (e.g. "5G") falls back to the generic abbreviation.
+    return abbr if len(abbr) >= 2 else "GEN"
 
 
 def generate_tracking_id(
@@ -346,6 +364,14 @@ def _increment_activity_number(tracking_id: str) -> str:
 
 
 def _generate_unique_tracking_id(session: Session, payload: ActivityCreate) -> str:
+    """Fast-path uniqueness check: read-then-check against the current session's view.
+
+    This narrows the odds of a collision but cannot fully close a race between
+    two concurrent requests (both can pass this SELECT before either commits).
+    The `ix_activities_tracking_id_v6_unique` partial unique index is the real
+    guarantee; `create_activity` catches the resulting `IntegrityError` and
+    retries with an incremented activity number as the concurrency backstop.
+    """
     existing = [
         (channel, tracking_id)
         for channel, tracking_id in session.execute(
@@ -396,11 +422,26 @@ def create_app(database_url: str | URL | None = None) -> FastAPI:
     def create_activity(payload: ActivityCreate):
         with Session(engine) as session:
             tracking_id = _generate_unique_tracking_id(session, payload)
-            activity = Activity(**payload.model_dump(), tracking_id=tracking_id)
-            session.add(activity)
-            session.commit()
-            session.refresh(activity)
-            return activity
+            activity_fields = payload.model_dump()
+            attempts = 0
+            while True:
+                activity = Activity(**activity_fields, tracking_id=tracking_id)
+                session.add(activity)
+                try:
+                    session.commit()
+                except IntegrityError:
+                    # Concurrency backstop: another request committed the same
+                    # tracking_id after our fast-path SELECT check passed.
+                    session.rollback()
+                    attempts += 1
+                    if attempts > MAX_TRACKING_ID_COMMIT_RETRIES:
+                        raise HTTPException(
+                            status_code=500, detail={"code": "tracking_id_generation_exhausted"}
+                        )
+                    tracking_id = _increment_activity_number(tracking_id)
+                    continue
+                session.refresh(activity)
+                return activity
 
     @app.get("/api/activities", response_model=ActivityList)
     def list_activities():
