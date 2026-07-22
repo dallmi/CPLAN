@@ -7,11 +7,19 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal, get_args
 
 from fastapi import FastAPI, HTTPException, status
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    computed_field,
+    field_serializer,
+    field_validator,
+    model_validator,
+)
 from sqlalchemy import Boolean, DateTime, Integer, String, Text, Uuid, func, select, update
 from sqlalchemy.engine import URL
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
@@ -25,6 +33,40 @@ def as_utc(value: datetime | None) -> datetime | None:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
+
+
+def _optional_str_field_names(model_fields: dict[str, Any]) -> set[str]:
+    """Names of fields declared as `str | None` (i.e. optional strings).
+
+    `activity_name` is excluded even though `ActivityPatch` types it as
+    `str | None` (to allow omission on PATCH) — its `min_length=1` constraint
+    must keep rejecting an explicit empty string rather than have it
+    silently normalized to `None`.
+    """
+    names = set()
+    for name, field in model_fields.items():
+        if name == "activity_name":
+            continue
+        args = get_args(field.annotation)
+        if str in args and type(None) in args:
+            names.add(name)
+    return names
+
+
+def normalize_blank_strings(cls: type[BaseModel], data: Any) -> Any:
+    """Model-validator body: turn ""/whitespace-only input into None for optional str fields.
+
+    Shared by ActivityCreate and ActivityPatch so blank-string input (e.g. a
+    PATCH clearing a field via `"channel": ""`) is treated the same as an
+    explicit `null`, and stored as NULL rather than an empty string.
+    """
+    if not isinstance(data, dict):
+        return data
+    optional_str_fields = _optional_str_field_names(cls.model_fields)
+    for key, value in data.items():
+        if key in optional_str_fields and isinstance(value, str) and value.strip() == "":
+            data[key] = None
+    return data
 
 
 class Base(DeclarativeBase):
@@ -118,6 +160,11 @@ class ActivityFields(BaseModel):
 
 
 class ActivityCreate(ActivityFields):
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_blank_strings_before_validation(cls, data: Any) -> Any:
+        return normalize_blank_strings(cls, data)
+
     @field_validator("start_date", "end_date", "source_created_at", "source_modified_at")
     @classmethod
     def normalize_datetime_to_utc(cls, value: datetime | None):
@@ -156,6 +203,11 @@ class ActivityPatch(BaseModel):
     communication_ref: str | None = None
     audience: str | None = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_blank_strings_before_validation(cls, data: Any) -> Any:
+        return normalize_blank_strings(cls, data)
+
     @field_validator("activity_name")
     @classmethod
     def require_activity_name_when_supplied(cls, value: str | None) -> str:
@@ -189,6 +241,32 @@ class ActivityRead(ActivityFields):
         if value is None:
             return None
         return as_utc(value).isoformat().replace("+00:00", "Z")
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def planning_lead_days(self) -> int | None:
+        """Whole days between the reference timestamp and `start_date`.
+
+        `reference` is `source_created_at` when set, else `created_at`.
+        Negative values are returned as-is (a start date before the
+        reference) — analytics consumers exclude them themselves.
+        """
+        if self.start_date is None:
+            return None
+        reference = self.source_created_at or self.created_at
+        delta = self.start_date - reference
+        return round(delta.total_seconds() / 86400)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def tracking_pack_id(self) -> str | None:
+        """The cluster/pack portion of `tracking_id` (its first two `-`-separated parts)."""
+        if not self.tracking_id:
+            return None
+        parts = self.tracking_id.split("-")
+        if len(parts) < 2:
+            return None
+        return f"{parts[0]}-{parts[1]}"
 
 
 class ActivityList(BaseModel):
