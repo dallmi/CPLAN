@@ -1,0 +1,303 @@
+"""Local database API for CPLAN Planning Studio V6."""
+
+from __future__ import annotations
+
+import os
+import uuid
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Literal
+
+from fastapi import FastAPI, HTTPException, status
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
+from sqlalchemy import Boolean, DateTime, Integer, String, Text, Uuid, func, select, update
+from sqlalchemy.engine import URL
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
+
+from .database import backend_from_url, create_cplan_engine
+
+
+def as_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class Activity(Base):
+    __tablename__ = "activities"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    legacy_sp_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    source_type: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    tracking_id: Mapped[str | None] = mapped_column(String(160), nullable=True, index=True)
+    activity_name: Mapped[str] = mapped_column(String(500), nullable=False)
+    activity_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    target_audience: Mapped[str | None] = mapped_column(Text, nullable=True)
+    extended_audience: Mapped[str | None] = mapped_column(Text, nullable=True)
+    business_division: Mapped[str | None] = mapped_column(Text, nullable=True)
+    business_area: Mapped[str | None] = mapped_column(Text, nullable=True)
+    region: Mapped[str | None] = mapped_column(Text, nullable=True)
+    channel: Mapped[str | None] = mapped_column(Text, nullable=True)
+    partner_team: Mapped[str | None] = mapped_column(Text, nullable=True)
+    lead_team: Mapped[str | None] = mapped_column(Text, nullable=True)
+    lead: Mapped[str | None] = mapped_column(Text, nullable=True)
+    start_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    end_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    news_digest: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    priority: Mapped[str | None] = mapped_column(Text, nullable=True)
+    strategic_objectives: Mapped[str | None] = mapped_column(Text, nullable=True)
+    campaign: Mapped[str | None] = mapped_column(Text, nullable=True)
+    campaign_ltid: Mapped[str | None] = mapped_column(Text, nullable=True)
+    communication_pack_cpid: Mapped[str | None] = mapped_column(Text, nullable=True)
+    bod_geb: Mapped[str | None] = mapped_column(Text, nullable=True)
+    communication_pack: Mapped[str | None] = mapped_column(Text, nullable=True)
+    communication_ref: Mapped[str | None] = mapped_column(Text, nullable=True)
+    author: Mapped[str | None] = mapped_column(Text, nullable=True)
+    author_email: Mapped[str | None] = mapped_column(Text, nullable=True)
+    audience: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    source_modified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    is_archive: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class ActivityFields(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_type: Literal["internal", "external"]
+    legacy_sp_id: int | None = None
+    tracking_id: str | None = Field(default=None, max_length=160)
+    activity_name: str = Field(min_length=1, max_length=500)
+    activity_description: str | None = None
+    target_audience: str | None = None
+    extended_audience: str | None = None
+    business_division: str | None = None
+    business_area: str | None = None
+    region: str | None = None
+    channel: str | None = None
+    partner_team: str | None = None
+    lead_team: str | None = None
+    lead: str | None = None
+    start_date: datetime | None = None
+    end_date: datetime | None = None
+    news_digest: bool | None = None
+    priority: str | None = None
+    strategic_objectives: str | None = None
+    campaign: str | None = None
+    campaign_ltid: str | None = None
+    communication_pack_cpid: str | None = None
+    bod_geb: str | None = None
+    communication_pack: str | None = None
+    communication_ref: str | None = None
+    author: str | None = None
+    author_email: str | None = None
+    audience: str | None = None
+    source_created_at: datetime | None = None
+    source_modified_at: datetime | None = None
+    is_archive: bool = False
+
+    @model_validator(mode="after")
+    def validate_dates(self):
+        if self.start_date and self.end_date and self.end_date < self.start_date:
+            raise ValueError("end_date cannot be before start_date")
+        if self.source_type == "external" and self.news_digest is not None:
+            raise ValueError("news_digest is only valid for internal activities")
+        return self
+
+
+class ActivityCreate(ActivityFields):
+    @field_validator("start_date", "end_date", "source_created_at", "source_modified_at")
+    @classmethod
+    def normalize_datetime_to_utc(cls, value: datetime | None):
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            raise ValueError("datetime values must include a timezone offset")
+        return value.astimezone(timezone.utc)
+
+
+class ActivityPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    version: int = Field(ge=1)
+    activity_name: str | None = Field(default=None, min_length=1, max_length=500)
+    activity_description: str | None = None
+    target_audience: str | None = None
+    extended_audience: str | None = None
+    business_division: str | None = None
+    business_area: str | None = None
+    region: str | None = None
+    channel: str | None = None
+    partner_team: str | None = None
+    lead_team: str | None = None
+    lead: str | None = None
+    start_date: datetime | None = None
+    end_date: datetime | None = None
+    news_digest: bool | None = None
+    priority: str | None = None
+    strategic_objectives: str | None = None
+    campaign: str | None = None
+    campaign_ltid: str | None = None
+    communication_pack_cpid: str | None = None
+    bod_geb: str | None = None
+    communication_pack: str | None = None
+    communication_ref: str | None = None
+    audience: str | None = None
+
+    @field_validator("activity_name")
+    @classmethod
+    def require_activity_name_when_supplied(cls, value: str | None) -> str:
+        if value is None:
+            raise ValueError("activity_name cannot be null")
+        return value
+
+    @field_validator("start_date", "end_date")
+    @classmethod
+    def normalize_datetime_to_utc(cls, value: datetime | None):
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            raise ValueError("datetime values must include a timezone offset")
+        return value.astimezone(timezone.utc)
+
+
+class ActivityRead(ActivityFields):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    version: int
+    created_at: datetime
+    updated_at: datetime
+
+    @field_serializer(
+        "start_date", "end_date", "source_created_at", "source_modified_at", "created_at", "updated_at",
+        when_used="json",
+    )
+    def serialize_datetime(self, value: datetime | None):
+        if value is None:
+            return None
+        return as_utc(value).isoformat().replace("+00:00", "Z")
+
+
+class ActivityList(BaseModel):
+    items: list[ActivityRead]
+    total: int
+
+
+def create_app(database_url: str | URL | None = None) -> FastAPI:
+    resolved_url = database_url or os.environ.get("CPLAN_DATABASE_URL")
+    if not resolved_url:
+        raise RuntimeError(
+            "CPLAN database is not configured; use setup_backend or set CPLAN_DATABASE_URL"
+        )
+    backend = backend_from_url(resolved_url)
+    engine = create_cplan_engine(resolved_url)
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI):
+        Base.metadata.create_all(engine)
+        yield
+        engine.dispose()
+
+    app = FastAPI(title="CPLAN Planning Studio V6 API", version="0.1.0", lifespan=lifespan)
+    app.state.engine = engine
+
+    @app.get("/api/health")
+    def health():
+        with Session(engine) as session:
+            session.execute(select(1))
+        return {"status": "ok", "database": backend}
+
+    @app.post("/api/activities", response_model=ActivityRead, status_code=status.HTTP_201_CREATED)
+    def create_activity(payload: ActivityCreate):
+        with Session(engine) as session:
+            activity = Activity(**payload.model_dump())
+            session.add(activity)
+            session.commit()
+            session.refresh(activity)
+            return activity
+
+    @app.get("/api/activities", response_model=ActivityList)
+    def list_activities():
+        with Session(engine) as session:
+            items = list(session.scalars(select(Activity).order_by(Activity.start_date, Activity.id)))
+            return {"items": items, "total": len(items)}
+
+    @app.patch("/api/activities/{activity_id}", response_model=ActivityRead)
+    def update_activity(activity_id: uuid.UUID, payload: ActivityPatch):
+        values = payload.model_dump(exclude={"version"}, exclude_unset=True)
+        with Session(engine) as session:
+            current = session.get(Activity, activity_id)
+            if current is None:
+                raise HTTPException(status_code=404, detail={"code": "not_found"})
+            if current.version != payload.version:
+                raise HTTPException(
+                    status_code=409,
+                    detail={"code": "version_conflict", "expected_version": payload.version},
+                )
+
+            resulting_start = as_utc(values.get("start_date", current.start_date))
+            resulting_end = as_utc(values.get("end_date", current.end_date))
+            if resulting_start and resulting_end and resulting_end < resulting_start:
+                raise HTTPException(
+                    status_code=422,
+                    detail={"code": "invalid_date_range", "message": "end_date cannot be before start_date"},
+                )
+            resulting_news_digest = values.get("news_digest", current.news_digest)
+            if current.source_type == "external" and resulting_news_digest is not None:
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "code": "invalid_source_field",
+                        "message": "news_digest is only valid for internal activities",
+                    },
+                )
+
+            values["version"] = Activity.version + 1
+            values["updated_at"] = func.now()
+            statement = (
+                update(Activity)
+                .where(Activity.id == activity_id, Activity.version == payload.version)
+                .values(**values)
+                .returning(Activity)
+            )
+            updated = session.execute(statement).scalar_one_or_none()
+            if updated is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail={"code": "version_conflict", "expected_version": payload.version},
+                )
+            session.commit()
+            session.refresh(updated)
+            return updated
+
+    dashboard_dir = Path(__file__).resolve().parents[1] / "dashboard-v6-postgres"
+    app.mount("/", StaticFiles(directory=dashboard_dir, html=True), name="dashboard")
+    return app
+
+
+def create_environment_app() -> FastAPI:
+    """Create the ASGI app from an explicitly supplied environment URL."""
+    database_url = os.environ.get("CPLAN_DATABASE_URL")
+    if not database_url and os.environ.get("CPLAN_DB_PASSWORD"):
+        database_url = URL.create(
+            "postgresql+psycopg",
+            username=os.environ.get("CPLAN_DB_USER", "cplan"),
+            password=os.environ["CPLAN_DB_PASSWORD"],
+            host=os.environ.get("CPLAN_DB_HOST", "127.0.0.1"),
+            port=int(os.environ.get("CPLAN_DB_PORT", "5432")),
+            database=os.environ.get("CPLAN_DB_NAME", "cplan"),
+        )
+    return create_app(database_url)

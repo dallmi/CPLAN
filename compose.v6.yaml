@@ -1,0 +1,35 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: cplan
+      POSTGRES_USER: cplan
+      POSTGRES_PASSWORD: ${CPLAN_DB_PASSWORD:?Set CPLAN_DB_PASSWORD in your shell or local .env file}
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - cplan_v6_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cplan -d cplan"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: pipeline/api_v6/Dockerfile
+    environment:
+      CPLAN_DB_HOST: db
+      CPLAN_DB_PORT: "5432"
+      CPLAN_DB_NAME: cplan
+      CPLAN_DB_USER: cplan
+      CPLAN_DB_PASSWORD: ${CPLAN_DB_PASSWORD:?Set CPLAN_DB_PASSWORD in your shell or local .env file}
+    ports:
+      - "127.0.0.1:8780:8780"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  cplan_v6_data:

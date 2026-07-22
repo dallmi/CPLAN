@@ -24,6 +24,15 @@ pipeline/input/*.csv
 .env*
 !.env.example
 
+# CPLAN V6 local runtime state (user-owned, never committed)
+/data/
+/logs/
+/backups/
+cplan-settings.json
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
+
 # Pictures
 pictures/
 
