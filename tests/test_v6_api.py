@@ -108,6 +108,36 @@ def test_partial_update_rejects_invalid_resulting_date_range_without_persisting(
     assert persisted["start_date"] == created["start_date"]
 
 
+def test_partial_update_channel_only_succeeds_on_legacy_invalid_date_range_row(client):
+    """A legacy row can already carry end_date < start_date (import_snapshot
+    inserts via the ORM directly, bypassing ActivityCreate validation). The
+    resulting-range check must only run when the patch itself touches a date
+    field, so an unrelated edit (channel only) must not be blocked by a
+    pre-existing invalid range it never asked to change.
+    """
+    with Session(client.app.state.engine) as session:
+        activity = Activity(
+            source_type="internal",
+            activity_name="Legacy row with inverted date range",
+            legacy_sp_id=555,
+            tracking_id="QRREP-0000058-240709-0000060-EMI",
+            start_date=datetime(2026, 8, 10, tzinfo=timezone.utc),
+            end_date=datetime(2026, 8, 1, tzinfo=timezone.utc),
+        )
+        session.add(activity)
+        session.commit()
+        activity_id = activity.id
+        version = activity.version
+
+    response = client.patch(
+        f"/api/activities/{activity_id}",
+        json={"version": version, "channel": "Email"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["channel"] == "Email"
+
+
 def test_partial_update_rejects_internal_only_field_for_external_record(client):
     created = client.post(
         "/api/activities",
@@ -275,6 +305,57 @@ def test_create_rejects_empty_activity_name_via_min_length(client):
     assert response.status_code == 422
     errors = response.json()["detail"]
     assert any(err["type"] == "string_too_short" for err in errors)
+
+
+def test_create_rejects_end_date_before_start_date(client):
+    response = client.post(
+        "/api/activities",
+        json={
+            "source_type": "internal",
+            "activity_name": "Inverted date range activity",
+            "start_date": "2026-08-10T09:00:00+02:00",
+            "end_date": "2026-08-01T09:00:00+02:00",
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_list_activities_serves_legacy_rows_that_would_fail_create_validation(client):
+    """import_snapshot inserts Activity rows directly via the ORM, bypassing
+    ActivityCreate entirely. Invalid date ranges and empty activity names are
+    expected conditions in imported source data (the dashboard has a
+    dedicated invalidDateRanges KPI to surface them) — ActivityRead must
+    describe such rows, not police them, so GET /api/activities must return
+    200 and serialize both instead of 500ing the whole list.
+    """
+    with Session(client.app.state.engine) as session:
+        session.add_all(
+            [
+                Activity(
+                    source_type="internal",
+                    activity_name="Legacy row with inverted date range",
+                    legacy_sp_id=201,
+                    tracking_id="QRREP-0000058-240709-0000060-EMI",
+                    start_date=datetime(2026, 8, 10, tzinfo=timezone.utc),
+                    end_date=datetime(2026, 8, 1, tzinfo=timezone.utc),
+                ),
+                Activity(
+                    source_type="internal",
+                    activity_name="",
+                    legacy_sp_id=202,
+                    tracking_id="QRREP-0000058-240709-0000061-EMI",
+                ),
+            ]
+        )
+        session.commit()
+
+    response = client.get("/api/activities")
+
+    assert response.status_code == 200
+    names = {item["activity_name"] for item in response.json()["items"]}
+    assert "Legacy row with inverted date range" in names
+    assert "" in names
 
 
 def test_create_normalizes_whitespace_only_strings_to_none(client):

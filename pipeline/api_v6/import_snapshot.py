@@ -11,9 +11,11 @@ from typing import Any, Iterable, Mapping
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
+from sqlalchemy.engine import URL
 from sqlalchemy.orm import Session
 
 from .app import Activity, Base, create_app
+from .database import database_url_from_environment
 from .setup_backend import default_settings_path, load_backend_config, resolve_backend_database_url
 
 
@@ -99,7 +101,7 @@ def normalize_record(record: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
-def seed_records(database_url: str, records: Iterable[dict[str, Any]]) -> int:
+def seed_records(database_url: str | URL, records: Iterable[dict[str, Any]]) -> int:
     app = create_app(database_url)
     engine = app.state.engine
     Base.metadata.create_all(engine)
@@ -112,7 +114,7 @@ def seed_records(database_url: str, records: Iterable[dict[str, Any]]) -> int:
         return len(activities)
 
 
-def seed_parquet(database_url: str, parquet_path: Path) -> int:
+def seed_parquet(database_url: str | URL, parquet_path: Path) -> int:
     import pyarrow.parquet as parquet
 
     return seed_records(database_url, parquet.read_table(parquet_path).to_pylist())
@@ -121,10 +123,23 @@ def seed_parquet(database_url: str, parquet_path: Path) -> int:
 def resolve_database_url(
     settings_path: Path | None = None,
     environ: Mapping[str, str] | None = None,
-) -> str:
+) -> str | URL:
+    """Resolve the database URL to seed, preferring the environment over persisted settings.
+
+    Composes the same `CPLAN_DB_*` variables that `create_environment_app`
+    understands (see `database_url_from_environment`) before falling back to
+    the persisted backend settings file. This matters for the documented
+    Docker seed command (`docker compose ... exec api python -m
+    pipeline.api_v6.import_snapshot ...`): inside the `api` container, only
+    `CPLAN_DB_HOST`/`_PORT`/`_NAME`/`_USER`/`_PASSWORD` are set (see
+    `compose.v6.yaml`) — there is no `CPLAN_DATABASE_URL` and no settings
+    file — so checking only `CPLAN_DATABASE_URL` and the settings file would
+    otherwise raise `FileNotFoundError` for that documented command.
+    """
     environment = os.environ if environ is None else environ
-    if environment.get("CPLAN_DATABASE_URL"):
-        return environment["CPLAN_DATABASE_URL"]
+    composed = database_url_from_environment(environment)
+    if composed is not None:
+        return composed
     return resolve_backend_database_url(load_backend_config(settings_path), environment)
 
 

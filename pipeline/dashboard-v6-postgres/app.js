@@ -30,10 +30,11 @@
 
   const apiErrorMessage = (detail, status) => {
     if (Array.isArray(detail)) {
-      return detail.map(item => {
+      const joined = detail.map(item => {
         const loc = Array.isArray(item.loc) ? (item.loc[0] === 'body' ? item.loc.slice(1) : item.loc).join('.') : '';
         return loc ? `${loc}: ${item.msg}` : (item.msg || 'Invalid value');
       }).join('; ');
+      return joined || `Request failed (${status})`;
     }
     if (detail && typeof detail === 'object') {
       if (detail.code === 'version_conflict') return 'This activity changed since you opened it. Reload and review before saving.';

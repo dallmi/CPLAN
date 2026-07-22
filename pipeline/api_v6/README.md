@@ -82,7 +82,7 @@ PYTHONPATH=. .venv/bin/python pipeline/scripts/start_cplan_v6.py
 
 Open <http://127.0.0.1:8780/>. API documentation is available at <http://127.0.0.1:8780/docs>.
 
-The seed command is intentionally idempotent: if the activities table already contains records, it imports nothing. The importer uses the persisted backend settings; `CPLAN_DATABASE_URL` can override them explicitly for automation without exposing credentials in process arguments.
+The seed command is intentionally idempotent: if the activities table already contains records, it imports nothing. The importer resolves the database the same way the API does: an explicit `CPLAN_DATABASE_URL` first, then `CPLAN_DB_HOST`/`_PORT`/`_NAME`/`_USER`/`_PASSWORD` composed into one (see the Docker Compose section below — this is what lets the seed command work inside the `api` container, which only sets the `CPLAN_DB_*` variables), then the persisted backend settings file.
 
 ## Run with Docker Compose
 

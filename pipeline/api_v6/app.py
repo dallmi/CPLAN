@@ -28,7 +28,7 @@ from sqlalchemy.engine import URL
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
-from .database import backend_from_url, create_cplan_engine, ensure_schema
+from .database import backend_from_url, create_cplan_engine, database_url_from_environment, ensure_schema
 
 
 def as_utc(value: datetime | None) -> datetime | None:
@@ -168,20 +168,25 @@ class ActivityFields(BaseModel):
     source_modified_at: datetime | None = None
     is_archive: bool = False
 
-    @model_validator(mode="after")
-    def validate_dates(self):
-        if self.start_date and self.end_date and self.end_date < self.start_date:
-            raise ValueError("end_date cannot be before start_date")
-        if self.source_type == "external" and self.news_digest is not None:
-            raise ValueError("news_digest is only valid for internal activities")
-        return self
-
 
 class ActivityCreate(ActivityFields):
     @model_validator(mode="before")
     @classmethod
     def normalize_blank_strings_before_validation(cls, data: Any) -> Any:
         return normalize_blank_strings(cls, data)
+
+    @model_validator(mode="after")
+    def validate_dates(self):
+        # Input-side rule only: read models must describe persisted data, not
+        # police it, so this stays on ActivityCreate rather than the shared
+        # ActivityFields base (ActivityRead no longer inherits it — see
+        # ActivityRead below, and PATCH enforces its own resulting-values
+        # checks directly in the route).
+        if self.start_date and self.end_date and self.end_date < self.start_date:
+            raise ValueError("end_date cannot be before start_date")
+        if self.source_type == "external" and self.news_digest is not None:
+            raise ValueError("news_digest is only valid for internal activities")
+        return self
 
     @field_validator("start_date", "end_date", "source_created_at", "source_modified_at")
     @classmethod
@@ -247,8 +252,16 @@ class ActivityPatch(BaseModel):
 class ActivityRead(ActivityFields):
     model_config = ConfigDict(from_attributes=True)
 
+    # Relax the input-side constraints inherited from ActivityFields: this is a
+    # read model describing persisted data, not policing it. Legacy rows
+    # (e.g. inserted directly via import_snapshot's ORM path, bypassing
+    # pydantic) may carry an empty activity_name or a value/length that
+    # would never pass create/patch validation, and SQLite does not enforce
+    # column lengths at all — such rows must still serialize with a 200
+    # instead of 500ing the whole GET /api/activities response.
+    activity_name: str
     id: uuid.UUID
-    tracking_id: str | None = Field(default=None, max_length=160)
+    tracking_id: str | None = None
     version: int
     created_at: datetime
     updated_at: datetime
@@ -462,8 +475,17 @@ def create_app(database_url: str | URL | None = None) -> FastAPI:
                     detail={"code": "version_conflict", "expected_version": payload.version},
                 )
 
-            resulting_start = as_utc(values.get("start_date", current.start_date))
-            resulting_end = as_utc(values.get("end_date", current.end_date))
+            # Only re-validate the resulting date range when the patch itself
+            # touches a date field. A legacy row can already carry
+            # end_date < start_date (import_snapshot inserts via the ORM,
+            # bypassing this validation); an unrelated edit — e.g. channel
+            # only — must not be blocked by a pre-existing invalid range it
+            # never asked to change.
+            if "start_date" in values or "end_date" in values:
+                resulting_start = as_utc(values.get("start_date", current.start_date))
+                resulting_end = as_utc(values.get("end_date", current.end_date))
+            else:
+                resulting_start = resulting_end = None
             if resulting_start and resulting_end and resulting_end < resulting_start:
                 raise HTTPException(
                     status_code=422,
@@ -504,14 +526,4 @@ def create_app(database_url: str | URL | None = None) -> FastAPI:
 
 def create_environment_app() -> FastAPI:
     """Create the ASGI app from an explicitly supplied environment URL."""
-    database_url = os.environ.get("CPLAN_DATABASE_URL")
-    if not database_url and os.environ.get("CPLAN_DB_PASSWORD"):
-        database_url = URL.create(
-            "postgresql+psycopg",
-            username=os.environ.get("CPLAN_DB_USER", "cplan"),
-            password=os.environ["CPLAN_DB_PASSWORD"],
-            host=os.environ.get("CPLAN_DB_HOST", "127.0.0.1"),
-            port=int(os.environ.get("CPLAN_DB_PORT", "5432")),
-            database=os.environ.get("CPLAN_DB_NAME", "cplan"),
-        )
-    return create_app(database_url)
+    return create_app(database_url_from_environment())

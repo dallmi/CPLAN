@@ -102,6 +102,68 @@ def test_ensure_schema_is_a_no_op_when_schema_is_already_current(tmp_path):
     engine.dispose()
 
 
+def _create_legacy_activities_table_without_indexes(engine) -> None:
+    """Recreate the `activities` table with every model column but none of its
+    indexes — mirrors a database created before the partial unique index
+    `ix_activities_tracking_id_v6_unique` existed. `Base.metadata.create_all`
+    only creates indexes as part of creating a table, so a table like this
+    one, already present, would otherwise never gain the index.
+    """
+    activities = Base.metadata.tables["activities"]
+    legacy_metadata = MetaData()
+    legacy_columns = [
+        Column(
+            column.name,
+            column.type,
+            primary_key=column.primary_key,
+            nullable=column.nullable,
+            server_default=column.server_default,
+        )
+        for column in activities.columns
+    ]
+    Table(activities.name, legacy_metadata, *legacy_columns)
+    legacy_metadata.create_all(engine)
+
+
+def test_ensure_schema_adds_missing_unique_index_to_an_existing_table(tmp_path):
+    engine = create_cplan_engine(f"sqlite:///{tmp_path / 'index-topup.sqlite3'}")
+    _create_legacy_activities_table_without_indexes(engine)
+
+    indexes_before = {index["name"] for index in inspect(engine).get_indexes("activities")}
+    assert "ix_activities_tracking_id_v6_unique" not in indexes_before
+
+    ensure_schema(engine, Base.metadata)
+
+    indexes_after = {index["name"] for index in inspect(engine).get_indexes("activities")}
+    assert "ix_activities_tracking_id_v6_unique" in indexes_after
+
+    with Session(engine) as session:
+        session.add(
+            Activity(source_type="internal", activity_name="First", tracking_id="STA-0000000-260101-0000001-GEN")
+        )
+        session.commit()
+
+    with Session(engine) as session:
+        session.add(
+            Activity(source_type="internal", activity_name="Second", tracking_id="STA-0000000-260101-0000001-GEN")
+        )
+        with pytest.raises(IntegrityError):
+            session.commit()
+    engine.dispose()
+
+
+def test_ensure_schema_index_topup_is_idempotent(tmp_path):
+    engine = create_cplan_engine(f"sqlite:///{tmp_path / 'index-topup-idempotent.sqlite3'}")
+    _create_legacy_activities_table_without_indexes(engine)
+
+    ensure_schema(engine, Base.metadata)
+    ensure_schema(engine, Base.metadata)  # second run must no-op, not error on "index already exists"
+
+    indexes_after = {index["name"] for index in inspect(engine).get_indexes("activities")}
+    assert "ix_activities_tracking_id_v6_unique" in indexes_after
+    engine.dispose()
+
+
 def test_tracking_id_unique_index_blocks_duplicates_among_v6_created_rows(tmp_path):
     """The partial unique index only covers rows without legacy_sp_id (V6-created rows)."""
     engine = create_cplan_engine(f"sqlite:///{tmp_path / 'unique-index.sqlite3'}")

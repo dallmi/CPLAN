@@ -178,6 +178,13 @@ class DashboardV6Tests(unittest.TestCase):
         # news_digest is internal-only and must be handled in app.js.
         self.assertIn("news_digest", app)
 
+    def test_v6_api_error_message_falls_back_on_empty_422_detail_array(self):
+        app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+
+        # An empty pydantic-422 `detail` array must not produce a blank
+        # toast message ('joined' with nothing yields '').
+        self.assertIn("return joined || `Request failed (${status})`;", app)
+
     def test_v6_reusable_multiselect_control(self):
         app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
         html = (DASHBOARD / "index.html").read_text(encoding="utf-8")
