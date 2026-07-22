@@ -3,7 +3,7 @@
 
   const A = window.CplanAnalytics;
   const COLORS = {grey:'#404040', bronze:'#B98E2C'};
-  const state = {snapshotRows:[], rows:[], meta:null, horizonWeeks:8, calendarDate:new Date(), selected:null, editing:false, dirty:false, filteredRows:[], collisionsCache:new Map(), drawerOpener:null};
+  const state = {snapshotRows:[], rows:[], meta:null, horizonWeeks:8, calendarDate:new Date(), selected:null, editing:false, creating:false, dirty:false, filteredRows:[], collisionsCache:new Map(), drawerOpener:null};
 
   const esc = A.escapeHtml;
   const fmtNum = value => Number(value || 0).toLocaleString('en-GB');
@@ -19,6 +19,14 @@
   };
   const nonempty = value => value !== null && value !== undefined && String(value).trim() && value !== 'None' && value !== 'null';
   const split = value => A.normalizeMulti(value);
+
+  const AUDIENCE_BANDS = ['< 1000', '1–10k', '10–50k', '50–100k', '> 100k'];
+  const MULTISELECT_FIELDS = ['strategic_objectives', 'business_division', 'region'];
+  const REQUIRED_COMMON = ['activity_name', 'channel', 'priority', 'strategic_objectives', 'activity_description', 'region', 'start_date', 'end_date', 'time_zone', 'lead', 'lead_team'];
+  const REQUIRED_INTERNAL = REQUIRED_COMMON.concat(['target_audience', 'audience', 'business_division']);
+  const REQUIRED_EXTERNAL = REQUIRED_COMMON.slice();
+  const FIELD_LABELS = {activity_name:'Activity name', channel:'Channel', priority:'Priority', strategic_objectives:'Communications pillars', activity_description:'Description', target_audience:'Target audience', audience:'Estimated audience size', business_division:'Business division', region:'Region', start_date:'Start date', end_date:'End date', time_zone:'Time zone', lead:'Lead', lead_team:'Lead team'};
+  const CREATE_FIELDS = ['activity_name', 'activity_description', 'target_audience', 'business_division', 'business_area', 'region', 'channel', 'partner_team', 'lead_team', 'lead', 'start_date', 'end_date', 'time_zone', 'priority', 'strategic_objectives', 'campaign', 'communication_pack_cpid', 'audience'];
 
   const apiErrorMessage = (detail, status) => {
     if (Array.isArray(detail)) {
@@ -50,6 +58,9 @@
     }
     listActivities() { return this.request('/api/activities'); }
     health() { return this.request('/api/health'); }
+    createActivity(payload) {
+      return this.request('/api/activities', {method:'POST',body:JSON.stringify(payload)});
+    }
     updateActivity(id, version, patch) {
       return this.request(`/api/activities/${encodeURIComponent(id)}`, {method:'PATCH',body:JSON.stringify(Object.assign({version},patch))});
     }
@@ -276,10 +287,130 @@
     });
   }
 
+  function form() { return document.getElementById('activity-form'); }
+
+  function multiselectContainers() { return Array.from(document.querySelectorAll('[data-multiselect]')); }
+  function msContainer(name) { return document.querySelector(`[data-multiselect="${name}"]`); }
+  function msHidden(container) { return container.querySelector('input[type=hidden]'); }
+  function msValues(container) { return split(msHidden(container).value); }
+
+  function msUpdateTrigger(container) {
+    const values=msValues(container),valueEl=container.querySelector('.ms-value');
+    if(!values.length){valueEl.textContent='Select…';valueEl.classList.add('placeholder');return;}
+    valueEl.classList.remove('placeholder');
+    const joined=values.join(', ');
+    valueEl.textContent=(values.length<=3&&joined.length<=32)?joined:`${values.length} selected`;
+  }
+
+  function msRender(container, options) {
+    const selected=msValues(container),all=options.slice();
+    selected.forEach(value=>{if(!all.includes(value))all.push(value);});
+    container.querySelector('.ms-options').innerHTML=all.length?all.map(value=>`<label class="ms-option"><input type="checkbox" value="${esc(value)}"${selected.includes(value)?' checked':''}><span>${esc(value)}</span></label>`).join(''):'<div class="ms-empty">No options available</div>';
+    const filter=container.querySelector('.ms-filter');
+    filter.style.display=all.length>10?'block':'none';
+    if(all.length<=10)filter.value='';
+    msFilter(container,filter.value);
+    msUpdateTrigger(container);
+  }
+
+  function msFilter(container, term) {
+    const query=String(term||'').trim().toLowerCase();
+    container.querySelectorAll('.ms-option').forEach(opt=>{opt.style.display=opt.textContent.toLowerCase().includes(query)?'flex':'none';});
+  }
+
+  function closeMsPopover(container) {
+    container.querySelector('.ms-popover').hidden=true;
+    container.querySelector('.ms-trigger').setAttribute('aria-expanded','false');
+  }
+
+  function openMsPopover(container) {
+    multiselectContainers().forEach(other=>{if(other!==container)closeMsPopover(other);});
+    container.querySelector('.ms-popover').hidden=false;
+    container.querySelector('.ms-trigger').setAttribute('aria-expanded','true');
+    const filter=container.querySelector('.ms-filter');
+    if(filter.style.display!=='none')filter.focus();
+  }
+
+  function setMultiselectEnabled(container, enabled) {
+    container.querySelector('.ms-trigger').disabled=!enabled;
+    if(!enabled)closeMsPopover(container);
+  }
+
+  function wireMultiselects() {
+    multiselectContainers().forEach(container=>{
+      const trigger=container.querySelector('.ms-trigger');
+      trigger.setAttribute('aria-haspopup','listbox');
+      trigger.setAttribute('aria-expanded','false');
+      trigger.onclick=()=>{if(trigger.disabled)return;const pop=container.querySelector('.ms-popover');if(pop.hidden)openMsPopover(container);else closeMsPopover(container);};
+      container.querySelector('.ms-options').addEventListener('change',()=>{
+        const checked=Array.from(container.querySelectorAll('.ms-option input:checked')).map(input=>input.value);
+        msHidden(container).value=checked.join('; ');
+        msUpdateTrigger(container);
+        if(state.editing)state.dirty=true;
+      });
+      container.querySelector('.ms-filter').addEventListener('input',event=>msFilter(container,event.target.value));
+    });
+  }
+
+  function renderMultiselectOptions() {
+    MULTISELECT_FIELDS.forEach(name=>msRender(msContainer(name),distinctValues(name)));
+  }
+
+  function distinctValues(field) { return countBy(state.rows,field).map(pair=>pair[0]); }
+
+  function distinctChannels(sourceType) {
+    const counts=new Map();
+    state.rows.filter(row=>row.source_type===sourceType).forEach(row=>split(row.channel).forEach(value=>counts.set(value,(counts.get(value)||0)+1)));
+    return Array.from(counts.entries()).sort((a,b)=>b[1]-a[1]).map(pair=>pair[0]);
+  }
+
+  function fillSelectOptions(name, values, placeholder) {
+    const el=form().elements[name],current=el.value;
+    el.innerHTML=`<option value="">${esc(placeholder)}</option>`+values.map(value=>`<option value="${esc(value)}">${esc(value)}</option>`).join('');
+    if(current&&values.includes(current))el.value=current;
+  }
+
+  function fillDatalist(id, values) {
+    document.getElementById(id).innerHTML=values.map(value=>`<option value="${esc(value)}"></option>`).join('');
+  }
+
+  function populateSelectOptions(sourceType) {
+    fillSelectOptions('channel',distinctChannels(sourceType),'Select channel…');
+    fillSelectOptions('target_audience',distinctValues('target_audience'),'Select…');
+    fillSelectOptions('audience',AUDIENCE_BANDS,'Select…');
+    fillDatalist('dl-campaign',distinctValues('campaign'));
+    fillDatalist('dl-communication_pack_cpid',distinctValues('communication_pack_cpid'));
+    fillDatalist('dl-business_area',distinctValues('business_area'));
+    fillDatalist('dl-lead_team',distinctValues('lead_team'));
+    fillDatalist('dl-partner_team',distinctValues('partner_team'));
+  }
+
+  function applyVariant(sourceType) {
+    const internal=sourceType==='internal';
+    document.querySelectorAll('#activity-form [data-variant="internal"]').forEach(el=>{el.hidden=!internal;});
+    document.querySelectorAll('#activity-form .req[data-vreq]').forEach(el=>{el.hidden=!internal;});
+  }
+
+  function currentSourceType() {
+    const active=document.querySelector('#source-toggle button.active');
+    return active?active.dataset.source:'internal';
+  }
+
+  function setSourceToggle(source) {
+    document.querySelectorAll('#source-toggle button').forEach(btn=>btn.classList.toggle('active',btn.dataset.source===source));
+  }
+
+  function focusField(name) {
+    const container=msContainer(name);
+    if(container){container.querySelector('.ms-trigger').focus();return;}
+    const el=form().elements[name];
+    if(el&&typeof el.focus==='function')el.focus();
+  }
+
   function populateDrawerForm(row) {
-    const form=document.getElementById('activity-form');
-    Array.from(form.elements).forEach(el=>{
+    Array.from(form().elements).forEach(el=>{
       if(!el.name)return;
+      if(el.type==='checkbox'){el.checked=!!row[el.name];return;}
       const value=(el.type==='datetime-local'?isoLocal(row[el.name]):row[el.name])||'';
       if(el.tagName==='SELECT'){
         Array.from(el.querySelectorAll('option[data-injected]')).forEach(opt=>opt.remove());
@@ -293,24 +424,62 @@
     });
   }
 
+  function resetCreateForm() {
+    Array.from(form().elements).forEach(el=>{
+      if(!el.name)return;
+      if(el.tagName==='SELECT')Array.from(el.querySelectorAll('option[data-injected]')).forEach(opt=>opt.remove());
+      if(el.type==='checkbox')el.checked=false;
+      else if(el.name==='time_zone')el.value='Europe/Zurich';
+      else el.value='';
+    });
+  }
+
   function drawerFocusables() {
     const panel=document.querySelector('.drawer-panel');
     return Array.from(panel.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')).filter(el=>el.offsetParent!==null);
   }
 
   function openDrawer(row, opener) {
-    state.selected=row;state.editing=false;state.drawerOpener=opener||document.activeElement;
+    state.selected=row;state.editing=false;state.creating=false;state.drawerOpener=opener||document.activeElement;
+    const sourceType=row.source_type||'internal';
     document.getElementById('drawer-title').textContent=row.activity_name||'Untitled activity';
     document.getElementById('drawer-tracking').textContent=row.tracking_id||'No tracking ID';
+    document.getElementById('form-variant').hidden=true;
+    applyVariant(sourceType);
+    populateSelectOptions(sourceType);
     populateDrawerForm(row);
+    renderMultiselectOptions();
     setDrawerEditing(false);
     document.getElementById('activity-drawer').classList.add('open');
     document.getElementById('activity-drawer').setAttribute('aria-hidden','false');
     document.getElementById('drawer-close').focus();
   }
 
+  function openCreateDrawer(opener) {
+    state.selected=null;state.creating=true;state.editing=true;state.dirty=false;state.drawerOpener=opener||document.activeElement;
+    document.getElementById('drawer-title').textContent='New activity';
+    document.getElementById('drawer-tracking').textContent='Tracking ID is generated on save';
+    document.getElementById('drawer-mode-label').textContent='New record';
+    document.getElementById('drawer-mode-label').className='badge info';
+    document.getElementById('drawer-edit').style.display='none';
+    document.querySelector('.drawer-actions').style.display='flex';
+    document.getElementById('drawer-save').textContent='Create activity';
+    document.getElementById('form-validation').textContent='';
+    document.getElementById('form-variant').hidden=false;
+    setSourceToggle('internal');
+    resetCreateForm();
+    applyVariant('internal');
+    populateSelectOptions('internal');
+    renderMultiselectOptions();
+    setFormEnabled(true);
+    document.getElementById('activity-drawer').classList.add('open');
+    document.getElementById('activity-drawer').setAttribute('aria-hidden','false');
+    form().elements.activity_name.focus();
+  }
+
   function closeDrawer() {
-    document.getElementById('activity-drawer').classList.remove('open');document.getElementById('activity-drawer').setAttribute('aria-hidden','true');state.selected=null;state.editing=false;state.dirty=false;
+    multiselectContainers().forEach(closeMsPopover);
+    document.getElementById('activity-drawer').classList.remove('open');document.getElementById('activity-drawer').setAttribute('aria-hidden','true');state.selected=null;state.editing=false;state.creating=false;state.dirty=false;
     const opener=state.drawerOpener;state.drawerOpener=null;
     if(opener&&typeof opener.focus==='function')opener.focus();
   }
@@ -319,20 +488,27 @@
     return !(state.editing && state.dirty) || window.confirm('Discard unsaved changes?');
   }
 
+  function setFormEnabled(enabled) {
+    Array.from(form().elements).forEach(el=>{if(el.name)el.disabled=!enabled;});
+    multiselectContainers().forEach(container=>setMultiselectEnabled(container,enabled));
+  }
+
   function setDrawerEditing(editing) {
-    state.editing=editing;state.dirty=false;const form=document.getElementById('activity-form');
-    Array.from(form.elements).forEach(el=>{if(el.name)el.disabled=!editing;});
+    state.editing=editing;state.creating=false;state.dirty=false;
+    setFormEnabled(editing);
     document.getElementById('drawer-mode-label').textContent=editing?`${backendLabel()} edit mode`:'Read only';
     document.getElementById('drawer-mode-label').className=`badge ${editing?'info':'neutral'}`;
     document.getElementById('drawer-edit').style.display=editing?'none':'block';
     document.querySelector('.drawer-actions').style.display=editing?'flex':'none';
+    document.getElementById('drawer-save').textContent='Save activity';
     document.getElementById('form-validation').textContent='';
   }
 
   async function saveDraft(event) {
     event.preventDefault();if(!state.selected||!state.selected.id||!state.selected.version)return;
     const data=new FormData(event.currentTarget),patch={};
-    data.forEach((value,key)=>{let normalized=String(value);if((key==='start_date'||key==='end_date')&&normalized)normalized=new Date(normalized).toISOString();if(A.fieldValueChanged(key,state.selected[key],normalized))patch[key]=normalized===''?null:normalized;});
+    data.forEach((value,key)=>{if(key==='news_digest')return;let normalized=String(value);if((key==='start_date'||key==='end_date')&&normalized)normalized=new Date(normalized).toISOString();if(A.fieldValueChanged(key,state.selected[key],normalized))patch[key]=normalized===''?null:normalized;});
+    if(state.selected.source_type==='internal'){const checked=form().elements.news_digest.checked;if(Boolean(state.selected.news_digest)!==checked)patch.news_digest=checked;}
     if(!patch.activity_name&&data.get('activity_name').trim()===''){document.getElementById('form-validation').textContent='Activity name is required.';return;}
     const start=A.parseDate(patch.start_date||state.selected.start_date),end=A.parseDate(patch.end_date||state.selected.end_date);if(start&&end&&end<start){document.getElementById('form-validation').textContent='End date cannot be before start date.';return;}
     if(!Object.keys(patch).length){toast('No changes to save');setDrawerEditing(false);return;}
@@ -351,6 +527,40 @@
       } else {
         validation.textContent=error.message;
       }
+    }
+  }
+
+  async function submitCreate(event) {
+    event.preventDefault();
+    const sourceType=currentSourceType(),validation=document.getElementById('form-validation');
+    const value=name=>{const el=form().elements[name];return el?String(el.value||'').trim():'';};
+    const required=sourceType==='internal'?REQUIRED_INTERNAL:REQUIRED_EXTERNAL;
+    const missing=required.filter(name=>!value(name));
+    if(missing.length){
+      validation.textContent=`Complete the required fields: ${missing.map(name=>FIELD_LABELS[name]||name).join(', ')}.`;
+      focusField(missing[0]);
+      return;
+    }
+    const start=A.parseDate(value('start_date')),end=A.parseDate(value('end_date'));
+    if(start&&end&&end<start){validation.textContent='End date cannot be before start date.';focusField('end_date');return;}
+    const payload={source_type:sourceType};
+    CREATE_FIELDS.forEach(name=>{
+      if(name==='audience'&&sourceType!=='internal')return;
+      const raw=value(name);
+      if(!raw)return;
+      payload[name]=(name==='start_date'||name==='end_date')?new Date(raw).toISOString():raw;
+    });
+    if(sourceType==='internal')payload.news_digest=form().elements.news_digest.checked;
+    validation.textContent='';
+    try {
+      const created=await repository.createActivity(payload);
+      state.snapshotRows.push(created);
+      state.creating=false;state.dirty=false;
+      toast(`Activity created — ${created.tracking_id}`);
+      renderAll();
+      openDrawer(created,state.drawerOpener);
+    } catch(error) {
+      validation.textContent=error.message;
     }
   }
 
@@ -374,16 +584,34 @@
     ['activity-source','activity-channel','activity-priority','activity-readiness'].forEach(id=>document.getElementById(id).addEventListener('change',runActivityFilters));
     document.getElementById('activity-clear').onclick=()=>{['activity-search','activity-source','activity-channel','activity-priority','activity-readiness'].forEach(id=>document.getElementById(id).value='');runActivityFilters();};
     document.getElementById('activity-export').onclick=exportFilteredCsv;
+    document.getElementById('activity-new').onclick=event=>openCreateDrawer(event.currentTarget);
+    wireMultiselects();
+    document.getElementById('source-toggle').onclick=event=>{
+      const btn=event.target.closest('button');if(!btn)return;
+      const source=btn.dataset.source;if(source===currentSourceType())return;
+      setSourceToggle(source);applyVariant(source);populateSelectOptions(source);renderMultiselectOptions();
+      if(state.editing)state.dirty=true;
+    };
     document.querySelectorAll('[data-close-drawer]').forEach(el=>el.onclick=()=>{if(confirmDiscardIfDirty())closeDrawer();});
     document.getElementById('drawer-edit').onclick=()=>{if(!state.selected||!state.selected.id){toast('Database ID required for safe editing');return;}setDrawerEditing(true);};
-    document.getElementById('drawer-cancel').onclick=()=>{if(!confirmDiscardIfDirty())return;if(state.selected)populateDrawerForm(state.selected);setDrawerEditing(false);};
+    document.getElementById('drawer-cancel').onclick=()=>{
+      if(!confirmDiscardIfDirty())return;
+      if(state.creating){closeDrawer();return;}
+      if(state.selected){const sourceType=state.selected.source_type||'internal';applyVariant(sourceType);populateSelectOptions(sourceType);populateDrawerForm(state.selected);renderMultiselectOptions();}
+      setDrawerEditing(false);
+    };
     const activityForm=document.getElementById('activity-form');
-    activityForm.onsubmit=saveDraft;
+    activityForm.onsubmit=event=>state.creating?submitCreate(event):saveDraft(event);
     activityForm.addEventListener('input',()=>{if(state.editing)state.dirty=true;});
     activityForm.addEventListener('change',()=>{if(state.editing)state.dirty=true;});
+    document.addEventListener('click',event=>{if(!event.target.closest('[data-multiselect]'))multiselectContainers().forEach(closeMsPopover);});
     document.addEventListener('keydown',event=>{
       const isOpen=document.getElementById('activity-drawer').classList.contains('open');
-      if(event.key==='Escape'){if(confirmDiscardIfDirty())closeDrawer();return;}
+      if(event.key==='Escape'){
+        const openPop=document.querySelector('.ms-popover:not([hidden])');
+        if(openPop){const container=openPop.closest('[data-multiselect]');closeMsPopover(container);container.querySelector('.ms-trigger').focus();return;}
+        if(confirmDiscardIfDirty())closeDrawer();return;
+      }
       if(isOpen&&event.key==='Tab'){
         const focusable=drawerFocusables();
         if(!focusable.length)return;

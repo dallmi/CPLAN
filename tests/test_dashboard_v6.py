@@ -111,6 +111,67 @@ class DashboardV6Tests(unittest.TestCase):
         self.assertIsNone(EMOJI_PATTERN.search(html))
         self.assertIsNone(EMOJI_PATTERN.search(app))
 
+    def test_v6_create_entry_point_and_export_demoted(self):
+        html = (DASHBOARD / "index.html").read_text(encoding="utf-8")
+
+        self.assertIn('id="activity-new"', html)
+        self.assertIn("New activity", html)
+        # Export filtered CSV keeps its label but is demoted to a secondary button.
+        self.assertIn('class="btn secondary" id="activity-export"', html)
+
+    def test_v6_create_variant_segmented_control(self):
+        html = (DASHBOARD / "index.html").read_text(encoding="utf-8")
+        app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn('id="source-toggle"', html)
+        self.assertIn('data-source="internal"', html)
+        self.assertIn('data-source="external"', html)
+        # Create-mode header copy is applied dynamically in app.js.
+        self.assertIn("New activity", app)
+        self.assertIn("Tracking ID is generated on save", app)
+        self.assertIn("New record", app)
+
+    def test_v6_create_audience_bands_and_pillar_label(self):
+        app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+        html = (DASHBOARD / "index.html").read_text(encoding="utf-8")
+
+        for band in ["< 1000", "1–10k", "10–50k", "50–100k", "> 100k"]:
+            self.assertIn(band, app)
+        self.assertIn("Estimated audience size", html)
+        self.assertIn("Communications pillars", html)
+        self.assertIn(
+            "Select an existing pack only when this activity is known to belong to it",
+            html,
+        )
+
+    def test_v6_create_activity_repository_and_post(self):
+        app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("createActivity", app)
+        self.assertIn("method:'POST'", app)
+        self.assertIn("Activity created", app)
+
+    def test_v6_create_required_field_lists_per_variant(self):
+        app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("REQUIRED_INTERNAL", app)
+        self.assertIn("REQUIRED_EXTERNAL", app)
+        # Internal-only required extras must be present in the required-field logic.
+        self.assertIn("target_audience", app)
+        self.assertIn("business_division", app)
+        self.assertIn("audience", app)
+        # news_digest is internal-only and must be handled in app.js.
+        self.assertIn("news_digest", app)
+
+    def test_v6_reusable_multiselect_control(self):
+        app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+        html = (DASHBOARD / "index.html").read_text(encoding="utf-8")
+
+        self.assertIn("data-multiselect", html)
+        self.assertIn('data-multiselect="strategic_objectives"', html)
+        self.assertIn('data-multiselect="business_division"', html)
+        self.assertIn('data-multiselect="region"', html)
+
 
 if __name__ == "__main__":
     unittest.main()
