@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CPLAN Planning Studio V6 — Local Database</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%3E%3Crect%20width='24'%20height='24'%20fill='%23FFFFFF'/%3E%3Crect%20x='9'%20width='6'%20height='24'%20fill='%23E60000'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -232,6 +233,17 @@
     </div>
   </aside>
 
+
+  <div class="modal-overlay" id="discard-modal" aria-hidden="true">
+    <div class="modal-card" role="alertdialog" aria-modal="true" aria-labelledby="discard-modal-title" aria-describedby="discard-modal-body">
+      <h2 id="discard-modal-title">Discard unsaved changes?</h2>
+      <p id="discard-modal-body">Your edits in this activity will be lost.</p>
+      <div class="modal-actions">
+        <button type="button" class="btn secondary" id="discard-keep">Keep editing</button>
+        <button type="button" class="btn danger" id="discard-confirm">Discard changes</button>
+      </div>
+    </div>
+  </div>
 
   <div class="toast" id="toast" role="status"></div>
   <script src="analytics.js"></script>

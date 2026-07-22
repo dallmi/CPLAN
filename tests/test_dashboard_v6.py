@@ -218,6 +218,58 @@ class DashboardV6Tests(unittest.TestCase):
         self.assertIn("FIELD_LABELS[container.dataset.multiselect]", app)
         self.assertIn("trigger.setAttribute('aria-label'", app)
 
+    def test_v6_discard_confirmation_modal_markup(self):
+        html = (DASHBOARD / "index.html").read_text(encoding="utf-8")
+
+        self.assertIn('id="discard-modal"', html)
+        self.assertIn("Discard unsaved changes?", html)
+        self.assertIn("Your edits in this activity will be lost.", html)
+        self.assertIn('id="discard-keep"', html)
+        self.assertIn('id="discard-confirm"', html)
+        self.assertIn(">Keep editing<", html)
+        self.assertIn(">Discard changes<", html)
+        self.assertIn('class="btn danger"', html)
+
+    def test_v6_confirm_discard_is_async_and_no_window_confirm(self):
+        app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+
+        # window.confirm must be fully replaced by the in-app modal.
+        self.assertNotIn("window.confirm(", app)
+        self.assertIn("function confirmDiscardIfDirty", app)
+        self.assertIn("await confirmDiscardIfDirty()", app)
+        # Guard against a second modal opening from rapid repeated Escape presses.
+        self.assertIn("discardModalOpen", app)
+        # The pre-existing prompt string is retained (see
+        # test_v6_uses_stable_id_for_row_identity_and_guards_edits) — now as
+        # the modal title, sourced from index.html rather than window.confirm.
+        self.assertIn("Discard unsaved changes?", app)
+
+    def test_v6_danger_button_css_uses_corporate_danger_var(self):
+        css = (DASHBOARD / "styles.css").read_text(encoding="utf-8")
+
+        self.assertIn(".btn.danger", css)
+        self.assertIn("var(--danger)", css)
+        # Modal overlay must sit above the drawer (z-index:100).
+        self.assertIn(".modal-overlay", css)
+
+    def test_v6_lead_time_distribution_merges_colliding_labels(self):
+        app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("function clusterLeadMarkers(", app)
+        # The previous implementation rendered one unconditional label per
+        # marker regardless of proximity, causing overlapping P25/Median/P75
+        # text when values coincide (e.g. all lead times at 0d). Guard
+        # against reverting to that naive per-marker rendering.
+        self.assertNotIn("point=(v,label)=>v===null?'':", app)
+
+    def test_v6_inline_svg_favicon_no_network(self):
+        html = (DASHBOARD / "index.html").read_text(encoding="utf-8")
+
+        self.assertIn('rel="icon"', html)
+        self.assertIn("data:image/svg+xml", html)
+        self.assertIn("E60000", html)
+        self.assertNotIn("favicon.ico", html)
+
 
 if __name__ == "__main__":
     unittest.main()

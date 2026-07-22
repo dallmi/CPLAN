@@ -3,7 +3,7 @@
 
   const A = window.CplanAnalytics;
   const COLORS = {grey:'#404040', bronze:'#B98E2C'};
-  const state = {snapshotRows:[], rows:[], meta:null, horizonWeeks:8, calendarDate:new Date(), selected:null, editing:false, creating:false, dirty:false, filteredRows:[], collisionsCache:new Map(), drawerOpener:null};
+  const state = {snapshotRows:[], rows:[], meta:null, horizonWeeks:8, calendarDate:new Date(), selected:null, editing:false, creating:false, dirty:false, filteredRows:[], collisionsCache:new Map(), drawerOpener:null, discardModalOpen:false};
 
   const esc = A.escapeHtml;
   const fmtNum = value => Number(value || 0).toLocaleString('en-GB');
@@ -244,11 +244,34 @@
     document.getElementById('activity-table-body').innerHTML=rows.map(row=>{const ready=A.planningCompleteness(row);return `<tr data-open-id="${esc(row.id||'')}"><td title="${esc(row.activity_name||'')}">${esc(row.activity_name||'Untitled')}</td><td>${esc(row.tracking_id||'—')}</td><td>${esc(row.channel||'—')}</td><td>${fmtDate(row.start_date)}</td><td>${esc(row.priority||'—')}</td><td>${esc(row.lead_team||row.lead||'—')}</td><td>${esc(campaignLabel(row)||'—')}</td><td><span class="badge ${ready.score===100?'success':'warning'}">${ready.score}%</span></td></tr>`;}).join('')||`<tr><td colspan="8">${emptyState(EMPTY_ICONS.search, 'No activities match the filters', 'Clear filters or adjust your search to see more results.')}</td></tr>`;
   }
 
+  // Adjacent markers within this many percentage points of the scale are
+  // considered coincident and share a single merged label.
+  const LABEL_COLLISION_THRESHOLD_PCT = 6;
+
+  function clusterLeadMarkers(markers) {
+    const sorted=markers.slice().sort((a,b)=>a.x-b.x);
+    const clusters=[];
+    sorted.forEach(marker=>{
+      const last=clusters[clusters.length-1];
+      if(last&&marker.x-last[last.length-1].x<=LABEL_COLLISION_THRESHOLD_PCT)last.push(marker);
+      else clusters.push([marker]);
+    });
+    return clusters;
+  }
+
   function renderPlanningHealth() {
     const rows=state.rows,quality=A.dataQuality(rows),lead=A.leadTimeStats(rows,7),complete=rows.length-quality.incomplete;
     document.getElementById('health-kpis').innerHTML=[kpi('Complete',`${quality.completenessRate}%`,`${complete} of ${rows.length}`,'success'),kpi('Short notice',`${lead.shortNoticeRate}%`,`Threshold <7 days`,'warning'),kpi('Median lead',lead.median===null?'—':`${lead.median}d`,`P25 ${lead.p25??'—'} · P75 ${lead.p75??'—'}`,''),kpi('Excluded',lead.excluded,'Missing or negative lead time','')].join('');
-    const max=Math.max(lead.p75||0,lead.median||0,lead.p25||0,1),point=(v,label)=>v===null?'':`<span class="distribution-point" style="left:${v/max*90+5}%"></span><span class="distribution-label" style="left:${v/max*90+5}%">${label} ${v}d</span>`;
-    document.getElementById('lead-distribution').innerHTML=`<div class="distribution"><div class="distribution-range" style="left:${(lead.p25||0)/max*90+5}%;width:${((lead.p75||0)-(lead.p25||0))/max*90}%"></div>${point(lead.p25,'P25')}${point(lead.median,'Median')}${point(lead.p75,'P75')}</div>`;
+    const max=Math.max(lead.p75||0,lead.median||0,lead.p25||0,1),xOf=v=>v/max*90+5;
+    const markers=[['P25',lead.p25],['Median',lead.median],['P75',lead.p75]].filter(([,v])=>v!==null&&v!==undefined).map(([label,value])=>({label,value,x:xOf(value)}));
+    const pointsHtml=clusterLeadMarkers(markers).map(cluster=>{
+      const dots=cluster.map(m=>`<span class="distribution-point" style="left:${m.x}%"></span>`).join('');
+      const center=cluster.reduce((sum,m)=>sum+m.x,0)/cluster.length;
+      const sameValue=cluster.every(m=>m.value===cluster[0].value);
+      const text=sameValue?`${cluster.map(m=>m.label).join(' · ')} ${cluster[0].value}d`:cluster.map(m=>`${m.label} ${m.value}d`).join(' · ');
+      return `${dots}<span class="distribution-label" style="left:${center}%">${text}</span>`;
+    }).join('');
+    document.getElementById('lead-distribution').innerHTML=`<div class="distribution"><div class="distribution-range" style="left:${(lead.p25||0)/max*90+5}%;width:${((lead.p75||0)-(lead.p25||0))/max*90}%"></div>${pointsHtml}</div>`;
     const fields=new Map();rows.forEach(row=>A.planningCompleteness(row).missing.forEach(field=>fields.set(field,(fields.get(field)||0)+1)));
     document.getElementById('missing-fields').innerHTML=barList(Array.from(fields.entries()).sort((a,b)=>b[1]-a[1]),true);
     const teamRows=new Map();rows.forEach(row=>{const key=row.lead_team||row.lead||'Unassigned';if(!teamRows.has(key))teamRows.set(key,[]);teamRows.get(key).push(row);});
@@ -495,8 +518,48 @@
     if(opener&&typeof opener.focus==='function')opener.focus();
   }
 
-  function confirmDiscardIfDirty() {
-    return !(state.editing && state.dirty) || window.confirm('Discard unsaved changes?');
+  // Discard confirmation modal — replaces the former blocking browser
+  // "Discard unsaved changes?" prompt with a corporate-styled, focus-trapped
+  // dialog. discardModalOpen guards against a second modal opening from
+  // rapid repeated Escape presses or overlapping close paths.
+  function openDiscardModal() {
+    return new Promise(resolve => {
+      if (state.discardModalOpen) { resolve(false); return; }
+      state.discardModalOpen = true;
+      const modal = document.getElementById('discard-modal');
+      const keepBtn = document.getElementById('discard-keep');
+      const discardBtn = document.getElementById('discard-confirm');
+      const returnFocus = document.activeElement;
+      const settle = result => {
+        modal.classList.remove('open');
+        modal.setAttribute('aria-hidden', 'true');
+        modal.removeEventListener('keydown', onKeydown);
+        keepBtn.onclick = null;
+        discardBtn.onclick = null;
+        state.discardModalOpen = false;
+        if (returnFocus && typeof returnFocus.focus === 'function') returnFocus.focus();
+        resolve(result);
+      };
+      const onKeydown = event => {
+        if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); settle(false); return; }
+        if (event.key === 'Enter') { event.stopPropagation(); return; }
+        if (event.key === 'Tab') {
+          event.preventDefault(); event.stopPropagation();
+          (document.activeElement === keepBtn ? discardBtn : keepBtn).focus();
+        }
+      };
+      keepBtn.onclick = () => settle(false);
+      discardBtn.onclick = () => settle(true);
+      modal.addEventListener('keydown', onKeydown);
+      modal.classList.add('open');
+      modal.setAttribute('aria-hidden', 'false');
+      keepBtn.focus();
+    });
+  }
+
+  async function confirmDiscardIfDirty() {
+    if (!(state.editing && state.dirty)) return true;
+    return openDiscardModal();
   }
 
   function setFormEnabled(enabled) {
@@ -603,10 +666,10 @@
       setSourceToggle(source);applyVariant(source);populateSelectOptions(source);renderMultiselectOptions();
       if(state.editing)state.dirty=true;
     };
-    document.querySelectorAll('[data-close-drawer]').forEach(el=>el.onclick=()=>{if(confirmDiscardIfDirty())closeDrawer();});
+    document.querySelectorAll('[data-close-drawer]').forEach(el=>el.onclick=async()=>{if(await confirmDiscardIfDirty())closeDrawer();});
     document.getElementById('drawer-edit').onclick=()=>{if(!state.selected||!state.selected.id){toast('Database ID required for safe editing');return;}setDrawerEditing(true);};
-    document.getElementById('drawer-cancel').onclick=()=>{
-      if(!confirmDiscardIfDirty())return;
+    document.getElementById('drawer-cancel').onclick=async()=>{
+      if(!await confirmDiscardIfDirty())return;
       if(state.creating){closeDrawer();return;}
       if(state.selected){const sourceType=state.selected.source_type||'internal';applyVariant(sourceType);populateSelectOptions(sourceType);populateDrawerForm(state.selected);renderMultiselectOptions();}
       setDrawerEditing(false);
@@ -616,12 +679,12 @@
     activityForm.addEventListener('input',()=>{if(state.editing)state.dirty=true;});
     activityForm.addEventListener('change',()=>{if(state.editing)state.dirty=true;});
     document.addEventListener('click',event=>{if(!event.target.closest('[data-multiselect]'))multiselectContainers().forEach(closeMsPopover);});
-    document.addEventListener('keydown',event=>{
+    document.addEventListener('keydown',async event=>{
       const isOpen=document.getElementById('activity-drawer').classList.contains('open');
       if(event.key==='Escape'){
         const openPop=document.querySelector('.ms-popover:not([hidden])');
         if(openPop){const container=openPop.closest('[data-multiselect]');closeMsPopover(container);container.querySelector('.ms-trigger').focus();return;}
-        if(confirmDiscardIfDirty())closeDrawer();return;
+        if(await confirmDiscardIfDirty())closeDrawer();return;
       }
       if(isOpen&&event.key==='Tab'){
         const focusable=drawerFocusables();
