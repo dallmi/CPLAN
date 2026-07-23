@@ -185,7 +185,7 @@ Prompts for a password (pass `--password` to skip the prompt, e.g. in a script).
 
 ### Manage users
 
-Every flag below re-applies the role/grant/RLS model first, then performs its action — this CLI is the interim admin surface until the portal (Plan 2) ships a UI for it.
+Every flag below re-applies the role/grant/RLS model first, then performs its action. This CLI remains the way to bootstrap the very first admin and to script user changes; day-to-day user administration is otherwise done in the browser through the [portal](#portal) below.
 
 ```bash
 PYTHONPATH=. .venv/bin/python -m pipeline.api.setup_roles --create-user <name> --role <viewer|contributor|editor|admin>   # new login, prompts for password
@@ -196,6 +196,32 @@ PYTHONPATH=. .venv/bin/python -m pipeline.api.setup_roles --activate <name>     
 ```
 
 All five accept `--password` to supply the value non-interactively instead of the getpass prompt, and `--database-url` to target a database other than the resolved default (`CPLAN_DATABASE_URL`, then `CPLAN_DB_*`, then the persisted backend settings — same resolution `setup_backend`/`import_snapshot` use). Usernames are plain PostgreSQL login roles, so they follow PostgreSQL identifier rules; the internal group roles and `cplan_authenticator` are rejected as usernames (`RESERVED_ROLES`) since a real user could otherwise collide with the privilege model itself.
+
+### Portal
+
+The portal is a small landing page — project tiles plus browser-based user administration — that sits next to the studio and shares its login. PostgreSQL only, same as the rest of this section.
+
+**One-time setup**, once after `setup_roles` has created the first admin:
+
+```bash
+PYTHONPATH=. .venv/bin/python -m pipeline.api.setup_portal
+```
+
+Idempotent, and run as the same admin/superuser identity as `setup_roles` — never by the portal service itself. It creates the `portal_owner` role, the `portal` schema, the project registry (seeded with the CPLAN entry), the `portal.users` view, and the four `SECURITY DEFINER` user-management functions (`portal.create_user`, `portal.set_project_role`, `portal.reset_password`, `portal.set_active`), with `EXECUTE` granted only to `cplan_admin`.
+
+**Run:**
+
+```bash
+PYTHONPATH=. .venv/bin/python pipeline/scripts/start_portal.py
+```
+
+Serves on port 8781 by default (`--port` to override) — the studio keeps port 8780, so both run side by side. Requires `CPLAN_AUTH_SECRET` to be set: the portal reads the same signed session cookie as the studio (`CPLAN_AUTH_SECRET`, `Enable` above), so logging in on either one signs you into both.
+
+**What the portal does:** an admin manages users entirely in the browser — create, change role, reset password, enable/disable — without touching the CLI. The portal service itself holds no DDL rights; every change is routed through the `portal.*` `SECURITY DEFINER` functions above, so a non-admin caller is rejected by PostgreSQL's own privilege check (SQLSTATE `42501`) before any change happens, surfaced to the browser as `403`.
+
+**Adding a second project later:** call `register_project(engine, slug, name, url, role_prefix)` (`pipeline/api/setup_portal.py`) once for the new project, and create its own `<prefix>_{viewer,contributor,editor,admin}` group roles the same way `setup_roles` does for CPLAN — the project then appears as a tile for whoever holds one of those roles. Note the current single-project scope: `EXECUTE` on the user-management functions is granted to `cplan_admin` project-wide, so today every admin is a portal-wide admin; per-project admin scoping is the documented extension point once a second project is registered.
+
+**Bootstrap admin caveat:** the portal manages users it can already see through `portal.users`, but it cannot create the very first admin from an empty database — that first login still comes from `setup_roles --create-user <name> --role admin` (`Set up roles + first admin` above).
 
 ### The role model
 
