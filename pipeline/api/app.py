@@ -8,10 +8,9 @@ import re
 import uuid
 from collections import Counter
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator, Literal, Sequence, get_args
+from typing import Any, Literal, Sequence, get_args
 from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
@@ -36,9 +35,9 @@ from .auth import (
     auth_settings_from_environment,
     create_session_token,
     verify_credentials,
-    verify_session_token,
 )
 from .database import backend_from_url, create_cplan_engine, database_url_from_environment, ensure_schema
+from .session import CurrentUser, build_session_dependencies
 from .views import ensure_analysis_views
 
 
@@ -536,12 +535,6 @@ def _generate_unique_tracking_id(session: Session, payload: ActivityCreate) -> s
     return tracking_id
 
 
-@dataclass(frozen=True)
-class CurrentUser:
-    username: str
-    db_role: str | None  # None: legacy solo mode — no SET ROLE, actor "studio"
-
-
 class LoginPayload(BaseModel):
     username: str = Field(min_length=1, max_length=63)  # Postgres identifier limit
     password: str
@@ -571,53 +564,7 @@ def create_app(database_url: str | URL | None = None, auth_settings: AuthSetting
     app = FastAPI(title="CPLAN Planning Studio API", version="0.1.0", lifespan=lifespan)
     app.state.engine = engine
 
-    def current_user(request: Request) -> CurrentUser:
-        if auth is None:
-            return CurrentUser(username="studio", db_role=None)
-        token = request.cookies.get(auth.cookie_name)
-        username = verify_session_token(auth, token) if token else None
-        if username is None:
-            raise HTTPException(status_code=401, detail={"code": "unauthenticated"})
-        return CurrentUser(username=username, db_role=username)
-
-    def db_session(user: CurrentUser = Depends(current_user)) -> Iterator[Session]:
-        """One connection per request, impersonating the session user.
-
-        SET ROLE (session-scoped, not SET LOCAL) + immediate commit: handlers
-        commit and roll back mid-request (tracking-id retry loops), and a
-        transaction-scoped role would silently revert on the first of those.
-        RESET ROLE before the connection returns to the pool — the pool's
-        rollback-on-return does NOT reset the role.
-        """
-        connection = engine.connect()
-        try:
-            if user.db_role is not None:
-                quoted = engine.dialect.identifier_preparer.quote(user.db_role)
-                try:
-                    connection.exec_driver_sql(f"SET ROLE {quoted}")
-                    connection.commit()
-                except ProgrammingError:
-                    # Valid token but the role vanished (user deleted): dead session.
-                    raise HTTPException(status_code=401, detail={"code": "unauthenticated"})
-            session = Session(bind=connection)
-            try:
-                yield session
-            finally:
-                session.close()
-        finally:
-            # Ordering is load-bearing: rollback first to clear any failed
-            # transaction (SET ROLE is session-scoped and survives a commit),
-            # then RESET ROLE + commit so the connection never returns to the
-            # pool still impersonating the request's user. A rollback that
-            # itself raises invalidates the connection (SQLAlchemy discards it
-            # rather than pooling it), so no impersonating connection is reused.
-            try:
-                connection.rollback()
-                if user.db_role is not None:
-                    connection.exec_driver_sql("RESET ROLE")
-                    connection.commit()
-            finally:
-                connection.close()
+    current_user, db_session = build_session_dependencies(engine, auth)
 
     @app.exception_handler(ProgrammingError)
     async def insufficient_privilege_handler(request: Request, exc: ProgrammingError):
