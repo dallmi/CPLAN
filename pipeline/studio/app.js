@@ -3,7 +3,7 @@
 
   const A = window.CplanAnalytics;
   const COLORS = {grey:'#404040', bronze:'#B98E2C'};
-  const state = {snapshotRows:[], rows:[], meta:null, syncRun:null, horizonWeeks:8, calendarDate:new Date(), selected:null, editing:false, creating:false, packing:false, customChannels:[], dirty:false, filteredRows:[], collisionsCache:new Map(), drawerOpener:null, discardModalOpen:false};
+  const state = {snapshotRows:[], rows:[], meta:null, syncRun:null, horizonWeeks:8, boardGroup:'channel', channelHorizonWeeks:4, trendMode:'', calendarDate:new Date(), selected:null, editing:false, creating:false, packing:false, customChannels:[], dirty:false, filteredRows:[], collisionsCache:new Map(), drawerOpener:null, discardModalOpen:false, incompleteModalOpen:false, queueFilter:null, dateFrom:null, dateTo:null};
 
   const esc = A.escapeHtml;
   const fmtNum = value => Number(value || 0).toLocaleString('en-GB');
@@ -29,6 +29,88 @@
     const found = candidates.find(value => nonempty(value) && value !== STANDALONE_PACK_PREFIX);
     return found || null;
   };
+
+  // Tracking ID identity element: CLUSTER-PACKNUM-YYMMDD-ACTNUM-CHANNEL.
+  // The invariant pack prefix is de-emphasised; date, sequence and channel stay
+  // legible — the ID is the link between planning and downstream outcome data.
+  const TRACKING_ID_RE = /^([A-Z0-9]+-[0-9]+)-(\d{6})-(\d+)-([A-Z]+)$/;
+  const TRACKING_ID_TITLE = 'CLUSTER-PACKNUM-YYMMDD-ACTNUM-CHANNEL — pack prefix · start date · global sequence · channel code';
+
+  function trackingIdHtml(id, options) {
+    const opts = options || {};
+    if (!nonempty(id)) return '<span class="tracking-id">—</span>';
+    const match = TRACKING_ID_RE.exec(String(id));
+    const inner = match
+      ? `<span class="tid-prefix">${esc(match[1])}-</span><span class="tid-date">${esc(match[2])}</span>-<span class="tid-seq">${esc(match[3])}</span>-<span class="tid-channel">${esc(match[4])}</span>`
+      : esc(String(id));
+    const copy = opts.copy ? `<button type="button" class="copy-btn" data-copy-id="${esc(String(id))}" title="Copy tracking ID">Copy</button>` : '';
+    return `<span class="tracking-id" title="${esc(TRACKING_ID_TITLE)}">${inner}</span>${copy}`;
+  }
+
+  // Approximates the server's channel-abbreviation majority vote for live ID
+  // stubs in the pack drawer: most common abbreviation already minted for this
+  // channel, else the first three alphabetic characters, else GEN.
+  function channelAbbr(channel) {
+    const counts = new Map();
+    state.snapshotRows.forEach(row => {
+      if (String(row.channel || '') !== String(channel)) return;
+      const match = TRACKING_ID_RE.exec(String(row.tracking_id || ''));
+      if (match) counts.set(match[4], (counts.get(match[4]) || 0) + 1);
+    });
+    const winner = Array.from(counts.entries()).sort((a, b) => b[1] - a[1])[0];
+    if (winner) return winner[0];
+    const alpha = String(channel || '').replace(/[^a-zA-Z]/g, '').slice(0, 3).toUpperCase();
+    return alpha.length >= 2 ? alpha : 'GEN';
+  }
+
+  function packIdPrefix() {
+    const cpid = String(form().elements.communication_pack_cpid.value || '').trim();
+    return /^[A-Z0-9]+-[0-9]+$/.test(cpid) ? cpid : STANDALONE_PACK_PREFIX;
+  }
+
+  const stubDate = value => {
+    const date = A.parseDate(value);
+    return date ? `${String(date.getFullYear()).slice(2)}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}` : '……';
+  };
+
+  // --- SVG donut (thin ring, white dividers, large white centre) ---
+  const DONUT_SEQUENCE = ['#404040', '#B98E2C', '#8E8D83', '#CCCABC', '#5A5D5C', '#946F29', '#B8B3A2', '#6C5312'];
+  const PRIORITY_COLORS = {critical: '#620004', high: '#BD000C', medium: '#E4A911', normal: '#8E8D83', low: '#6F7A1A'};
+
+  function donutHtml(entries, colorOf) {
+    if (!entries.length) return emptyState(EMPTY_ICONS.barChart, 'No data available', 'Nothing to show for the current selection.');
+    const total = entries.reduce((sum, [, count]) => sum + count, 0);
+    const shown = entries.slice(0, 8);
+    const r = 56, cx = 70, cy = 70, circ = 2 * Math.PI * r, gap = shown.length > 1 ? 2.5 : 0;
+    let offset = -circ / 4;
+    const segments = shown.map(([label, count], i) => {
+      const len = count / total * circ;
+      const seg = `<circle r="${r}" cx="${cx}" cy="${cy}" fill="none" stroke="${colorOf(label, i)}" stroke-width="16" stroke-dasharray="${Math.max(len - gap, 0.5)} ${circ - Math.max(len - gap, 0.5)}" stroke-dashoffset="${-offset}"><title>${esc(label)} — ${fmtNum(count)}</title></circle>`;
+      offset += len;
+      return seg;
+    }).join('');
+    const legend = shown.map(([label, count], i) => `<div class="legend-row"><span class="swatch" style="background:${colorOf(label, i)}"></span>${esc(label)} — ${fmtNum(count)} (${Math.round(count / total * 100)}%)</div>`).join('');
+    const rest = entries.length > shown.length ? `<div class="legend-row"><span class="swatch" style="background:var(--grey-1)"></span>+${entries.length - shown.length} more</div>` : '';
+    return `<div class="donut-wrap"><svg class="donut-svg" width="140" height="140" viewBox="0 0 140 140" role="img">${segments}<text x="${cx}" y="${cy + 8}" text-anchor="middle" class="donut-center" font-size="26" font-weight="300">${fmtNum(total)}</text></svg><div class="donut-legend">${legend}${rest}</div></div>`;
+  }
+
+  function monthlyTrendHtml(rows) {
+    const buckets = new Map();
+    rows.forEach(row => {
+      const date = A.parseDate(row.start_date);
+      if (!date) return;
+      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      buckets.set(key, (buckets.get(key) || 0) + 1);
+    });
+    const keys = Array.from(buckets.keys()).sort().slice(-18);
+    if (!keys.length) return emptyState(EMPTY_ICONS.barChart, 'No dated activities in range', 'Adjust the time filter to see the monthly trend.');
+    const max = Math.max(...keys.map(key => buckets.get(key)), 1);
+    const label = key => {
+      const [y, m] = key.split('-');
+      return `${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][Number(m) - 1]} ${y.slice(2)}`;
+    };
+    return `<div class="trend">${keys.map(key => `<div class="trend-col"><span class="trend-value">${fmtNum(buckets.get(key))}</span><div class="trend-bar" style="height:${buckets.get(key) / max * 100}%"></div></div>`).join('')}</div><div class="trend-labels">${keys.map(key => `<span class="trend-label">${label(key)}</span>`).join('')}</div>`;
+  }
 
   const AUDIENCE_BANDS = ['< 1000', '1–10k', '10–50k', '50–100k', '> 100k'];
   const MULTISELECT_FIELDS = ['strategic_objectives', 'business_division', 'region'];
@@ -120,14 +202,55 @@
     }
   }
 
+  // Global time filter: rows whose start_date falls outside [dateFrom, dateTo]
+  // are excluded everywhere; rows without a parseable start date always pass
+  // (they surface as data-quality findings instead of silently vanishing).
+  function inTimeRange(row) {
+    if (!state.dateFrom && !state.dateTo) return true;
+    const date = A.parseDate(row.start_date);
+    if (!date) return true;
+    if (state.dateFrom && date < state.dateFrom) return false;
+    if (state.dateTo && date > state.dateTo) return false;
+    return true;
+  }
+
   function refreshRows() {
-    state.rows = state.snapshotRows.slice();
+    state.rows = state.snapshotRows.filter(inTimeRange);
     state.collisionsCache = new Map();
     updateDraftCount();
   }
 
   function updateDraftCount() {
-    document.getElementById('overview-as-of').textContent = `Operational view: ${backendLabel()} live data`;
+    const filtered = state.snapshotRows.length !== state.rows.length;
+    document.getElementById('overview-as-of').textContent = filtered
+      ? `Showing ${fmtNum(state.rows.length)} of ${fmtNum(state.snapshotRows.length)} activities in the selected range`
+      : 'Live data across the full portfolio';
+  }
+
+  const isoDateInput = date => {
+    if (!date) return '';
+    const offset = date.getTimezoneOffset() * 60000;
+    return new Date(date.getTime() - offset).toISOString().slice(0, 10);
+  };
+
+  function applyDatePreset(range) {
+    const now = new Date();
+    const y = now.getFullYear(), m = now.getMonth(), q = Math.floor(m / 3);
+    switch (range) {
+      case '30d': state.dateFrom = new Date(y, m, now.getDate() - 30); state.dateTo = endOfDay(now); break;
+      case 'quarter': state.dateFrom = new Date(y, q * 3, 1); state.dateTo = new Date(y, q * 3 + 3, 0, 23, 59, 59); break;
+      case 'ytd': state.dateFrom = new Date(y, 0, 1); state.dateTo = endOfDay(now); break;
+      case '12m': state.dateFrom = new Date(y - 1, m, now.getDate()); state.dateTo = endOfDay(now); break;
+      default: state.dateFrom = null; state.dateTo = null; break;
+    }
+    document.getElementById('date-from').value = isoDateInput(state.dateFrom);
+    document.getElementById('date-to').value = isoDateInput(state.dateTo);
+  }
+
+  function endOfDay(date) {
+    const copy = new Date(date);
+    copy.setHours(23, 59, 59, 999);
+    return copy;
   }
 
   function collisionsFor(proximityDays) {
@@ -174,28 +297,88 @@
     return `<div class="bar-list">${entries.slice(0,12).map(([label,value])=>`<div class="bar-row"><div class="bar-label" title="${esc(label)}">${esc(label)}</div><div class="bar-track"><div class="bar-fill ${bronze?'bronze':''}" style="width:${value/max*100}%"></div></div><div class="bar-value">${fmtNum(value)}</div></div>`).join('')}</div>`;
   }
 
+  const missingLabels = missing => missing.map(field => FIELD_LABELS[field] || field);
+
   function renderOverview() {
     const rows = state.rows;
     const now = new Date();
+    const future7 = new Date(now); future7.setDate(now.getDate()+7);
     const future30 = new Date(now); future30.setDate(now.getDate()+30);
     const active = rows.filter(row => {const s=A.parseDate(row.start_date),e=A.parseDate(row.end_date)||s;return s&&s<=now&&e>=now;});
+    const thisWeek = rows.filter(row => {const d=A.parseDate(row.start_date);return d&&d>=now&&d<=future7;});
     const upcoming = rows.filter(row => {const d=A.parseDate(row.start_date);return d&&d>=now&&d<=future30;}).sort((a,b)=>A.parseDate(a.start_date)-A.parseDate(b.start_date));
-    const attention = A.attentionItems(rows,{shortNoticeDays:7});
+    const internal = rows.filter(row=>row.source_type==='internal').length;
+    const external = rows.filter(row=>row.source_type==='external').length;
     const collisions = collisionsFor(1).filter(item=>item.kind==='conflict');
-    collisions.forEach(item => attention.push({type:'collision',severity:item.severity,row:item.left,detail:`With ${item.right.activity_name||'another activity'} · ${item.gapDays}d gap`}));
+    const conflictIds = new Set(); collisions.forEach(item=>{conflictIds.add(String(item.left.id));conflictIds.add(String(item.right.id));});
     const quality = A.dataQuality(rows);
     const lead = A.leadTimeStats(rows,7);
+
+    // KPI row follows the standalone dashboard: portfolio counts, not rates.
     document.getElementById('overview-kpis').innerHTML = [
-      kpi('Activities',fmtNum(rows.length),`${active.length} active now`,'highlight'),
-      kpi('Complete',`${quality.completenessRate}%`,`${quality.incomplete} need remediation`,quality.completenessRate>=80?'success':'warning'),
-      kpi('Short notice',`${lead.shortNoticeRate}%`,`${lead.shortNotice} of ${lead.valid} valid records`,lead.shortNoticeRate>25?'danger':'warning'),
-      kpi('Conflicts',fmtNum(collisions.length),'Shared audience and channel',collisions.length?'danger':'success')
+      kpi('Total activities',fmtNum(rows.length),`${fmtNum(internal)} internal + ${fmtNum(external)} external`,'highlight'),
+      kpi('Active now',fmtNum(active.length),'Currently running','success'),
+      kpi('This week',fmtNum(thisWeek.length),'Starting in 7 days',''),
+      kpi('Next 30 days',fmtNum(upcoming.length),'Upcoming activities','warning')
     ].join('');
-    document.getElementById('attention-count').textContent = attention.length;
-    document.getElementById('attention-list').innerHTML = attention.length ? attention.slice(0,18).map(item=>`<div class="list-row" data-open-id="${esc(item.row.id||'')}"><span class="severity-line ${esc(item.severity)}"></span><div><div class="list-title">${esc(item.row.activity_name||'Untitled')}</div><div class="list-meta">${esc(item.type.replace('-',' '))} · ${esc(item.detail)}</div></div><span class="badge ${esc(item.severity)}">${esc(item.severity)}</span></div>`).join('') : emptyState(EMPTY_ICONS.checkCircle, 'No planning issues detected', 'Nothing needs review right now.');
-    document.getElementById('readiness-summary').innerHTML = `<div class="metric-line"><span>Fully complete</span><strong>${fmtNum(rows.length-quality.incomplete)}</strong></div><div class="progress"><span style="width:${quality.completenessRate}%"></span></div><div class="metric-line"><span>Missing pack/campaign</span><strong>${fmtNum(quality.missingPackIds)}</strong></div><div class="metric-line"><span>Invalid date range</span><strong>${fmtNum(quality.invalidDateRanges)}</strong></div><div class="metric-line"><span>Persisted records</span><strong>${fmtNum(rows.length)}</strong></div>`;
-    document.getElementById('upcoming-list').innerHTML = upcoming.length ? upcoming.slice(0,12).map(row=>`<div class="list-row" data-open-id="${esc(row.id||'')}"><span class="severity-line medium"></span><div><div class="list-title">${esc(row.activity_name||'Untitled')}</div><div class="list-meta">${fmtDate(row.start_date)} · ${esc(row.channel||'No channel')} · ${esc(row.lead_team||row.lead||'Unassigned')}</div></div><span class="badge ${row.source_type==='external'?'info':'neutral'}">${esc(row.source_type||'')}</span></div>`).join('') : emptyState(EMPTY_ICONS.calendar, 'No activities in the next 30 days', 'Check back later or widen the planning horizon.');
-    document.getElementById('channel-load').innerHTML = barList(countBy(rows,'channel'));
+
+    // Attention queue: aggregated by issue type instead of one row per finding.
+    const incompleteRows = rows.filter(row=>A.planningCompleteness(row).score<100);
+    const shortNoticeRows = rows.filter(row=>{const l=Number(row.planning_lead_days);return Number.isFinite(l)&&l>=0&&l<7;});
+    const invalidRows = rows.filter(row=>{const s=A.parseDate(row.start_date),e=A.parseDate(row.end_date);return s&&e&&e<s;});
+    const totalIssues = incompleteRows.length+shortNoticeRows.length+invalidRows.length+collisions.length;
+    document.getElementById('attention-count').textContent = totalIssues;
+    document.getElementById('attention-subtitle').textContent = `${fmtNum(totalIssues)} findings grouped by issue type`;
+    const missingCounts = new Map();
+    incompleteRows.forEach(row=>A.planningCompleteness(row).missing.forEach(field=>missingCounts.set(field,(missingCounts.get(field)||0)+1)));
+    const topMissing = Array.from(missingCounts.entries()).sort((a,b)=>b[1]-a[1])[0];
+    const groups = [];
+    if (incompleteRows.length) groups.push({severity:'high',title:`${fmtNum(incompleteRows.length)} activities with missing fields`,meta:topMissing?`Largest gap: ${esc(FIELD_LABELS[topMissing[0]]||topMissing[0])} (${fmtNum(topMissing[1])})`:'',action:'Review list',queue:'incomplete'});
+    if (shortNoticeRows.length) groups.push({severity:'critical',title:`${fmtNum(shortNoticeRows.length)} activities on short notice`,meta:`Under 7 days lead time · median ${lead.median===null?'—':lead.median+'d'}`,action:'Review list',queue:'short-notice'});
+    if (invalidRows.length) groups.push({severity:'critical',title:`${fmtNum(invalidRows.length)} invalid date ranges`,meta:'End date before start date',action:'Review list',queue:'invalid-date'});
+    if (collisions.length) groups.push({severity:'medium',title:`${fmtNum(collisions.length)} scheduling ${collisions.length===1?'conflict':'conflicts'}`,meta:'Shared audience and channel',action:'Open conflicts',queue:'conflicts'});
+    const deadlineRows = upcoming.filter(row=>A.planningCompleteness(row).score<100||shortNoticeRows.includes(row)).slice(0,5);
+    const deadlines = deadlineRows.map(row=>{
+      const completeness=A.planningCompleteness(row);
+      const reason=completeness.score<100?`Missing: ${missingLabels(completeness.missing).slice(0,2).join(', ')}`:`Short notice: ${row.planning_lead_days}d lead`;
+      const focus=completeness.missing[0]||'';
+      return `<div class="list-row"><span class="severity-line ${completeness.score<100?'high':'critical'}"></span><div><div class="list-title">${esc(row.activity_name||'Untitled')}</div><div class="list-meta">Starts ${fmtDate(row.start_date)} · ${esc(reason)}</div></div><button type="button" class="fix-link" data-fix-id="${esc(row.id||'')}" data-fix-field="${esc(focus)}">Fix now</button></div>`;
+    }).join('');
+    document.getElementById('attention-list').innerHTML = groups.length
+      ? groups.map(group=>`<div class="queue-group"><span class="severity-line ${group.severity}"></span><div><div class="list-title">${group.title}</div><div class="list-meta">${group.meta}</div></div><button type="button" class="link-btn" data-queue="${group.queue}">${group.action}</button></div>`).join('')+(deadlines?`<div class="queue-heading">Nearest deadlines</div>${deadlines}`:'')
+      : emptyState(EMPTY_ICONS.checkCircle, 'No planning issues detected', 'Nothing needs review right now.');
+
+    document.getElementById('readiness-summary').innerHTML = `<div class="metric-line"><span>Fully complete</span><strong>${fmtNum(rows.length-quality.incomplete)}</strong></div><div class="progress"><span style="width:${quality.completenessRate}%"></span></div><div class="metric-line"><span>Missing pack/campaign</span><strong>${fmtNum(quality.missingPackIds)}</strong></div><div class="metric-line"><span>Invalid date range</span><strong>${fmtNum(quality.invalidDateRanges)}</strong></div><div class="metric-line"><span>Total activities</span><strong>${fmtNum(rows.length)}</strong></div>`;
+
+    // Upcoming: grouped by week, channel chip per row, conflict marker.
+    const weekKey = date => {const d=new Date(date);const day=(d.getDay()+6)%7;d.setDate(d.getDate()-day);d.setHours(0,0,0,0);return d;};
+    const weekGroups = new Map();
+    upcoming.slice(0,16).forEach(row=>{const key=weekKey(A.parseDate(row.start_date)).getTime();if(!weekGroups.has(key))weekGroups.set(key,[]);weekGroups.get(key).push(row);});
+    document.getElementById('upcoming-list').innerHTML = upcoming.length
+      ? Array.from(weekGroups.entries()).map(([key,items])=>`<div class="week-heading">Week of ${fmtDate(new Date(Number(key)))}</div>`+items.map(row=>`<div class="list-row" data-open-id="${esc(row.id||'')}"><span class="severity-line medium"></span><div><div class="list-title">${esc(row.activity_name||'Untitled')}</div><div class="list-meta">${fmtDate(row.start_date)} · ${esc(row.lead_team||row.lead||'Unassigned')}</div></div><span>${row.channel?`<span class="chip">${esc(row.channel)}</span>`:''}${conflictIds.has(String(row.id))?'<span class="chip conflict">Conflict</span>':''}</span></div>`).join('')).join('')
+      : emptyState(EMPTY_ICONS.calendar, 'No activities in the next 30 days', 'Check back later or widen the planning horizon.');
+
+    renderChannelLoad();
+    document.getElementById('division-donut').innerHTML = donutHtml(countBy(rows,'business_division'),(label,i)=>DONUT_SEQUENCE[i%DONUT_SEQUENCE.length]);
+    document.getElementById('priority-donut').innerHTML = donutHtml(countBy(rows,'priority'),label=>PRIORITY_COLORS[String(label).toLowerCase()]||'#8E8D83');
+    renderTrend();
+  }
+
+  function renderChannelLoad() {
+    const weeks = state.channelHorizonWeeks;
+    let scoped = state.rows;
+    if (weeks > 0) {
+      const now = new Date(); const end = new Date(now); end.setDate(end.getDate()+weeks*7);
+      scoped = state.rows.filter(row=>{const d=A.parseDate(row.start_date);return d&&d>=now&&d<=end;});
+    }
+    const allTime = countBy(state.rows,'channel').slice(0,3).map(([label,count])=>`${label} ${fmtNum(count)}`).join(' · ');
+    const footer = weeks>0&&allTime?`<div class="list-meta" style="margin-top:10px">All-time volume: ${esc(allTime)}</div>`:'';
+    document.getElementById('channel-load').innerHTML = (scoped.length?barList(countBy(scoped,'channel')):emptyState(EMPTY_ICONS.barChart,'Nothing starting in this horizon','Extend the horizon to see channel load.'))+footer;
+  }
+
+  function renderTrend() {
+    const rows = state.trendMode?state.rows.filter(row=>row.source_type===state.trendMode):state.rows;
+    document.getElementById('monthly-trend').innerHTML = monthlyTrendHtml(rows);
   }
 
   function futureRows(weeks) {
@@ -203,21 +386,55 @@
     return state.rows.filter(row=>{const s=A.parseDate(row.start_date),e=A.parseDate(row.end_date)||s;return s&&e>=now&&s<=end;}).sort((a,b)=>A.parseDate(a.start_date)-A.parseDate(b.start_date));
   }
 
+  const BOARD_GROUPS = {
+    channel: {label:'channel', of:row=>split(row.channel)[0]||'No channel'},
+    campaign: {label:'campaign', of:row=>campaignLabel(row)||'No campaign'},
+    division: {label:'division', of:row=>split(row.business_division)[0]||'No division'}
+  };
+  const BOARD_LANE_LIMIT = 12;
+
   function renderBoard() {
     const rows = futureRows(state.horizonWeeks);
     const lead=A.leadTimeStats(rows,7);
     const coverage=A.weeklyCoverage(rows,state.horizonWeeks,new Date());
     const peak=coverage.reduce((best,w)=>w.count>(best?best.count:-1)?w:best,null);
     document.getElementById('planning-kpis').innerHTML=[kpi('In horizon',rows.length,`Next ${state.horizonWeeks} weeks`,'highlight'),kpi('Short notice',lead.shortNotice,`${lead.shortNoticeRate}% of valid`,'warning'),kpi('Median lead',lead.median===null?'—':`${lead.median}d`,`${lead.excluded} excluded`,''),kpi('Peak week',peak?peak.count:0,peak?fmtDate(peak.from):'—','')].join('');
-    const weeks=coverage;
+
+    const grouping = BOARD_GROUPS[state.boardGroup]||BOARD_GROUPS.channel;
+    document.getElementById('board-subtitle').textContent = `Swimlanes per ${grouping.label} · bars span start to end`;
+    const conflictIds = new Set();
+    collisionsFor(1).filter(item=>item.kind==='conflict').forEach(item=>{conflictIds.add(String(item.left.id));conflictIds.add(String(item.right.id));});
+
+    const lanes = new Map();
+    rows.forEach(row=>{const key=grouping.of(row);if(!lanes.has(key))lanes.set(key,[]);lanes.get(key).push(row);});
+    const weeks = coverage;
     let html=`<div class="timeline"><div class="timeline-grid" style="grid-template-columns:190px repeat(${weeks.length},minmax(58px,1fr))"><div class="timeline-head">Activity</div>${weeks.map(w=>`<div class="timeline-head">${fmtDate(w.from).replace(/\s\d{4}$/,'')}</div>`).join('')}`;
-    rows.slice(0,45).forEach(row=>{
-      const start=A.parseDate(row.start_date),end=A.parseDate(row.end_date)||start;
-      html+=`<div class="timeline-label" data-open-id="${esc(row.id||'')}" title="${esc(row.activity_name||'')}">${esc(row.activity_name||'Untitled')}</div>`;
-      weeks.forEach(w=>{const overlaps=start&&start<w.to&&end>=w.from;html+=`<div class="timeline-cell">${overlaps?`<span class="timeline-dot ${row.source_type==='external'?'external':''}" title="${esc(row.channel||'')}"></span>`:''}</div>`;});
+    Array.from(lanes.entries()).sort((a,b)=>b[1].length-a[1].length).forEach(([lane,laneRows])=>{
+      html+=`<div class="timeline-group">${esc(lane)} (${laneRows.length})</div>`;
+      laneRows.slice(0,BOARD_LANE_LIMIT).forEach(row=>{
+        const start=A.parseDate(row.start_date),end=A.parseDate(row.end_date)||start;
+        const conflict=conflictIds.has(String(row.id));
+        html+=`<div class="timeline-label" data-open-id="${esc(row.id||'')}" title="${esc(row.activity_name||'')}">${esc(row.activity_name||'Untitled')}</div>`;
+        weeks.forEach((w,i)=>{
+          const overlaps=start&&start<w.to&&end>=w.from;
+          const isFirst=overlaps&&!(start<w.from);
+          const isLast=overlaps&&!(end>=w.to);
+          const cls=`timeline-bar${row.source_type==='external'?' external':''}${conflict?' conflict':''}${isFirst?' start':''}${isLast?' end':''}`;
+          html+=`<div class="timeline-cell">${overlaps?`<span class="${cls}" title="${esc(row.channel||'')}${conflict?' · overlaps with another activity':''}"></span>`:''}</div>`;
+        });
+      });
+      if(laneRows.length>BOARD_LANE_LIMIT)html+=`<div class="timeline-more">+${laneRows.length-BOARD_LANE_LIMIT} more in ${esc(lane)}</div>`;
     });
     html+='</div></div>';
-    document.getElementById('planning-board').innerHTML=rows.length?html:emptyState(EMPTY_ICONS.calendar, 'No upcoming activities in this horizon', 'Extend the horizon or adjust filters to see more.');
+
+    // An empty stretch is information, not blank space: name the gap.
+    let gapNote='';
+    let run=[];
+    const flushRun=()=>{if(run.length>=3){const from=run[0].from,to=run[run.length-1].to;gapNote+=`<div class="board-gap-note">No activity planned ${fmtDate(from)} – ${fmtDate(new Date(to.getTime()-86400000))}</div>`;}run=[];};
+    weeks.forEach(w=>{if(w.count===0)run.push(w);else flushRun();});
+    flushRun();
+
+    document.getElementById('planning-board').innerHTML=(rows.length?html:emptyState(EMPTY_ICONS.calendar, 'No upcoming activities in this horizon', 'Extend the horizon or adjust filters to see more.'))+gapNote;
   }
 
   function renderCalendar() {
@@ -238,7 +455,7 @@
     const all=collisionsFor(Number(document.getElementById('conflict-proximity').value)),items=filteredConflicts();
     const conflicts=all.filter(i=>i.kind==='conflict'),orchestration=all.filter(i=>i.kind==='orchestration');
     document.getElementById('conflict-kpis').innerHTML=[kpi('Matching pairs',items.length,'Current filters','highlight'),kpi('Critical',conflicts.filter(i=>i.severity==='critical').length,'Requires review','danger'),kpi('Other conflicts',conflicts.filter(i=>i.severity!=='critical').length,'Potential competition','warning'),kpi('Orchestration',orchestration.length,'Same-pack coordination','')].join('');
-    document.getElementById('conflict-list').innerHTML=items.length?items.slice(0,60).map(item=>`<div class="conflict-row"><div class="conflict-top"><div><span class="badge ${esc(item.severity)}">${esc(item.severity)}</span> <span class="badge ${item.kind==='orchestration'?'info':'neutral'}">${esc(item.kind)}</span></div><span class="list-meta">${item.gapDays} day gap · ${esc(item.left.channel||'')}</span></div><div class="conflict-pair"><div class="conflict-item" data-open-id="${esc(item.left.id||'')}"><strong>${esc(item.left.activity_name||'Untitled')}</strong><br>${esc(campaignLabel(item.left)||'No campaign')}</div><div class="conflict-vs">VS</div><div class="conflict-item" data-open-id="${esc(item.right.id||'')}"><strong>${esc(item.right.activity_name||'Untitled')}</strong><br>${esc(campaignLabel(item.right)||'No campaign')}</div></div></div>`).join(''):emptyState(EMPTY_ICONS.checkCircle, 'No matching conflicts', 'Try widening the proximity window or clearing filters.');
+    document.getElementById('conflict-list').innerHTML=items.length?items.slice(0,60).map(item=>{const reason=`${item.gapDays===0?'Same day':item.gapDays+' day gap'} · ${esc(item.left.channel||'No channel')} · ${esc(split(item.left.target_audience)[0]||'Shared audience')}`;return `<div class="conflict-row"><div class="conflict-top"><div><span class="badge ${esc(item.severity)}">${esc(item.severity)}</span> <span class="badge ${item.kind==='orchestration'?'info':'neutral'}">${esc(item.kind)}</span></div><span class="list-meta">${reason}</span></div><div class="conflict-pair"><div class="conflict-item" data-open-id="${esc(item.left.id||'')}"><strong>${esc(item.left.activity_name||'Untitled')}</strong><br>${esc(campaignLabel(item.left)||'No campaign')}</div><div class="conflict-vs">overlaps with</div><div class="conflict-item" data-open-id="${esc(item.right.id||'')}"><strong>${esc(item.right.activity_name||'Untitled')}</strong><br>${esc(campaignLabel(item.right)||'No campaign')}</div></div></div>`;}).join(''):emptyState(EMPTY_ICONS.checkCircle, 'No matching conflicts', 'Try widening the proximity window or clearing filters.');
   }
 
   function renderCapacity() {
@@ -259,15 +476,32 @@
     fill('activity-campaign',Array.from(campaigns).sort((a,b)=>a.localeCompare(b)),'campaigns / packs');
   }
 
+  // Transient filter applied from the Overview attention queue ("Review list").
+  function matchesQueueFilter(row) {
+    if (!state.queueFilter) return true;
+    if (state.queueFilter==='incomplete') return A.planningCompleteness(row).score<100;
+    if (state.queueFilter==='short-notice') {const l=Number(row.planning_lead_days);return Number.isFinite(l)&&l>=0&&l<7;}
+    if (state.queueFilter==='invalid-date') {const s=A.parseDate(row.start_date),e=A.parseDate(row.end_date);return Boolean(s&&e&&e<s);}
+    return true;
+  }
+
+  const QUEUE_FILTER_LABELS = {incomplete:'Missing fields', 'short-notice':'Short notice', 'invalid-date':'Invalid dates'};
+
   function applyActivityFilters() {
     const q=document.getElementById('activity-search').value.toLowerCase(),source=document.getElementById('activity-source').value,channel=document.getElementById('activity-channel').value,priority=document.getElementById('activity-priority').value,campaign=document.getElementById('activity-campaign').value,readiness=document.getElementById('activity-readiness').value;
     const rows=state.rows.filter(row=>{
       const complete=A.planningCompleteness(row).score===100;
-      return (!q||Object.values(row).some(value=>String(value||'').toLowerCase().includes(q)))&&(!source||row.source_type===source)&&(!channel||split(row.channel).includes(channel))&&(!priority||split(row.priority).includes(priority))&&(!campaign||campaignLabel(row)===campaign)&&(!readiness||(readiness==='complete'&&complete)||(readiness==='incomplete'&&!complete));
+      return matchesQueueFilter(row)&&(!q||Object.values(row).some(value=>String(value||'').toLowerCase().includes(q)))&&(!source||row.source_type===source)&&(!channel||split(row.channel).includes(channel))&&(!priority||split(row.priority).includes(priority))&&(!campaign||campaignLabel(row)===campaign)&&(!readiness||(readiness==='complete'&&complete)||(readiness==='incomplete'&&!complete));
     }).sort((a,b)=>(A.parseDate(b.start_date)||0)-(A.parseDate(a.start_date)||0));
     state.filteredRows=rows;
-    document.getElementById('activity-result-count').textContent=`${fmtNum(rows.length)} of ${fmtNum(state.rows.length)}`;
-    document.getElementById('activity-table-body').innerHTML=rows.map(row=>{const ready=A.planningCompleteness(row);return `<tr data-open-id="${esc(row.id||'')}"><td title="${esc(row.activity_name||'')}">${esc(row.activity_name||'Untitled')}</td><td>${esc(row.tracking_id||'—')}</td><td>${esc(row.channel||'—')}</td><td>${fmtDate(row.start_date)}</td><td>${esc(row.priority||'—')}</td><td>${esc(row.lead_team||row.lead||'—')}</td><td>${esc(campaignLabel(row)||'—')}</td><td><span class="badge ${ready.score===100?'success':'warning'}">${ready.score}%</span></td><td class="action-cell"><button type="button" class="icon-btn duplicate-btn" data-duplicate-id="${esc(row.id||'')}" aria-label="Duplicate ${esc(row.activity_name||'activity')}" title="Duplicate"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button></td></tr>`;}).join('')||`<tr><td colspan="9">${emptyState(EMPTY_ICONS.search, 'No activities match the filters', 'Clear filters or adjust your search to see more results.')}</td></tr>`;
+    const queueNote=state.queueFilter?` · ${QUEUE_FILTER_LABELS[state.queueFilter]||state.queueFilter} — Clear to remove`:'';
+    document.getElementById('activity-result-count').textContent=`${fmtNum(rows.length)} of ${fmtNum(state.rows.length)}${queueNote}`;
+    document.getElementById('activity-table-body').innerHTML=rows.map(row=>{
+      const ready=A.planningCompleteness(row);
+      const readiness=ready.score===100
+        ?'<span class="readiness-ok">—</span>'
+        :`<button type="button" class="missing-chip" data-fix-id="${esc(row.id||'')}" data-fix-field="${esc(ready.missing[0]||'')}" title="${esc(missingLabels(ready.missing).join(', '))}">${ready.missing.length} missing</button>`;
+      return `<tr data-open-id="${esc(row.id||'')}"><td title="${esc(row.activity_name||'')}">${esc(row.activity_name||'Untitled')}</td><td>${trackingIdHtml(row.tracking_id)}</td><td>${esc(row.channel||'—')}</td><td>${fmtDate(row.start_date)}</td><td>${esc(row.priority||'—')}</td><td>${esc(row.lead_team||row.lead||'—')}</td><td>${esc(campaignLabel(row)||'—')}</td><td>${readiness}</td><td class="action-cell"><button type="button" class="icon-btn duplicate-btn" data-duplicate-id="${esc(row.id||'')}" aria-label="Duplicate ${esc(row.activity_name||'activity')}" title="Duplicate"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button></td></tr>`;}).join('')||`<tr><td colspan="9">${emptyState(EMPTY_ICONS.search, 'No activities match the filters', 'Clear filters or adjust your search to see more results.')}</td></tr>`;
   }
 
   // Adjacent markers within this many percentage points of the scale are
@@ -289,6 +523,13 @@
     const rows=state.rows,quality=A.dataQuality(rows),lead=A.leadTimeStats(rows,7),complete=rows.length-quality.incomplete;
     document.getElementById('health-kpis').innerHTML=[kpi('Complete',`${quality.completenessRate}%`,`${complete} of ${rows.length}`,'success'),kpi('Short notice',`${lead.shortNoticeRate}%`,`Threshold <7 days`,'warning'),kpi('Median lead',lead.median===null?'—':`${lead.median}d`,`P25 ${lead.p25??'—'} · P75 ${lead.p75??'—'}`,''),kpi('Excluded',lead.excluded,'Missing or negative lead time','')].join('');
     const max=Math.max(lead.p75||0,lead.median||0,lead.p25||0,1),xOf=v=>v/max*90+5;
+    // Degenerate distribution: every valid lead time is zero — a broken-looking
+    // chart hides the actual story, so state it as a diagnosis instead.
+    if(lead.valid&&lead.p25===0&&lead.median===0&&lead.p75===0){
+      document.getElementById('lead-distribution').innerHTML=`<div class="notice" style="margin:0"><strong>All lead times are 0 days.</strong> Start dates likely equal entry dates — check date practices before reading this distribution.</div>`;
+      renderMissingFieldsAndTeams(rows);
+      return;
+    }
     const markers=[['P25',lead.p25],['Median',lead.median],['P75',lead.p75]].filter(([,v])=>v!==null&&v!==undefined).map(([label,value])=>({label,value,x:xOf(value)}));
     const pointsHtml=clusterLeadMarkers(markers).map(cluster=>{
       const dots=cluster.map(m=>`<span class="distribution-point" style="left:${m.x}%"></span>`).join('');
@@ -298,15 +539,19 @@
       return `${dots}<span class="distribution-label" style="left:${center}%">${text}</span>`;
     }).join('');
     document.getElementById('lead-distribution').innerHTML=`<div class="distribution"><div class="distribution-range" style="left:${(lead.p25||0)/max*90+5}%;width:${((lead.p75||0)-(lead.p25||0))/max*90}%"></div>${pointsHtml}</div>`;
+    renderMissingFieldsAndTeams(rows);
+  }
+
+  function renderMissingFieldsAndTeams(rows) {
     const fields=new Map();rows.forEach(row=>A.planningCompleteness(row).missing.forEach(field=>fields.set(field,(fields.get(field)||0)+1)));
-    document.getElementById('missing-fields').innerHTML=barList(Array.from(fields.entries()).sort((a,b)=>b[1]-a[1]),true);
+    document.getElementById('missing-fields').innerHTML=barList(Array.from(fields.entries()).map(([field,count])=>[FIELD_LABELS[field]||field,count]).sort((a,b)=>b[1]-a[1]),true);
     const teamRows=new Map();rows.forEach(row=>{const key=row.lead_team||row.lead||'Unassigned';if(!teamRows.has(key))teamRows.set(key,[]);teamRows.get(key).push(row);});
     document.getElementById('team-health').innerHTML=`<table><thead><tr><th>Team</th><th class="num">Activities</th><th class="num">Complete</th><th class="num">Short notice</th><th class="num">Median lead</th></tr></thead><tbody>${Array.from(teamRows.entries()).map(([team,items])=>{const q=A.dataQuality(items),l=A.leadTimeStats(items,7);return `<tr><td>${esc(team)}</td><td class="num">${items.length}</td><td class="num">${q.completenessRate}%</td><td class="num">${l.shortNoticeRate}%</td><td class="num">${l.median===null?'—':l.median+'d'}</td></tr>`;}).join('')}</tbody></table>`;
   }
 
   function renderStrategic() {
     const rows=state.rows,aligned=rows.filter(r=>nonempty(r.strategic_objectives)),objectives=countBy(rows,'strategic_objectives'),divisions=countBy(rows,'business_division'),unaligned=rows.filter(r=>!nonempty(r.strategic_objectives));
-    document.getElementById('strategic-kpis').innerHTML=[kpi('Aligned',`${rows.length?Math.round(aligned.length/rows.length*100):0}%`,`${aligned.length} activities`,'success'),kpi('Unaligned',unaligned.length,'No objective','danger'),kpi('Objectives',objectives.length,'Unique values',''),kpi('Divisions',divisions.length,'Represented','')].join('');
+    document.getElementById('strategic-kpis').innerHTML=[kpi('Aligned',`${rows.length?Math.round(aligned.length/rows.length*100):0}%`,`${aligned.length} activities`,'success'),kpi('Unaligned',unaligned.length,'No pillar assigned','danger'),kpi('Pillars',objectives.length,'Unique values',''),kpi('Divisions',divisions.length,'Represented','')].join('');
     document.getElementById('objective-coverage').innerHTML=barList(objectives);
     document.getElementById('division-coverage').innerHTML=barList(divisions,true);
     document.getElementById('unaligned-list').innerHTML=unaligned.length?unaligned.slice(0,30).map(row=>`<div class="list-row" data-open-id="${esc(row.id||'')}"><span class="severity-line high"></span><div><div class="list-title">${esc(row.activity_name||'Untitled')}</div><div class="list-meta">${fmtDate(row.start_date)} · ${esc(row.lead_team||row.lead||'Unassigned')}</div></div><span class="badge warning">Unaligned</span></div>`).join(''):emptyState(EMPTY_ICONS.checkCircle, 'All activities have a strategic objective', 'Nothing left to align.');
@@ -315,7 +560,7 @@
   function renderCampaignQuality() {
     const cards=A.campaignScorecards(state.rows),multi=cards.filter(c=>c.channels>1),single=cards.filter(c=>c.channels===1),avg=cards.length?Math.round(cards.reduce((s,c)=>s+c.activities,0)/cards.length*10)/10:0;
     document.getElementById('campaign-kpis').innerHTML=[kpi('Packs / campaigns',cards.length,'Identified planning units','highlight'),kpi('Multi-channel',multi.length,`${cards.length?Math.round(multi.length/cards.length*100):0}% of units`,'success'),kpi('Single-channel',single.length,'Review orchestration','warning'),kpi('Avg activities',avg,'Per planning unit','')].join('');
-    document.getElementById('campaign-scorecard').innerHTML=cards.length?`<table><thead><tr><th>Campaign / pack</th><th class="num">Activities</th><th class="num">Channels</th><th>Channel mix</th><th class="num">Objectives</th><th class="num">Audiences</th><th>Activity window</th><th class="num">Gap</th></tr></thead><tbody>${cards.slice(0,50).map(card=>`<tr><td>${esc(card.campaign)}</td><td class="num">${card.activities}</td><td class="num"><span class="badge ${card.channels>1?'success':'warning'}">${card.channels}</span></td><td title="${esc(card.channelNames.join(', '))}">${esc(card.channelNames.join(', ')||'—')}</td><td class="num">${card.objectives}</td><td class="num">${card.audiences}</td><td>${fmtDate(card.firstDate)} – ${fmtDate(card.lastDate)}</td><td class="num">${card.channelGapDays===null?'—':card.channelGapDays+'d'}</td></tr>`).join('')}</tbody></table>`:emptyState(EMPTY_ICONS.layers, 'No campaign or pack identifiers available', 'Add a campaign, pack ID, or tracking pack to group activities.');
+    document.getElementById('campaign-scorecard').innerHTML=cards.length?`<table><thead><tr><th>Campaign / pack</th><th class="num">Activities</th><th class="num">Channels</th><th>Channel mix</th><th class="num">Objectives</th><th class="num">Audiences</th><th>Activity window</th><th class="num"><span class="th-help" title="Longest quiet period between the first and last activity of this pack or campaign">Quiet period ⓘ</span></th></tr></thead><tbody>${cards.slice(0,50).map(card=>`<tr><td>${esc(card.campaign)}</td><td class="num">${card.activities}</td><td class="num"><span class="badge ${card.channels>1?'success':'warning'}">${card.channels}</span></td><td title="${esc(card.channelNames.join(', '))}">${esc(card.channelNames.join(', ')||'—')}</td><td class="num">${card.objectives}</td><td class="num">${card.audiences}</td><td>${fmtDate(card.firstDate)} – ${fmtDate(card.lastDate)}</td><td class="num">${card.channelGapDays===null?'—':card.channelGapDays+'d'}</td></tr>`).join('')}</tbody></table>`:emptyState(EMPTY_ICONS.layers, 'No campaign or pack identifiers available', 'Add a campaign, pack ID, or tracking pack to group activities.');
   }
 
   // Renders the sync-runs portion of the "Refresh & reconciliation" card from
@@ -569,37 +814,97 @@
     }
   }
 
-  function openDrawer(row, opener) {
+  function setDrawerTracking(row) {
+    const el=document.getElementById('drawer-tracking');
+    if (row&&nonempty(row.tracking_id)) {
+      el.innerHTML=`<div class="tracking-row"><span class="tracking-label">Tracking ID</span>${trackingIdHtml(row.tracking_id,{copy:true})}<span class="tid-help" title="${esc(TRACKING_ID_TITLE)}">i</span></div>`;
+    } else {
+      el.innerHTML=`<div class="tracking-row"><span class="tracking-label">Tracking ID</span><span class="tracking-id">${esc(row?'No tracking ID':'Generated on save')}</span></div>`;
+    }
+  }
+
+  // Read-only mode renders a plain label–value detail view instead of a
+  // disabled form; "— Add" jumps straight into edit mode at that field.
+  const DETAIL_SECTIONS = [
+    {title:'Identity', fields:[['campaign','Campaign'],['communication_pack','Communication pack'],['tracking_pack_id','Pack ID']]},
+    {title:'Classification', fields:[['channel','Channel'],['priority','Priority'],['strategic_objectives','Communications pillars']]},
+    {title:'Content', fields:[['activity_description','Description']]},
+    {title:'Audience', fields:[['target_audience','Target audience'],['audience','Estimated audience size'],['extended_audience','Extended audience']]},
+    {title:'Organisation', fields:[['business_division','Business division'],['business_area','Business area'],['region','Region']]},
+    {title:'Schedule', fields:[['start_date','Start'],['end_date','End'],['time_zone','Time zone']]},
+    {title:'Ownership', fields:[['lead','Lead'],['lead_team','Lead team'],['partner_team','Partner team']]}
+  ];
+  const EDITABLE_DETAIL_FIELDS = new Set(['campaign','channel','priority','strategic_objectives','activity_description','target_audience','audience','business_division','business_area','region','start_date','end_date','time_zone','lead','lead_team','partner_team']);
+
+  function renderDetailView(row) {
+    const external=row.source_type!=='internal';
+    const sections=DETAIL_SECTIONS.map(section=>{
+      const rowsHtml=section.fields.filter(([field])=>!(external&&(field==='audience'||field==='business_division'))).map(([field,label])=>{
+        let value=row[field];
+        if(field==='start_date'||field==='end_date')value=nonempty(value)?fmtDateTime(value):null;
+        const has=nonempty(value);
+        const editable=EDITABLE_DETAIL_FIELDS.has(field)&&row.id;
+        const display=has?esc(String(value)):(editable?`<button type="button" class="detail-add" data-add-field="${esc(field)}">— Add</button>`:'—');
+        return `<div class="detail-row"><dt>${esc(label)}</dt><dd>${display}</dd></div>`;
+      }).join('');
+      return rowsHtml?`<div class="detail-section"><h4>${esc(section.title)}</h4><dl>${rowsHtml}</dl></div>`:'';
+    }).join('');
+    const digest=row.source_type==='internal'?`<div class="detail-section"><h4>Visibility</h4><dl><div class="detail-row"><dt>News digest</dt><dd>${row.news_digest?'Considered':'Not considered'}</dd></div></dl></div>`:'';
+    document.getElementById('detail-view').innerHTML=sections+digest;
+    document.getElementById('detail-view').querySelectorAll('[data-add-field]').forEach(btn=>{
+      btn.onclick=()=>{setDrawerEditing(true);focusField(btn.dataset.addField);};
+    });
+  }
+
+  function openDrawer(row, opener, options) {
+    const opts=options||{};
     state.selected=row;state.editing=false;state.creating=false;state.packing=false;state.drawerOpener=opener||document.activeElement;
     const sourceType=row.source_type||'internal';
+    document.getElementById('drawer-eyebrow').textContent='Activity detail';
     document.getElementById('drawer-title').textContent=row.activity_name||'Untitled activity';
-    document.getElementById('drawer-tracking').textContent=row.tracking_id||'No tracking ID';
+    setDrawerTracking(row);
+    document.getElementById('drawer-note').hidden=true;
+    document.getElementById('drawer-mode').hidden=false;
     document.getElementById('form-variant').hidden=true;
     setPackMode(false);
     applyVariant(sourceType);
     populateSelectOptions(sourceType);
     populateDrawerForm(row);
     renderMultiselectOptions();
+    renderDetailView(row);
     setDrawerEditing(false);
     document.getElementById('activity-drawer').classList.add('open');
     document.getElementById('activity-drawer').setAttribute('aria-hidden','false');
-    document.getElementById('drawer-close').focus();
+    if (opts.edit&&row.id) {
+      setDrawerEditing(true);
+      if (opts.focus) focusField(opts.focus); else document.getElementById('drawer-close').focus();
+    } else {
+      document.getElementById('drawer-close').focus();
+    }
     if (row.id) loadHistory(row.id);
+  }
+
+  function prepareCreateChrome(title, note) {
+    document.getElementById('drawer-eyebrow').textContent='Create';
+    document.getElementById('drawer-title').textContent=title;
+    setDrawerTracking(null);
+    const noteEl=document.getElementById('drawer-note');
+    noteEl.textContent=note||'';
+    noteEl.hidden=!note;
+    document.getElementById('drawer-mode').hidden=true;
+    document.getElementById('detail-view').hidden=true;
+    form().hidden=false;
+    document.querySelector('.drawer-actions').style.display='flex';
+    document.getElementById('form-validation').textContent='';
+    document.getElementById('form-variant').hidden=false;
+    document.getElementById('drawer-history').hidden=true;
+    document.getElementById('pack-summary').hidden=true;
   }
 
   function openCreateDrawer(opener) {
     state.selected=null;state.creating=true;state.packing=false;state.editing=true;state.dirty=false;state.drawerOpener=opener||document.activeElement;
-    document.getElementById('drawer-title').textContent='New activity';
-    document.getElementById('drawer-tracking').textContent='Tracking ID is generated on save';
-    document.getElementById('drawer-mode-label').textContent='New record';
-    document.getElementById('drawer-mode-label').className='badge info';
-    document.getElementById('drawer-edit').style.display='none';
-    document.getElementById('drawer-duplicate').style.display='none';
-    document.querySelector('.drawer-actions').style.display='flex';
+    prepareCreateChrome('New activity','Single channel, single date — the tracking ID is minted on save from channel and start date.');
     document.getElementById('drawer-save').textContent='Create activity';
-    document.getElementById('form-validation').textContent='';
-    document.getElementById('form-variant').hidden=false;
-    document.getElementById('drawer-history').hidden=true;
     setSourceToggle('internal');
     resetCreateForm();
     setPackMode(false);
@@ -616,7 +921,11 @@
 
   function setPackMode(on) {
     document.getElementById('pack-section').hidden=!on;
+    form().classList.toggle('pack-mode',on);
     document.querySelectorAll('#activity-form [data-single-only]').forEach(el=>{el.hidden=on;});
+    document.querySelectorAll('#activity-form [data-pack-only]').forEach(el=>{el.hidden=!on;});
+    document.querySelector('.pack-shared-heading').hidden=!on;
+    if(!on)document.getElementById('pack-summary').hidden=true;
   }
 
   function packSelectedChannels() {
@@ -645,35 +954,44 @@
     const previousRows=packRowValues();
     const previous=new Map(previousRows.map(row=>[row.channel,row]));
     const first=previousRows[0];
-    const campaign=String(form().elements.campaign.value||'').trim();
+    const packName=String(form().elements.pack_name.value||'').trim();
     document.getElementById('pack-rows').innerHTML=packSelectedChannels().map(channel=>{
       const prev=previous.get(channel);
-      const name=prev?prev.name:(campaign?`${campaign} — ${channel}`:channel);
+      const name=prev?prev.name:(packName?`${packName} — ${channel}`:channel);
       const start=prev?prev.start:(first?first.start:'');
       const end=prev?prev.end:(first?first.end:'');
-      return `<div class="pack-row" data-channel="${esc(channel)}"><div class="pack-row-channel">${esc(channel)}</div><label>Activity name <span class="req">*</span><input data-pack-name value="${esc(name)}"></label><div class="form-grid"><label>Start date (local time) <span class="req">*</span><input type="datetime-local" data-pack-start value="${esc(start)}"></label><label>End date (local time) <span class="req">*</span><input type="datetime-local" data-pack-end value="${esc(end)}"></label></div></div>`;
+      return `<div class="pack-row" data-channel="${esc(channel)}"><div class="pack-row-channel">${esc(channel)}</div><label>Activity name <span class="req">*</span><input data-pack-name value="${esc(name)}"></label><div class="form-grid"><label>Start date (local time) <span class="req">*</span><input type="datetime-local" data-pack-start value="${esc(start)}"></label><label>End date (local time) <span class="req">*</span><input type="datetime-local" data-pack-end value="${esc(end)}"></label></div><div class="pack-stub" data-pack-stub></div></div>`;
     }).join('')||'<div class="ms-empty">Select at least one channel above</div>';
     updatePackSubmitLabel();
+  }
+
+  // The informed commit: live tracking-ID stubs per channel row plus a sticky
+  // pre-save summary — this is where channel + date + pack → ID is learned.
+  function updatePackStubs() {
+    if(!state.packing)return;
+    const prefix=packIdPrefix();
+    document.querySelectorAll('#pack-rows .pack-row').forEach(rowEl=>{
+      const channel=rowEl.dataset.channel;
+      const start=rowEl.querySelector('[data-pack-start]').value;
+      rowEl.querySelector('[data-pack-stub]').innerHTML=`Tracking ID <span class="tracking-id"><span class="tid-prefix">${esc(prefix)}-</span><span class="tid-date">${esc(stubDate(start))}</span>-<span class="tid-seq">…</span>-<span class="tid-channel">${esc(channelAbbr(channel))}</span></span> · sequence assigned on save`;
+    });
+    const rows=packRowValues();
+    const summary=document.getElementById('pack-summary');
+    if(!rows.length){summary.hidden=true;return;}
+    summary.hidden=false;
+    summary.innerHTML=`<strong>Creates ${rows.length} ${rows.length===1?'activity':'activities'}</strong>`+rows.map(row=>`<div class="pack-summary-row"><span>${esc(row.name||row.channel)}</span><span>${row.start?fmtDate(row.start):'no date'} · <span class="tracking-id"><span class="tid-prefix">${esc(packIdPrefix())}-</span>${esc(stubDate(row.start))}-…-${esc(channelAbbr(row.channel))}</span></span></div>`).join('');
   }
 
   function updatePackSubmitLabel() {
     if(!state.packing)return;
     const count=packSelectedChannels().length;
     document.getElementById('drawer-save').textContent=count?`Create ${count} ${count===1?'activity':'activities'}`:'Create activities';
+    updatePackStubs();
   }
 
   function openPackDrawer(opener) {
     state.selected=null;state.creating=false;state.packing=true;state.editing=true;state.dirty=false;state.customChannels=[];state.drawerOpener=opener||document.activeElement;
-    document.getElementById('drawer-title').textContent='New pack';
-    document.getElementById('drawer-tracking').textContent='Tracking IDs are generated on save';
-    document.getElementById('drawer-mode-label').textContent='New pack';
-    document.getElementById('drawer-mode-label').className='badge info';
-    document.getElementById('drawer-edit').style.display='none';
-    document.getElementById('drawer-duplicate').style.display='none';
-    document.querySelector('.drawer-actions').style.display='flex';
-    document.getElementById('form-validation').textContent='';
-    document.getElementById('form-variant').hidden=false;
-    document.getElementById('drawer-history').hidden=true;
+    prepareCreateChrome('New communication pack','Pick channels first — each channel becomes one activity with its own tracking ID.');
     setSourceToggle('internal');
     resetCreateForm();
     applyVariant('internal');
@@ -691,23 +1009,14 @@
     renderPackRows();
     document.getElementById('activity-drawer').classList.add('open');
     document.getElementById('activity-drawer').setAttribute('aria-hidden','false');
-    form().elements.campaign.focus();
+    form().elements.pack_name.focus();
   }
 
   function openDuplicateDrawer(row, opener) {
     const sourceType=row.source_type||'internal';
     state.selected=null;state.creating=true;state.packing=false;state.editing=true;state.dirty=false;state.drawerOpener=opener||document.activeElement;
-    document.getElementById('drawer-title').textContent=`Duplicate of ${row.activity_name||'Untitled activity'}`;
-    document.getElementById('drawer-tracking').textContent='Tracking ID is generated on save';
-    document.getElementById('drawer-mode-label').textContent='New record';
-    document.getElementById('drawer-mode-label').className='badge info';
-    document.getElementById('drawer-edit').style.display='none';
-    document.getElementById('drawer-duplicate').style.display='none';
-    document.querySelector('.drawer-actions').style.display='flex';
+    prepareCreateChrome(`Duplicate of ${row.activity_name||'Untitled activity'}`,'Dates are cleared on purpose — pick new ones so the fresh tracking ID carries the real start date.');
     document.getElementById('drawer-save').textContent='Create activity';
-    document.getElementById('form-validation').textContent='';
-    document.getElementById('form-variant').hidden=false;
-    document.getElementById('drawer-history').hidden=true;
     setPackMode(false);
     setSourceToggle(sourceType);
     resetCreateForm();
@@ -715,10 +1024,15 @@
     populateSelectOptions(sourceType);
     populateDrawerForm(row);
     renderMultiselectOptions();
+    // A duplicate must not inherit dates verbatim: copied dates are born as
+    // "0 days lead time" findings and mint a stale date into the tracking ID.
+    form().elements.start_date.value='';
+    form().elements.end_date.value='';
+    const nameEl=form().elements.activity_name;
+    if(nonempty(nameEl.value))nameEl.value=`${nameEl.value} (copy)`;
     setFormEnabled(true);
     document.getElementById('activity-drawer').classList.add('open');
     document.getElementById('activity-drawer').setAttribute('aria-hidden','false');
-    const nameEl=form().elements.activity_name;
     nameEl.focus();nameEl.select();
   }
 
@@ -737,13 +1051,14 @@
     event.preventDefault();
     const sourceType=currentSourceType(),validation=document.getElementById('form-validation');
     const value=name=>{const el=form().elements[name];return el?String(el.value||'').trim():'';};
-    const required=(sourceType==='internal'?REQUIRED_INTERNAL:REQUIRED_EXTERNAL).filter(name=>!PACK_ROW_FIELDS.includes(name));
-    const missing=required.filter(name=>!value(name));
-    if(missing.length){
-      validation.textContent=`Complete the required fields: ${missing.map(name=>FIELD_LABELS[name]||name).join(', ')}.`;
-      focusField(missing[0]);
+    if(!value('pack_name')){
+      validation.textContent='Pack name is required.';
+      focusField('pack_name');
       return;
     }
+    const required=(sourceType==='internal'?REQUIRED_INTERNAL:REQUIRED_EXTERNAL).filter(name=>!PACK_ROW_FIELDS.includes(name)&&name!=='activity_name');
+    const missing=required.filter(name=>!value(name));
+    if(missing.length&&!await confirmSaveIncomplete(missing))return;
     const rows=packRowValues();
     if(!rows.length){validation.textContent='Select at least one channel.';return;}
     for(const row of rows){
@@ -759,6 +1074,11 @@
       const raw=value(name);
       if(raw)shared[name]=raw;
     });
+    // Pack mode replaces the circular campaign/pack pair with one pack name
+    // (stored as the communication pack) plus an optional campaign umbrella.
+    shared.communication_pack=value('pack_name');
+    const packCampaign=value('pack_campaign');
+    if(packCampaign)shared.campaign=packCampaign;
     if(sourceType==='internal')shared.news_digest=form().elements.news_digest.checked;
     const items=rows.map(row=>Object.assign({},shared,{
       activity_name:row.name.trim(),
@@ -771,9 +1091,21 @@
       const created=await repository.createActivitiesBatch(items);
       created.items.forEach(item=>state.snapshotRows.push(item));
       state.packing=false;state.dirty=false;
-      toast(`${created.items.length} activities created`);
+      const ids=created.items.map(item=>item.tracking_id).filter(Boolean);
+      toast(`${created.items.length} activities created — ${ids.join(', ')}`);
       closeDrawer();
+      // Post-save orientation: land on the Activities table pre-filtered to the
+      // new pack so the created records and their IDs are immediately visible.
+      const packFilterLabel=campaignLabel(created.items[0]||{});
       renderAll();
+      if(packFilterLabel){
+        const select=document.getElementById('activity-campaign');
+        if(Array.from(select.options).some(opt=>opt.value===packFilterLabel)){
+          select.value=packFilterLabel;
+          applyActivityFilters();bindOpenRows();bindDuplicateButtons();
+        }
+      }
+      showPage('activities');
     } catch(error) {
       validation.textContent=packErrorMessage(error.message,rows);
     }
@@ -831,6 +1163,44 @@
     return openDiscardModal();
   }
 
+  // Completeness check at save time instead of shame afterwards: missing
+  // recommended fields raise an informed choice, not a hard block. Resolves
+  // true = save as incomplete, false = go back (first missing field focused).
+  function confirmSaveIncomplete(missing) {
+    return new Promise(resolve => {
+      if (state.incompleteModalOpen) { resolve(false); return; }
+      state.incompleteModalOpen = true;
+      const modal = document.getElementById('incomplete-modal');
+      const saveBtn = document.getElementById('incomplete-save');
+      const backBtn = document.getElementById('incomplete-back');
+      const count = missing.length;
+      document.getElementById('incomplete-modal-title').textContent = `Save with ${count} ${count===1?'field':'fields'} missing?`;
+      document.getElementById('incomplete-modal-list').innerHTML = missing.map(name=>`<li><strong>${esc(FIELD_LABELS[name]||name)}</strong><span>required</span></li>`).join('');
+      const settle = result => {
+        modal.classList.remove('open');
+        modal.setAttribute('aria-hidden','true');
+        modal.removeEventListener('keydown', onKeydown);
+        saveBtn.onclick = null; backBtn.onclick = null;
+        state.incompleteModalOpen = false;
+        if (!result) focusField(missing[0]);
+        resolve(result);
+      };
+      const onKeydown = event => {
+        if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); settle(false); return; }
+        if (event.key === 'Tab') {
+          event.preventDefault(); event.stopPropagation();
+          (document.activeElement === saveBtn ? backBtn : saveBtn).focus();
+        }
+      };
+      saveBtn.onclick = () => settle(true);
+      backBtn.onclick = () => settle(false);
+      modal.addEventListener('keydown', onKeydown);
+      modal.classList.add('open');
+      modal.setAttribute('aria-hidden','false');
+      backBtn.focus();
+    });
+  }
+
   function setFormEnabled(enabled) {
     Array.from(form().elements).forEach(el=>{if(el.name)el.disabled=!enabled;});
     multiselectContainers().forEach(container=>setMultiselectEnabled(container,enabled));
@@ -840,8 +1210,12 @@
     const wasEditing=state.editing;
     state.editing=editing;state.creating=false;state.dirty=false;
     setFormEnabled(editing);
-    document.getElementById('drawer-mode-label').textContent=editing?`${backendLabel()} edit mode`:'Read only';
+    // Read-only shows the plain detail view; the form only exists while editing.
+    document.getElementById('detail-view').hidden=editing;
+    form().hidden=!editing;
+    document.getElementById('drawer-mode-label').textContent=editing?'Editing':'Read only';
     document.getElementById('drawer-mode-label').className=`badge ${editing?'info':'neutral'}`;
+    document.getElementById('drawer-mode-hint').hidden=!editing;
     document.getElementById('drawer-edit').style.display=editing?'none':'block';
     document.getElementById('drawer-duplicate').style.display=editing?'none':'inline-block';
     document.querySelector('.drawer-actions').style.display=editing?'flex':'none';
@@ -867,6 +1241,9 @@
     if(!patch.activity_name&&data.get('activity_name').trim()===''){document.getElementById('form-validation').textContent='Activity name is required.';return;}
     const start=A.parseDate(patch.start_date||state.selected.start_date),end=A.parseDate(patch.end_date||state.selected.end_date);if(start&&end&&end<start){document.getElementById('form-validation').textContent='End date cannot be before start date.';return;}
     if(!Object.keys(patch).length){toast('No changes to save');setDrawerEditing(false);return;}
+    const merged=Object.assign({},state.selected,patch);
+    const stillMissing=A.planningCompleteness(merged).missing;
+    if(stillMissing.length&&!await confirmSaveIncomplete(stillMissing))return;
     const validation=document.getElementById('form-validation');
     try {
       const updated=await repository.updateActivity(state.selected.id,state.selected.version,patch);
@@ -889,13 +1266,19 @@
     event.preventDefault();
     const sourceType=currentSourceType(),validation=document.getElementById('form-validation');
     const value=name=>{const el=form().elements[name];return el?String(el.value||'').trim():'';};
+    // Hard requirements feed the tracking ID (name, channel, dates); everything
+    // else is a completeness recommendation the planner may defer past the
+    // save-time intercept.
+    const HARD_REQUIRED=['activity_name','channel','start_date','end_date'];
     const required=sourceType==='internal'?REQUIRED_INTERNAL:REQUIRED_EXTERNAL;
-    const missing=required.filter(name=>!value(name));
-    if(missing.length){
-      validation.textContent=`Complete the required fields: ${missing.map(name=>FIELD_LABELS[name]||name).join(', ')}.`;
-      focusField(missing[0]);
+    const hardMissing=HARD_REQUIRED.filter(name=>!value(name));
+    if(hardMissing.length){
+      validation.textContent=`Complete the required fields: ${hardMissing.map(name=>FIELD_LABELS[name]||name).join(', ')}.`;
+      focusField(hardMissing[0]);
       return;
     }
+    const softMissing=required.filter(name=>!HARD_REQUIRED.includes(name)&&!value(name));
+    if(softMissing.length&&!await confirmSaveIncomplete(softMissing))return;
     const start=A.parseDate(value('start_date')),end=A.parseDate(value('end_date'));
     if(start&&end&&end<start){validation.textContent='End date cannot be before start date.';focusField('end_date');return;}
     const payload={source_type:sourceType};
@@ -925,8 +1308,86 @@
     download(`CPLAN_activities_${new Date().toISOString().slice(0,10)}.csv`,[columns.join(','),...state.filteredRows.map(row=>columns.map(c=>cell(row[c])).join(','))].join('\n'),'text/csv');
   }
 
+  function showPage(name) {
+    document.querySelectorAll('.nav-item').forEach(x=>x.classList.toggle('active',x.dataset.page===name));
+    document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'));
+    document.getElementById(`page-${name}`).classList.add('active');
+  }
+
+  function showSubpage(navName, subName) {
+    const nav=document.querySelector(`[data-subnav="${navName}"]`);
+    nav.querySelectorAll('.subnav-item').forEach(x=>x.classList.toggle('active',x.dataset.sub===subName));
+    nav.parentElement.querySelectorAll(':scope > .subpage').forEach(x=>x.classList.remove('active'));
+    document.getElementById(`sub-${subName}`).classList.add('active');
+  }
+
+  function rerenderAfterTimeChange() {
+    refreshRows();
+    renderAll();
+  }
+
   function wireEvents() {
-    document.querySelectorAll('.nav-item').forEach(btn=>btn.onclick=()=>{document.querySelectorAll('.nav-item').forEach(x=>x.classList.remove('active'));document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'));btn.classList.add('active');document.getElementById(`page-${btn.dataset.page}`).classList.add('active');});
+    document.querySelectorAll('.nav-item').forEach(btn=>btn.onclick=()=>showPage(btn.dataset.page));
+    document.querySelectorAll('#time-presets button').forEach(btn=>btn.onclick=()=>{
+      document.querySelectorAll('#time-presets button').forEach(x=>x.classList.remove('active'));
+      btn.classList.add('active');
+      applyDatePreset(btn.dataset.range);
+      rerenderAfterTimeChange();
+    });
+    ['date-from','date-to'].forEach(id=>document.getElementById(id).addEventListener('change',()=>{
+      const from=document.getElementById('date-from').value,to=document.getElementById('date-to').value;
+      state.dateFrom=from?new Date(`${from}T00:00:00`):null;
+      state.dateTo=to?endOfDay(new Date(`${to}T00:00:00`)):null;
+      document.querySelectorAll('#time-presets button').forEach(x=>x.classList.remove('active'));
+      rerenderAfterTimeChange();
+    }));
+    document.getElementById('channel-horizon').onclick=event=>{
+      const btn=event.target.closest('button');if(!btn)return;
+      document.querySelectorAll('#channel-horizon button').forEach(x=>x.classList.remove('active'));
+      btn.classList.add('active');
+      state.channelHorizonWeeks=Number(btn.dataset.weeks);
+      renderChannelLoad();
+    };
+    document.getElementById('trend-toggle').onclick=event=>{
+      const btn=event.target.closest('button');if(!btn)return;
+      document.querySelectorAll('#trend-toggle button').forEach(x=>x.classList.remove('active'));
+      btn.classList.add('active');
+      state.trendMode=btn.dataset.mode;
+      renderTrend();
+    };
+    document.getElementById('board-group-toggle').onclick=event=>{
+      const btn=event.target.closest('button');if(!btn)return;
+      document.querySelectorAll('#board-group-toggle button').forEach(x=>x.classList.remove('active'));
+      btn.classList.add('active');
+      state.boardGroup=btn.dataset.group;
+      renderBoard();bindOpenRows();
+    };
+    // Attention queue: group links jump to the pre-filtered workbench; fix
+    // links (queue + readiness chips) open the drawer in edit mode focused on
+    // the first missing field.
+    document.addEventListener('click',event=>{
+      const queueBtn=event.target.closest('[data-queue]');
+      if(queueBtn){
+        const queue=queueBtn.dataset.queue;
+        if(queue==='conflicts'){showPage('planning');showSubpage('planning','conflicts');renderConflicts();bindOpenRows();return;}
+        state.queueFilter=queue;
+        document.getElementById('activity-readiness').value='';
+        showPage('activities');
+        applyActivityFilters();bindOpenRows();bindDuplicateButtons();
+        return;
+      }
+      const fixBtn=event.target.closest('[data-fix-id]');
+      if(fixBtn){
+        event.stopPropagation();
+        const row=state.rows.find(item=>String(item.id)===String(fixBtn.dataset.fixId));
+        if(row)openDrawer(row,fixBtn,{edit:true,focus:fixBtn.dataset.fixField||null});
+      }
+      const copyBtn=event.target.closest('[data-copy-id]');
+      if(copyBtn){
+        event.stopPropagation();
+        navigator.clipboard.writeText(copyBtn.dataset.copyId).then(()=>toast('Tracking ID copied')).catch(()=>toast('Copy failed'));
+      }
+    },true);
     document.querySelectorAll('[data-subnav]').forEach(nav=>nav.querySelectorAll('.subnav-item').forEach(btn=>btn.onclick=()=>{nav.querySelectorAll('.subnav-item').forEach(x=>x.classList.remove('active'));const page=nav.parentElement;page.querySelectorAll(':scope > .subpage').forEach(x=>x.classList.remove('active'));btn.classList.add('active');document.getElementById(`sub-${btn.dataset.sub}`).classList.add('active');}));
     document.getElementById('horizon-toggle').onclick=event=>{const btn=event.target.closest('button');if(!btn)return;document.querySelectorAll('#horizon-toggle button').forEach(x=>x.classList.remove('active'));btn.classList.add('active');state.horizonWeeks=Number(btn.dataset.weeks);renderBoard();bindOpenRows();};
     ['conflict-proximity','conflict-type','conflict-severity'].forEach(id=>document.getElementById(id).onchange=()=>{renderConflicts();bindOpenRows();});
@@ -937,12 +1398,13 @@
     const debouncedActivityFilters=debounce(runActivityFilters,200);
     document.getElementById('activity-search').addEventListener('input',debouncedActivityFilters);
     ['activity-source','activity-channel','activity-priority','activity-campaign','activity-readiness'].forEach(id=>document.getElementById(id).addEventListener('change',runActivityFilters));
-    document.getElementById('activity-clear').onclick=()=>{['activity-search','activity-source','activity-channel','activity-priority','activity-campaign','activity-readiness'].forEach(id=>document.getElementById(id).value='');runActivityFilters();};
+    document.getElementById('activity-clear').onclick=()=>{state.queueFilter=null;['activity-search','activity-source','activity-channel','activity-priority','activity-campaign','activity-readiness'].forEach(id=>document.getElementById(id).value='');runActivityFilters();};
     document.getElementById('activity-export').onclick=exportFilteredCsv;
     document.getElementById('activity-new').onclick=event=>openCreateDrawer(event.currentTarget);
     document.getElementById('pack-new').onclick=event=>openPackDrawer(event.currentTarget);
     document.getElementById('pack-channels').addEventListener('change',()=>{renderPackRows();state.dirty=true;});
     document.getElementById('pack-rows').addEventListener('input',updatePackSubmitLabel);
+    form().elements.pack_name.addEventListener('input',()=>{if(state.packing)updatePackStubs();});
     document.getElementById('pack-channel-add').onclick=()=>{
       const input=document.getElementById('pack-channel-new');
       const channel=String(input.value||'').trim();
@@ -969,7 +1431,7 @@
     document.getElementById('drawer-cancel').onclick=async()=>{
       if(!await confirmDiscardIfDirty())return;
       if(state.creating||state.packing){closeDrawer();return;}
-      if(state.selected){const sourceType=state.selected.source_type||'internal';applyVariant(sourceType);populateSelectOptions(sourceType);populateDrawerForm(state.selected);renderMultiselectOptions();}
+      if(state.selected){const sourceType=state.selected.source_type||'internal';applyVariant(sourceType);populateSelectOptions(sourceType);populateDrawerForm(state.selected);renderMultiselectOptions();renderDetailView(state.selected);}
       setDrawerEditing(false);
     };
     const activityForm=document.getElementById('activity-form');
@@ -1000,7 +1462,11 @@
       const [loaded,syncRun]=await Promise.all([loadData(),loadSyncRun()]);
       state.snapshotRows=loaded.rows;state.meta=loaded.meta;state.syncRun=syncRun;refreshRows();
       const generated=loaded.meta&&(loaded.meta.generated_at_iso||loaded.meta.generated_at);
-      document.getElementById('status-dot').className='status-dot ready';document.getElementById('status-label').textContent=`${fmtNum(loaded.rows.length)} activities loaded`;document.getElementById('snapshot-time').textContent=`${backendLabel()} API: ${generated||'unknown'}`;
+      const generatedDate=A.parseDate(generated);
+      document.getElementById('status-dot').className='status-dot ready';
+      document.getElementById('status-label').textContent=`${fmtNum(loaded.rows.length)} activities`;
+      document.getElementById('snapshot-time').textContent=generatedDate?`updated ${generatedDate.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}`:'updated just now';
+      document.getElementById('freshness').title=`${backendLabel()} API: ${generated||'unknown'}`;
       renderAll();
     } catch(error) {
       console.error('CPLAN initialization failed',error);

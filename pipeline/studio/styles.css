@@ -22,3 +22,110 @@
 td.action-cell{overflow:visible}
 .duplicate-btn{width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;color:var(--grey-4)}
 .duplicate-btn:hover{color:var(--black);background:var(--surface)}
+/* --- Global time filter (topbar) --- */
+.time-filter{display:flex;align-items:center;gap:10px;padding-right:12px;border-right:1px solid var(--surface)}
+.time-filter .segmented button{padding:6px 9px;font-size:10px;font-weight:600}
+.time-filter .segmented button.active{background:var(--primary);color:var(--white)}
+.time-input{display:flex;align-items:center;gap:5px;font-size:10px;color:var(--grey-5)}
+.time-input input{border:1px solid var(--grey-1);padding:5px 6px;font-size:10px;background:var(--white);color:var(--black)}
+.toolbar.spread{justify-content:space-between}
+
+/* --- Stacked action buttons with descriptor --- */
+.btn.stacked{display:inline-flex;flex-direction:column;align-items:flex-start;gap:1px;text-align:left}
+.btn.stacked small{font-size:9px;font-weight:400;opacity:.75;letter-spacing:.01em}
+
+/* --- Tracking ID identity element --- */
+.tracking-id{font-size:inherit;white-space:nowrap}
+.tracking-id .tid-prefix{color:var(--grey-3)}
+.tracking-id .tid-date,.tracking-id .tid-seq{color:var(--black);font-variant-numeric:tabular-nums}
+.tracking-id .tid-channel{font-weight:700}
+.tracking-row{display:flex;align-items:center;gap:8px;margin-top:4px;font-size:12px}
+.tracking-row .tracking-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--grey-4)}
+.copy-btn{border:1px solid var(--grey-1);background:var(--white);padding:2px 7px;font-size:10px;font-weight:600;color:var(--grey-5);border-radius:var(--radius)}
+.copy-btn:hover{background:var(--surface);color:var(--black)}
+.tid-help{cursor:help;border:1px solid var(--grey-1);background:var(--white);width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;font-size:10px;color:var(--grey-4);border-radius:var(--radius)}
+.th-help{cursor:help}
+
+/* --- Attention queue groups --- */
+.queue-group{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;padding:12px 16px;border-bottom:1px solid var(--surface)}
+.queue-group:hover{background:var(--row-alt)}
+.queue-heading{padding:9px 16px 4px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--grey-4)}
+.link-btn{border:1px solid var(--grey-1);background:var(--white);padding:6px 10px;font-size:11px;font-weight:600;border-radius:var(--radius)}
+.link-btn:hover{background:var(--surface)}
+.fix-link{border:0;background:none;color:var(--info);font-size:11px;font-weight:600;padding:0}
+.fix-link:hover{color:#07476F;text-decoration:underline}
+
+/* --- Upcoming list week groups + chips --- */
+.week-heading{padding:9px 16px 3px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--grey-4);border-bottom:1px solid var(--surface)}
+.chip{display:inline-block;padding:2px 7px;font-size:10px;font-weight:600;background:var(--surface);color:var(--grey-6);border-radius:var(--radius);margin-left:5px;white-space:nowrap}
+.chip.conflict{background:var(--warning-tint);color:#8A6800}
+
+/* --- Donut charts --- */
+.donut-wrap{display:flex;align-items:center;gap:26px;flex-wrap:wrap}
+.donut-svg{flex:none}
+.donut-legend{display:flex;flex-direction:column;gap:7px;font-size:12px}
+.donut-legend .swatch{display:inline-block;width:10px;height:10px;margin-right:8px;flex:none}
+.donut-legend .legend-row{display:flex;align-items:center}
+.donut-center{font-size:26px;font-weight:300}
+
+/* --- Monthly trend --- */
+.trend{display:flex;align-items:flex-end;gap:14px;height:180px;padding:8px 6px 0;border-bottom:1px solid var(--black)}
+.trend-col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;min-width:26px}
+.trend-bar{width:60%;max-width:46px;background:var(--grey-6)}
+.trend-value{font-size:10px;font-weight:700;margin-bottom:4px}
+.trend-labels{display:flex;gap:14px;padding:6px 6px 0}
+.trend-label{flex:1;text-align:center;font-size:10px;color:var(--grey-4);min-width:26px}
+
+/* --- Planning board swimlanes --- */
+.timeline-group{grid-column:1/-1;padding:7px 8px;font-size:11px;font-weight:700;background:var(--surface);border-bottom:1px solid var(--grey-1)}
+.timeline-bar{position:absolute;left:0;right:0;top:9px;height:12px;background:var(--grey-6)}
+.timeline-bar.external{background:var(--bronze-1)}
+.timeline-bar.conflict{background:var(--danger)}
+.timeline-bar.start{left:18%}
+.timeline-bar.end{right:18%}
+.timeline-more{grid-column:1/-1;padding:6px 8px;font-size:10px;color:var(--grey-4);border-bottom:1px solid var(--surface)}
+.timeline-legend{display:flex;align-items:center;gap:6px;font-size:10px;color:var(--grey-5)}
+.legend-swatch{display:inline-block;width:14px;height:8px;background:var(--grey-6);margin-left:8px}
+.legend-swatch.external{background:var(--bronze-1)}
+.legend-swatch.conflict{background:var(--danger)}
+.board-gap-note{margin-top:12px;padding:9px 12px;border-left:3px solid var(--warning);background:var(--warning-tint);font-size:11px}
+
+/* --- Readiness chip in table --- */
+.missing-chip{display:inline-block;padding:3px 7px;font-size:10px;font-weight:700;background:var(--warning-tint);color:#8A6800;border-radius:var(--radius);cursor:pointer;border:0}
+.missing-chip:hover{background:var(--warning)}
+.readiness-ok{color:var(--grey-3);font-size:11px}
+
+/* --- Drawer: note banner, mode hint, detail view --- */
+.drawer-note{padding:11px 22px;background:var(--surface-alt);border-bottom:1px solid var(--surface);font-size:12px}
+.drawer-mode-hint{font-size:10px;color:var(--grey-4)}
+.detail-view{padding:6px 22px 18px}
+.detail-section{border-top:1px solid var(--surface);padding:14px 0 6px}
+.detail-section h4{margin:0 0 8px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}
+.detail-row{display:grid;grid-template-columns:170px 1fr;gap:12px;padding:5px 0;font-size:12px}
+.detail-row dt{color:var(--grey-4)}
+.detail-row dd{margin:0;color:var(--black);overflow-wrap:anywhere}
+.detail-add{border:0;background:none;color:var(--info);font-size:12px;padding:0;text-align:left}
+.detail-add:hover{text-decoration:underline;color:#07476F}
+
+/* --- Pack drawer --- */
+.pack-shared-heading{margin-top:16px;padding:8px 10px;background:var(--surface);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}
+#activity-form.pack-mode{display:flex;flex-direction:column}
+#activity-form.pack-mode .form-variant{order:1}
+#activity-form.pack-mode #fs-identity{order:2}
+#activity-form.pack-mode #pack-section{order:3;display:block}
+#activity-form.pack-mode .pack-shared-heading{order:4}
+#activity-form.pack-mode fieldset:not(#fs-identity){order:5}
+#activity-form.pack-mode .pack-summary{order:6}
+#activity-form.pack-mode .validation-message{order:7}
+#activity-form.pack-mode .drawer-actions{order:8}
+#activity-form.pack-mode datalist{order:9}
+.pack-row .pack-stub{margin-top:6px;font-size:10px;color:var(--grey-4)}
+.pack-summary{position:sticky;bottom:56px;background:var(--surface-alt);border:1px solid var(--surface);border-left:3px solid var(--bronze-1);padding:10px 12px;font-size:11px;margin-top:10px}
+.pack-summary strong{display:block;font-size:12px;margin-bottom:5px}
+.pack-summary-row{display:flex;justify-content:space-between;gap:10px;padding:2px 0;color:var(--grey-5)}
+.pack-summary-row .tracking-id{font-size:10px}
+
+/* --- Incomplete-save modal --- */
+.incomplete-list{list-style:none;margin:0 0 18px;padding:0}
+.incomplete-list li{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 10px;border-left:3px solid var(--warning);background:var(--warning-tint);font-size:12px;margin-bottom:6px}
+.incomplete-list li strong{font-weight:600}

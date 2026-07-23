@@ -14,10 +14,21 @@
         <div class="brand-mark"></div>
         <div>
           <h1>CPLAN Planning Studio</h1>
-          <p>Campaign planning backed by a local database</p>
+          <p>Plan and track communications across channels</p>
         </div>
       </div>
       <div class="top-actions">
+        <div class="time-filter" id="time-filter">
+          <div class="segmented" id="time-presets">
+            <button data-range="30d">30 D</button>
+            <button data-range="quarter">Quarter</button>
+            <button data-range="ytd">YTD</button>
+            <button data-range="12m">12 M</button>
+            <button class="active" data-range="all">All</button>
+          </div>
+          <label class="time-input">From<input type="date" id="date-from"></label>
+          <label class="time-input">To<input type="date" id="date-to"></label>
+        </div>
         <div class="freshness" id="freshness">
           <span class="status-dot loading" id="status-dot"></span>
           <div><strong id="status-label">Loading data</strong><small id="snapshot-time">Analytics snapshot: —</small></div>
@@ -42,7 +53,7 @@
         <div class="kpi-grid" id="overview-kpis"></div>
         <div class="grid two-one">
           <article class="card priority-card">
-            <div class="card-head"><div><h3>Attention required</h3><p>Planning issues ranked by severity and proximity</p></div><span class="badge danger" id="attention-count">0</span></div>
+            <div class="card-head"><div><h3>Attention required</h3><p id="attention-subtitle">Grouped by issue type</p></div><span class="badge danger" id="attention-count">0</span></div>
             <div class="card-body flush" id="attention-list"></div>
           </article>
           <article class="card">
@@ -51,9 +62,14 @@
           </article>
         </div>
         <div class="grid two">
-          <article class="card"><div class="card-head"><div><h3>Next 30 days</h3><p>Upcoming activities by start date</p></div></div><div class="card-body flush" id="upcoming-list"></div></article>
-          <article class="card"><div class="card-head"><div><h3>Channel load</h3><p>Activity volume, not configured capacity</p></div></div><div class="card-body" id="channel-load"></div></article>
+          <article class="card"><div class="card-head"><div><h3>Next 30 days</h3><p>Upcoming activities grouped by week</p></div></div><div class="card-body flush" id="upcoming-list"></div></article>
+          <article class="card"><div class="card-head"><div><h3>Channel load</h3><p>Activities starting in the selected horizon</p></div><div class="segmented" id="channel-horizon"><button data-weeks="2">2 wks</button><button class="active" data-weeks="4">4 wks</button><button data-weeks="0">All</button></div></div><div class="card-body" id="channel-load"></div></article>
         </div>
+        <div class="grid two">
+          <article class="card"><div class="card-head"><div><h3>Business division</h3><p>Division mentions — multi-division activities count once per division</p></div></div><div class="card-body" id="division-donut"></div></article>
+          <article class="card"><div class="card-head"><div><h3>Priority distribution</h3><p>Share of activities in the selected range</p></div></div><div class="card-body" id="priority-donut"></div></article>
+        </div>
+        <article class="card"><div class="card-head"><div><h3>Monthly activity trend</h3><p>Activity starts per month</p></div><div class="segmented" id="trend-toggle"><button class="active" data-mode="">All</button><button data-mode="internal">Internal</button><button data-mode="external">External</button></div></div><div class="card-body" id="monthly-trend"></div></article>
       </section>
 
       <section class="page" id="page-planning">
@@ -66,9 +82,9 @@
         </div>
 
         <div class="subpage active" id="sub-board">
-          <div class="toolbar"><div class="segmented" id="horizon-toggle"><button class="active" data-weeks="8">8 weeks</button><button data-weeks="12">12 weeks</button><button data-weeks="26">6 months</button></div></div>
+          <div class="toolbar spread"><div class="segmented" id="board-group-toggle"><button class="active" data-group="channel">By channel</button><button data-group="campaign">By campaign</button><button data-group="division">By division</button></div><div class="segmented" id="horizon-toggle"><button class="active" data-weeks="8">8 weeks</button><button data-weeks="12">12 weeks</button><button data-weeks="26">6 months</button></div></div>
           <div class="kpi-grid" id="planning-kpis"></div>
-          <article class="card"><div class="card-head"><div><h3>Activity timeline</h3><p>Upcoming work grouped by channel</p></div></div><div class="card-body" id="planning-board"></div></article>
+          <article class="card"><div class="card-head"><div><h3>Activity timeline</h3><p id="board-subtitle">Swimlanes per channel · bars span start to end</p></div><div class="timeline-legend"><span class="legend-swatch internal"></span>Internal<span class="legend-swatch external"></span>External<span class="legend-swatch conflict"></span>Conflict</div></div><div class="card-body" id="planning-board"></div></article>
         </div>
 
         <div class="subpage" id="sub-calendar">
@@ -97,10 +113,10 @@
       </section>
 
       <section class="page" id="page-activities">
-        <div class="page-heading"><div><p class="eyebrow">Operational workspace</p><h2>Activities</h2><p>Find, inspect and persist planning records in the configured local database.</p></div><div class="page-actions"><button class="btn primary" id="pack-new">New pack</button><button class="btn secondary" id="activity-new">New activity</button><button class="btn secondary" id="activity-export">Export filtered CSV</button></div></div>
+        <div class="page-heading"><div><p class="eyebrow">Operational workspace</p><h2>Activities</h2><p>Find, inspect and persist planning records in the configured local database.</p></div><div class="page-actions"><button class="btn primary stacked" id="pack-new">New pack<small>One message across several channels</small></button><button class="btn secondary stacked" id="activity-new">New activity<small>Single channel, single date</small></button><button class="btn secondary" id="activity-export">Export filtered CSV</button></div></div>
         <div class="filterbar">
           <input id="activity-search" type="search" placeholder="Search activity, campaign, lead or tracking ID">
-          <select id="activity-source"><option value="">All sources</option><option value="internal">Internal</option><option value="external">External</option></select>
+          <select id="activity-source"><option value="">All types</option><option value="internal">Internal</option><option value="external">External</option></select>
           <select id="activity-channel"><option value="">All channels</option></select>
           <select id="activity-priority"><option value="">All priorities</option></select>
           <select id="activity-campaign"><option value="">All campaigns / packs</option></select>
@@ -108,7 +124,7 @@
           <button class="btn secondary" id="activity-clear">Clear</button>
           <span id="activity-result-count"></span>
         </div>
-        <article class="card"><div class="table-wrap"><table><thead><tr><th>Activity</th><th>Tracking ID</th><th>Channel</th><th>Start</th><th>Priority</th><th>Lead team</th><th>Campaign / pack</th><th>Readiness</th><th class="action-cell" aria-label="Row actions"></th></tr></thead><tbody id="activity-table-body"></tbody></table></div></article>
+        <article class="card"><div class="table-wrap"><table><thead><tr><th>Activity</th><th><span class="th-help" title="CLUSTER-PACKNUM-YYMMDD-ACTNUM-CHANNEL — links planning to downstream outcome data. Date, sequence and channel are minted on save; pack membership sets the prefix.">Tracking ID ⓘ</span></th><th>Channel</th><th>Start</th><th>Priority</th><th>Lead team</th><th>Campaign / pack</th><th>Readiness</th><th class="action-cell" aria-label="Row actions"></th></tr></thead><tbody id="activity-table-body"></tbody></table></div></article>
       </section>
 
       <section class="page" id="page-analytics">
@@ -117,7 +133,7 @@
           <button class="subnav-item active" data-sub="planning-health">Planning Health</button>
           <button class="subnav-item" data-sub="strategic">Strategic</button>
           <button class="subnav-item" data-sub="campaign-quality">Campaign Quality</button>
-          <button class="subnav-item" data-sub="data-quality">Data Quality</button>
+          <button class="subnav-item" data-sub="data-quality">Data Health</button>
         </div>
 
         <div class="subpage active" id="sub-planning-health">
@@ -128,8 +144,8 @@
 
         <div class="subpage" id="sub-strategic">
           <div class="kpi-grid" id="strategic-kpis"></div>
-          <div class="grid two"><article class="card"><div class="card-head"><div><h3>Objective coverage</h3></div></div><div class="card-body" id="objective-coverage"></div></article><article class="card"><div class="card-head"><div><h3>Division coverage</h3></div></div><div class="card-body" id="division-coverage"></div></article></div>
-          <article class="card"><div class="card-head"><div><h3>Unaligned activities</h3><p>No strategic objective assigned</p></div></div><div class="card-body flush" id="unaligned-list"></div></article>
+          <div class="grid two"><article class="card"><div class="card-head"><div><h3>Pillar coverage</h3></div></div><div class="card-body" id="objective-coverage"></div></article><article class="card"><div class="card-head"><div><h3>Division coverage</h3></div></div><div class="card-body" id="division-coverage"></div></article></div>
+          <article class="card"><div class="card-head"><div><h3>Unaligned activities</h3><p>No communications pillar assigned</p></div></div><div class="card-body flush" id="unaligned-list"></div></article>
         </div>
 
         <div class="subpage" id="sub-campaign-quality">
@@ -148,8 +164,10 @@
   <aside class="drawer" id="activity-drawer" aria-hidden="true">
     <div class="drawer-backdrop" data-close-drawer></div>
     <div class="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
-      <div class="drawer-head"><div><p class="eyebrow">Activity detail</p><h2 id="drawer-title">Activity</h2><p id="drawer-tracking"></p></div><button class="icon-btn" id="drawer-close" data-close-drawer aria-label="Close">×</button></div>
-      <div class="drawer-mode"><span class="badge neutral" id="drawer-mode-label">Read only</span><div class="drawer-mode-actions"><button class="btn secondary" id="drawer-duplicate">Duplicate</button><button class="btn primary" id="drawer-edit">Edit activity</button></div></div>
+      <div class="drawer-head"><div><p class="eyebrow" id="drawer-eyebrow">Activity detail</p><h2 id="drawer-title">Activity</h2><div id="drawer-tracking"></div></div><button class="icon-btn" id="drawer-close" data-close-drawer aria-label="Close">×</button></div>
+      <div class="drawer-note" id="drawer-note" hidden></div>
+      <div class="drawer-mode" id="drawer-mode"><span class="badge neutral" id="drawer-mode-label">Read only</span><span class="drawer-mode-hint" id="drawer-mode-hint" hidden>Version-checked save — conflicts are flagged before anything is overwritten</span><div class="drawer-mode-actions"><button class="btn secondary" id="drawer-duplicate">Duplicate</button><button class="btn primary" id="drawer-edit">Edit activity</button></div></div>
+      <div class="detail-view" id="detail-view" hidden></div>
       <form id="activity-form" novalidate>
         <div class="form-variant" id="form-variant" hidden>
           <span class="form-variant-label">Activity type</span>
@@ -159,15 +177,19 @@
           </div>
         </div>
 
-        <fieldset><legend>Identity</legend>
+        <fieldset id="fs-identity"><legend>Identity</legend>
           <label data-single-only>Activity name <span class="req">*</span><input name="activity_name" maxlength="500"></label>
-          <label>Campaign<input name="campaign" list="dl-campaign" autocomplete="off"></label>
-          <label>Communication pack<input name="communication_pack_cpid" list="dl-communication_pack_cpid" autocomplete="off"><span class="field-help">Select an existing pack only when this activity is known to belong to it</span></label>
+          <label data-pack-only hidden>Pack name <span class="req">*</span><input name="pack_name" maxlength="500"><span class="field-help">Names the pack and its activities — the pack links them for cross-channel reporting</span></label>
+          <label data-pack-only hidden>Part of campaign<input name="pack_campaign" list="dl-campaign" autocomplete="off"><span class="field-help">Optional — groups this pack with others under one campaign</span></label>
+          <label data-single-only>Campaign<input name="campaign" list="dl-campaign" autocomplete="off"></label>
+          <label data-single-only>Communication pack<input name="communication_pack_cpid" list="dl-communication_pack_cpid" autocomplete="off"><span class="field-help">Pack membership links this activity to cross-channel reporting via the tracking ID</span></label>
         </fieldset>
 
-        <fieldset><legend>Classification</legend>
+        <div class="pack-shared-heading" data-pack-only hidden>Applies to every activity in this pack</div>
+
+        <fieldset id="fs-classification"><legend>Classification</legend>
           <label data-single-only>Channel <span class="req">*</span><select name="channel"><option value="">Select channel…</option></select></label>
-          <label>Priority <span class="req">*</span><select name="priority"><option value="">Unassigned</option><option>Critical</option><option>High</option><option>Medium</option><option>Normal</option><option>Low</option></select></label>
+          <label>Priority <span class="req">*</span><select name="priority"><option value="">Select priority…</option><option>Critical</option><option>High</option><option>Medium</option><option>Low</option></select></label>
           <div class="ms-field">
             <span class="ms-label" id="label-strategic_objectives">Communications pillars <span class="req">*</span></span>
             <div class="multiselect" data-multiselect="strategic_objectives" role="group" aria-labelledby="label-strategic_objectives">
@@ -223,18 +245,20 @@
         </fieldset>
 
         <div id="pack-section" hidden>
-          <fieldset><legend>Channels</legend>
+          <fieldset><legend>Channels <span class="req">*</span></legend>
             <div class="channel-matrix" id="pack-channels"></div>
             <div class="pack-add-channel">
               <input id="pack-channel-new" placeholder="Add another channel" aria-label="Add another channel">
               <button type="button" class="btn secondary" id="pack-channel-add">Add</button>
             </div>
+            <span class="field-help">Channels are managed centrally so analytics and tracking IDs stay consistent — add a new one only if it genuinely does not exist yet</span>
           </fieldset>
-          <fieldset><legend>Activities</legend>
+          <fieldset><legend>Activities in this pack</legend>
             <div id="pack-rows"></div>
           </fieldset>
         </div>
 
+        <div class="pack-summary" id="pack-summary" hidden></div>
         <div class="validation-message" id="form-validation"></div>
         <div class="drawer-actions"><button type="button" class="btn secondary" id="drawer-cancel">Cancel</button><button type="submit" class="btn primary" id="drawer-save">Save activity</button></div>
 
@@ -260,6 +284,18 @@
       <div class="modal-actions">
         <button type="button" class="btn secondary" id="discard-keep">Keep editing</button>
         <button type="button" class="btn danger" id="discard-confirm">Discard changes</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="incomplete-modal" aria-hidden="true">
+    <div class="modal-card" role="alertdialog" aria-modal="true" aria-labelledby="incomplete-modal-title" aria-describedby="incomplete-modal-body">
+      <h2 id="incomplete-modal-title">Save with missing fields?</h2>
+      <p id="incomplete-modal-body">This record will be flagged as incomplete on the Overview until it is filled in:</p>
+      <ul class="incomplete-list" id="incomplete-modal-list"></ul>
+      <div class="modal-actions">
+        <button type="button" class="btn secondary" id="incomplete-save">Save as incomplete</button>
+        <button type="button" class="btn primary" id="incomplete-back">Go back and complete</button>
       </div>
     </div>
   </div>
