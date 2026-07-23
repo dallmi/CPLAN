@@ -104,6 +104,13 @@ def test_activity_update_rejects_stale_version(client):
     assert stale_response.json()["detail"]["code"] == "version_conflict"
 
 
+def test_delete_activity_legacy_mode(client):
+    row = create_activity(client)
+    assert client.delete(f"/api/activities/{row['id']}").status_code == 204
+    assert client.get("/api/activities").json()["total"] == 0
+    assert client.delete(f"/api/activities/{row['id']}").status_code == 404
+
+
 def test_partial_update_rejects_invalid_resulting_date_range_without_persisting(client):
     created = create_activity(client)
 

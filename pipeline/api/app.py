@@ -26,7 +26,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-from sqlalchemy import Boolean, DateTime, Index, Integer, String, Text, Uuid, func, select, text, update
+from sqlalchemy import Boolean, DateTime, Index, Integer, String, Text, Uuid, delete as sqlalchemy_delete, func, select, text, update
 from sqlalchemy.engine import URL
 from sqlalchemy.exc import IntegrityError, ProgrammingError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
@@ -889,6 +889,34 @@ def create_app(database_url: str | URL | None = None, auth_settings: AuthSetting
         session.commit()
         session.refresh(updated)
         return updated
+
+    @app.delete("/api/activities/{activity_id}", status_code=status.HTTP_204_NO_CONTENT)
+    def delete_activity(
+        activity_id: uuid.UUID,
+        user: CurrentUser = Depends(current_user),
+        session: Session = Depends(db_session),
+    ):
+        current = session.get(Activity, activity_id)
+        if current is None:
+            raise HTTPException(status_code=404, detail={"code": "not_found"})
+        snapshot = json.dumps(
+            {"tracking_id": current.tracking_id, "activity_name": current.activity_name}
+        )
+        # Missing DELETE grant (everyone but admin) raises 42501 here -> the
+        # global handler turns it into a clean 403 before any audit row exists.
+        result = session.execute(sqlalchemy_delete(Activity).where(Activity.id == activity_id))
+        if result.rowcount == 0:
+            raise HTTPException(status_code=404, detail={"code": "not_found"})
+        session.add(
+            ActivityChange(
+                activity_id=activity_id,
+                actor=user.username,
+                change_type="deleted",
+                old_value=snapshot,
+                version_from=current.version,
+            )
+        )
+        session.commit()
 
     @app.get("/api/activities/{activity_id}/changes", response_model=ActivityChangeList)
     def list_activity_changes(

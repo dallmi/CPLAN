@@ -119,3 +119,31 @@ def test_logout_clears_session(api):
     client = login(app, "a_viewer")
     assert client.post("/api/logout").status_code == 200
     assert client.get("/api/activities").status_code == 401
+
+
+def test_only_admin_deletes_and_audit_survives(api):
+    app, url = api
+    editor = login(app, "a_editor")
+    row = editor.post("/api/activities", json=PAYLOAD).json()
+
+    for username in ("a_viewer", "a_contrib", "a_editor"):
+        assert login(app, username).delete(f"/api/activities/{row['id']}").status_code == 403
+
+    admin = login(app, "a_admin")
+    assert admin.delete(f"/api/activities/{row['id']}").status_code == 204
+    assert admin.delete(f"/api/activities/{row['id']}").status_code == 404  # gone
+
+    engine = create_cplan_engine(url)
+    try:
+        with engine.connect() as connection:
+            deleted = connection.execute(
+                text(
+                    "SELECT actor, old_value FROM activity_changes "
+                    "WHERE activity_id = :i AND change_type = 'deleted'"
+                ),
+                {"i": row["id"]},
+            ).one()
+        assert deleted.actor == "a_admin"
+        assert row["tracking_id"] in deleted.old_value
+    finally:
+        engine.dispose()
