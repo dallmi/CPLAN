@@ -162,6 +162,71 @@ Every writer records the change in the same transaction as the data change itsel
 | `v_sync_history` | One row per `sync_snapshot.py` run — the same counts as `GET /api/sync-runs/latest`. |
 | `v_change_log` | Every `activity_changes` row joined to its activity's `tracking_id`/`activity_name`; newest-first ordering is left to the consumer's own `ORDER BY`. |
 
+## Authentication & roles
+
+Solo/local use needs nothing here: with no `CPLAN_AUTH_SECRET` set, the API stays in the existing single-user "studio" mode (every write is attributed to the actor `studio`, no login, no role checks) — for both SQLite and PostgreSQL. Login and roles are a PostgreSQL-only feature; setting `CPLAN_AUTH_SECRET` against a SQLite backend has no effect.
+
+### Enable
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(48))"   # generate a secret once
+export CPLAN_AUTH_SECRET=<the generated string>                # set before starting the API
+```
+
+`CPLAN_AUTH_SECRET` signs session cookies (`itsdangerous`, 12h expiry) — keep it out of Git the same way `CPLAN_DB_PASSWORD` is kept out. Once it is set and the backend is PostgreSQL, `POST /api/login` starts checking real credentials, `GET /api/me` reports the caller's role, and every write is attributed to the logged-in username instead of `studio`.
+
+### Set up roles + first admin
+
+```bash
+PYTHONPATH=. .venv/bin/python -m pipeline.api.setup_roles --create-user michael --role admin
+```
+
+Prompts for a password (pass `--password` to skip the prompt, e.g. in a script). This single command both applies the role/grant/RLS model (idempotent — safe to re-run) and creates the first login. Re-run plain `setup_roles` (no flags) after every schema change: `GRANT ... ON ALL TABLES IN SCHEMA public` only covers tables that exist at the moment it runs, so a table added later needs another pass to pick up the grant.
+
+### Manage users
+
+Every flag below re-applies the role/grant/RLS model first, then performs its action — this CLI is the interim admin surface until the portal (Plan 2) ships a UI for it.
+
+```bash
+PYTHONPATH=. .venv/bin/python -m pipeline.api.setup_roles --create-user <name> --role <viewer|contributor|editor|admin>   # new login, prompts for password
+PYTHONPATH=. .venv/bin/python -m pipeline.api.setup_roles --set-role <name> --role <viewer|contributor|editor|admin>     # change an existing user's role
+PYTHONPATH=. .venv/bin/python -m pipeline.api.setup_roles --reset-password <name>                                        # prompts for the new password
+PYTHONPATH=. .venv/bin/python -m pipeline.api.setup_roles --deactivate <name>                                            # revoke LOGIN — user can no longer authenticate
+PYTHONPATH=. .venv/bin/python -m pipeline.api.setup_roles --activate <name>                                              # restore LOGIN
+```
+
+All five accept `--password` to supply the value non-interactively instead of the getpass prompt, and `--database-url` to target a database other than the resolved default (`CPLAN_DATABASE_URL`, then `CPLAN_DB_*`, then the persisted backend settings — same resolution `setup_backend`/`import_snapshot` use). Usernames are plain PostgreSQL login roles, so they follow PostgreSQL identifier rules; the internal group roles and `cplan_authenticator` are rejected as usernames (`RESERVED_ROLES`) since a real user could otherwise collide with the privilege model itself.
+
+### The role model
+
+| Role | Read | Create | Edit own rows | Edit any row | Delete |
+|---|---|---|---|---|---|
+| `viewer` | yes | — | — | — | — |
+| `contributor` | yes | yes | yes | — | — |
+| `editor` | yes | yes | yes | yes | — |
+| `admin` | yes | yes | yes | yes | yes |
+
+Roles are additive group memberships (`viewer` ⊂ `contributor` ⊂ `editor` ⊂ `admin`), enforced two ways at once:
+
+- **Grants** — plain PostgreSQL `GRANT`s decide which SQL statements a role may issue at all (`SELECT` for everyone, `INSERT`/`UPDATE` from `contributor` up, `DELETE` only for `admin`).
+- **Row-level security** on `activities` — `contributor` may only `INSERT`/`UPDATE` rows where `created_by` matches their own username (policies `contrib_insert`/`contrib_update`); `editor` and the sync job (`cplan_sync`) write any row (`editor_write`, `FOR ALL USING (true)`); `admin` alone carries the `DELETE` policy (`admin_delete`). Everyone reads every row (`read_all`, `FOR SELECT USING (true)`).
+
+A contributor's attempt to edit or delete a row they don't own fails as a normal HTTP error, not a leak: the app's ownership check (`update_activity`) returns `403 forbidden_not_owner` before the query even runs, and any privilege PostgreSQL itself rejects (e.g. a raw `DELETE` attempt) surfaces via the global `ProgrammingError` handler as `403 forbidden` (SQLSTATE `42501`) rather than a raw 500.
+
+Delete is intentionally hard to lose data from: `DELETE /api/activities/{id}` is `admin`-only, and even then the row is not silently gone — the handler writes an `activity_changes` audit row (`change_type "deleted"`, a JSON snapshot of `tracking_id`/`activity_name` in `old_value`) in the same transaction as the delete, so the deletion itself remains visible in the History panel and `v_change_log` after the activity row is gone.
+
+### Central-server hardening
+
+On a shared/central instance, `pg_hba.conf` must require `scram-sha-256` for every non-superuser role over TCP — a server reachable from other machines must never fall back to `trust` auth for login roles, or any known username authenticates with any (or no) password.
+
+The **embedded** backend (`postgres-embedded` via `pgserver`) already does the right thing for its one legitimate local-trust case and nothing more: `pgserver` provisions a fresh `pgdata` with `trust` for every role, and `database.py`'s `_harden_local_authentication` rewrites `pg_hba.conf` on every startup so only `postgres` (the app's own superuser, used for engine bootstrap and `setup_roles` itself, which never carries a password) keeps `trust`; every other role — every user created via `setup_roles --create-user` — must present its real `scram-sha-256` password, both over the Unix socket and over `127.0.0.1`/`::1`. This is what makes `verify_credentials` (`pipeline/api/auth.py`) meaningful even for local/solo use: a wrong password for an existing user role is rejected, not silently accepted. On a real shared PostgreSQL server (not the embedded one), apply the equivalent rule directly in that server's own `pg_hba.conf` — do not lower it back to `trust` for convenience.
+
+The API service itself never connects as an end user's role directly: it authenticates as `cplan_authenticator` and `SET ROLE` into the logged-in user's role for the duration of the request (`setup_roles` grants every created user role `TO cplan_authenticator` at creation time, and `apply_roles` re-applies that shape on every run) — the PostgREST pattern. Point `CPLAN_DATABASE_URL` at `cplan_authenticator`'s own credentials when running the API against a central server, not at any individual user's login.
+
+### pgAdmin
+
+The same grants the studio enforces apply to a direct pgAdmin connection — there is no separate read path to lock down. Handing a user their own `cplan_viewer`/`cplan_contributor`/`cplan_editor`/`cplan_admin`-derived login and connecting pgAdmin with it is safe: they see exactly the rows and columns their role already permits through the API (RLS applies identically outside the API, since `activities` has `FORCE ROW LEVEL SECURITY` enabled), plus the read-only analysis views under `cplan → Schemas → public → Views` (see [Analysis views](#analysis-views-pgadmin) above) — `cplan_viewer`'s blanket `SELECT` on all tables already covers them.
+
 ## Run with Docker Compose
 
 Docker Desktop must be running. Keep the password outside Git:
