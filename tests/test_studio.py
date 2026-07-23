@@ -50,11 +50,10 @@ class StudioTests(unittest.TestCase):
 
         self.assertNotIn('data-open-id="${esc(row.tracking_id', app)
         self.assertIn(
-            "This activity changed in the database since you opened it. "
-            "Your entries are kept — review them, then save again to apply, "
-            "or cancel to discard.",
+            "This activity changed since you opened it. Reload and review before saving.",
             app,
         )
+        self.assertIn("version_conflict", app)
         self.assertIn("Discard unsaved changes?", app)
 
     def test_time_zone_select_and_local_time_labels(self):
