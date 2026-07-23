@@ -3,7 +3,7 @@
 
   const A = window.CplanAnalytics;
   const COLORS = {grey:'#404040', bronze:'#B98E2C'};
-  const state = {snapshotRows:[], rows:[], meta:null, syncRun:null, horizonWeeks:8, calendarDate:new Date(), selected:null, editing:false, creating:false, dirty:false, filteredRows:[], collisionsCache:new Map(), drawerOpener:null, discardModalOpen:false};
+  const state = {snapshotRows:[], rows:[], meta:null, syncRun:null, horizonWeeks:8, calendarDate:new Date(), selected:null, editing:false, creating:false, packing:false, customChannels:[], dirty:false, filteredRows:[], collisionsCache:new Map(), drawerOpener:null, discardModalOpen:false};
 
   const esc = A.escapeHtml;
   const fmtNum = value => Number(value || 0).toLocaleString('en-GB');
@@ -75,6 +75,9 @@
     getActivityChanges(id) { return this.request(`/api/activities/${encodeURIComponent(id)}/changes`); }
     createActivity(payload) {
       return this.request('/api/activities', {method:'POST',body:JSON.stringify(payload)});
+    }
+    createActivitiesBatch(items) {
+      return this.request('/api/activities/batch', {method:'POST',body:JSON.stringify({items})});
     }
     updateActivity(id, version, patch) {
       return this.request(`/api/activities/${encodeURIComponent(id)}`, {method:'PATCH',body:JSON.stringify(Object.assign({version},patch))});
@@ -552,11 +555,12 @@
   }
 
   function openDrawer(row, opener) {
-    state.selected=row;state.editing=false;state.creating=false;state.drawerOpener=opener||document.activeElement;
+    state.selected=row;state.editing=false;state.creating=false;state.packing=false;state.drawerOpener=opener||document.activeElement;
     const sourceType=row.source_type||'internal';
     document.getElementById('drawer-title').textContent=row.activity_name||'Untitled activity';
     document.getElementById('drawer-tracking').textContent=row.tracking_id||'No tracking ID';
     document.getElementById('form-variant').hidden=true;
+    setPackMode(false);
     applyVariant(sourceType);
     populateSelectOptions(sourceType);
     populateDrawerForm(row);
@@ -569,7 +573,7 @@
   }
 
   function openCreateDrawer(opener) {
-    state.selected=null;state.creating=true;state.editing=true;state.dirty=false;state.drawerOpener=opener||document.activeElement;
+    state.selected=null;state.creating=true;state.packing=false;state.editing=true;state.dirty=false;state.drawerOpener=opener||document.activeElement;
     document.getElementById('drawer-title').textContent='New activity';
     document.getElementById('drawer-tracking').textContent='Tracking ID is generated on save';
     document.getElementById('drawer-mode-label').textContent='New record';
@@ -582,6 +586,7 @@
     document.getElementById('drawer-history').hidden=true;
     setSourceToggle('internal');
     resetCreateForm();
+    setPackMode(false);
     applyVariant('internal');
     populateSelectOptions('internal');
     renderMultiselectOptions();
@@ -591,9 +596,142 @@
     form().elements.activity_name.focus();
   }
 
+  const PACK_ROW_FIELDS=['activity_name','channel','start_date','end_date'];
+
+  function setPackMode(on) {
+    document.getElementById('pack-section').hidden=!on;
+    document.querySelectorAll('#activity-form [data-single-only]').forEach(el=>{el.hidden=on;});
+  }
+
+  function packSelectedChannels() {
+    return Array.from(document.querySelectorAll('#pack-channels input:checked')).map(input=>input.value);
+  }
+
+  function renderPackChannels(sourceType) {
+    const all=distinctChannels(sourceType).slice();
+    state.customChannels.forEach(channel=>{if(!all.includes(channel))all.push(channel);});
+    const selected=packSelectedChannels();
+    document.getElementById('pack-channels').innerHTML=all.length
+      ?all.map(channel=>`<label class="ms-option"><input type="checkbox" value="${esc(channel)}"${selected.includes(channel)?' checked':''}><span>${esc(channel)}</span></label>`).join('')
+      :'<div class="ms-empty">No channels in the data yet — add one below</div>';
+  }
+
+  function packRowValues() {
+    return Array.from(document.querySelectorAll('#pack-rows .pack-row')).map(rowEl=>({
+      channel:rowEl.dataset.channel,
+      name:rowEl.querySelector('[data-pack-name]').value,
+      start:rowEl.querySelector('[data-pack-start]').value,
+      end:rowEl.querySelector('[data-pack-end]').value,
+    }));
+  }
+
+  function renderPackRows() {
+    const previousRows=packRowValues();
+    const previous=new Map(previousRows.map(row=>[row.channel,row]));
+    const first=previousRows[0];
+    const campaign=String(form().elements.campaign.value||'').trim();
+    document.getElementById('pack-rows').innerHTML=packSelectedChannels().map(channel=>{
+      const prev=previous.get(channel);
+      const name=prev?prev.name:(campaign?`${campaign} — ${channel}`:channel);
+      const start=prev?prev.start:(first?first.start:'');
+      const end=prev?prev.end:(first?first.end:'');
+      return `<div class="pack-row" data-channel="${esc(channel)}"><div class="pack-row-channel">${esc(channel)}</div><label>Activity name <span class="req">*</span><input data-pack-name value="${esc(name)}"></label><div class="form-grid"><label>Start date (local time) <span class="req">*</span><input type="datetime-local" data-pack-start value="${esc(start)}"></label><label>End date (local time) <span class="req">*</span><input type="datetime-local" data-pack-end value="${esc(end)}"></label></div></div>`;
+    }).join('')||'<div class="ms-empty">Select at least one channel above</div>';
+    updatePackSubmitLabel();
+  }
+
+  function updatePackSubmitLabel() {
+    if(!state.packing)return;
+    const count=packSelectedChannels().length;
+    document.getElementById('drawer-save').textContent=count?`Create ${count} ${count===1?'activity':'activities'}`:'Create activities';
+  }
+
+  function openPackDrawer(opener) {
+    state.selected=null;state.creating=false;state.packing=true;state.editing=true;state.dirty=false;state.customChannels=[];state.drawerOpener=opener||document.activeElement;
+    document.getElementById('drawer-title').textContent='New pack';
+    document.getElementById('drawer-tracking').textContent='Tracking IDs are generated on save';
+    document.getElementById('drawer-mode-label').textContent='New pack';
+    document.getElementById('drawer-mode-label').className='badge info';
+    document.getElementById('drawer-edit').style.display='none';
+    document.querySelector('.drawer-actions').style.display='flex';
+    document.getElementById('form-validation').textContent='';
+    document.getElementById('form-variant').hidden=false;
+    document.getElementById('drawer-history').hidden=true;
+    setSourceToggle('internal');
+    resetCreateForm();
+    applyVariant('internal');
+    populateSelectOptions('internal');
+    renderMultiselectOptions();
+    setFormEnabled(true);
+    setPackMode(true);
+    renderPackChannels('internal');
+    renderPackRows();
+    document.getElementById('activity-drawer').classList.add('open');
+    document.getElementById('activity-drawer').setAttribute('aria-hidden','false');
+    form().elements.campaign.focus();
+  }
+
+  function packErrorMessage(message, rows) {
+    // Translate pydantic loc paths ("items.1.end_date: ...") into the
+    // channel-row language the user sees ("Intranet End date: ...").
+    return String(message).replace(/items\.(\d+)\.?([a-z_]*)/g,(match,index,field)=>{
+      const row=rows[Number(index)];
+      if(!row)return match;
+      const label=field?(FIELD_LABELS[field]||field):'';
+      return label?`${row.channel} ${label}`:row.channel;
+    });
+  }
+
+  async function submitPack(event) {
+    event.preventDefault();
+    const sourceType=currentSourceType(),validation=document.getElementById('form-validation');
+    const value=name=>{const el=form().elements[name];return el?String(el.value||'').trim():'';};
+    const required=(sourceType==='internal'?REQUIRED_INTERNAL:REQUIRED_EXTERNAL).filter(name=>!PACK_ROW_FIELDS.includes(name));
+    const missing=required.filter(name=>!value(name));
+    if(missing.length){
+      validation.textContent=`Complete the required fields: ${missing.map(name=>FIELD_LABELS[name]||name).join(', ')}.`;
+      focusField(missing[0]);
+      return;
+    }
+    const rows=packRowValues();
+    if(!rows.length){validation.textContent='Select at least one channel.';return;}
+    for(const row of rows){
+      if(!row.name.trim()){validation.textContent=`${row.channel}: activity name is required.`;return;}
+      if(!row.start||!row.end){validation.textContent=`${row.channel}: start and end date are required.`;return;}
+      const start=A.parseDate(row.start),end=A.parseDate(row.end);
+      if(start&&end&&end<start){validation.textContent=`${row.channel}: end date cannot be before start date.`;return;}
+    }
+    const shared={source_type:sourceType};
+    CREATE_FIELDS.forEach(name=>{
+      if(PACK_ROW_FIELDS.includes(name))return;
+      if(name==='audience'&&sourceType!=='internal')return;
+      const raw=value(name);
+      if(raw)shared[name]=raw;
+    });
+    if(sourceType==='internal')shared.news_digest=form().elements.news_digest.checked;
+    const items=rows.map(row=>Object.assign({},shared,{
+      activity_name:row.name.trim(),
+      channel:row.channel,
+      start_date:new Date(row.start).toISOString(),
+      end_date:new Date(row.end).toISOString(),
+    }));
+    validation.textContent='';
+    try {
+      const created=await repository.createActivitiesBatch(items);
+      created.items.forEach(item=>state.snapshotRows.push(item));
+      state.packing=false;state.dirty=false;
+      toast(`${created.items.length} activities created`);
+      closeDrawer();
+      renderAll();
+    } catch(error) {
+      validation.textContent=packErrorMessage(error.message,rows);
+    }
+  }
+
   function closeDrawer() {
     multiselectContainers().forEach(closeMsPopover);
-    document.getElementById('activity-drawer').classList.remove('open');document.getElementById('activity-drawer').setAttribute('aria-hidden','true');state.selected=null;state.editing=false;state.creating=false;state.dirty=false;
+    document.getElementById('activity-drawer').classList.remove('open');document.getElementById('activity-drawer').setAttribute('aria-hidden','true');state.selected=null;state.editing=false;state.creating=false;state.packing=false;state.dirty=false;
+    setPackMode(false);
     const opener=state.drawerOpener;state.drawerOpener=null;
     if(opener&&typeof opener.focus==='function')opener.focus();
   }
@@ -750,23 +888,39 @@
     document.getElementById('activity-clear').onclick=()=>{['activity-search','activity-source','activity-channel','activity-priority','activity-readiness'].forEach(id=>document.getElementById(id).value='');runActivityFilters();};
     document.getElementById('activity-export').onclick=exportFilteredCsv;
     document.getElementById('activity-new').onclick=event=>openCreateDrawer(event.currentTarget);
+    document.getElementById('pack-new').onclick=event=>openPackDrawer(event.currentTarget);
+    document.getElementById('pack-channels').addEventListener('change',()=>{renderPackRows();state.dirty=true;});
+    document.getElementById('pack-rows').addEventListener('input',updatePackSubmitLabel);
+    document.getElementById('pack-channel-add').onclick=()=>{
+      const input=document.getElementById('pack-channel-new');
+      const channel=String(input.value||'').trim();
+      if(!channel)return;
+      if(!state.customChannels.includes(channel))state.customChannels.push(channel);
+      renderPackChannels(currentSourceType());
+      const box=Array.from(document.querySelectorAll('#pack-channels input')).find(item=>item.value===channel);
+      if(box)box.checked=true;
+      input.value='';
+      renderPackRows();
+      state.dirty=true;
+    };
     wireMultiselects();
     document.getElementById('source-toggle').onclick=event=>{
       const btn=event.target.closest('button');if(!btn)return;
       const source=btn.dataset.source;if(source===currentSourceType())return;
       setSourceToggle(source);applyVariant(source);populateSelectOptions(source);renderMultiselectOptions();
+      if(state.packing){renderPackChannels(source);renderPackRows();}
       if(state.editing)state.dirty=true;
     };
     document.querySelectorAll('[data-close-drawer]').forEach(el=>el.onclick=async()=>{if(await confirmDiscardIfDirty())closeDrawer();});
     document.getElementById('drawer-edit').onclick=()=>{if(!state.selected||!state.selected.id){toast('Database ID required for safe editing');return;}setDrawerEditing(true);};
     document.getElementById('drawer-cancel').onclick=async()=>{
       if(!await confirmDiscardIfDirty())return;
-      if(state.creating){closeDrawer();return;}
+      if(state.creating||state.packing){closeDrawer();return;}
       if(state.selected){const sourceType=state.selected.source_type||'internal';applyVariant(sourceType);populateSelectOptions(sourceType);populateDrawerForm(state.selected);renderMultiselectOptions();}
       setDrawerEditing(false);
     };
     const activityForm=document.getElementById('activity-form');
-    activityForm.onsubmit=event=>state.creating?submitCreate(event):saveDraft(event);
+    activityForm.onsubmit=event=>state.packing?submitPack(event):state.creating?submitCreate(event):saveDraft(event);
     activityForm.addEventListener('input',()=>{if(state.editing)state.dirty=true;});
     activityForm.addEventListener('change',()=>{if(state.editing)state.dirty=true;});
     document.addEventListener('click',event=>{if(!event.target.closest('[data-multiselect]'))multiselectContainers().forEach(closeMsPopover);});

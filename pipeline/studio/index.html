@@ -97,7 +97,7 @@
       </section>
 
       <section class="page" id="page-activities">
-        <div class="page-heading"><div><p class="eyebrow">Operational workspace</p><h2>Activities</h2><p>Find, inspect and persist planning records in the configured local database.</p></div><div class="page-actions"><button class="btn primary" id="activity-new">New activity</button><button class="btn secondary" id="activity-export">Export filtered CSV</button></div></div>
+        <div class="page-heading"><div><p class="eyebrow">Operational workspace</p><h2>Activities</h2><p>Find, inspect and persist planning records in the configured local database.</p></div><div class="page-actions"><button class="btn primary" id="pack-new">New pack</button><button class="btn secondary" id="activity-new">New activity</button><button class="btn secondary" id="activity-export">Export filtered CSV</button></div></div>
         <div class="filterbar">
           <input id="activity-search" type="search" placeholder="Search activity, campaign, lead or tracking ID">
           <select id="activity-source"><option value="">All sources</option><option value="internal">Internal</option><option value="external">External</option></select>
@@ -159,13 +159,13 @@
         </div>
 
         <fieldset><legend>Identity</legend>
-          <label>Activity name <span class="req">*</span><input name="activity_name" maxlength="500"></label>
+          <label data-single-only>Activity name <span class="req">*</span><input name="activity_name" maxlength="500"></label>
           <label>Campaign<input name="campaign" list="dl-campaign" autocomplete="off"></label>
           <label>Communication pack<input name="communication_pack_cpid" list="dl-communication_pack_cpid" autocomplete="off"><span class="field-help">Select an existing pack only when this activity is known to belong to it</span></label>
         </fieldset>
 
         <fieldset><legend>Classification</legend>
-          <label>Channel <span class="req">*</span><select name="channel"><option value="">Select channel…</option></select></label>
+          <label data-single-only>Channel <span class="req">*</span><select name="channel"><option value="">Select channel…</option></select></label>
           <label>Priority <span class="req">*</span><select name="priority"><option value="">Unassigned</option><option>Critical</option><option>High</option><option>Medium</option><option>Normal</option><option>Low</option></select></label>
           <div class="ms-field">
             <span class="ms-label" id="label-strategic_objectives">Communications pillars <span class="req">*</span></span>
@@ -207,7 +207,7 @@
         </fieldset>
 
         <fieldset><legend>Schedule</legend>
-          <div class="form-grid"><label>Start date (local time) <span class="req">*</span><input type="datetime-local" name="start_date"></label><label>End date (local time) <span class="req">*</span><input type="datetime-local" name="end_date"></label></div>
+          <div class="form-grid" data-single-only><label>Start date (local time) <span class="req">*</span><input type="datetime-local" name="start_date"></label><label>End date (local time) <span class="req">*</span><input type="datetime-local" name="end_date"></label></div>
           <label>Time zone <span class="req">*</span><select name="time_zone"><option value="">Not set</option><option value="Europe/Zurich">Europe/Zurich</option><option value="Europe/London">Europe/London</option><option value="Europe/Berlin">Europe/Berlin</option><option value="America/New_York">America/New_York</option><option value="America/Chicago">America/Chicago</option><option value="America/Los_Angeles">America/Los_Angeles</option><option value="Asia/Singapore">Asia/Singapore</option><option value="Asia/Hong_Kong">Asia/Hong_Kong</option><option value="Asia/Tokyo">Asia/Tokyo</option><option value="Australia/Sydney">Australia/Sydney</option><option value="UTC">UTC</option></select></label>
         </fieldset>
 
@@ -220,6 +220,19 @@
         <fieldset data-variant="internal"><legend>Visibility</legend>
           <label class="checkbox-label"><input type="checkbox" name="news_digest"> Consider for news digest</label>
         </fieldset>
+
+        <div id="pack-section" hidden>
+          <fieldset><legend>Channels</legend>
+            <div class="channel-matrix" id="pack-channels"></div>
+            <div class="pack-add-channel">
+              <input id="pack-channel-new" placeholder="Add another channel" aria-label="Add another channel">
+              <button type="button" class="btn secondary" id="pack-channel-add">Add</button>
+            </div>
+          </fieldset>
+          <fieldset><legend>Activities</legend>
+            <div id="pack-rows"></div>
+          </fieldset>
+        </div>
 
         <div class="validation-message" id="form-validation"></div>
         <div class="drawer-actions"><button type="button" class="btn secondary" id="drawer-cancel">Cancel</button><button type="submit" class="btn primary" id="drawer-save">Save activity</button></div>

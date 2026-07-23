@@ -28,6 +28,7 @@ Start and backend setup instructions are in `pipeline/api/README.md`.
 - Campaign/pack orchestration scorecard
 - Strategic alignment and data-quality diagnostics
 - Activity drawer with validated database editing
+- Pack bulk creation: shared fields once, channel matrix, one atomic batch save
 - CSV export of filtered activities
 
 ## Tests

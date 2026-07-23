@@ -327,6 +327,29 @@ class StudioTests(unittest.TestCase):
             app,
         )
 
+    def test_pack_drawer_markup_and_batch_flow(self):
+        html = (DASHBOARD / "index.html").read_text(encoding="utf-8")
+        app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn('id="pack-new"', html)
+        self.assertIn(">New pack<", html)
+        self.assertIn('id="pack-section"', html)
+        self.assertIn('id="pack-channels"', html)
+        self.assertIn('id="pack-rows"', html)
+        self.assertIn('id="pack-channel-new"', html)
+        self.assertIn('id="pack-channel-add"', html)
+        # Per-activity fields are hidden in pack mode via this marker.
+        self.assertIn("data-single-only", html)
+        self.assertIn("/api/activities/batch", app)
+        self.assertIn("createActivitiesBatch", app)
+        self.assertIn("async function submitPack(", app)
+        self.assertIn("function openPackDrawer(", app)
+        self.assertIn("function setPackMode(", app)
+        self.assertIn("state.packing", app)
+        self.assertIn("activities created", app)
+        # Batch API item indices are translated to channel-row names.
+        self.assertIn("function packErrorMessage(", app)
+
     def test_inline_svg_favicon_no_network(self):
         html = (DASHBOARD / "index.html").read_text(encoding="utf-8")
 
