@@ -95,4 +95,20 @@ def test_non_admin_cannot_create_user(portal):
 def test_invalid_role_is_422_or_400_not_500(portal):
     admin = login(portal, "pa_admin")
     bad = admin.post("/api/portal/users", json={"username": "pa_bad", "password": "x", "project": "cplan", "role": "superuser"})
-    assert bad.status_code in (400, 422)
+    assert bad.status_code == 422, bad.text
+    assert bad.json()["detail"]["code"] == "invalid_input"
+
+
+def test_unexpected_db_fault_is_not_masked_as_422(portal):
+    # portal.set_project_role does not check p_name exists as a role before its
+    # REVOKE/GRANT EXECUTE calls; a nonexistent username fails inside Postgres
+    # with SQLSTATE 42704 (undefined_object), not the functions' own P0001
+    # validation. This is a genuine server fault and must surface as 500, not
+    # be echoed back to the client as a 422 "invalid_input". raise_server_exceptions
+    # is disabled so the unhandled exception is turned into an HTTP response
+    # (Starlette's default test client re-raises it in-process instead).
+    client = TestClient(portal, raise_server_exceptions=False)
+    login_resp = client.post("/api/login", json={"username": "pa_admin", "password": PW["pa_admin"]})
+    assert login_resp.status_code == 200, login_resp.text
+    resp = client.post("/api/portal/users/pa_does_not_exist/role", json={"project": "cplan", "role": "editor"})
+    assert resp.status_code == 500, resp.text

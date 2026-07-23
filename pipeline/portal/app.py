@@ -147,23 +147,27 @@ def create_portal_app(database_url: str | URL | None = None, auth_settings: Auth
     def _call(session: Session, sql: str, params: dict):
         """Invoke a portal.* SECURITY DEFINER function and translate its failure.
 
-        Both rejection paths surface as `sqlalchemy.exc.ProgrammingError` (see
-        pipeline/api/setup_portal.py's module note): Postgres's own privilege
-        check on EXECUTE raises SQLSTATE 42501 (insufficient_privilege) for a
-        non-admin caller, while the functions' own `RAISE EXCEPTION` (unknown
-        project/role, reserved name) defaults to SQLSTATE P0001
-        (plpgsql raise_exception) — deliberately NOT the class-22 DataError
-        code, so both cases share one exception type. 42501 is re-raised for
-        the app-level exception_handler above to turn into 403; everything
-        else from these calls is the functions' own validation, mapped to 422.
-        Any other SQLSTATE (a genuine server error) is re-raised as-is (500).
+        These calls can fail with `sqlalchemy.exc.ProgrammingError` for several
+        distinct reasons, distinguished by SQLSTATE (see pipeline/api/setup_portal.py's
+        module note): Postgres's own privilege check on EXECUTE raises SQLSTATE
+        42501 (insufficient_privilege) for a non-admin caller; the functions'
+        own `RAISE EXCEPTION` (unknown project/role, reserved name) defaults to
+        SQLSTATE P0001 (plpgsql raise_exception) — deliberately NOT the class-22
+        DataError code, so it still surfaces as ProgrammingError; anything else
+        (a typo'd query, schema drift, an undefined object such as a role that
+        does not exist) is a genuine server fault, not caller input.
+
+        Only P0001 — the functions' own input validation — is mapped to 422.
+        42501 is re-raised for the app-level exception_handler above to turn
+        into 403. Every other SQLSTATE is re-raised unchanged, becoming a 500;
+        it must never be echoed to the client as if it were a client error.
         """
         try:
             session.execute(text(sql), params)
             session.commit()
         except ProgrammingError as exc:
             session.rollback()
-            if getattr(exc.orig, "sqlstate", None) == "42501":
+            if getattr(exc.orig, "sqlstate", None) != "P0001":
                 raise
             raise HTTPException(status_code=422, detail={"code": "invalid_input", "message": str(exc.orig)}) from exc
 
