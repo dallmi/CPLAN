@@ -146,9 +146,53 @@
     return `Request failed (${status})`;
   };
 
+  // --- session -------------------------------------------------------------
+  // state.currentUser: {username, role, auth} — populated by initSession()
+  // before any data loads. DatabasePlanningRepository.request() below is the
+  // single fetch choke point for every /api/* call the studio makes
+  // (activities, health, sync-runs, changes, create/patch/batch), so routing
+  // it through apiFetch covers all of them: any 401 re-opens the login
+  // overlay instead of surfacing as a normal request error. In legacy mode
+  // (no CPLAN_AUTH_SECRET) /api/me returns 200 with auth:false and the
+  // overlay never shows.
+  async function apiFetch(url, options) {
+    const response = await fetch(url, options);
+    if (response.status === 401) {
+      showLoginOverlay();
+      throw new Error('unauthenticated');
+    }
+    return response;
+  }
+
+  function showLoginOverlay() {
+    document.getElementById('login-overlay').classList.remove('hidden');
+    document.getElementById('login-error').classList.add('hidden');
+    document.getElementById('login-username').focus();
+  }
+
+  function hideLoginOverlay() {
+    document.getElementById('login-overlay').classList.add('hidden');
+    document.getElementById('login-error').classList.add('hidden');
+  }
+
+  async function initSession() {
+    const response = await fetch('/api/me');
+    if (response.status === 401) {
+      showLoginOverlay();
+      return null;
+    }
+    state.currentUser = await response.json();
+    return state.currentUser;
+  }
+
+  async function logout() {
+    await fetch('/api/logout', {method:'POST'});
+    window.location.reload();
+  }
+
   class DatabasePlanningRepository {
     async request(path, options) {
-      const response = await fetch(path, Object.assign({headers:{'Content-Type':'application/json'}}, options || {}));
+      const response = await apiFetch(path, Object.assign({headers:{'Content-Type':'application/json'}}, options || {}));
       const body = await response.json().catch(() => ({}));
       if (!response.ok) {
         const error = new Error(apiErrorMessage(body.detail, response.status));
@@ -1626,10 +1670,22 @@
         else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}
       }
     });
+    document.getElementById('login-form').addEventListener('submit', async event => {
+      event.preventDefault();
+      const username=document.getElementById('login-username').value.trim();
+      const password=document.getElementById('login-password').value;
+      const response=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password})});
+      if(!response.ok){document.getElementById('login-error').classList.remove('hidden');return;}
+      hideLoginOverlay();
+      await initSession();
+      await loadAndRenderAll();
+    });
   }
 
-  async function init() {
-    wireEvents();
+  // Data load + first render, split out from init() so a successful login
+  // (which happens after the DOM and event listeners already exist) can
+  // re-run just this part without wireEvents() double-binding every listener.
+  async function loadAndRenderAll() {
     try {
       const [loaded,syncRun]=await Promise.all([loadData(),loadSyncRun()]);
       state.snapshotRows=loaded.rows;state.meta=loaded.meta;state.syncRun=syncRun;refreshRows();
@@ -1645,6 +1701,13 @@
       document.getElementById('status-dot').className='status-dot error';document.getElementById('status-label').textContent='Data load failed';document.getElementById('snapshot-time').textContent=error.message;
       document.querySelector('.content').innerHTML=`<div class="card">${emptyState(EMPTY_ICONS.alertTriangle, 'CPLAN could not initialize', `${error.message} Start the configured local database API and reload this page.`)}</div>`;
     }
+  }
+
+  async function init() {
+    wireEvents();
+    const user = await initSession();
+    if (!user) return;
+    await loadAndRenderAll();
   }
 
   init();

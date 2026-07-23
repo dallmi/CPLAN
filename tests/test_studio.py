@@ -386,6 +386,20 @@ class StudioTests(unittest.TestCase):
         self.assertIn("E60000", html)
         self.assertNotIn("favicon.ico", html)
 
+    def test_login_overlay_and_session_bootstrap(self):
+        html = (DASHBOARD / "index.html").read_text(encoding="utf-8")
+        app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+        css = (DASHBOARD / "styles.css").read_text(encoding="utf-8")
+
+        self.assertIn('id="login-overlay"', html)
+        self.assertIn('autocomplete="current-password"', html)
+        self.assertIn("/api/login", app)
+        self.assertIn("/api/me", app)
+        self.assertIn("/api/logout", app)
+        self.assertIn("function apiFetch", app)
+        self.assertNotIn("Anmelden", html)  # UI copy is English, matching the studio
+        self.assertIn(".login-overlay", css)
+
 
 if __name__ == "__main__":
     unittest.main()
