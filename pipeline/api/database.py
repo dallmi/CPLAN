@@ -99,11 +99,65 @@ def embedded_database_url(pgdata: str | os.PathLike[str]) -> str:
     pgdata_path.parent.mkdir(parents=True, exist_ok=True)
     server = pgserver.get_server(str(pgdata_path), cleanup_mode=None)
     _ensure_embedded_database_exists(server)
+    _harden_local_authentication(server)
     return (
         make_url(server.get_uri())
         .set(drivername="postgresql+psycopg", database=EMBEDDED_DATABASE_NAME)
         .render_as_string(hide_password=False)
     )
+
+
+def _harden_local_authentication(server) -> None:
+    """Require a real password for every login role except `postgres`.
+
+    `pgserver` always runs `initdb --auth=trust --auth-local=trust`, so a
+    freshly created `pgdata` trusts *any* local connection as *any* role --
+    harmless for the app's own `postgres` superuser connections (which never
+    carry a password: engine bootstrap, `setup_roles`), but it silently
+    defeats `verify_credentials` (`pipeline/api/auth.py`), whose docstring
+    states passwords are authoritatively checked by "PostgreSQL itself
+    (SCRAM)": under the default trust rules, a *wrong* password for an
+    existing role would still authenticate. Rewrite `pg_hba.conf` so
+    `postgres` keeps `trust` (needed for internal engine/role-management
+    connections that never supply a password) while every other role must
+    present the scram-sha-256 password it was created with, then reload the
+    config so the change applies without a restart. Idempotent: a pgdata
+    already hardened by an earlier call is left untouched.
+    """
+    hba_path = Path(server.pgdata) / "pg_hba.conf"
+    original = hba_path.read_text()
+    marker = "local   all             postgres                                trust"
+    if marker in original:
+        return
+    hardened = (
+        original.replace(
+            "local   all             all                                     trust",
+            "local   all             postgres                                trust\n"
+            "local   all             all                                     scram-sha-256",
+        )
+        .replace(
+            "host    all             all             127.0.0.1/32            trust",
+            "host    all             postgres        127.0.0.1/32            trust\n"
+            "host    all             all             127.0.0.1/32            scram-sha-256",
+        )
+        .replace(
+            "host    all             all             ::1/128                 trust",
+            "host    all             postgres        ::1/128                 trust\n"
+            "host    all             all             ::1/128                 scram-sha-256",
+        )
+    )
+    hba_path.write_text(hardened)
+    # File edits alone are not enough -- the running postmaster keeps the old
+    # rules in memory until reloaded. This connection still succeeds under
+    # the *old* (not-yet-reloaded) trust rule; the reload it triggers only
+    # affects connections made after it returns.
+    maintenance_url = make_url(server.get_uri()).set(drivername="postgresql+psycopg")
+    engine = create_engine(maintenance_url, isolation_level="AUTOCOMMIT")
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT pg_reload_conf()"))
+    finally:
+        engine.dispose()
 
 
 def _ensure_embedded_database_exists(server) -> None:

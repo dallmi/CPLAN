@@ -200,6 +200,9 @@ def _stub_pgserver(monkeypatch, raw_uri: str) -> None:
     fake_pgserver = SimpleNamespace(get_server=lambda pgdata, cleanup_mode=None: fake_server)
     monkeypatch.setitem(sys.modules, "pgserver", fake_pgserver)
     monkeypatch.setattr(database, "_ensure_embedded_database_exists", lambda server: None)
+    # Same rationale as _ensure_embedded_database_exists above: pointless (and
+    # unreachable -- no pg_hba.conf on disk) against a fake server.
+    monkeypatch.setattr(database, "_harden_local_authentication", lambda server: None)
 
 
 def test_embedded_database_url_converts_socket_style_uri(monkeypatch, tmp_path):

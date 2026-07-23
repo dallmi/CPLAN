@@ -8,12 +8,14 @@ import re
 import uuid
 from collections import Counter
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal, Sequence, get_args
+from typing import Any, Iterator, Literal, Sequence, get_args
 from zoneinfo import ZoneInfo
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import (
     BaseModel,
@@ -26,9 +28,16 @@ from pydantic import (
 )
 from sqlalchemy import Boolean, DateTime, Index, Integer, String, Text, Uuid, func, select, text, update
 from sqlalchemy.engine import URL
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, ProgrammingError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
+from .auth import (
+    AuthSettings,
+    auth_settings_from_environment,
+    create_session_token,
+    verify_credentials,
+    verify_session_token,
+)
 from .database import backend_from_url, create_cplan_engine, database_url_from_environment, ensure_schema
 from .views import ensure_analysis_views
 
@@ -216,7 +225,7 @@ class ActivityChange(Base):
     changed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
     )
-    actor: Mapped[str] = mapped_column(String(16), nullable=False)
+    actor: Mapped[str] = mapped_column(String(64), nullable=False)
     change_type: Mapped[str] = mapped_column(String(16), nullable=False)
     field: Mapped[str | None] = mapped_column(String(64), nullable=True)
     old_value: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -527,7 +536,18 @@ def _generate_unique_tracking_id(session: Session, payload: ActivityCreate) -> s
     return tracking_id
 
 
-def create_app(database_url: str | URL | None = None) -> FastAPI:
+@dataclass(frozen=True)
+class CurrentUser:
+    username: str
+    db_role: str | None  # None: legacy solo mode — no SET ROLE, actor "studio"
+
+
+class LoginPayload(BaseModel):
+    username: str = Field(min_length=1, max_length=63)  # Postgres identifier limit
+    password: str
+
+
+def create_app(database_url: str | URL | None = None, auth_settings: AuthSettings | None = None) -> FastAPI:
     resolved_url = database_url or os.environ.get("CPLAN_DATABASE_URL")
     if not resolved_url:
         raise RuntimeError(
@@ -535,6 +555,10 @@ def create_app(database_url: str | URL | None = None) -> FastAPI:
         )
     backend = backend_from_url(resolved_url)
     engine = create_cplan_engine(resolved_url)
+
+    auth = auth_settings if auth_settings is not None else auth_settings_from_environment()
+    if backend != "postgresql":
+        auth = None  # roles are Postgres-only; SQLite stays the solo-mode fallback
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -547,6 +571,94 @@ def create_app(database_url: str | URL | None = None) -> FastAPI:
     app = FastAPI(title="CPLAN Planning Studio API", version="0.1.0", lifespan=lifespan)
     app.state.engine = engine
 
+    def current_user(request: Request) -> CurrentUser:
+        if auth is None:
+            return CurrentUser(username="studio", db_role=None)
+        token = request.cookies.get(auth.cookie_name)
+        username = verify_session_token(auth, token) if token else None
+        if username is None:
+            raise HTTPException(status_code=401, detail={"code": "unauthenticated"})
+        return CurrentUser(username=username, db_role=username)
+
+    def db_session(user: CurrentUser = Depends(current_user)) -> Iterator[Session]:
+        """One connection per request, impersonating the session user.
+
+        SET ROLE (session-scoped, not SET LOCAL) + immediate commit: handlers
+        commit and roll back mid-request (tracking-id retry loops), and a
+        transaction-scoped role would silently revert on the first of those.
+        RESET ROLE before the connection returns to the pool — the pool's
+        rollback-on-return does NOT reset the role.
+        """
+        connection = engine.connect()
+        try:
+            if user.db_role is not None:
+                quoted = engine.dialect.identifier_preparer.quote(user.db_role)
+                try:
+                    connection.exec_driver_sql(f"SET ROLE {quoted}")
+                    connection.commit()
+                except ProgrammingError:
+                    # Valid token but the role vanished (user deleted): dead session.
+                    raise HTTPException(status_code=401, detail={"code": "unauthenticated"})
+            session = Session(bind=connection)
+            try:
+                yield session
+            finally:
+                session.close()
+        finally:
+            try:
+                connection.rollback()
+                if user.db_role is not None:
+                    connection.exec_driver_sql("RESET ROLE")
+                    connection.commit()
+            finally:
+                connection.close()
+
+    @app.exception_handler(ProgrammingError)
+    async def insufficient_privilege_handler(request: Request, exc: ProgrammingError):
+        if getattr(exc.orig, "sqlstate", None) == "42501":
+            return JSONResponse(status_code=403, content={"detail": {"code": "forbidden"}})
+        raise exc
+
+    @app.post("/api/login")
+    def login(payload: LoginPayload, response: Response):
+        if auth is None:
+            return {"username": "studio"}
+        if not verify_credentials(resolved_url, payload.username, payload.password):
+            raise HTTPException(status_code=401, detail={"code": "invalid_credentials"})
+        response.set_cookie(
+            auth.cookie_name,
+            create_session_token(auth, payload.username),
+            max_age=auth.max_age_seconds,
+            httponly=True,
+            samesite="lax",
+        )
+        return {"username": payload.username}
+
+    @app.post("/api/logout")
+    def logout(response: Response):
+        if auth is not None:
+            response.delete_cookie(auth.cookie_name)
+        return {"status": "ok"}
+
+    @app.get("/api/me")
+    def me(user: CurrentUser = Depends(current_user), session: Session = Depends(db_session)):
+        if user.db_role is None:
+            return {"username": user.username, "role": "editor", "auth": False}
+        flags = session.execute(
+            text(
+                "SELECT pg_has_role(current_user, 'cplan_admin', 'member') AS is_admin, "
+                "pg_has_role(current_user, 'cplan_editor', 'member') AS is_editor, "
+                "pg_has_role(current_user, 'cplan_contributor', 'member') AS is_contributor"
+            )
+        ).one()
+        role = (
+            "admin" if flags.is_admin
+            else "editor" if flags.is_editor
+            else "contributor" if flags.is_contributor
+            else "viewer"
+        )
+        return {"username": user.username, "role": role, "auth": True}
+
     @app.get("/api/health")
     def health():
         with Session(engine) as session:
@@ -554,48 +666,57 @@ def create_app(database_url: str | URL | None = None) -> FastAPI:
         return {"status": "ok", "database": backend}
 
     @app.post("/api/activities", response_model=ActivityRead, status_code=status.HTTP_201_CREATED)
-    def create_activity(payload: ActivityCreate):
-        with Session(engine) as session:
-            tracking_id = _generate_unique_tracking_id(session, payload)
-            activity_fields = payload.model_dump()
-            attempts = 0
-            while True:
-                # Generated explicitly (rather than relying on the column's
-                # Python-side default, which SQLAlchemy only populates onto the
-                # instance at flush time) so the id is known up front to link
-                # the ActivityChange row -- there is no FK, so both rows must
-                # be added to the same session/transaction before either is
-                # committed, and both are discarded together on a tracking-id
-                # collision retry.
-                activity_id = uuid.uuid4()
-                activity = Activity(id=activity_id, **activity_fields, tracking_id=tracking_id, created_by="studio")
-                session.add(activity)
-                session.add(
-                    ActivityChange(
-                        activity_id=activity_id,
-                        actor="studio",
-                        change_type="created",
-                        version_to=1,
-                    )
+    def create_activity(
+        payload: ActivityCreate,
+        user: CurrentUser = Depends(current_user),
+        session: Session = Depends(db_session),
+    ):
+        tracking_id = _generate_unique_tracking_id(session, payload)
+        activity_fields = payload.model_dump()
+        attempts = 0
+        while True:
+            # Generated explicitly (rather than relying on the column's
+            # Python-side default, which SQLAlchemy only populates onto the
+            # instance at flush time) so the id is known up front to link
+            # the ActivityChange row -- there is no FK, so both rows must
+            # be added to the same session/transaction before either is
+            # committed, and both are discarded together on a tracking-id
+            # collision retry.
+            activity_id = uuid.uuid4()
+            activity = Activity(
+                id=activity_id, **activity_fields, tracking_id=tracking_id, created_by=user.username
+            )
+            session.add(activity)
+            session.add(
+                ActivityChange(
+                    activity_id=activity_id,
+                    actor=user.username,
+                    change_type="created",
+                    version_to=1,
                 )
-                try:
-                    session.commit()
-                except IntegrityError:
-                    # Concurrency backstop: another request committed the same
-                    # tracking_id after our fast-path SELECT check passed.
-                    session.rollback()
-                    attempts += 1
-                    if attempts > MAX_TRACKING_ID_COMMIT_RETRIES:
-                        raise HTTPException(
-                            status_code=500, detail={"code": "tracking_id_generation_exhausted"}
-                        )
-                    tracking_id = _increment_activity_number(tracking_id)
-                    continue
-                session.refresh(activity)
-                return activity
+            )
+            try:
+                session.commit()
+            except IntegrityError:
+                # Concurrency backstop: another request committed the same
+                # tracking_id after our fast-path SELECT check passed.
+                session.rollback()
+                attempts += 1
+                if attempts > MAX_TRACKING_ID_COMMIT_RETRIES:
+                    raise HTTPException(
+                        status_code=500, detail={"code": "tracking_id_generation_exhausted"}
+                    )
+                tracking_id = _increment_activity_number(tracking_id)
+                continue
+            session.refresh(activity)
+            return activity
 
     @app.post("/api/activities/batch", response_model=ActivityList, status_code=status.HTTP_201_CREATED)
-    def create_activities_batch(payload: ActivityBatchCreate):
+    def create_activities_batch(
+        payload: ActivityBatchCreate,
+        user: CurrentUser = Depends(current_user),
+        session: Session = Depends(db_session),
+    ):
         """Create a communication pack's activities in one atomic transaction.
 
         Tracking IDs are generated sequentially inside the batch: each
@@ -603,189 +724,209 @@ def create_app(database_url: str | URL | None = None) -> FastAPI:
         before the next item is processed, so activity numbers within the
         pack are consecutive and cannot collide with each other.
         """
-        with Session(engine) as session:
-            commit_attempts = 0
-            while True:
-                existing = [
-                    (channel, tracking_id)
-                    for channel, tracking_id in session.execute(
-                        select(Activity.channel, Activity.tracking_id).where(Activity.tracking_id.isnot(None))
-                    ).all()
-                ]
-                created: list[Activity] = []
-                for item in payload.items:
-                    tracking_id = generate_tracking_id(
-                        existing,
-                        communication_pack_cpid=item.communication_pack_cpid,
-                        start_date=item.start_date,
-                        channel=item.channel,
-                    )
-                    taken = {existing_tracking_id for _, existing_tracking_id in existing}
-                    generation_attempts = 0
-                    while (
-                        tracking_id in taken
-                        or session.scalar(select(Activity.id).where(Activity.tracking_id == tracking_id))
-                        is not None
-                    ):
-                        generation_attempts += 1
-                        if generation_attempts > MAX_TRACKING_ID_GENERATION_ATTEMPTS:
-                            raise HTTPException(
-                                status_code=500, detail={"code": "tracking_id_generation_exhausted"}
-                            )
-                        tracking_id = _increment_activity_number(tracking_id)
-                    existing.append((item.channel, tracking_id))
-                    activity_id = uuid.uuid4()
-                    activity = Activity(
-                        id=activity_id, **item.model_dump(), tracking_id=tracking_id, created_by="studio"
-                    )
-                    session.add(activity)
-                    session.add(
-                        ActivityChange(
-                            activity_id=activity_id,
-                            actor="studio",
-                            change_type="created",
-                            version_to=1,
-                        )
-                    )
-                    created.append(activity)
-                try:
-                    session.commit()
-                except IntegrityError:
-                    # Concurrency backstop mirroring create_activity: a
-                    # concurrent request committed one of our tracking_ids
-                    # after the fast-path SELECT passed. All-or-nothing:
-                    # roll back the whole batch and regenerate every ID.
-                    session.rollback()
-                    commit_attempts += 1
-                    if commit_attempts > MAX_TRACKING_ID_COMMIT_RETRIES:
+        commit_attempts = 0
+        while True:
+            existing = [
+                (channel, tracking_id)
+                for channel, tracking_id in session.execute(
+                    select(Activity.channel, Activity.tracking_id).where(Activity.tracking_id.isnot(None))
+                ).all()
+            ]
+            created: list[Activity] = []
+            for item in payload.items:
+                tracking_id = generate_tracking_id(
+                    existing,
+                    communication_pack_cpid=item.communication_pack_cpid,
+                    start_date=item.start_date,
+                    channel=item.channel,
+                )
+                taken = {existing_tracking_id for _, existing_tracking_id in existing}
+                generation_attempts = 0
+                while (
+                    tracking_id in taken
+                    or session.scalar(select(Activity.id).where(Activity.tracking_id == tracking_id))
+                    is not None
+                ):
+                    generation_attempts += 1
+                    if generation_attempts > MAX_TRACKING_ID_GENERATION_ATTEMPTS:
                         raise HTTPException(
                             status_code=500, detail={"code": "tracking_id_generation_exhausted"}
                         )
-                    continue
-                for activity in created:
-                    session.refresh(activity)
-                return {"items": created, "total": len(created)}
-
-    @app.get("/api/activities", response_model=ActivityList)
-    def list_activities():
-        with Session(engine) as session:
-            items = list(session.scalars(select(Activity).order_by(Activity.start_date, Activity.id)))
-            return {"items": items, "total": len(items)}
-
-    @app.patch("/api/activities/{activity_id}", response_model=ActivityRead)
-    def update_activity(activity_id: uuid.UUID, payload: ActivityPatch):
-        values = payload.model_dump(exclude={"version"}, exclude_unset=True)
-        with Session(engine) as session:
-            current = session.get(Activity, activity_id)
-            if current is None:
-                raise HTTPException(status_code=404, detail={"code": "not_found"})
-            if current.version != payload.version:
-                raise HTTPException(
-                    status_code=409,
-                    detail={"code": "version_conflict", "expected_version": payload.version},
+                    tracking_id = _increment_activity_number(tracking_id)
+                existing.append((item.channel, tracking_id))
+                activity_id = uuid.uuid4()
+                activity = Activity(
+                    id=activity_id, **item.model_dump(), tracking_id=tracking_id, created_by=user.username
                 )
-
-            # Only re-validate the resulting date range when the patch itself
-            # touches a date field. A legacy row can already carry
-            # end_date < start_date (import_snapshot inserts via the ORM,
-            # bypassing this validation); an unrelated edit — e.g. channel
-            # only — must not be blocked by a pre-existing invalid range it
-            # never asked to change.
-            if "start_date" in values or "end_date" in values:
-                resulting_start = as_utc(values.get("start_date", current.start_date))
-                resulting_end = as_utc(values.get("end_date", current.end_date))
-            else:
-                resulting_start = resulting_end = None
-            if resulting_start and resulting_end and resulting_end < resulting_start:
-                raise HTTPException(
-                    status_code=422,
-                    detail={"code": "invalid_date_range", "message": "end_date cannot be before start_date"},
-                )
-            resulting_news_digest = values.get("news_digest", current.news_digest)
-            if current.source_type == "external" and resulting_news_digest is not None:
-                raise HTTPException(
-                    status_code=422,
-                    detail={
-                        "code": "invalid_source_field",
-                        "message": "news_digest is only valid for internal activities",
-                    },
-                )
-
-            # Captured before "version"/"updated_at" bookkeeping is added to
-            # `values` below: one ActivityChange row per key the client actually
-            # patched (exclude_unset), not per field that happens to differ --
-            # this is a UI edit trail, not a diff report (contrast with
-            # sync_snapshot's writer, which reuses its existing diffing since
-            # it always applies every mirrored field regardless of whether the
-            # source changed it).
-            changed_fields = list(values.keys())
-            old_values = {field_name: getattr(current, field_name) for field_name in changed_fields}
-            version_from = current.version
-            version_to = current.version + 1
-
-            values["version"] = Activity.version + 1
-            values["updated_at"] = func.now()
-            statement = (
-                update(Activity)
-                .where(Activity.id == activity_id, Activity.version == payload.version)
-                .values(**values)
-                .returning(Activity)
-            )
-            updated = session.execute(statement).scalar_one_or_none()
-            if updated is None:
-                raise HTTPException(
-                    status_code=409,
-                    detail={"code": "version_conflict", "expected_version": payload.version},
-                )
-            for field_name in changed_fields:
+                session.add(activity)
                 session.add(
                     ActivityChange(
                         activity_id=activity_id,
-                        actor="studio",
-                        change_type="updated",
-                        field=field_name,
-                        old_value=stringify_change_value(old_values[field_name]),
-                        new_value=stringify_change_value(getattr(updated, field_name)),
-                        version_from=version_from,
-                        version_to=version_to,
+                        actor=user.username,
+                        change_type="created",
+                        version_to=1,
                     )
                 )
-            session.commit()
-            session.refresh(updated)
-            return updated
+                created.append(activity)
+            try:
+                session.commit()
+            except IntegrityError:
+                # Concurrency backstop mirroring create_activity: a
+                # concurrent request committed one of our tracking_ids
+                # after the fast-path SELECT passed. All-or-nothing:
+                # roll back the whole batch and regenerate every ID.
+                session.rollback()
+                commit_attempts += 1
+                if commit_attempts > MAX_TRACKING_ID_COMMIT_RETRIES:
+                    raise HTTPException(
+                        status_code=500, detail={"code": "tracking_id_generation_exhausted"}
+                    )
+                continue
+            for activity in created:
+                session.refresh(activity)
+            return {"items": created, "total": len(created)}
 
-    @app.get("/api/activities/{activity_id}/changes", response_model=ActivityChangeList)
-    def list_activity_changes(activity_id: uuid.UUID):
-        with Session(engine) as session:
-            if session.scalar(select(Activity.id).where(Activity.id == activity_id)) is None:
-                raise HTTPException(status_code=404, detail={"code": "not_found"})
-            items = list(
-                session.scalars(
-                    select(ActivityChange)
-                    .where(ActivityChange.activity_id == activity_id)
-                    .order_by(ActivityChange.changed_at.desc(), ActivityChange.id.desc())
+    @app.get("/api/activities", response_model=ActivityList)
+    def list_activities(
+        user: CurrentUser = Depends(current_user),
+        session: Session = Depends(db_session),
+    ):
+        items = list(session.scalars(select(Activity).order_by(Activity.start_date, Activity.id)))
+        return {"items": items, "total": len(items)}
+
+    @app.patch("/api/activities/{activity_id}", response_model=ActivityRead)
+    def update_activity(
+        activity_id: uuid.UUID,
+        payload: ActivityPatch,
+        user: CurrentUser = Depends(current_user),
+        session: Session = Depends(db_session),
+    ):
+        values = payload.model_dump(exclude={"version"}, exclude_unset=True)
+        current = session.get(Activity, activity_id)
+        if current is None:
+            raise HTTPException(status_code=404, detail={"code": "not_found"})
+        if current.version != payload.version:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "version_conflict", "expected_version": payload.version},
+            )
+
+        if user.db_role is not None:
+            may_edit_all = session.execute(
+                text(
+                    "SELECT pg_has_role(current_user, 'cplan_editor', 'member') "
+                    "OR pg_has_role(current_user, 'cplan_admin', 'member')"
+                )
+            ).scalar_one()
+            if not may_edit_all and current.created_by != user.username:
+                raise HTTPException(status_code=403, detail={"code": "forbidden_not_owner"})
+
+        # Only re-validate the resulting date range when the patch itself
+        # touches a date field. A legacy row can already carry
+        # end_date < start_date (import_snapshot inserts via the ORM,
+        # bypassing this validation); an unrelated edit — e.g. channel
+        # only — must not be blocked by a pre-existing invalid range it
+        # never asked to change.
+        if "start_date" in values or "end_date" in values:
+            resulting_start = as_utc(values.get("start_date", current.start_date))
+            resulting_end = as_utc(values.get("end_date", current.end_date))
+        else:
+            resulting_start = resulting_end = None
+        if resulting_start and resulting_end and resulting_end < resulting_start:
+            raise HTTPException(
+                status_code=422,
+                detail={"code": "invalid_date_range", "message": "end_date cannot be before start_date"},
+            )
+        resulting_news_digest = values.get("news_digest", current.news_digest)
+        if current.source_type == "external" and resulting_news_digest is not None:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "invalid_source_field",
+                    "message": "news_digest is only valid for internal activities",
+                },
+            )
+
+        # Captured before "version"/"updated_at" bookkeeping is added to
+        # `values` below: one ActivityChange row per key the client actually
+        # patched (exclude_unset), not per field that happens to differ --
+        # this is a UI edit trail, not a diff report (contrast with
+        # sync_snapshot's writer, which reuses its existing diffing since
+        # it always applies every mirrored field regardless of whether the
+        # source changed it).
+        changed_fields = list(values.keys())
+        old_values = {field_name: getattr(current, field_name) for field_name in changed_fields}
+        version_from = current.version
+        version_to = current.version + 1
+
+        values["version"] = Activity.version + 1
+        values["updated_at"] = func.now()
+        statement = (
+            update(Activity)
+            .where(Activity.id == activity_id, Activity.version == payload.version)
+            .values(**values)
+            .returning(Activity)
+        )
+        updated = session.execute(statement).scalar_one_or_none()
+        if updated is None:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "version_conflict", "expected_version": payload.version},
+            )
+        for field_name in changed_fields:
+            session.add(
+                ActivityChange(
+                    activity_id=activity_id,
+                    actor=user.username,
+                    change_type="updated",
+                    field=field_name,
+                    old_value=stringify_change_value(old_values[field_name]),
+                    new_value=stringify_change_value(getattr(updated, field_name)),
+                    version_from=version_from,
+                    version_to=version_to,
                 )
             )
-            return {"items": items, "total": len(items)}
+        session.commit()
+        session.refresh(updated)
+        return updated
+
+    @app.get("/api/activities/{activity_id}/changes", response_model=ActivityChangeList)
+    def list_activity_changes(
+        activity_id: uuid.UUID,
+        user: CurrentUser = Depends(current_user),
+        session: Session = Depends(db_session),
+    ):
+        if session.scalar(select(Activity.id).where(Activity.id == activity_id)) is None:
+            raise HTTPException(status_code=404, detail={"code": "not_found"})
+        items = list(
+            session.scalars(
+                select(ActivityChange)
+                .where(ActivityChange.activity_id == activity_id)
+                .order_by(ActivityChange.changed_at.desc(), ActivityChange.id.desc())
+            )
+        )
+        return {"items": items, "total": len(items)}
 
     @app.get("/api/sync-runs/latest")
-    def latest_sync_run():
-        with Session(engine) as session:
-            run = session.scalar(select(SyncRun).order_by(SyncRun.ran_at.desc()))
-            if run is None:
-                return {"status": "never_synced"}
-            return {
-                "ran_at": as_utc(run.ran_at).isoformat().replace("+00:00", "Z"),
-                "snapshot_path": run.snapshot_path,
-                "created": run.created,
-                "updated": run.updated,
-                "unchanged": run.unchanged,
-                "conflicts": run.conflicts,
-                "vanished": run.vanished,
-                "local_only": run.local_only,
-                "skipped_no_id": run.skipped_no_id,
-                "details": json.loads(run.details) if run.details else None,
-            }
+    def latest_sync_run(
+        user: CurrentUser = Depends(current_user),
+        session: Session = Depends(db_session),
+    ):
+        run = session.scalar(select(SyncRun).order_by(SyncRun.ran_at.desc()))
+        if run is None:
+            return {"status": "never_synced"}
+        return {
+            "ran_at": as_utc(run.ran_at).isoformat().replace("+00:00", "Z"),
+            "snapshot_path": run.snapshot_path,
+            "created": run.created,
+            "updated": run.updated,
+            "unchanged": run.unchanged,
+            "conflicts": run.conflicts,
+            "vanished": run.vanished,
+            "local_only": run.local_only,
+            "skipped_no_id": run.skipped_no_id,
+            "details": json.loads(run.details) if run.details else None,
+        }
 
     dashboard_dir = Path(__file__).resolve().parents[1] / "studio"
     app.mount("/", StaticFiles(directory=dashboard_dir, html=True), name="dashboard")
