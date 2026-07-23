@@ -129,6 +129,25 @@ def _harden_local_authentication(server) -> None:
     marker = "local   all             postgres                                trust"
     if marker in original:
         return
+
+    # The lines below are the exact trust-for-all-roles rules `str.replace()`
+    # targets. If a future pgserver release ships a pg_hba.conf template that
+    # formats or orders these differently, every replace below silently no-ops
+    # and `hardened == original` -- the file would be written back unchanged,
+    # reopening the trust-auth bypass with no error. Assert the precondition
+    # up front and the postcondition before writing, so drift fails loudly
+    # instead of silently.
+    trust_for_all_lines = (
+        "local   all             all                                     trust",
+        "host    all             all             127.0.0.1/32            trust",
+        "host    all             all             ::1/128                 trust",
+    )
+    if not all(line in original for line in trust_for_all_lines):
+        raise RuntimeError(
+            "pgserver pg_hba.conf template changed; scram hardening did not apply "
+            "-- refusing to start with trust auth"
+        )
+
     hardened = (
         original.replace(
             "local   all             all                                     trust",
@@ -146,6 +165,20 @@ def _harden_local_authentication(server) -> None:
             "host    all             all             ::1/128                 scram-sha-256",
         )
     )
+
+    scram_for_all_lines = (
+        "local   all             all                                     scram-sha-256",
+        "host    all             all             127.0.0.1/32            scram-sha-256",
+        "host    all             all             ::1/128                 scram-sha-256",
+    )
+    if any(line in hardened for line in trust_for_all_lines) or not all(
+        line in hardened for line in scram_for_all_lines
+    ):
+        raise RuntimeError(
+            "pgserver pg_hba.conf template changed; scram hardening did not apply "
+            "-- refusing to start with trust auth"
+        )
+
     hba_path.write_text(hardened)
     # File edits alone are not enough -- the running postmaster keeps the old
     # rules in memory until reloaded. This connection still succeeds under

@@ -237,6 +237,40 @@ def test_embedded_database_url_raises_actionable_error_when_pgserver_missing(mon
         embedded_database_url(tmp_path / "pgdata")
 
 
+def test_harden_local_authentication_raises_when_pg_hba_template_drifted(tmp_path):
+    """A future pgserver release could ship a pg_hba.conf default formatted or
+    ordered differently than the exact lines `_harden_local_authentication`
+    targets with `str.replace()`. Without a guard, every replace would
+    silently no-op and the file would be written back unchanged -- trust auth
+    left in place with no error. `_harden_local_authentication` must instead
+    fail loudly, before writing anything.
+    """
+    pgdata = tmp_path / "pgdata"
+    pgdata.mkdir()
+    (pgdata / "pg_hba.conf").write_text(
+        "# drifted template: different column spacing than pgserver's real default\n"
+        "local all all trust\n"
+        "host all all 127.0.0.1/32 trust\n"
+        "host all all ::1/128 trust\n"
+    )
+    fake_server = SimpleNamespace(
+        pgdata=str(pgdata),
+        get_uri=lambda database=None: "postgresql://postgres:@/postgres?host=/tmp/does-not-exist",
+    )
+
+    with pytest.raises(RuntimeError, match="pg_hba.conf template changed"):
+        database._harden_local_authentication(fake_server)
+
+    # Must refuse before writing -- the drifted file is left untouched, not
+    # silently rewritten as a no-op.
+    assert (pgdata / "pg_hba.conf").read_text() == (
+        "# drifted template: different column spacing than pgserver's real default\n"
+        "local all all trust\n"
+        "host all all 127.0.0.1/32 trust\n"
+        "host all all ::1/128 trust\n"
+    )
+
+
 def test_tracking_id_unique_index_allows_duplicates_among_legacy_rows(tmp_path):
     """Legacy imports (carrying legacy_sp_id) are exempt, since duplicate tracking IDs exist in the source data."""
     engine = create_cplan_engine(f"sqlite:///{tmp_path / 'legacy-duplicates.sqlite3'}")
