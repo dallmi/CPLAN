@@ -48,6 +48,16 @@ def login(app, username):
     return client
 
 
+def test_create_portal_app_fails_closed_without_auth_secret(portal, monkeypatch):
+    # CRITICAL: with no AuthSettings passed and no CPLAN_AUTH_SECRET in the
+    # environment, the portal must refuse to start rather than serve the
+    # user-administration surface unauthenticated (pooled connections run as
+    # the embedded backend's postgres superuser without SET ROLE).
+    monkeypatch.delenv("CPLAN_AUTH_SECRET", raising=False)
+    with pytest.raises(RuntimeError, match="requires authentication"):
+        create_portal_app(portal.state.engine.url, auth_settings=None)
+
+
 def test_unauthenticated_endpoints_rejected(portal):
     client = TestClient(portal)
     assert client.get("/api/portal/projects").status_code == 401

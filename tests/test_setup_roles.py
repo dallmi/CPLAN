@@ -76,6 +76,13 @@ def test_apply_roles_creates_everything_and_is_idempotent(engine):
             connection.execute(text("SELECT policyname FROM pg_policies WHERE tablename = 'activities'")).scalars()
         )
         assert policies == {"read_all", "contrib_insert", "contrib_update", "editor_write", "admin_delete"}
+        # Defense-in-depth: the pooled login identity must not transitively
+        # inherit the privileges of the users granted TO it (every user role
+        # is granted TO cplan_authenticator so it can SET ROLE into them) —
+        # only an explicit per-request SET ROLE may impersonate a user.
+        assert connection.execute(
+            text("SELECT rolinherit FROM pg_roles WHERE rolname = :n"), {"n": AUTHENTICATOR}
+        ).scalar_one() is False
 
 
 def test_create_user_grants_group_and_authenticator_membership(engine):

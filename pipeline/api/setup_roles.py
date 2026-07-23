@@ -62,6 +62,12 @@ def apply_roles(engine: Engine) -> None:
         for name in GROUP_ROLES:
             _ensure_role(c, name)
         _ensure_role(c, AUTHENTICATOR, login=True)
+        # NOINHERIT: every user role is granted TO cplan_authenticator so the
+        # pooled login identity can SET ROLE into it (PostgREST pattern), but
+        # membership alone must never grant privileges by inheritance — only
+        # an explicit, per-request SET ROLE may impersonate a user. SET ROLE
+        # does not require INHERIT, so this does not affect the auth flow.
+        c.exec_driver_sql(f"ALTER ROLE {_quote(c, AUTHENTICATOR)} NOINHERIT")
 
         # -- created_by hardening (column itself arrives via ensure_schema/Task 1)
         c.exec_driver_sql("ALTER TABLE activities ADD COLUMN IF NOT EXISTS created_by TEXT")

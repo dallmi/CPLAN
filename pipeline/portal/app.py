@@ -62,10 +62,19 @@ def create_portal_app(database_url: str | URL | None = None, auth_settings: Auth
     if not resolved_url:
         raise RuntimeError("CPLAN database is not configured; set CPLAN_DATABASE_URL")
     backend = backend_from_url(resolved_url)
+    if backend != "postgresql":
+        raise RuntimeError(
+            "The portal requires a PostgreSQL backend (it delegates user administration to "
+            "portal.* functions that only exist there); the configured backend is "
+            f"{backend!r}. Refusing to start."
+        )
     engine = create_cplan_engine(resolved_url)
     auth = auth_settings if auth_settings is not None else auth_settings_from_environment()
-    if backend != "postgresql":
-        auth = None  # portal is Postgres-only; without auth it is single-user dev shell
+    if auth is None:
+        raise RuntimeError(
+            "The portal requires authentication: set CPLAN_AUTH_SECRET (and use a PostgreSQL "
+            "backend). Refusing to start an unauthenticated user-administration surface."
+        )
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -84,8 +93,6 @@ def create_portal_app(database_url: str | URL | None = None, auth_settings: Auth
 
     @app.post("/api/login")
     def login(payload: LoginPayload, response: Response):
-        if auth is None:
-            return {"username": "studio"}
         if not verify_credentials(resolved_url, payload.username, payload.password):
             raise HTTPException(status_code=401, detail={"code": "invalid_credentials"})
         response.set_cookie(
@@ -99,14 +106,11 @@ def create_portal_app(database_url: str | URL | None = None, auth_settings: Auth
 
     @app.post("/api/logout")
     def logout(response: Response):
-        if auth is not None:
-            response.delete_cookie(auth.cookie_name)
+        response.delete_cookie(auth.cookie_name)
         return {"status": "ok"}
 
     @app.get("/api/me")
     def me(user: CurrentUser = Depends(current_user), session: Session = Depends(db_session)):
-        if user.db_role is None:
-            return {"username": user.username, "role": "admin", "auth": False}
         flags = session.execute(
             text(
                 "SELECT pg_has_role(current_user, 'cplan_admin', 'member') AS is_admin, "
