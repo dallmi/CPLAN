@@ -24,7 +24,12 @@ from pipeline.scripts.cplan_db import stop
 
 
 def test_ensure_analysis_views_is_a_documented_no_op_on_sqlite(tmp_path):
-    """SQLite backends never get analysis views -- pgAdmin-only feature."""
+    """SQLite backends never get analysis views -- pgAdmin-only feature.
+
+    Must always run, with or without `pgserver` installed -- the skipif for
+    the real-Postgres test below is applied directly on that test function,
+    not at module level, so it cannot accidentally skip this one too.
+    """
     engine = create_cplan_engine(f"sqlite:///{tmp_path / 'views-no-op.sqlite3'}")
     Base.metadata.create_all(engine)
 
@@ -34,12 +39,10 @@ def test_ensure_analysis_views_is_a_documented_no_op_on_sqlite(tmp_path):
     engine.dispose()
 
 
-pytestmark = pytest.mark.skipif(
+@pytest.mark.skipif(
     importlib.util.find_spec("pgserver") is None,
     reason="pgserver is not installed; the postgres-embedded backend is optional (pip install pgserver)",
 )
-
-
 def test_ensure_analysis_views_creates_and_populates_views_on_postgres(tmp_path):
     pgdata = tmp_path / "pgdata"
     database_url = embedded_database_url(pgdata)
@@ -56,6 +59,7 @@ def test_ensure_analysis_views_creates_and_populates_views_on_postgres(tmp_path)
         start_date = datetime.now(timezone.utc)
         complete_id = uuid.uuid4()
         incomplete_id = uuid.uuid4()
+        lead_only_id = uuid.uuid4()
 
         with Session(engine) as session:
             session.add_all(
@@ -84,6 +88,20 @@ def test_ensure_analysis_views_creates_and_populates_views_on_postgres(tmp_path)
                         priority="High",
                         target_audience="Everyone",
                         lead_team="Marketing",
+                        strategic_objectives="Growth",
+                        start_date=start_date,
+                    ),
+                    Activity(
+                        id=lead_only_id,
+                        source_type="internal",
+                        tracking_id="STA-0000000-260101-0000003-GEN",
+                        activity_name="Lead-only activity",
+                        activity_description="Has a description",
+                        channel="Email",
+                        priority="High",
+                        target_audience="Everyone",
+                        lead_team="",  # empty lead_team, but lead is set -- must NOT count as missing
+                        lead="Jane Doe",
                         strategic_objectives="Growth",
                         start_date=start_date,
                     ),
@@ -125,7 +143,7 @@ def test_ensure_analysis_views_creates_and_populates_views_on_postgres(tmp_path)
 
         with engine.connect() as connection:
             overview_rows = connection.execute(text("SELECT tracking_id FROM v_activity_overview")).all()
-            assert len(overview_rows) == 2
+            assert len(overview_rows) == 3
 
             completeness = {
                 row.id: row for row in connection.execute(text("SELECT * FROM v_planning_completeness")).all()
@@ -140,6 +158,9 @@ def test_ensure_analysis_views_creates_and_populates_views_on_postgres(tmp_path)
             assert completeness[complete_id].missing_start_date is False
             assert completeness[complete_id].missing_pillars is False
             assert completeness[complete_id].is_complete is True
+            # lead_team empty but lead set -- either one satisfies the requirement, so NOT missing.
+            assert completeness[lead_only_id].missing_lead_team is False
+            assert completeness[lead_only_id].is_complete is True
 
             change_log = connection.execute(
                 text(
@@ -158,7 +179,7 @@ def test_ensure_analysis_views_creates_and_populates_views_on_postgres(tmp_path)
             assert sync_history[0].created == 2
 
             by_month = connection.execute(text("SELECT source_type, count FROM v_activities_by_month")).all()
-            assert sum(row.count for row in by_month) == 2
+            assert sum(row.count for row in by_month) == 3
 
             by_channel = connection.execute(text("SELECT channel, count FROM v_activities_by_channel")).all()
             assert {row.channel for row in by_channel} == {"Email"}
@@ -168,7 +189,7 @@ def test_ensure_analysis_views_creates_and_populates_views_on_postgres(tmp_path)
             ).all()
             assert len(pack_overview) == 1
             assert pack_overview[0].pack_id == "STA-0000000"
-            assert pack_overview[0].activity_count == 2
+            assert pack_overview[0].activity_count == 3
             assert pack_overview[0].channel_count == 1
 
             lead_times = {
