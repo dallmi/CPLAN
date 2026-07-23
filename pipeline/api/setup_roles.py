@@ -30,6 +30,7 @@ ASSIGNABLE_ROLES = {
     "editor": "cplan_editor",
     "admin": "cplan_admin",
 }
+RESERVED_ROLES = frozenset(GROUP_ROLES) | {AUTHENTICATOR}
 
 _POLICIES = ("read_all", "contrib_insert", "contrib_update", "editor_write", "admin_delete")
 
@@ -44,6 +45,11 @@ def _pw_literal(password: str) -> str:
 
 def _role_exists(connection: Connection, name: str) -> bool:
     return connection.execute(text("SELECT 1 FROM pg_roles WHERE rolname = :n"), {"n": name}).first() is not None
+
+
+def _reject_reserved(username: str) -> None:
+    if username in RESERVED_ROLES:
+        raise ValueError(f"{username!r} is a reserved internal role")
 
 
 def _ensure_role(connection: Connection, name: str, login: bool = False) -> None:
@@ -105,6 +111,7 @@ def _resolve_group(role_key: str) -> str:
 
 
 def create_user(engine: Engine, username: str, password: str, role_key: str) -> None:
+    _reject_reserved(username)
     group = _resolve_group(role_key)
     with engine.begin() as c:
         if _role_exists(c, username):
@@ -116,6 +123,7 @@ def create_user(engine: Engine, username: str, password: str, role_key: str) -> 
 
 
 def set_user_role(engine: Engine, username: str, role_key: str) -> None:
+    _reject_reserved(username)
     group = _resolve_group(role_key)
     with engine.begin() as c:
         q = _quote(c, username)
@@ -125,11 +133,13 @@ def set_user_role(engine: Engine, username: str, role_key: str) -> None:
 
 
 def set_user_password(engine: Engine, username: str, password: str) -> None:
+    _reject_reserved(username)
     with engine.begin() as c:
         c.exec_driver_sql(f"ALTER ROLE {_quote(c, username)} PASSWORD {_pw_literal(password)}")
 
 
 def set_user_active(engine: Engine, username: str, active: bool) -> None:
+    _reject_reserved(username)
     with engine.begin() as c:
         c.exec_driver_sql(f"ALTER ROLE {_quote(c, username)} {'LOGIN' if active else 'NOLOGIN'}")
 

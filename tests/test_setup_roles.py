@@ -16,6 +16,7 @@ from pipeline.api.setup_roles import (
     apply_roles,
     create_user,
     set_user_active,
+    set_user_password,
     set_user_role,
 )
 from pipeline.scripts.cplan_db import stop
@@ -122,3 +123,15 @@ def test_create_user_rejects_unknown_role(engine):
     with pytest.raises(ValueError):
         create_user(engine, "mallory", "pw", "superuser")
     assert "superuser" not in ASSIGNABLE_ROLES
+
+
+def test_user_mutators_reject_reserved_roles(engine):
+    apply_roles(engine)
+    with pytest.raises(ValueError):
+        set_user_role(engine, "cplan_admin", "viewer")
+    with pytest.raises(ValueError):
+        set_user_active(engine, "cplan_authenticator", False)
+    with pytest.raises(ValueError):
+        set_user_password(engine, "cplan_sync", "x")
+    with pytest.raises(ValueError):
+        create_user(engine, "cplan_viewer", "x", "viewer")
