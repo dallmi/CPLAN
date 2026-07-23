@@ -45,7 +45,7 @@
     const data = await (await apiFetch('/api/portal/projects')).json();
     const tiles = document.getElementById('project-tiles');
     tiles.innerHTML = data.projects.length
-      ? data.projects.map(p => `<a class="tile" href="${p.url}"><div class="tile-name">${escapeHtml(p.name)}</div><div class="tile-url">${escapeHtml(p.url)}</div></a>`).join('')
+      ? data.projects.map(p => `<a class="tile" href="${escapeHtml(p.url)}"><div class="tile-name">${escapeHtml(p.name)}</div><div class="tile-url">${escapeHtml(p.url)}</div></a>`).join('')
       : '<p class="subtitle">No projects assigned yet.</p>';
   }
 
