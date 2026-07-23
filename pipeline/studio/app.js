@@ -75,9 +75,13 @@
 
   // --- SVG donut (thin ring, white dividers, large white centre) ---
   const DONUT_SEQUENCE = ['#404040', '#B98E2C', '#8E8D83', '#CCCABC', '#5A5D5C', '#946F29', '#B8B3A2', '#6C5312'];
-  const PRIORITY_COLORS = {critical: '#620004', high: '#BD000C', medium: '#E4A911', normal: '#8E8D83', low: '#6F7A1A'};
+  // Priority is a neutral portfolio mix, not a status judgement: Bordeaux
+  // anchors Critical, warm greys carry the rest — RAG stays reserved for
+  // data-driven exceptions (short notice, conflicts, incomplete).
+  const PRIORITY_RANKS = {critical: 4, high: 3, medium: 2, normal: 1, low: 0};
+  const PRIORITY_DONUT_COLORS = {critical: '#620004', high: '#5A5D5C', medium: '#8E8D83', normal: '#B8B3A2', low: '#CCCABC'};
 
-  function donutHtml(entries, colorOf) {
+  function donutHtml(entries, colorOf, centerText) {
     if (!entries.length) return emptyState(EMPTY_ICONS.barChart, 'No data available', 'Nothing to show for the current selection.');
     const total = entries.reduce((sum, [, count]) => sum + count, 0);
     const shown = entries.slice(0, 8);
@@ -91,7 +95,9 @@
     }).join('');
     const legend = shown.map(([label, count], i) => `<div class="legend-row"><span class="swatch" style="background:${colorOf(label, i)}"></span>${esc(label)} — ${fmtNum(count)} (${Math.round(count / total * 100)}%)</div>`).join('');
     const rest = entries.length > shown.length ? `<div class="legend-row"><span class="swatch" style="background:var(--grey-1)"></span>+${entries.length - shown.length} more</div>` : '';
-    return `<div class="donut-wrap"><svg class="donut-svg" width="140" height="140" viewBox="0 0 140 140" role="img">${segments}<text x="${cx}" y="${cy + 8}" text-anchor="middle" class="donut-center" font-size="26" font-weight="300">${fmtNum(total)}</text></svg><div class="donut-legend">${legend}${rest}</div></div>`;
+    const center = centerText === undefined ? fmtNum(total) : centerText;
+    const centerSvg = center === '' ? '' : `<text x="${cx}" y="${cy + 8}" text-anchor="middle" class="donut-center" font-size="26" font-weight="300">${center}</text>`;
+    return `<div class="donut-wrap"><svg class="donut-svg" width="140" height="140" viewBox="0 0 140 140" role="img">${segments}${centerSvg}</svg><div class="donut-legend">${legend}${rest}</div></div>`;
   }
 
   function monthlyTrendHtml(rows) {
@@ -302,10 +308,8 @@
   function renderOverview() {
     const rows = state.rows;
     const now = new Date();
-    const future7 = new Date(now); future7.setDate(now.getDate()+7);
     const future30 = new Date(now); future30.setDate(now.getDate()+30);
     const active = rows.filter(row => {const s=A.parseDate(row.start_date),e=A.parseDate(row.end_date)||s;return s&&s<=now&&e>=now;});
-    const thisWeek = rows.filter(row => {const d=A.parseDate(row.start_date);return d&&d>=now&&d<=future7;});
     const upcoming = rows.filter(row => {const d=A.parseDate(row.start_date);return d&&d>=now&&d<=future30;}).sort((a,b)=>A.parseDate(a.start_date)-A.parseDate(b.start_date));
     const internal = rows.filter(row=>row.source_type==='internal').length;
     const external = rows.filter(row=>row.source_type==='external').length;
@@ -314,12 +318,13 @@
     const quality = A.dataQuality(rows);
     const lead = A.leadTimeStats(rows,7);
 
-    // KPI row follows the standalone dashboard: portfolio counts, not rates.
+    // KPI row: portfolio counts plus one problem signal — the first scan line
+    // must carry the portfolio's biggest issue, not two near-identical twins.
     document.getElementById('overview-kpis').innerHTML = [
       kpi('Total activities',fmtNum(rows.length),`${fmtNum(internal)} internal + ${fmtNum(external)} external`,'highlight'),
       kpi('Active now',fmtNum(active.length),'Currently running','success'),
-      kpi('This week',fmtNum(thisWeek.length),'Starting in 7 days',''),
-      kpi('Next 30 days',fmtNum(upcoming.length),'Upcoming activities','warning')
+      kpi('Incomplete',fmtNum(quality.incomplete),`${quality.completenessRate}% fully complete`,quality.incomplete?'warning':'success'),
+      kpi('Next 30 days',fmtNum(upcoming.length),'Upcoming activities','')
     ].join('');
 
     // Attention queue: aggregated by issue type instead of one row per finding.
@@ -359,8 +364,11 @@
       : emptyState(EMPTY_ICONS.calendar, 'No activities in the next 30 days', 'Check back later or widen the planning horizon.');
 
     renderChannelLoad();
-    document.getElementById('division-donut').innerHTML = donutHtml(countBy(rows,'business_division'),(label,i)=>DONUT_SEQUENCE[i%DONUT_SEQUENCE.length]);
-    document.getElementById('priority-donut').innerHTML = donutHtml(countBy(rows,'priority'),label=>PRIORITY_COLORS[String(label).toLowerCase()]||'#8E8D83');
+    // Division: mention counts (multi-division activities count once per
+    // division), so no big centre number that could be misread as activities.
+    document.getElementById('division-donut').innerHTML = donutHtml(countBy(rows,'business_division'),(label,i)=>DONUT_SEQUENCE[i%DONUT_SEQUENCE.length],'');
+    const priorityEntries = countBy(rows,'priority').sort((a,b)=>(PRIORITY_RANKS[String(b[0]).toLowerCase()]??1)-(PRIORITY_RANKS[String(a[0]).toLowerCase()]??1));
+    document.getElementById('priority-donut').innerHTML = donutHtml(priorityEntries,label=>PRIORITY_DONUT_COLORS[String(label).toLowerCase()]||'#B98E2C');
     renderTrend();
   }
 
@@ -371,9 +379,14 @@
       const now = new Date(); const end = new Date(now); end.setDate(end.getDate()+weeks*7);
       scoped = state.rows.filter(row=>{const d=A.parseDate(row.start_date);return d&&d>=now&&d<=end;});
     }
+    // Zeros are the answer, not noise: every known channel renders even when
+    // nothing starts in the horizon — an idle channel is the "underused
+    // channel" leadership is looking for.
+    const scopedCounts = new Map(countBy(scoped,'channel'));
+    const entries = countBy(state.rows,'channel').map(([label])=>[label,scopedCounts.get(label)||0]).sort((a,b)=>b[1]-a[1]);
     const allTime = countBy(state.rows,'channel').slice(0,3).map(([label,count])=>`${label} ${fmtNum(count)}`).join(' · ');
     const footer = weeks>0&&allTime?`<div class="list-meta" style="margin-top:10px">All-time volume: ${esc(allTime)}</div>`:'';
-    document.getElementById('channel-load').innerHTML = (scoped.length?barList(countBy(scoped,'channel')):emptyState(EMPTY_ICONS.barChart,'Nothing starting in this horizon','Extend the horizon to see channel load.'))+footer;
+    document.getElementById('channel-load').innerHTML = (entries.length?barList(entries):emptyState(EMPTY_ICONS.barChart,'No channels in the data yet','Create activities to see channel load.'))+footer;
   }
 
   function renderTrend() {
@@ -461,10 +474,20 @@
   function renderCapacity() {
     const future=futureRows(26),weekly=A.weeklyCoverage(future,12,new Date()),max=Math.max(...weekly.map(w=>w.count),1);
     document.getElementById('weekly-load').innerHTML=`<div class="bar-list">${weekly.map(w=>`<div class="bar-row"><div class="bar-label">${fmtDate(w.from).replace(/\s\d{4}$/,'')}</div><div class="bar-track"><div class="bar-fill" style="width:${w.count/max*100}%"></div></div><div class="bar-value">${w.count}</div></div>`).join('')}</div>`;
+    // Net-new per horizon instead of four identical decorative bars: what each
+    // wider horizon adds is the coverage answer — "+0 beyond 4 weeks" is
+    // itself the finding.
     const horizons=[4,8,12,26].map(weeks=>({weeks,count:futureRows(weeks).length}));
-    document.getElementById('forward-coverage').innerHTML=horizons.map(item=>`<div class="metric-line"><span>${item.weeks===26?'6 months':item.weeks+' weeks'}</span><strong>${fmtNum(item.count)} activities</strong></div><div class="progress"><span style="width:${future.length?item.count/future.length*100:0}%"></span></div>`).join('');
+    let previousCount=0;
+    document.getElementById('forward-coverage').innerHTML=horizons.map((item,index)=>{
+      const label=item.weeks===26?'6 months':`${item.weeks} weeks`;
+      const delta=item.count-previousCount;
+      const detail=index===0?`${fmtNum(item.count)} activities`:(delta>0?`${fmtNum(item.count)} · +${fmtNum(delta)} beyond ${horizons[index-1].weeks===26?'6 months':horizons[index-1].weeks+' weeks'}`:`${fmtNum(item.count)} · no additions`);
+      previousCount=item.count;
+      return `<div class="metric-line"><span>${label}</span><strong>${detail}</strong></div>`;
+    }).join('');
     const ownershipRows=future.map(row=>Object.assign({},row,{lead_team:row.lead_team||row.lead||'Unassigned'}));
-    document.getElementById('coverage-dimensions').innerHTML=`<div class="grid two"><div><h3>Lead teams</h3>${barList(countBy(ownershipRows,'lead_team'))}</div><div><h3>Strategic objectives</h3>${barList(countBy(future,'strategic_objectives'),true)}</div></div>`;
+    document.getElementById('coverage-dimensions').innerHTML=`<div class="grid two"><div><h3>Lead teams</h3>${barList(countBy(ownershipRows,'lead_team'))}</div><div><h3>Communications pillars</h3>${barList(countBy(future,'strategic_objectives'),true)}</div></div>`;
   }
 
   function populateActivityFilters() {
@@ -501,7 +524,7 @@
       const readiness=ready.score===100
         ?'<span class="readiness-ok">—</span>'
         :`<button type="button" class="missing-chip" data-fix-id="${esc(row.id||'')}" data-fix-field="${esc(ready.missing[0]||'')}" title="${esc(missingLabels(ready.missing).join(', '))}">${ready.missing.length} missing</button>`;
-      return `<tr data-open-id="${esc(row.id||'')}"><td title="${esc(row.activity_name||'')}">${esc(row.activity_name||'Untitled')}</td><td>${trackingIdHtml(row.tracking_id)}</td><td>${esc(row.channel||'—')}</td><td>${fmtDate(row.start_date)}</td><td>${esc(row.priority||'—')}</td><td>${esc(row.lead_team||row.lead||'—')}</td><td>${esc(campaignLabel(row)||'—')}</td><td>${readiness}</td><td class="action-cell"><button type="button" class="icon-btn duplicate-btn" data-duplicate-id="${esc(row.id||'')}" aria-label="Duplicate ${esc(row.activity_name||'activity')}" title="Duplicate"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button></td></tr>`;}).join('')||`<tr><td colspan="9">${emptyState(EMPTY_ICONS.search, 'No activities match the filters', 'Clear filters or adjust your search to see more results.')}</td></tr>`;
+      return `<tr data-open-id="${esc(row.id||'')}"><td title="${esc(row.activity_name||'')}">${esc(row.activity_name||'Untitled')}</td><td>${trackingIdHtml(row.tracking_id,{copy:nonempty(row.tracking_id)})}</td><td>${esc(row.channel||'—')}</td><td>${fmtDate(row.start_date)}</td><td>${esc(row.priority||'—')}</td><td>${esc(row.lead_team||row.lead||'—')}</td><td>${esc(campaignLabel(row)||'—')}</td><td>${readiness}</td><td class="action-cell"><button type="button" class="icon-btn duplicate-btn" data-duplicate-id="${esc(row.id||'')}" aria-label="Duplicate ${esc(row.activity_name||'activity')}" title="Duplicate"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button></td></tr>`;}).join('')||`<tr><td colspan="9">${emptyState(EMPTY_ICONS.search, 'No activities match the filters', 'Clear filters or adjust your search to see more results.')}</td></tr>`;
   }
 
   // Adjacent markers within this many percentage points of the scale are
@@ -554,7 +577,7 @@
     document.getElementById('strategic-kpis').innerHTML=[kpi('Aligned',`${rows.length?Math.round(aligned.length/rows.length*100):0}%`,`${aligned.length} activities`,'success'),kpi('Unaligned',unaligned.length,'No pillar assigned','danger'),kpi('Pillars',objectives.length,'Unique values',''),kpi('Divisions',divisions.length,'Represented','')].join('');
     document.getElementById('objective-coverage').innerHTML=barList(objectives);
     document.getElementById('division-coverage').innerHTML=barList(divisions,true);
-    document.getElementById('unaligned-list').innerHTML=unaligned.length?unaligned.slice(0,30).map(row=>`<div class="list-row" data-open-id="${esc(row.id||'')}"><span class="severity-line high"></span><div><div class="list-title">${esc(row.activity_name||'Untitled')}</div><div class="list-meta">${fmtDate(row.start_date)} · ${esc(row.lead_team||row.lead||'Unassigned')}</div></div><span class="badge warning">Unaligned</span></div>`).join(''):emptyState(EMPTY_ICONS.checkCircle, 'All activities have a strategic objective', 'Nothing left to align.');
+    document.getElementById('unaligned-list').innerHTML=unaligned.length?unaligned.slice(0,30).map(row=>`<div class="list-row" data-open-id="${esc(row.id||'')}"><span class="severity-line high"></span><div><div class="list-title">${esc(row.activity_name||'Untitled')}</div><div class="list-meta">${fmtDate(row.start_date)} · ${esc(row.lead_team||row.lead||'Unassigned')}</div></div><span class="badge warning">Unaligned</span></div>`).join(''):emptyState(EMPTY_ICONS.checkCircle, 'All activities have a communications pillar', 'Nothing left to align.');
   }
 
   function renderCampaignQuality() {
@@ -717,10 +740,41 @@
     fillSelectOptions('target_audience',distinctValues('target_audience'),'Select…');
     fillSelectOptions('audience',AUDIENCE_BANDS,'Select…');
     fillDatalist('dl-campaign',distinctValues('campaign'));
-    fillDatalist('dl-communication_pack_cpid',distinctValues('communication_pack_cpid'));
     fillDatalist('dl-business_area',distinctValues('business_area'));
     fillDatalist('dl-lead_team',distinctValues('lead_team'));
     fillDatalist('dl-partner_team',distinctValues('partner_team'));
+  }
+
+  // "Belongs to": one selector over existing packs and campaigns replaces the
+  // circular campaign/pack free-text pair in single-activity mode. The API
+  // fields (campaign, communication_pack_cpid) live on as hidden inputs the
+  // selector writes into, so save/create payloads are unchanged.
+  function renderBelongsToOptions() {
+    const sel=document.getElementById('belongs-to');
+    const packs=distinctValues('communication_pack_cpid').filter(value=>value!==STANDALONE_PACK_PREFIX);
+    const campaigns=distinctValues('campaign');
+    sel.innerHTML='<option value="">— None</option>'
+      +(packs.length?`<optgroup label="Packs">${packs.map(value=>`<option value="pack::${esc(value)}">${esc(value)}</option>`).join('')}</optgroup>`:'')
+      +(campaigns.length?`<optgroup label="Campaigns">${campaigns.map(value=>`<option value="camp::${esc(value)}">${esc(value)}</option>`).join('')}</optgroup>`:'')
+      +'<option value="new">New campaign…</option>';
+  }
+
+  function syncBelongsToFromFields() {
+    renderBelongsToOptions();
+    const sel=document.getElementById('belongs-to');
+    const cpid=String(form().elements.communication_pack_cpid.value||'').trim();
+    const camp=String(form().elements.campaign.value||'').trim();
+    const inject=value=>{
+      if(!Array.from(sel.options).some(opt=>opt.value===value)){
+        const opt=document.createElement('option');
+        opt.value=value;opt.textContent=value.slice(6);
+        sel.appendChild(opt);
+      }
+    };
+    if(cpid&&cpid!==STANDALONE_PACK_PREFIX){inject(`pack::${cpid}`);sel.value=`pack::${cpid}`;}
+    else if(camp){inject(`camp::${camp}`);sel.value=`camp::${camp}`;}
+    else sel.value='';
+    document.getElementById('belongs-new-label').hidden=true;
   }
 
   function applyVariant(sourceType) {
@@ -814,10 +868,15 @@
     }
   }
 
-  function setDrawerTracking(row) {
+  function setDrawerTracking(row, editing) {
     const el=document.getElementById('drawer-tracking');
+    // The edit rule the API guarantees: PATCH never regenerates tracking_id,
+    // so the ID minted at creation survives every edit — downstream reports
+    // keyed to it keep working. Stated here because this is the one question
+    // that decides whether an edit is safe.
+    const rule=editing?'<span class="tid-rule">Fixed at creation — changing channel or dates does not re-issue this ID; downstream reports keep working</span>':'';
     if (row&&nonempty(row.tracking_id)) {
-      el.innerHTML=`<div class="tracking-row"><span class="tracking-label">Tracking ID</span>${trackingIdHtml(row.tracking_id,{copy:true})}<span class="tid-help" title="${esc(TRACKING_ID_TITLE)}">i</span></div>`;
+      el.innerHTML=`<div class="tracking-row"><span class="tracking-label">Tracking ID</span>${trackingIdHtml(row.tracking_id,{copy:true})}<span class="tid-help" title="${esc(TRACKING_ID_TITLE)}">i</span></div>${rule}`;
     } else {
       el.innerHTML=`<div class="tracking-row"><span class="tracking-label">Tracking ID</span><span class="tracking-id">${esc(row?'No tracking ID':'Generated on save')}</span></div>`;
     }
@@ -829,7 +888,7 @@
     {title:'Identity', fields:[['campaign','Campaign'],['communication_pack','Communication pack'],['tracking_pack_id','Pack ID']]},
     {title:'Classification', fields:[['channel','Channel'],['priority','Priority'],['strategic_objectives','Communications pillars']]},
     {title:'Content', fields:[['activity_description','Description']]},
-    {title:'Audience', fields:[['target_audience','Target audience'],['audience','Estimated audience size'],['extended_audience','Extended audience']]},
+    {title:'Audience', fields:[['target_audience','Target audience'],['audience','Estimated audience size']]},
     {title:'Organisation', fields:[['business_division','Business division'],['business_area','Business area'],['region','Region']]},
     {title:'Schedule', fields:[['start_date','Start'],['end_date','End'],['time_zone','Time zone']]},
     {title:'Ownership', fields:[['lead','Lead'],['lead_team','Lead team'],['partner_team','Partner team']]}
@@ -842,6 +901,9 @@
       const rowsHtml=section.fields.filter(([field])=>!(external&&(field==='audience'||field==='business_division'))).map(([field,label])=>{
         let value=row[field];
         if(field==='start_date'||field==='end_date')value=nonempty(value)?fmtDateTime(value):null;
+        // A standalone prefix is not pack membership — showing "Pack ID:
+        // STA-0000000" under "Communication pack: —" reads as contradiction.
+        if(field==='tracking_pack_id'&&(!nonempty(value)||value===STANDALONE_PACK_PREFIX))return '';
         const has=nonempty(value);
         const editable=EDITABLE_DETAIL_FIELDS.has(field)&&row.id;
         const display=has?esc(String(value)):(editable?`<button type="button" class="detail-add" data-add-field="${esc(field)}">— Add</button>`:'—');
@@ -870,6 +932,7 @@
     applyVariant(sourceType);
     populateSelectOptions(sourceType);
     populateDrawerForm(row);
+    syncBelongsToFromFields();
     renderMultiselectOptions();
     renderDetailView(row);
     setDrawerEditing(false);
@@ -910,6 +973,7 @@
     setPackMode(false);
     applyVariant('internal');
     populateSelectOptions('internal');
+    syncBelongsToFromFields();
     renderMultiselectOptions();
     setFormEnabled(true);
     document.getElementById('activity-drawer').classList.add('open');
@@ -1023,6 +1087,7 @@
     applyVariant(sourceType);
     populateSelectOptions(sourceType);
     populateDrawerForm(row);
+    syncBelongsToFromFields();
     renderMultiselectOptions();
     // A duplicate must not inherit dates verbatim: copied dates are born as
     // "0 days lead time" findings and mint a stale date into the tracking ID.
@@ -1203,6 +1268,7 @@
 
   function setFormEnabled(enabled) {
     Array.from(form().elements).forEach(el=>{if(el.name)el.disabled=!enabled;});
+    ['belongs-to','belongs-new'].forEach(id=>{document.getElementById(id).disabled=!enabled;});
     multiselectContainers().forEach(container=>setMultiselectEnabled(container,enabled));
   }
 
@@ -1213,6 +1279,7 @@
     // Read-only shows the plain detail view; the form only exists while editing.
     document.getElementById('detail-view').hidden=editing;
     form().hidden=!editing;
+    if(state.selected)setDrawerTracking(state.selected,editing);
     document.getElementById('drawer-mode-label').textContent=editing?'Editing':'Read only';
     document.getElementById('drawer-mode-label').className=`badge ${editing?'info':'neutral'}`;
     document.getElementById('drawer-mode-hint').hidden=!editing;
@@ -1321,7 +1388,24 @@
     document.getElementById(`sub-${subName}`).classList.add('active');
   }
 
+  const RANGE_LABELS = {'30d':'last 30 days', quarter:'this quarter', ytd:'year to date', '12m':'last 12 months'};
+
+  // The range banner is the per-page answer to "which data am I looking at":
+  // visible on every tab whenever the range is narrower than All, naming the
+  // range and the nesting rule (page horizons count within it).
+  function updateRangeUI() {
+    const filtering=Boolean(state.dateFrom||state.dateTo);
+    document.getElementById('time-filter').classList.toggle('filtering',filtering);
+    const banner=document.getElementById('range-banner');
+    banner.hidden=!filtering;
+    if(!filtering)return;
+    const active=document.querySelector('#time-presets button.active');
+    const label=(active&&RANGE_LABELS[active.dataset.range])||`${state.dateFrom?fmtDate(state.dateFrom):'…'} – ${state.dateTo?fmtDate(state.dateTo):'…'}`;
+    document.getElementById('range-banner-text').textContent=`Filtered: ${label} — applies to every tab; page horizons count within this range`;
+  }
+
   function rerenderAfterTimeChange() {
+    updateRangeUI();
     refreshRows();
     renderAll();
   }
@@ -1341,6 +1425,11 @@
       document.querySelectorAll('#time-presets button').forEach(x=>x.classList.remove('active'));
       rerenderAfterTimeChange();
     }));
+    document.getElementById('range-banner-clear').onclick=()=>{
+      document.querySelectorAll('#time-presets button').forEach(x=>x.classList.toggle('active',x.dataset.range==='all'));
+      applyDatePreset('all');
+      rerenderAfterTimeChange();
+    };
     document.getElementById('channel-horizon').onclick=event=>{
       const btn=event.target.closest('button');if(!btn)return;
       document.querySelectorAll('#channel-horizon button').forEach(x=>x.classList.remove('active'));
@@ -1405,6 +1494,20 @@
     document.getElementById('pack-channels').addEventListener('change',()=>{renderPackRows();state.dirty=true;});
     document.getElementById('pack-rows').addEventListener('input',updatePackSubmitLabel);
     form().elements.pack_name.addEventListener('input',()=>{if(state.packing)updatePackStubs();});
+    document.getElementById('belongs-to').addEventListener('change',()=>{
+      const value=document.getElementById('belongs-to').value;
+      const newLabel=document.getElementById('belongs-new-label');
+      newLabel.hidden=value!=='new';
+      if(value==='new'){form().elements.campaign.value='';form().elements.communication_pack_cpid.value='';document.getElementById('belongs-new').value='';document.getElementById('belongs-new').focus();}
+      else if(value.startsWith('pack::')){form().elements.communication_pack_cpid.value=value.slice(6);}
+      else if(value.startsWith('camp::')){form().elements.campaign.value=value.slice(6);form().elements.communication_pack_cpid.value='';}
+      else {form().elements.campaign.value='';form().elements.communication_pack_cpid.value='';}
+      if(state.editing)state.dirty=true;
+    });
+    document.getElementById('belongs-new').addEventListener('input',()=>{
+      form().elements.campaign.value=document.getElementById('belongs-new').value;
+      if(state.editing)state.dirty=true;
+    });
     document.getElementById('pack-channel-add').onclick=()=>{
       const input=document.getElementById('pack-channel-new');
       const channel=String(input.value||'').trim();
@@ -1431,7 +1534,7 @@
     document.getElementById('drawer-cancel').onclick=async()=>{
       if(!await confirmDiscardIfDirty())return;
       if(state.creating||state.packing){closeDrawer();return;}
-      if(state.selected){const sourceType=state.selected.source_type||'internal';applyVariant(sourceType);populateSelectOptions(sourceType);populateDrawerForm(state.selected);renderMultiselectOptions();renderDetailView(state.selected);}
+      if(state.selected){const sourceType=state.selected.source_type||'internal';applyVariant(sourceType);populateSelectOptions(sourceType);populateDrawerForm(state.selected);syncBelongsToFromFields();renderMultiselectOptions();renderDetailView(state.selected);}
       setDrawerEditing(false);
     };
     const activityForm=document.getElementById('activity-form');

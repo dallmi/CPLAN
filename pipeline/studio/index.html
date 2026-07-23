@@ -19,6 +19,7 @@
       </div>
       <div class="top-actions">
         <div class="time-filter" id="time-filter">
+          <span class="time-filter-label">Range · all tabs</span>
           <div class="segmented" id="time-presets">
             <button data-range="30d">30 D</button>
             <button data-range="quarter">Quarter</button>
@@ -43,6 +44,11 @@
       <button class="nav-item" data-page="activities">Activities <span class="count-badge" id="activities-count">0</span></button>
       <button class="nav-item" data-page="analytics">Analytics</button>
     </nav>
+
+    <div class="range-banner" id="range-banner" hidden>
+      <span id="range-banner-text"></span>
+      <button type="button" class="range-banner-clear" id="range-banner-clear">✕ Show everything</button>
+    </div>
 
     <main class="content">
       <section class="page active" id="page-overview">
@@ -88,7 +94,7 @@
         </div>
 
         <div class="subpage" id="sub-calendar">
-          <div class="toolbar"><button class="btn secondary" id="cal-prev">←</button><strong id="calendar-title"></strong><button class="btn secondary" id="cal-next">→</button><button class="btn secondary" id="cal-today">Today</button></div>
+          <div class="toolbar"><div class="timeline-legend"><span class="legend-swatch"></span>Internal<span class="legend-swatch external"></span>External</div><button class="btn secondary" id="cal-prev">←</button><strong id="calendar-title"></strong><button class="btn secondary" id="cal-next">→</button><button class="btn secondary" id="cal-today">Today</button></div>
           <article class="card"><div class="card-body" id="planning-calendar"></div></article>
         </div>
 
@@ -108,12 +114,12 @@
             <article class="card"><div class="card-head"><div><h3>Weekly load forecast</h3><p>Activity starts across the next 12 weeks</p></div></div><div class="card-body" id="weekly-load"></div></article>
             <article class="card"><div class="card-head"><div><h3>Forward coverage</h3><p>Coverage by planning horizon</p></div></div><div class="card-body" id="forward-coverage"></div></article>
           </div>
-          <article class="card"><div class="card-head"><div><h3>Coverage by dimension</h3><p>Future activities by division, objective and lead team</p></div></div><div class="card-body" id="coverage-dimensions"></div></article>
+          <article class="card"><div class="card-head"><div><h3>Coverage by dimension</h3><p>Future activities by division, pillar and lead team</p></div></div><div class="card-body" id="coverage-dimensions"></div></article>
         </div>
       </section>
 
       <section class="page" id="page-activities">
-        <div class="page-heading"><div><p class="eyebrow">Operational workspace</p><h2>Activities</h2><p>Find, inspect and persist planning records in the configured local database.</p></div><div class="page-actions"><button class="btn primary stacked" id="pack-new">New pack<small>One message across several channels</small></button><button class="btn secondary stacked" id="activity-new">New activity<small>Single channel, single date</small></button><button class="btn secondary" id="activity-export">Export filtered CSV</button></div></div>
+        <div class="page-heading"><div><p class="eyebrow">Operational workspace</p><h2>Activities</h2><p>Find, inspect and update activities across the portfolio.</p></div><div class="page-actions"><button class="btn primary stacked" id="pack-new">New pack<small>One message across several channels</small></button><button class="btn secondary stacked" id="activity-new">New activity<small>Single channel, single date</small></button><button class="btn secondary" id="activity-export">Export filtered CSV</button></div></div>
         <div class="filterbar">
           <input id="activity-search" type="search" placeholder="Search activity, campaign, lead or tracking ID">
           <select id="activity-source"><option value="">All types</option><option value="internal">Internal</option><option value="external">External</option></select>
@@ -175,14 +181,17 @@
             <button type="button" class="active" data-source="internal">Internal</button>
             <button type="button" data-source="external">External</button>
           </div>
+          <span class="field-help variant-help">External activities skip the audience-size and news-digest fields</span>
         </div>
 
         <fieldset id="fs-identity"><legend>Identity</legend>
           <label data-single-only>Activity name <span class="req">*</span><input name="activity_name" maxlength="500"></label>
           <label data-pack-only hidden>Pack name <span class="req">*</span><input name="pack_name" maxlength="500"><span class="field-help">Names the pack and its activities — the pack links them for cross-channel reporting</span></label>
           <label data-pack-only hidden>Part of campaign<input name="pack_campaign" list="dl-campaign" autocomplete="off"><span class="field-help">Optional — groups this pack with others under one campaign</span></label>
-          <label data-single-only>Campaign<input name="campaign" list="dl-campaign" autocomplete="off"></label>
-          <label data-single-only>Communication pack<input name="communication_pack_cpid" list="dl-communication_pack_cpid" autocomplete="off"><span class="field-help">Pack membership links this activity to cross-channel reporting via the tracking ID</span></label>
+          <label data-single-only>Belongs to<select id="belongs-to"><option value="">— None</option></select><span class="field-help">Pack membership links this activity to cross-channel reporting via the tracking ID</span></label>
+          <label data-single-only id="belongs-new-label" hidden>New campaign name<input id="belongs-new" autocomplete="off"></label>
+          <input type="hidden" name="campaign">
+          <input type="hidden" name="communication_pack_cpid">
         </fieldset>
 
         <div class="pack-shared-heading" data-pack-only hidden>Applies to every activity in this pack</div>
