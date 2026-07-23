@@ -1,4 +1,4 @@
-"""Seed the configured V6 database from the existing CPLAN Parquet snapshot."""
+"""Seed the configured database from the existing CPLAN Parquet snapshot."""
 
 from __future__ import annotations
 
@@ -130,9 +130,9 @@ def resolve_database_url(
     understands (see `database_url_from_environment`) before falling back to
     the persisted backend settings file. This matters for the documented
     Docker seed command (`docker compose ... exec api python -m
-    pipeline.api_v6.import_snapshot ...`): inside the `api` container, only
+    pipeline.api.import_snapshot ...`): inside the `api` container, only
     `CPLAN_DB_HOST`/`_PORT`/`_NAME`/`_USER`/`_PASSWORD` are set (see
-    `compose.v6.yaml`) — there is no `CPLAN_DATABASE_URL` and no settings
+    `compose.yaml`) — there is no `CPLAN_DATABASE_URL` and no settings
     file — so checking only `CPLAN_DATABASE_URL` and the settings file would
     otherwise raise `FileNotFoundError` for that documented command.
     """

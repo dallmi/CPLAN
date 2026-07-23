@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Daily workflow glue: run the CSV pipeline, then sync its output into the CPLAN V6 database.
+"""Daily workflow glue: run the CSV pipeline, then sync its output into the CPLAN database.
 
 One command for the daily refresh:
   1. `process_cplan.main()` reads the SharePoint CSV export and writes
      `pipeline/output/communications.parquet`.
-  2. `sync_snapshot.sync_parquet()` upserts that parquet into the CPLAN V6 database:
+  2. `sync_snapshot.sync_parquet()` upserts that parquet into the CPLAN database:
      source wins, conflicts are recorded, nothing is ever deleted (binding policy —
-     see `pipeline/api_v6/sync_snapshot.py`).
+     see `pipeline/api/sync_snapshot.py`).
 
-Activities created directly in V6 (no `legacy_sp_id`) are never touched by the sync
-and keep running alongside the mirrored SharePoint rows — parallel operation until
-the corp system migrates onto V6.
+Activities created directly in the studio (no `legacy_sp_id`) are never touched by the
+sync and keep running alongside the mirrored SharePoint rows — parallel operation until
+the corp system migrates onto CPLAN.
 
 Usage:
     python -m pipeline.scripts.daily_refresh                  # pipeline + sync
@@ -24,9 +24,9 @@ import sys
 from pathlib import Path
 from typing import Callable
 
-from pipeline.api_v6.import_snapshot import resolve_database_url
-from pipeline.api_v6.setup_backend import default_settings_path
-from pipeline.api_v6.sync_snapshot import SyncReport, format_report, sync_parquet
+from pipeline.api.import_snapshot import resolve_database_url
+from pipeline.api.setup_backend import default_settings_path
+from pipeline.api.sync_snapshot import SyncReport, format_report, sync_parquet
 
 PIPELINE_DIR = Path(__file__).resolve().parent.parent  # pipeline/scripts/ -> pipeline/
 DEFAULT_PARQUET = PIPELINE_DIR / "output" / "communications.parquet"

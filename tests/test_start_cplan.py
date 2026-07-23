@@ -1,7 +1,7 @@
 import pytest
 
-from pipeline.api_v6.setup_backend import configure_backend
-from pipeline.scripts.start_cplan_v6 import create_configured_app
+from pipeline.api.setup_backend import configure_backend
+from pipeline.scripts.start_cplan import create_configured_app
 
 
 def test_launcher_uses_the_persisted_sqlite_backend(tmp_path):

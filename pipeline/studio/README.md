@@ -1,13 +1,13 @@
-# CPLAN Planning Studio V6
+# CPLAN Planning Studio
 
-V6 is an isolated planning workspace served by the local FastAPI application. It does not modify or replace V3, V4, or the V5 SharePoint draft.
+The planning studio is served by the local FastAPI application. Earlier snapshot studios and the SharePoint draft have been retired; their implementations live in git history.
 
 ## Data path
 
 The browser uses same-origin REST endpoints only:
 
 ```text
-V6 dashboard -> FastAPI -> configured PostgreSQL or SQLite database
+Planning studio -> FastAPI -> configured PostgreSQL or SQLite database
 ```
 
 - PostgreSQL is the preferred backend.
@@ -17,7 +17,7 @@ V6 dashboard -> FastAPI -> configured PostgreSQL or SQLite database
 - Stale writes are rejected with HTTP `409 Conflict`.
 - No browser `localStorage`, DuckDB runtime, or external CDN is required.
 
-Start and backend setup instructions are in `pipeline/api_v6/README.md`.
+Start and backend setup instructions are in `pipeline/api/README.md`.
 
 ## Included planning capabilities
 
@@ -33,7 +33,7 @@ Start and backend setup instructions are in `pipeline/api_v6/README.md`.
 ## Tests
 
 ```bash
-node --test tests/dashboard_v4_analytics.test.js
-python3 tests/test_dashboard_v6.py -v
-node --check pipeline/dashboard-v6-postgres/app.js
+node --test tests/analytics.test.js
+python3 tests/test_studio.py -v
+node --check pipeline/studio/app.js
 ```

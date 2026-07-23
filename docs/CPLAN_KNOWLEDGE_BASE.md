@@ -150,15 +150,15 @@ The generated V5 draft provides controlled update write-back for existing activi
 
 V5 does **not** currently provide a create-new-activity form or a SharePoint item-create request.
 
-### V6 local database
+### Local database
 
-V6 introduces a local database API with create, list, and versioned patch operations. PostgreSQL is the preferred backend; SQLite is the explicit fallback.
+The planning studio (formerly the V6 draft) introduces a local database API with create, list, and versioned patch operations. PostgreSQL is the preferred backend; SQLite is the explicit fallback.
 
 The dashboard now includes a create-activity flow with separate internal and external variants, each with its own required-field set. Tracking IDs are no longer entered manually: the API generates them on save (`CLUSTER-PACKNUM-YYMMDD-ACTNUM-CHANNELABBR`, derived from the communication pack, the activity's start date, and its channel) and rejects a client-supplied `tracking_id`, matching the SharePoint behaviour noted above. A `time_zone` field is now stored per activity. The dashboard's "Estimated audience size" band selector (`< 1000`, `1–10k`, `10–50k`, `50–100k`, `> 100k`) is backed by the existing `audience` column — this is a mapping assumption (the ETL only records it as a generic SharePoint lookup field, `"Audience"` → `audience`, with no confirmed link to the "Estimated audience size" label) and should be verified against the live SharePoint field definition. The dashboard form still covers only a subset of the source-system fields; see the gaps below.
 
 Another assumption to verify against the source system: `start_date`/`end_date` are entered through a `datetime-local` field, so the dashboard reads them in whatever wall-clock time zone the browser is running in, converts that to a UTC instant on save, and stores only the instant. The per-activity `time_zone` field is independent, descriptive metadata (e.g. for display) — it does not re-interpret or shift the stored instant, so an activity's displayed local time depends on the viewer's browser time zone, not on its `time_zone` value.
 
-A daily sync job (`pipeline/api_v6/sync_snapshot.py`, orchestrated end-to-end by `pipeline/scripts/daily_refresh.py`) mirrors the SharePoint export into the V6 database — source wins on conflicts, nothing is ever deleted — while leaving V6-created activities untouched. This is the intended migration strategy: rather than a single cutover, V6 runs in **parallel operation** with the SharePoint source for as long as needed, so planners can use V6 for real work immediately while the mirrored data stays trustworthy, and the source system can be retired only once V6 fully replaces it.
+A daily sync job (`pipeline/api/sync_snapshot.py`, orchestrated end-to-end by `pipeline/scripts/daily_refresh.py`) mirrors the SharePoint export into the database — source wins on conflicts, nothing is ever deleted — while leaving activities created directly in the studio untouched. This is the intended migration strategy: rather than a single cutover, the studio runs in **parallel operation** with the SharePoint source for as long as needed, so planners can use it for real work immediately while the mirrored data stays trustworthy, and the source system can be retired only once the studio fully replaces it.
 
 ### Planning completeness
 
@@ -166,7 +166,7 @@ Both dashboards score each activity's planning completeness against the fields a
 
 ### Archiving
 
-The SharePoint source splits internal and external activities into an "active" list and a separate "Archive" list purely because SharePoint list views cap at roughly 5,000 items — archiving is a view-size workaround, not a signal that an activity is less relevant. `pipeline/scripts/process_cplan.py` already merges both lists (de-duplicated) into one dataset with an `is_archived` flag, and V6's `Activity.is_archive` column carries this forward. V6 treats archived rows as regular data: nothing in the dashboard or its analytics filters on `is_archive`, so archived activities count in every KPI. The intent is to make periodic archiving unnecessary once V6 is the system of record — a database has no 5k-item view limit.
+The SharePoint source splits internal and external activities into an "active" list and a separate "Archive" list purely because SharePoint list views cap at roughly 5,000 items — archiving is a view-size workaround, not a signal that an activity is less relevant. `pipeline/scripts/process_cplan.py` already merges both lists (de-duplicated) into one dataset with an `is_archived` flag, and the studio's `Activity.is_archive` column carries this forward. The studio treats archived rows as regular data: nothing in the dashboard or its analytics filters on `is_archive`, so archived activities count in every KPI. The intent is to make periodic archiving unnecessary once the studio is the system of record — a database has no 5k-item view limit.
 
 ## Implementation gaps to resolve
 
@@ -178,7 +178,7 @@ Before implementing feature-complete creation, align the database, API, and UI w
 - define lookup-list sources and whether fields are single- or multi-select;
 - define required fields for pack creation (now defined separately for internal and external activity creation);
 - preserve source identifiers and optimistic-concurrency metadata during migration;
-- decide whether current post-creation relationship immutability remains a business rule in V6.
+- decide whether current post-creation relationship immutability remains a business rule in the studio.
 
 ## Repository privacy and branding policy
 
@@ -195,6 +195,6 @@ This knowledge base combines:
 - visual review of locally supplied reference images dated 2026-07-22;
 - the tracked ETL field mappings;
 - the V5 SharePoint draft implementation;
-- the V6 API and dashboard implementation.
+- the planning studio's API and dashboard implementation.
 
 The images are reference evidence only, are excluded from Git, and are not linked from this document. Form labels and required-field status are a dated snapshot and may change in SharePoint.

@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const analytics = require('../pipeline/dashboard-v4/analytics.js');
+const analytics = require('../pipeline/studio/analytics.js');
 
 const base = {
   tracking_id: 'AAA-0000001-260801-0000001-EMI',

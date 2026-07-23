@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-import pipeline.api_v6.setup_backend as setup_backend
-from pipeline.api_v6.setup_backend import (
+import pipeline.api.setup_backend as setup_backend
+from pipeline.api.setup_backend import (
     BackendConfig,
     configure_backend,
     load_backend_config,

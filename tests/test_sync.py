@@ -6,10 +6,10 @@ from fastapi.testclient import TestClient
 from sqlalchemy import Column, MetaData, Table, inspect
 from sqlalchemy.orm import Session
 
-from pipeline.api_v6.app import Activity, Base, SyncRun, create_app
-from pipeline.api_v6.database import create_cplan_engine, ensure_schema
-from pipeline.api_v6.import_snapshot import seed_records
-from pipeline.api_v6.sync_snapshot import format_report, sync_parquet, sync_records
+from pipeline.api.app import Activity, Base, SyncRun, create_app
+from pipeline.api.database import create_cplan_engine, ensure_schema
+from pipeline.api.import_snapshot import seed_records
+from pipeline.api.sync_snapshot import format_report, sync_parquet, sync_records
 
 
 TEST_DATABASE_URL = os.environ.get("CPLAN_TEST_DATABASE_URL")
@@ -21,7 +21,7 @@ def database_url(request, tmp_path):
     url = (
         TEST_DATABASE_URL
         if request.param == "postgresql"
-        else f"sqlite:///{tmp_path / 'cplan-v6-sync-test.sqlite3'}"
+        else f"sqlite:///{tmp_path / 'cplan-sync-test.sqlite3'}"
     )
     engine = create_cplan_engine(url)
     Base.metadata.drop_all(engine)
@@ -183,13 +183,13 @@ def test_sync_reports_vanished_rows_without_deleting_or_modifying_them(database_
     ]
 
 
-def test_sync_never_touches_v6_created_local_only_rows(database_url):
+def test_sync_never_touches_studio_created_local_only_rows(database_url):
     engine = create_cplan_engine(database_url)
     with Session(engine) as session:
         session.add(
             Activity(
                 source_type="internal",
-                activity_name="V6-created activity",
+                activity_name="Studio-created activity",
                 tracking_id="STA-0000000-260101-0000001-GEN",
             )
         )

@@ -1,16 +1,16 @@
-"""Daily snapshot sync — upsert the SharePoint mirror snapshot into the CPLAN V6 database.
+"""Daily snapshot sync — upsert the SharePoint mirror snapshot into the CPLAN database.
 
 Runs after `process_cplan.py` produces `pipeline/output/communications.parquet`, so the
-V6 database stays a faithful mirror of the corp source system while V6-created
+CPLAN database stays a faithful mirror of the corp source system while studio-created
 activities (`legacy_sp_id IS NULL`) live alongside it — parallel operation until the
 corp system migrates.
 
 Sync policy (binding):
 - **Source wins, conflicts reported.** SharePoint remains the system of record. If a
-  row changed in the source AND was edited locally in V6, the source values overwrite
-  the local edit and the conflict (field-level diff: field, local value, incoming
-  value) is recorded in the sync report.
-- **V6-created rows** (`legacy_sp_id IS NULL`) are never touched by sync; counted as
+  row changed in the source AND was edited locally in the studio, the source values
+  overwrite the local edit and the conflict (field-level diff: field, local value,
+  incoming value) is recorded in the sync report.
+- **Studio-created rows** (`legacy_sp_id IS NULL`) are never touched by sync; counted as
   "local-only".
 - **Never delete.** A DB row whose `(source_type, legacy_sp_id)` no longer appears in
   the snapshot is reported as "vanished from source" and otherwise left untouched.
@@ -100,7 +100,7 @@ def sync_records(
     records: Iterable[dict[str, Any]],
     snapshot_path: str | Path,
 ) -> SyncReport:
-    """Upsert normalized snapshot `records` into the V6 database. See module docstring for policy.
+    """Upsert normalized snapshot `records` into the CPLAN database. See module docstring for policy.
 
     `Base.metadata.create_all` + `ensure_schema` are run here explicitly (mirroring
     the app's lifespan) since this is a standalone job invocation, not a running
@@ -217,7 +217,7 @@ def sync_parquet(database_url: str | URL, parquet_path: Path) -> SyncReport:
 
 def format_report(report: SyncReport) -> str:
     lines = [
-        "CPLAN V6 sync complete: "
+        "CPLAN sync complete: "
         f"{report.created} created, {report.updated} updated, {report.unchanged} unchanged, "
         f"{report.conflicts} conflicts, {report.vanished} vanished, {report.local_only} local-only, "
         f"{report.skipped_no_id} skipped (no id)"

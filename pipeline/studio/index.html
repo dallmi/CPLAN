@@ -3,13 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CPLAN Planning Studio V4</title>
+  <title>CPLAN Planning Studio</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%3E%3Crect%20width='24'%20height='24'%20fill='%23FFFFFF'/%3E%3Crect%20x='9'%20width='6'%20height='24'%20fill='%23E60000'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="styles.css">
-  <script type="module">
-    import * as duckdb from 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.28.0/+esm';
-    window.duckdb = duckdb;
-    window.dispatchEvent(new Event('duckdb-ready'));
-  </script>
 </head>
 <body>
   <div class="app-shell">
@@ -17,8 +13,8 @@
       <div class="brand-block">
         <div class="brand-mark"></div>
         <div>
-          <h1>CPLAN Planning Studio <span class="version-tag">V4</span></h1>
-          <p>Campaign planning, coordination and readiness</p>
+          <h1>CPLAN Planning Studio</h1>
+          <p>Campaign planning backed by a local database</p>
         </div>
       </div>
       <div class="top-actions">
@@ -26,15 +22,14 @@
           <span class="status-dot loading" id="status-dot"></span>
           <div><strong id="status-label">Loading data</strong><small id="snapshot-time">Analytics snapshot: —</small></div>
         </div>
-        <button class="btn secondary" id="open-change-queue">Draft changes <span class="count-badge" id="draft-count">0</span></button>
-        <button class="btn secondary" id="export-changes">Export changes</button>
+
       </div>
     </header>
 
     <nav class="main-nav" aria-label="Main navigation">
       <button class="nav-item active" data-page="overview">Overview</button>
       <button class="nav-item" data-page="planning">Planning</button>
-      <button class="nav-item" data-page="activities">Activities</button>
+      <button class="nav-item" data-page="activities">Activities <span class="count-badge" id="activities-count">0</span></button>
       <button class="nav-item" data-page="analytics">Analytics</button>
     </nav>
 
@@ -102,13 +97,13 @@
       </section>
 
       <section class="page" id="page-activities">
-        <div class="page-heading"><div><p class="eyebrow">Operational workspace</p><h2>Activities</h2><p>Find, inspect and locally edit planning records.</p></div><button class="btn primary" id="activity-export">Export filtered CSV</button></div>
+        <div class="page-heading"><div><p class="eyebrow">Operational workspace</p><h2>Activities</h2><p>Find, inspect and persist planning records in the configured local database.</p></div><div class="page-actions"><button class="btn primary" id="activity-new">New activity</button><button class="btn secondary" id="activity-export">Export filtered CSV</button></div></div>
         <div class="filterbar">
           <input id="activity-search" type="search" placeholder="Search activity, campaign, lead or tracking ID">
           <select id="activity-source"><option value="">All sources</option><option value="internal">Internal</option><option value="external">External</option></select>
           <select id="activity-channel"><option value="">All channels</option></select>
           <select id="activity-priority"><option value="">All priorities</option></select>
-          <select id="activity-readiness"><option value="">All readiness</option><option value="complete">Complete</option><option value="incomplete">Incomplete</option><option value="draft">Locally edited</option></select>
+          <select id="activity-readiness"><option value="">All readiness</option><option value="complete">Complete</option><option value="incomplete">Incomplete</option></select>
           <button class="btn secondary" id="activity-clear">Clear</button>
           <span id="activity-result-count"></span>
         </div>
@@ -152,23 +147,103 @@
   <aside class="drawer" id="activity-drawer" aria-hidden="true">
     <div class="drawer-backdrop" data-close-drawer></div>
     <div class="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
-      <div class="drawer-head"><div><p class="eyebrow">Activity detail</p><h2 id="drawer-title">Activity</h2><p id="drawer-tracking"></p></div><button class="icon-btn" data-close-drawer aria-label="Close">×</button></div>
-      <div class="drawer-mode"><span class="badge neutral" id="drawer-mode-label">Read only</span><button class="btn primary" id="drawer-edit">Edit locally</button></div>
-      <form id="activity-form">
-        <fieldset><legend>Basics</legend><label>Activity name<input name="activity_name" required></label><label>Priority<select name="priority"><option value="">Unassigned</option><option>Critical</option><option>High</option><option>Medium</option><option>Normal</option><option>Low</option></select></label><label>Campaign<input name="campaign"></label></fieldset>
-        <fieldset><legend>Schedule</legend><div class="form-grid"><label>Start date<input type="datetime-local" name="start_date"></label><label>End date<input type="datetime-local" name="end_date"></label></div></fieldset>
-        <fieldset><legend>Audience &amp; channel</legend><label>Channel<input name="channel"></label><label>Target audience<input name="target_audience"></label><label>Region<input name="region"></label></fieldset>
-        <fieldset><legend>Ownership &amp; alignment</legend><label>Lead<input name="lead"></label><label>Lead team<input name="lead_team"></label><label>Strategic objectives<textarea name="strategic_objectives" rows="3"></textarea></label></fieldset>
+      <div class="drawer-head"><div><p class="eyebrow">Activity detail</p><h2 id="drawer-title">Activity</h2><p id="drawer-tracking"></p></div><button class="icon-btn" id="drawer-close" data-close-drawer aria-label="Close">×</button></div>
+      <div class="drawer-mode"><span class="badge neutral" id="drawer-mode-label">Read only</span><button class="btn primary" id="drawer-edit">Edit activity</button></div>
+      <form id="activity-form" novalidate>
+        <div class="form-variant" id="form-variant" hidden>
+          <span class="form-variant-label">Activity type</span>
+          <div class="segmented" id="source-toggle" role="group" aria-label="Activity type">
+            <button type="button" class="active" data-source="internal">Internal</button>
+            <button type="button" data-source="external">External</button>
+          </div>
+        </div>
+
+        <fieldset><legend>Identity</legend>
+          <label>Activity name <span class="req">*</span><input name="activity_name" maxlength="500"></label>
+          <label>Campaign<input name="campaign" list="dl-campaign" autocomplete="off"></label>
+          <label>Communication pack<input name="communication_pack_cpid" list="dl-communication_pack_cpid" autocomplete="off"><span class="field-help">Select an existing pack only when this activity is known to belong to it</span></label>
+        </fieldset>
+
+        <fieldset><legend>Classification</legend>
+          <label>Channel <span class="req">*</span><select name="channel"><option value="">Select channel…</option></select></label>
+          <label>Priority <span class="req">*</span><select name="priority"><option value="">Unassigned</option><option>Critical</option><option>High</option><option>Medium</option><option>Normal</option><option>Low</option></select></label>
+          <div class="ms-field">
+            <span class="ms-label" id="label-strategic_objectives">Communications pillars <span class="req">*</span></span>
+            <div class="multiselect" data-multiselect="strategic_objectives" role="group" aria-labelledby="label-strategic_objectives">
+              <input type="hidden" name="strategic_objectives">
+              <button type="button" class="ms-trigger"><span class="ms-value placeholder">Select…</span><svg class="ms-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg></button>
+              <div class="ms-popover" hidden><input type="text" class="ms-filter" placeholder="Filter options" aria-label="Filter options"><div class="ms-options"></div></div>
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset><legend>Content</legend>
+          <label>Description <span class="req">*</span><textarea name="activity_description" rows="4"></textarea></label>
+        </fieldset>
+
+        <fieldset><legend>Audience</legend>
+          <label>Target audience <span class="req" data-vreq>*</span><select name="target_audience"><option value="">Select…</option></select></label>
+          <label data-variant="internal">Estimated audience size <span class="req">*</span><select name="audience"><option value="">Select…</option></select></label>
+        </fieldset>
+
+        <fieldset><legend>Organisation</legend>
+          <div class="ms-field">
+            <span class="ms-label" id="label-business_division">Business division <span class="req" data-vreq>*</span></span>
+            <div class="multiselect" data-multiselect="business_division" role="group" aria-labelledby="label-business_division">
+              <input type="hidden" name="business_division">
+              <button type="button" class="ms-trigger"><span class="ms-value placeholder">Select…</span><svg class="ms-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg></button>
+              <div class="ms-popover" hidden><input type="text" class="ms-filter" placeholder="Filter options" aria-label="Filter options"><div class="ms-options"></div></div>
+            </div>
+          </div>
+          <label>Business area<input name="business_area" list="dl-business_area" autocomplete="off"></label>
+          <div class="ms-field">
+            <span class="ms-label" id="label-region">Region <span class="req">*</span></span>
+            <div class="multiselect" data-multiselect="region" role="group" aria-labelledby="label-region">
+              <input type="hidden" name="region">
+              <button type="button" class="ms-trigger"><span class="ms-value placeholder">Select…</span><svg class="ms-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg></button>
+              <div class="ms-popover" hidden><input type="text" class="ms-filter" placeholder="Filter options" aria-label="Filter options"><div class="ms-options"></div></div>
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset><legend>Schedule</legend>
+          <div class="form-grid"><label>Start date (local time) <span class="req">*</span><input type="datetime-local" name="start_date"></label><label>End date (local time) <span class="req">*</span><input type="datetime-local" name="end_date"></label></div>
+          <label>Time zone <span class="req">*</span><select name="time_zone"><option value="">Not set</option><option value="Europe/Zurich">Europe/Zurich</option><option value="Europe/London">Europe/London</option><option value="Europe/Berlin">Europe/Berlin</option><option value="America/New_York">America/New_York</option><option value="America/Chicago">America/Chicago</option><option value="America/Los_Angeles">America/Los_Angeles</option><option value="Asia/Singapore">Asia/Singapore</option><option value="Asia/Hong_Kong">Asia/Hong_Kong</option><option value="Asia/Tokyo">Asia/Tokyo</option><option value="Australia/Sydney">Australia/Sydney</option><option value="UTC">UTC</option></select></label>
+        </fieldset>
+
+        <fieldset><legend>Ownership</legend>
+          <label>Lead <span class="req">*</span><input name="lead"></label>
+          <label>Lead team <span class="req">*</span><input name="lead_team" list="dl-lead_team" autocomplete="off"></label>
+          <label>Partner team<input name="partner_team" list="dl-partner_team" autocomplete="off"></label>
+        </fieldset>
+
+        <fieldset data-variant="internal"><legend>Visibility</legend>
+          <label class="checkbox-label"><input type="checkbox" name="news_digest"> Consider for news digest</label>
+        </fieldset>
+
         <div class="validation-message" id="form-validation"></div>
-        <div class="drawer-actions"><button type="button" class="btn secondary" id="drawer-cancel">Cancel</button><button type="submit" class="btn primary" id="drawer-save">Save draft</button></div>
+        <div class="drawer-actions"><button type="button" class="btn secondary" id="drawer-cancel">Cancel</button><button type="submit" class="btn primary" id="drawer-save">Save activity</button></div>
+
+        <datalist id="dl-campaign"></datalist>
+        <datalist id="dl-communication_pack_cpid"></datalist>
+        <datalist id="dl-business_area"></datalist>
+        <datalist id="dl-lead_team"></datalist>
+        <datalist id="dl-partner_team"></datalist>
       </form>
     </div>
   </aside>
 
-  <aside class="queue-panel" id="change-queue" aria-hidden="true">
-    <div class="drawer-backdrop" data-close-queue></div>
-    <div class="queue-content"><div class="drawer-head"><div><p class="eyebrow">Local draft repository</p><h2>Change queue</h2><p>Prepared for a future SharePoint write adapter</p></div><button class="icon-btn" data-close-queue>×</button></div><div id="change-list"></div><div class="drawer-actions"><button class="btn danger-outline" id="discard-all-changes">Discard all</button><button class="btn primary" id="queue-export">Export JSON</button></div></div>
-  </aside>
+
+  <div class="modal-overlay" id="discard-modal" aria-hidden="true">
+    <div class="modal-card" role="alertdialog" aria-modal="true" aria-labelledby="discard-modal-title" aria-describedby="discard-modal-body">
+      <h2 id="discard-modal-title">Discard unsaved changes?</h2>
+      <p id="discard-modal-body">Your edits in this activity will be lost.</p>
+      <div class="modal-actions">
+        <button type="button" class="btn secondary" id="discard-keep">Keep editing</button>
+        <button type="button" class="btn danger" id="discard-confirm">Discard changes</button>
+      </div>
+    </div>
+  </div>
 
   <div class="toast" id="toast" role="status"></div>
   <script src="analytics.js"></script>

@@ -24,7 +24,7 @@ pipeline/input/*.csv
 .env*
 !.env.example
 
-# CPLAN V6 local runtime state (user-owned, never committed)
+# CPLAN local runtime state (user-owned, never committed)
 /data/
 /logs/
 /backups/

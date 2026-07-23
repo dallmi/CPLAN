@@ -675,7 +675,7 @@
   function exportFilteredCsv() {
     const columns=['tracking_id','activity_name','channel','start_date','end_date','priority','lead','lead_team','target_audience','business_division','region','campaign','strategic_objectives','source_type'];
     const cell=value=>`"${A.safeCsvValue(value).replace(/"/g,'""')}"`;
-    download(`CPLAN_V6_activities_${new Date().toISOString().slice(0,10)}.csv`,[columns.join(','),...state.filteredRows.map(row=>columns.map(c=>cell(row[c])).join(','))].join('\n'),'text/csv');
+    download(`CPLAN_activities_${new Date().toISOString().slice(0,10)}.csv`,[columns.join(','),...state.filteredRows.map(row=>columns.map(c=>cell(row[c])).join(','))].join('\n'),'text/csv');
   }
 
   function wireEvents() {
@@ -739,9 +739,9 @@
       document.getElementById('status-dot').className='status-dot ready';document.getElementById('status-label').textContent=`${fmtNum(loaded.rows.length)} activities loaded`;document.getElementById('snapshot-time').textContent=`${backendLabel()} API: ${generated||'unknown'}`;
       renderAll();
     } catch(error) {
-      console.error('CPLAN V6 initialization failed',error);
+      console.error('CPLAN initialization failed',error);
       document.getElementById('status-dot').className='status-dot error';document.getElementById('status-label').textContent='Data load failed';document.getElementById('snapshot-time').textContent=error.message;
-      document.querySelector('.content').innerHTML=`<div class="card">${emptyState(EMPTY_ICONS.alertTriangle, 'CPLAN V6 could not initialize', `${error.message} Start the configured local database API and reload this page.`)}</div>`;
+      document.querySelector('.content').innerHTML=`<div class="card">${emptyState(EMPTY_ICONS.alertTriangle, 'CPLAN could not initialize', `${error.message} Start the configured local database API and reload this page.`)}</div>`;
     }
   }
 

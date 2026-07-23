@@ -1,4 +1,4 @@
-"""Explicitly configure the local database backend used by CPLAN V6."""
+"""Explicitly configure the local database backend used by CPLAN."""
 
 from __future__ import annotations
 
@@ -55,7 +55,7 @@ def load_backend_config(settings_path: Path | None = None) -> BackendConfig:
     path = (settings_path or default_settings_path()).expanduser().resolve()
     if not path.exists():
         raise FileNotFoundError(
-            f"CPLAN database is not configured: {path}. Run python -m pipeline.api_v6.setup_backend first."
+            f"CPLAN database is not configured: {path}. Run python -m pipeline.api.setup_backend first."
         )
     payload = json.loads(path.read_text(encoding="utf-8"))
     config = BackendConfig(backend=payload["backend"], database_url=payload.get("database_url"))

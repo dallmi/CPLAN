@@ -1,4 +1,4 @@
-"""Database backend selection and safe engine construction for CPLAN V6."""
+"""Database backend selection and safe engine construction for CPLAN."""
 
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ def backend_from_url(database_url: str | URL) -> str:
 def database_url_from_environment(environ: Mapping[str, str] | None = None) -> str | URL | None:
     """Compose a PostgreSQL URL from `CPLAN_DB_*` parts, mirroring the Docker Compose `api` service.
 
-    `compose.v6.yaml` only sets `CPLAN_DB_HOST`/`_PORT`/`_NAME`/`_USER`/`_PASSWORD`
+    `compose.yaml` only sets `CPLAN_DB_HOST`/`_PORT`/`_NAME`/`_USER`/`_PASSWORD`
     on the container — there is no `CPLAN_DATABASE_URL` inside it — so any code
     path that only checks `CPLAN_DATABASE_URL` (e.g. a `docker compose exec`
     command) fails with no configured database. This is the single place that

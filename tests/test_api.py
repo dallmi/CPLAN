@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from pipeline.api_v6.app import Activity, ActivityRead, Base, SyncRun, create_app, create_environment_app
+from pipeline.api.app import Activity, ActivityRead, Base, SyncRun, create_app, create_environment_app
 
 TRACKING_ID_PATTERN = re.compile(r"^[A-Z0-9]+-[0-9]+-\d{6}-\d{7}-[A-Z]{2,4}$")
 
@@ -34,7 +34,7 @@ def client(request, tmp_path):
     database_url = (
         TEST_DATABASE_URL
         if request.param == "postgresql"
-        else f"sqlite:///{tmp_path / 'cplan-v6-test.sqlite3'}"
+        else f"sqlite:///{tmp_path / 'cplan-test.sqlite3'}"
     )
     app = create_app(database_url)
     Base.metadata.drop_all(app.state.engine)
@@ -52,7 +52,7 @@ def create_activity(client):
         json={
             "source_type": "internal",
             "activity_name": "Initial planning activity",
-            "activity_description": "Created by the V6 API integration test.",
+            "activity_description": "Created by the API integration test.",
             "start_date": "2026-08-03T09:00:00+02:00",
             "end_date": "2026-08-03T10:00:00+02:00",
             "news_digest": False,
@@ -182,11 +182,11 @@ def test_activity_list_returns_persisted_rows(client):
     assert body["items"][0]["start_date"] == "2026-08-03T07:00:00Z"
 
 
-def test_api_serves_the_v6_dashboard(client):
+def test_api_serves_the_studio_dashboard(client):
     response = client.get("/")
 
     assert response.status_code == 200
-    assert "CPLAN Planning Studio V6" in response.text
+    assert "CPLAN Planning Studio" in response.text
 
 
 def test_health_reports_the_selected_database_backend(client):
@@ -539,7 +539,7 @@ def test_create_retries_on_tracking_id_collision_from_a_concurrent_insert(client
     duplicate_tracking_id = "STA-0000000-260101-0000001-GEN"
     _seed_activity(client, tracking_id=duplicate_tracking_id, legacy_sp_id=None)
 
-    import pipeline.api_v6.app as app_module
+    import pipeline.api.app as app_module
 
     monkeypatch.setattr(app_module, "_generate_unique_tracking_id", lambda session, payload: duplicate_tracking_id)
 

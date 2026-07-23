@@ -1,6 +1,6 @@
-# CPLAN Planning Studio V6 — admin-free local database MVP
+# CPLAN Planning Studio — admin-free local database MVP
 
-V6 keeps the V4 analytics and planning experience but replaces the browser-local draft store and Parquet runtime with a same-origin FastAPI/SQLAlchemy data path. PostgreSQL is preferred; SQLite is the explicit no-install fallback. Both run in the user's context without a Windows service or admin rights.
+The planning studio replaces a browser-local draft store and Parquet runtime with a same-origin FastAPI/SQLAlchemy data path. PostgreSQL is preferred; SQLite is the explicit no-install fallback. Both run in the user's context without a Windows service or admin rights.
 
 ## Implemented
 
@@ -8,14 +8,13 @@ V6 keeps the V4 analytics and planning experience but replaces the browser-local
 - REST endpoints for health, list, create and versioned partial updates
 - optimistic concurrency: stale updates receive HTTP `409 Conflict`
 - one-time seed from the existing `pipeline/output/communications.parquet`
-- V6 dashboard served by FastAPI; all edits are persisted immediately
-- V4 and earlier dashboard implementations remain untouched
+- planning studio served by FastAPI; all edits are persisted immediately
 - explicit persisted backend selection; no silent PostgreSQL-to-SQLite fallback
 - SQLite foreign keys, WAL journal mode and five-second busy timeout
 - server-generated, uniqueness-enforced tracking IDs on activity creation
 - computed read-only fields (`planning_lead_days`, `tracking_pack_id`) on every activity read
 - blank-string input on create/patch normalized to `NULL` for optional fields
-- daily snapshot sync: upserts the SharePoint mirror into the database (source wins, conflicts reported, nothing deleted) alongside V6-created activities
+- daily snapshot sync: upserts the SharePoint mirror into the database (source wins, conflicts reported, nothing deleted) alongside activities created directly in the studio
 
 ## Activity fields and generated values
 
@@ -35,7 +34,7 @@ CLUSTER-PACKNUM-YYMMDD-ACTNUM-CHANNELABBR
 
 ### `time_zone`
 
-`time_zone` is a nullable `String(64)` column on `Activity`. Databases created before this column existed are topped up automatically: `ensure_schema()` (in `pipeline/api_v6/database.py`) runs right after `Base.metadata.create_all()` on every app startup and issues a plain `ALTER TABLE ... ADD COLUMN` for any model column the live table is missing, on both SQLite and PostgreSQL.
+`time_zone` is a nullable `String(64)` column on `Activity`. Databases created before this column existed are topped up automatically: `ensure_schema()` (in `pipeline/api/database.py`) runs right after `Base.metadata.create_all()` on every app startup and issues a plain `ALTER TABLE ... ADD COLUMN` for any model column the live table is missing, on both SQLite and PostgreSQL.
 
 ### Empty-string-to-null normalization
 
@@ -48,7 +47,7 @@ Every activity returned by the API (list or single) carries two read-only comput
 - `planning_lead_days` — whole days between the activity's `start_date` and a reference timestamp (`source_created_at` when set, else `created_at`); negative values mean the start date precedes the reference and are returned as-is.
 - `tracking_pack_id` — the `CLUSTER-PACKNUM` prefix of `tracking_id` (its first two `-`-separated segments), or `null` when there is no tracking ID.
 
-These exist so `pipeline/dashboard-v6-postgres/analytics.js` — kept byte-identical to `pipeline/dashboard-v4/analytics.js` — can consume the same field names from both the V4 static snapshot and the V6 live API without forking the analytics code.
+These exist so `pipeline/studio/analytics.js` can consume these field names directly from the live API.
 
 ## Choose the backend once
 
@@ -58,13 +57,13 @@ Preferred PostgreSQL configuration (provide `CPLAN_DATABASE_URL` through the cur
 
 ```bash
 # CPLAN_DATABASE_URL must already be set in the current process environment.
-PYTHONPATH=. .venv/bin/python -m pipeline.api_v6.setup_backend --backend postgresql
+PYTHONPATH=. .venv/bin/python -m pipeline.api.setup_backend --backend postgresql
 ```
 
 Installer-free SQLite fallback:
 
 ```bash
-PYTHONPATH=. .venv/bin/python -m pipeline.api_v6.setup_backend --backend sqlite
+PYTHONPATH=. .venv/bin/python -m pipeline.api.setup_backend --backend sqlite
 ```
 
 The setup validates the database before persisting the choice. For PostgreSQL, only the backend marker is stored; the connection URL and any password remain outside the JSON settings and must be present in `CPLAN_DATABASE_URL` when importing or starting. Existing settings require `--force` to replace. A configured PostgreSQL outage is reported; the launcher never creates or opens SQLite implicitly.
@@ -74,11 +73,11 @@ The setup validates the database before persisting the choice. For PostgreSQL, o
 From the repository root:
 
 ```bash
-createdb cplan_v6  # only once
+createdb cplan  # only once
 python3.11 -m venv .venv
-PYTHONPATH= .venv/bin/python -m pip install -r pipeline/api_v6/requirements.txt
-PYTHONPATH=. .venv/bin/python -m pipeline.api_v6.import_snapshot
-PYTHONPATH=. .venv/bin/python pipeline/scripts/start_cplan_v6.py
+PYTHONPATH= .venv/bin/python -m pip install -r pipeline/api/requirements.txt
+PYTHONPATH=. .venv/bin/python -m pipeline.api.import_snapshot
+PYTHONPATH=. .venv/bin/python pipeline/scripts/start_cplan.py
 ```
 
 Open <http://127.0.0.1:8780/>. API documentation is available at <http://127.0.0.1:8780/docs>.
@@ -87,15 +86,15 @@ The seed command is intentionally idempotent: if the activities table already co
 
 ## Daily snapshot sync
 
-Once seeded, `pipeline/api_v6/sync_snapshot.py` keeps the database in step with the daily SharePoint export (`pipeline/output/communications.parquet`) without disturbing activities created directly in V6:
+Once seeded, `pipeline/api/sync_snapshot.py` keeps the database in step with the daily SharePoint export (`pipeline/output/communications.parquet`) without disturbing activities created directly in the studio:
 
 ```bash
-PYTHONPATH=. .venv/bin/python -m pipeline.api_v6.sync_snapshot
+PYTHONPATH=. .venv/bin/python -m pipeline.api.sync_snapshot
 ```
 
-Policy (binding): SharePoint is the system of record, so a row changed in both the source and locally in V6 is overwritten by the source value and reported as a **conflict** (field-level diff). Rows created in V6 (`legacy_sp_id IS NULL`) are never touched and are counted as **local-only**. Rows are never deleted — a `(source_type, legacy_sp_id)` missing from the snapshot is reported as **vanished** and left as-is. Records without an `sp_id` are **skipped**. Every run writes one `sync_runs` row (counts + a JSON detail blob capped at 50 entries each for conflicts/vanished); `GET /api/sync-runs/latest` returns it, or `{"status": "never_synced"}` before the first run. Accepts the same `--settings`/`--parquet` flags as `import_snapshot`.
+Policy (binding): SharePoint is the system of record, so a row changed in both the source and locally in the studio is overwritten by the source value and reported as a **conflict** (field-level diff). Rows created in the studio (`legacy_sp_id IS NULL`) are never touched and are counted as **local-only**. Rows are never deleted — a `(source_type, legacy_sp_id)` missing from the snapshot is reported as **vanished** and left as-is. Records without an `sp_id` are **skipped**. Every run writes one `sync_runs` row (counts + a JSON detail blob capped at 50 entries each for conflicts/vanished); `GET /api/sync-runs/latest` returns it, or `{"status": "never_synced"}` before the first run. Accepts the same `--settings`/`--parquet` flags as `import_snapshot`.
 
-`pipeline/scripts/daily_refresh.py` is the recommended one-command entry point: it runs the CSV pipeline (`process_cplan.py`) and this sync in sequence, or `--skip-pipeline` to run the sync alone against the parquet already on disk — see the top-level [`README.md`](../../README.md#daily-workflow-v6). The dashboard's Analytics → Data Quality → "Refresh & reconciliation" card reads `GET /api/sync-runs/latest` to surface the last sync timestamp, the created/updated/conflicts/local-only counts, and a warning line when conflicts overrode local edits.
+`pipeline/scripts/daily_refresh.py` is the recommended one-command entry point: it runs the CSV pipeline (`process_cplan.py`) and this sync in sequence, or `--skip-pipeline` to run the sync alone against the parquet already on disk — see the top-level [`README.md`](../../README.md#daily-workflow). The dashboard's Analytics → Data Quality → "Refresh & reconciliation" card reads `GET /api/sync-runs/latest` to surface the last sync timestamp, the created/updated/conflicts/local-only counts, and a warning line when conflicts overrode local edits.
 
 ## Run with Docker Compose
 
@@ -104,13 +103,13 @@ Docker Desktop must be running. Keep the password outside Git:
 ```bash
 read -s -p 'Local CPLAN database password: ' CPLAN_DB_PASSWORD && echo
 export CPLAN_DB_PASSWORD
-docker compose -f compose.v6.yaml up --build -d
+docker compose -f compose.yaml up --build -d
 
 # Optional seed when the local ignored snapshot exists:
-docker compose -f compose.v6.yaml cp \
+docker compose -f compose.yaml cp \
   pipeline/output/communications.parquet api:/tmp/communications.parquet
-docker compose -f compose.v6.yaml exec api \
-  python -m pipeline.api_v6.import_snapshot --parquet /tmp/communications.parquet
+docker compose -f compose.yaml exec api \
+  python -m pipeline.api.import_snapshot --parquet /tmp/communications.parquet
 ```
 
 Then open <http://127.0.0.1:8780/>. Both published ports bind only to localhost. This configuration is for local development, not production deployment.
@@ -118,9 +117,9 @@ Then open <http://127.0.0.1:8780/>. Both published ports bind only to localhost.
 ## Tests
 
 ```bash
-PYTHONPATH=. .venv/bin/python -m pytest tests/test_v6_api.py tests/test_v6_import.py -q
-PYTHONPATH=. .venv/bin/python -m pytest tests/test_v6_database.py tests/test_v6_setup_backend.py -q
-PYTHONPATH=. .venv/bin/python -m pytest tests/test_v6_sync.py -q
-python3 tests/test_dashboard_v6.py -v
-node --check pipeline/dashboard-v6-postgres/app.js
+PYTHONPATH=. .venv/bin/python -m pytest tests/test_api.py tests/test_import.py -q
+PYTHONPATH=. .venv/bin/python -m pytest tests/test_database.py tests/test_setup_backend.py -q
+PYTHONPATH=. .venv/bin/python -m pytest tests/test_sync.py -q
+python3 tests/test_studio.py -v
+node --check pipeline/studio/app.js
 ```

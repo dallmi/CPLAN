@@ -3,8 +3,8 @@ from sqlalchemy import Column, MetaData, Table, inspect, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from pipeline.api_v6.app import Activity, Base
-from pipeline.api_v6.database import backend_from_url, create_cplan_engine, ensure_schema
+from pipeline.api.app import Activity, Base
+from pipeline.api.database import backend_from_url, create_cplan_engine, ensure_schema
 
 
 def test_backend_is_derived_from_sqlalchemy_url():
@@ -164,8 +164,8 @@ def test_ensure_schema_index_topup_is_idempotent(tmp_path):
     engine.dispose()
 
 
-def test_tracking_id_unique_index_blocks_duplicates_among_v6_created_rows(tmp_path):
-    """The partial unique index only covers rows without legacy_sp_id (V6-created rows)."""
+def test_tracking_id_unique_index_blocks_duplicates_among_studio_created_rows(tmp_path):
+    """The partial unique index only covers rows without legacy_sp_id (studio-created rows)."""
     engine = create_cplan_engine(f"sqlite:///{tmp_path / 'unique-index.sqlite3'}")
     Base.metadata.create_all(engine)
 

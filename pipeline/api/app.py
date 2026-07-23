@@ -1,4 +1,4 @@
-"""Local database API for CPLAN Planning Studio V6."""
+"""Local database API for CPLAN Planning Studio."""
 
 from __future__ import annotations
 
@@ -81,7 +81,7 @@ class Base(DeclarativeBase):
 class Activity(Base):
     __tablename__ = "activities"
     __table_args__ = (
-        # Tracking IDs must be unique among V6-generated rows (legacy_sp_id IS NULL).
+        # Tracking IDs must be unique among studio-generated rows (legacy_sp_id IS NULL).
         # Legacy-imported rows (legacy_sp_id set) are exempt: the source system
         # genuinely contains duplicate tracking IDs, so a table-wide unique
         # constraint would break import_snapshot seeding.
@@ -130,7 +130,7 @@ class Activity(Base):
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     # Set to `version` after every sync write (insert or update) by sync_snapshot.py;
     # never touched by the UI PATCH endpoint. NULL means "never synced" (either a
-    # V6-created row, or a legacy row imported before this column existed). A row is
+    # studio-created row, or a legacy row imported before this column existed). A row is
     # locally dirty iff `version > synced_version` — see sync_snapshot.py.
     synced_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
@@ -460,7 +460,7 @@ def create_app(database_url: str | URL | None = None) -> FastAPI:
         yield
         engine.dispose()
 
-    app = FastAPI(title="CPLAN Planning Studio V6 API", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="CPLAN Planning Studio API", version="0.1.0", lifespan=lifespan)
     app.state.engine = engine
 
     @app.get("/api/health")
@@ -576,7 +576,7 @@ def create_app(database_url: str | URL | None = None) -> FastAPI:
                 "details": json.loads(run.details) if run.details else None,
             }
 
-    dashboard_dir = Path(__file__).resolve().parents[1] / "dashboard-v6-postgres"
+    dashboard_dir = Path(__file__).resolve().parents[1] / "studio"
     app.mount("/", StaticFiles(directory=dashboard_dir, html=True), name="dashboard")
     return app
 

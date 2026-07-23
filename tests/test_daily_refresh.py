@@ -12,7 +12,7 @@ import sys
 import pytest
 
 import pipeline.scripts.daily_refresh as daily_refresh
-from pipeline.api_v6.sync_snapshot import SyncReport
+from pipeline.api.sync_snapshot import SyncReport
 
 
 def _stub_sync(monkeypatch, calls):

@@ -8,14 +8,11 @@ The organisation-neutral domain model, current SharePoint-backed entry forms, tr
 
 Source screenshots are local reference material only. The `pictures/` directory is ignored and must never be committed. Repository content must use generic organisation terminology and synthetic examples; do not include company branding, personal names, production identifiers, or confidential source content.
 
-## Dashboard versions
+## Planning studio
 
-Two planning studios sit alongside the original Parquet-fed dashboard described below:
+The planning studio (`pipeline/studio/`) sits alongside the original Parquet-fed dashboard described below. It is backed by a local FastAPI + PostgreSQL/SQLite API instead of a static snapshot — see [`pipeline/api/README.md`](pipeline/api/README.md) for setup. Earlier snapshot studios were superseded and removed; their implementations live in git history.
 
-- **V6** (`pipeline/dashboard-v6-postgres/`) — the go-forward planning studio. Same analytics as V4, backed by a local FastAPI + PostgreSQL/SQLite API instead of a static snapshot. See [`pipeline/api_v6/README.md`](pipeline/api_v6/README.md) for setup.
-- **V4** (`pipeline/dashboard-v4/`) — read-only analytical snapshot with browser-local draft edits. Superseded by V6 for new work; kept as an isolated reference implementation and untouched.
-
-V6's `GET /api/activities` deliberately returns the full result set with no pagination — the deployment target is local, single-user use. Revisit if the dataset outgrows an unpaginated response.
+`GET /api/activities` deliberately returns the full result set with no pagination — the deployment target is local, single-user use. Revisit if the dataset outgrows an unpaginated response.
 
 ## Architecture
 
@@ -50,9 +47,9 @@ python pipeline/scripts/process_cplan.py --full-refresh
 python pipeline/scripts/build_standalone.py
 ```
 
-## Daily workflow (V6)
+## Daily workflow
 
-For the V6 database-backed dashboard, `pipeline/scripts/daily_refresh.py` runs the whole daily refresh as one command: the CSV pipeline above, then the database sync (`pipeline/api_v6/sync_snapshot.py`) that mirrors the result into the CPLAN V6 database.
+For the database-backed planning studio, `pipeline/scripts/daily_refresh.py` runs the whole daily refresh as one command: the CSV pipeline above, then the database sync (`pipeline/api/sync_snapshot.py`) that mirrors the result into the CPLAN database.
 
 ```bash
 # Pipeline + sync (the normal daily run)
@@ -62,7 +59,7 @@ PYTHONPATH=. .venv/bin/python -m pipeline.scripts.daily_refresh
 PYTHONPATH=. .venv/bin/python -m pipeline.scripts.daily_refresh --skip-pipeline
 ```
 
-**Parallel operation.** V6 is not a one-shot migration: activities created directly in V6 (no `legacy_sp_id`) and activities mirrored in from the SharePoint source live in the same database at the same time. Each daily sync updates only the mirrored rows — source wins on conflicts, nothing is ever deleted — while V6-created activities are left completely untouched. This lets V6 be used for real planning work before the source system is retired; see [`pipeline/api_v6/README.md`](pipeline/api_v6/README.md#daily-snapshot-sync) for the full sync policy.
+**Parallel operation.** This is not a one-shot migration: activities created directly in the studio (no `legacy_sp_id`) and activities mirrored in from the SharePoint source live in the same database at the same time. Each daily sync updates only the mirrored rows — source wins on conflicts, nothing is ever deleted — while studio-created activities are left completely untouched. This lets the studio be used for real planning work before the source system is retired; see [`pipeline/api/README.md`](pipeline/api/README.md#daily-snapshot-sync) for the full sync policy.
 
 ## Input
 

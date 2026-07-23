@@ -1,4 +1,4 @@
-"""Start CPLAN V6 with its explicitly configured local database backend."""
+"""Start CPLAN with its explicitly configured local database backend."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ from pathlib import Path
 import uvicorn
 from sqlalchemy import text
 
-from pipeline.api_v6.app import create_app
-from pipeline.api_v6.setup_backend import (
+from pipeline.api.app import create_app
+from pipeline.api.setup_backend import (
     default_settings_path,
     load_backend_config,
     resolve_backend_database_url,
@@ -31,7 +31,7 @@ def main() -> None:
     args = parser.parse_args()
 
     app = create_configured_app(args.settings)
-    print(f"Starting CPLAN V6 with {app.state.engine.dialect.name} at http://127.0.0.1:{args.port}/")
+    print(f"Starting CPLAN with {app.state.engine.dialect.name} at http://127.0.0.1:{args.port}/")
     uvicorn.run(app, host="127.0.0.1", port=args.port)
 
 

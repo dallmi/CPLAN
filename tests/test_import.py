@@ -2,9 +2,9 @@ from datetime import timezone
 
 from sqlalchemy.engine import make_url
 
-from pipeline.api_v6.database import backend_from_url
-from pipeline.api_v6.import_snapshot import normalize_record, resolve_database_url
-from pipeline.api_v6.setup_backend import configure_backend
+from pipeline.api.database import backend_from_url
+from pipeline.api.import_snapshot import normalize_record, resolve_database_url
+from pipeline.api.setup_backend import configure_backend
 
 
 def test_snapshot_record_is_normalized_for_postgres():
@@ -42,8 +42,8 @@ def test_importer_uses_explicit_environment_url_before_persisted_settings(tmp_pa
 
 
 def test_resolve_database_url_composes_from_cplan_db_env_vars_like_the_docker_container():
-    """Mirrors compose.v6.yaml's `api` service and the documented Docker seed
-    command (`docker compose ... exec api python -m pipeline.api_v6.import_snapshot
+    """Mirrors compose.yaml's `api` service and the documented Docker seed
+    command (`docker compose ... exec api python -m pipeline.api.import_snapshot
     ...`): inside that container only CPLAN_DB_HOST/_PORT/_NAME/_USER/_PASSWORD
     are set — there is no CPLAN_DATABASE_URL and no persisted settings file —
     so resolve_database_url must compose a working URL from those alone.
