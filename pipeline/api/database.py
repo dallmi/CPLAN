@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Mapping
 
 from sqlalchemy import Engine, MetaData, create_engine, event, inspect, text
@@ -11,6 +12,9 @@ from sqlalchemy.engine import URL, make_url
 
 
 SUPPORTED_BACKENDS = {"postgresql", "sqlite"}
+
+# The single database the postgres-embedded backend targets on its embedded server.
+EMBEDDED_DATABASE_NAME = "cplan"
 
 
 @dataclass(frozen=True)
@@ -57,6 +61,72 @@ def database_url_from_environment(environ: Mapping[str, str] | None = None) -> s
         port=int(environment.get("CPLAN_DB_PORT", "5432")),
         database=environment.get("CPLAN_DB_NAME", "cplan"),
     )
+
+
+def embedded_database_url(pgdata: str | os.PathLike[str]) -> str:
+    """Start (or attach to) an embedded PostgreSQL 16 server rooted at `pgdata` via
+    the `pgserver` package, and return a SQLAlchemy `postgresql+psycopg://` URL for
+    its `cplan` database.
+
+    `pgserver.get_server(pgdata, cleanup_mode=None)` is idempotent: it starts the
+    server if one is not already running for this `pgdata`, or hands back the
+    already-running instance otherwise -- safe to call on every CPLAN startup.
+    `cleanup_mode=None` means nothing here ever stops the server; the one
+    deliberate, clean shutdown path is `pipeline/scripts/cplan_db.py --stop`.
+
+    `pgserver` is an optional dependency (only needed for the postgres-embedded
+    backend, see `pipeline/api/requirements.txt`), so the import is lazy and
+    guarded here -- same pattern as `daily_refresh`'s guard around
+    `process_cplan`'s `pandas`/`duckdb` import -- turning a bare
+    `ModuleNotFoundError` into an actionable message instead of a raw traceback.
+
+    `server.get_uri()` returns a socket-style URI on macOS/Linux
+    (`postgresql://postgres:@/postgres?host=/path/to/sockdir`) or a TCP-style URI
+    with a dynamic port on Windows (`postgresql://postgres:@127.0.0.1:PORT/postgres`).
+    Both are valid SQLAlchemy URLs already, so `make_url(...).set(...)` handles the
+    conversion (driver + target database) without needing to special-case either
+    form.
+    """
+    try:
+        import pgserver
+    except ImportError as exc:
+        raise RuntimeError(
+            "The postgres-embedded backend requires the 'pgserver' package, which is not "
+            "installed in this environment. Install it with: pip install pgserver"
+        ) from exc
+
+    pgdata_path = Path(pgdata).expanduser()
+    pgdata_path.parent.mkdir(parents=True, exist_ok=True)
+    server = pgserver.get_server(str(pgdata_path), cleanup_mode=None)
+    _ensure_embedded_database_exists(server)
+    return (
+        make_url(server.get_uri())
+        .set(drivername="postgresql+psycopg", database=EMBEDDED_DATABASE_NAME)
+        .render_as_string(hide_password=False)
+    )
+
+
+def _ensure_embedded_database_exists(server) -> None:
+    """Create the `cplan` database on the embedded server if it does not exist yet.
+
+    Connects to the always-present `postgres` maintenance database rather than
+    parsing `server.psql()`'s tabular text output -- a real parameterized query
+    against `pg_database` is unambiguous regardless of server locale. `CREATE
+    DATABASE` cannot run inside a transaction, hence the AUTOCOMMIT isolation level.
+    """
+    maintenance_url = make_url(server.get_uri()).set(drivername="postgresql+psycopg")
+    engine = create_engine(maintenance_url, isolation_level="AUTOCOMMIT")
+    try:
+        with engine.connect() as connection:
+            exists = connection.execute(
+                text("SELECT 1 FROM pg_database WHERE datname = :name"),
+                {"name": EMBEDDED_DATABASE_NAME},
+            ).first()
+            if exists is None:
+                identifier = engine.dialect.identifier_preparer.quote(EMBEDDED_DATABASE_NAME)
+                connection.execute(text(f"CREATE DATABASE {identifier}"))
+    finally:
+        engine.dispose()
 
 
 def create_cplan_engine(database_url: str | URL) -> Engine:

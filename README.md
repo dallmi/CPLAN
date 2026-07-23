@@ -12,6 +12,17 @@ Source screenshots are local reference material only. The `pictures/` directory 
 
 The planning studio (`pipeline/studio/`) sits alongside the original Parquet-fed dashboard described below. It is backed by a local FastAPI + PostgreSQL/SQLite API instead of a static snapshot — see [`pipeline/api/README.md`](pipeline/api/README.md) for setup. Earlier snapshot studios were superseded and removed; their implementations live in git history.
 
+**Corp quick-start (no admin rights, no external database):**
+
+```bash
+PYTHONPATH= .venv/bin/python -m pip install -r pipeline/api/requirements.txt
+PYTHONPATH=. .venv/bin/python -m pipeline.api.setup_backend --backend postgres-embedded
+PYTHONPATH=. .venv/bin/python -m pipeline.api.import_snapshot
+PYTHONPATH=. .venv/bin/python pipeline/scripts/start_cplan.py
+```
+
+`--backend postgres-embedded` is the recommended corp default: a real PostgreSQL 16, run as an unprivileged local process via [`pgserver`](https://pypi.org/project/pgserver/) — no admin rights, no installer, no external service. SQLite (`--backend sqlite`) remains the zero-dependency fallback when even that is not wanted. See [`pipeline/api/README.md`](pipeline/api/README.md#embedded-postgresql---backend-postgres-embedded) for the data-directory story, `cplan_db.py --status`/`--stop`, and the pg_dump-to-production path.
+
 `GET /api/activities` deliberately returns the full result set with no pagination — the deployment target is local, single-user use. Revisit if the dataset outgrows an unpaginated response.
 
 ## Architecture

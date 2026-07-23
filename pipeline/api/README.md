@@ -1,10 +1,10 @@
 # CPLAN Planning Studio — admin-free local database MVP
 
-The planning studio replaces a browser-local draft store and Parquet runtime with a same-origin FastAPI/SQLAlchemy data path. PostgreSQL is preferred; SQLite is the explicit no-install fallback. Both run in the user's context without a Windows service or admin rights.
+The planning studio replaces a browser-local draft store and Parquet runtime with a same-origin FastAPI/SQLAlchemy data path. Three backends share the same API and studio code, chosen once via `setup_backend` and never silently switched: **postgres-embedded** (a real PostgreSQL 16, run as an unprivileged local process — the recommended corp default), a real **PostgreSQL** server you already have, or **SQLite** as the zero-dependency fallback. All three run in the user's context without a Windows service or admin rights.
 
 ## Implemented
 
-- PostgreSQL- or SQLite-backed activities with stable UUIDs and retained SharePoint source IDs
+- PostgreSQL (embedded or external) or SQLite-backed activities with stable UUIDs and retained SharePoint source IDs
 - REST endpoints for health, list, create and versioned partial updates
 - optimistic concurrency: stale updates receive HTTP `409 Conflict`
 - one-time seed from the existing `pipeline/output/communications.parquet`
@@ -53,7 +53,13 @@ These exist so `pipeline/studio/analytics.js` can consume these field names dire
 
 Settings default to `pipeline/data/cplan-settings.json` (the SQLite database, when chosen, lands alongside it at `pipeline/data/cplan.sqlite3`), resolved relative to the repository regardless of the current working directory. Override that directory with `CPLAN_HOME` if needed — do not point it at a OneDrive-synced folder (SQLite's WAL journal mode does not tolerate concurrent file sync and risks corruption).
 
-Preferred PostgreSQL configuration (provide `CPLAN_DATABASE_URL` through the current process environment; do not pass credentials as command arguments):
+**Recommended corp default — embedded PostgreSQL, no admin rights needed:**
+
+```bash
+PYTHONPATH=. .venv/bin/python -m pipeline.api.setup_backend --backend postgres-embedded
+```
+
+Preferred configuration against a PostgreSQL server you already have (provide `CPLAN_DATABASE_URL` through the current process environment; do not pass credentials as command arguments):
 
 ```bash
 # CPLAN_DATABASE_URL must already be set in the current process environment.
@@ -66,7 +72,34 @@ Installer-free SQLite fallback:
 PYTHONPATH=. .venv/bin/python -m pipeline.api.setup_backend --backend sqlite
 ```
 
-The setup validates the database before persisting the choice. For PostgreSQL, only the backend marker is stored; the connection URL and any password remain outside the JSON settings and must be present in `CPLAN_DATABASE_URL` when importing or starting. Existing settings require `--force` to replace. A configured PostgreSQL outage is reported; the launcher never creates or opens SQLite implicitly.
+The setup validates the database before persisting the choice. For `postgresql`, only the backend marker is stored; the connection URL and any password remain outside the JSON settings and must be present in `CPLAN_DATABASE_URL` when importing or starting. Existing settings require `--force` to replace. A configured PostgreSQL outage is reported; the launcher never creates or opens SQLite implicitly.
+
+### Embedded PostgreSQL (`--backend postgres-embedded`)
+
+[`pgserver`](https://pypi.org/project/pgserver/) ships prebuilt PostgreSQL 16 binaries as a plain pip package and runs them as an unprivileged local process — no admin rights, no Windows service, no manual install. `setup_backend` starts it once, creates the `cplan` database if it doesn't exist yet, and validates with `SELECT 1`. Nothing secret is persisted: the server uses trust auth bound to localhost/a local socket, so settings only ever store the `pgdata` path, never a password.
+
+**Data directory — why not `P:` or OneDrive.** The default `pgdata` is a platform user-data directory: Windows `%LOCALAPPDATA%/CPLAN/postgres`, macOS `~/Library/Application Support/CPLAN/postgres`, Linux `~/.local/share/CPLAN/postgres`. A prior project put PostgreSQL's data directory on a corp network home drive (`P:`) and hit WAL-write stalls, connection timeouts and crash-recovery hangs under normal use; OneDrive-synced folders have the same failure mode as with SQLite above (a background sync process racing PostgreSQL's own file writes). Keep `pgdata` on local disk — `%LOCALAPPDATA%` is writable without admin rights on every corp Windows machine.
+
+**Overriding the location:** `--pgdata PATH` at setup time, or the `CPLAN_PGDATA` environment variable, which also wins over whatever is already persisted in settings at every subsequent run — so a corp fallback (e.g. local disk turns out unusable, switch to a network share) takes effect just by exporting the variable, no need to re-run `setup_backend`. If the resolved `pgdata` still ends up on a UNC network path, `setup_backend` and `cplan_db.py` print a clear warning (and proceed anyway) — raise client connection timeouts to at least 60s if you must use one.
+
+**Lifecycle:** the server is left running between CPLAN sessions — `start_cplan.py` and `daily_refresh.py` never stop it, so the next command starts instantly. Manage it explicitly with `pipeline/scripts/cplan_db.py`:
+
+```bash
+PYTHONPATH=. .venv/bin/python -m pipeline.scripts.cplan_db --status   # running? host/port or socket, pgdata, PG version
+PYTHONPATH=. .venv/bin/python -m pipeline.scripts.cplan_db --stop     # clean shutdown (pg_ctl -m fast) -- never a hard kill
+```
+
+A clean stop checkpoints and removes `postmaster.pid`, so the next start is instant; a hard kill (which this script never does) skips the checkpoint and forces a slow WAL-replaying crash recovery on the next start — exactly the failure mode the network-drive story above describes.
+
+**Connecting pgAdmin:** run `cplan_db.py --status` to read the current host/port (TCP on Windows, a dynamic port that changes on every restart) or socket path (macOS/Linux). User is always `postgres` with an empty password (trust auth — tick "Save password" in pgAdmin and leave the field blank). If `pgdata` sits on a network share, raise pgAdmin's connection timeout to 60s.
+
+**Going to production:** the embedded server is a real PostgreSQL 16 — there is no schema translation step. `pg_dump` it and restore 1:1 into a production PostgreSQL instance:
+
+```bash
+PYTHONPATH=. .venv/bin/python -m pipeline.scripts.cplan_db --status   # read host/port or socket
+pg_dump -h <host> -p <port> -U postgres cplan > cplan.sql             # or via the socket path shown above
+psql <production-connection> -f cplan.sql
+```
 
 ## Run with an available local PostgreSQL instance
 
@@ -120,6 +153,9 @@ Then open <http://127.0.0.1:8780/>. Both published ports bind only to localhost.
 PYTHONPATH=. .venv/bin/python -m pytest tests/test_api.py tests/test_import.py -q
 PYTHONPATH=. .venv/bin/python -m pytest tests/test_database.py tests/test_setup_backend.py -q
 PYTHONPATH=. .venv/bin/python -m pytest tests/test_sync.py -q
+PYTHONPATH=. .venv/bin/python -m pytest tests/test_cplan_db.py tests/test_postgres_embedded.py -q
 python3 tests/test_studio.py -v
 node --check pipeline/studio/app.js
 ```
+
+`tests/test_postgres_embedded.py` starts a real embedded PostgreSQL server end-to-end (setup, connect, clean stop) and skips itself automatically when `pgserver` is not installed, so CI without that optional dependency stays green. `tests/test_database.py` and `tests/test_setup_backend.py` cover the same URL-conversion and settings logic against a stubbed `pgserver` module — no real server needed for those.

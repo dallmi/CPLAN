@@ -35,6 +35,12 @@ pipeline/data/cplan-settings.json.tmp
 *.sqlite3-shm
 *.sqlite3-wal
 
+# Embedded PostgreSQL data directory (default lives outside the repo, in the
+# platform user-data dir -- ignored here only as a safety net for --pgdata
+# pointed at a repo-relative path)
+pipeline/data/postgres/
+pgdata/
+
 # Pictures
 pictures/
 
