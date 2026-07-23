@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from pipeline.api.app import Base
 from pipeline.api.auth import AuthSettings
 from pipeline.api.database import create_cplan_engine, embedded_database_url
-from pipeline.api.setup_portal import apply_portal
+from pipeline.api.setup_portal import apply_portal, register_project
 from pipeline.api.setup_roles import apply_roles, create_user
 from pipeline.portal.app import create_portal_app
 from pipeline.scripts.cplan_db import stop
@@ -109,16 +109,41 @@ def test_invalid_role_is_422_or_400_not_500(portal):
     assert bad.json()["detail"]["code"] == "invalid_input"
 
 
+def test_duplicate_username_is_clean_422_not_500(portal):
+    admin = login(portal, "pa_admin")
+    first = admin.post("/api/portal/users", json={"username": "pa_dupe", "password": "pw1", "project": "cplan", "role": "viewer"})
+    assert first.status_code == 201, first.text
+    again = admin.post("/api/portal/users", json={"username": "pa_dupe", "password": "pw2", "project": "cplan", "role": "editor"})
+    assert again.status_code == 422, again.text
+    assert again.json()["detail"]["code"] == "invalid_input"
+    assert "already exists" in again.json()["detail"]["message"]
+
+
+def test_role_change_on_unknown_user_is_clean_422_not_500(portal):
+    admin = login(portal, "pa_admin")
+    resp = admin.post("/api/portal/users/pa_ghost/role", json={"project": "cplan", "role": "editor"})
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["detail"]["code"] == "invalid_input"
+
+
 def test_unexpected_db_fault_is_not_masked_as_422(portal):
-    # portal.set_project_role does not check p_name exists as a role before its
-    # REVOKE/GRANT EXECUTE calls; a nonexistent username fails inside Postgres
-    # with SQLSTATE 42704 (undefined_object), not the functions' own P0001
-    # validation. This is a genuine server fault and must surface as 500, not
-    # be echoed back to the client as a 422 "invalid_input". raise_server_exceptions
-    # is disabled so the unhandled exception is turned into an HTTP response
-    # (Starlette's default test client re-raises it in-process instead).
-    client = TestClient(portal, raise_server_exceptions=False)
-    login_resp = client.post("/api/login", json={"username": "pa_admin", "password": PW["pa_admin"]})
-    assert login_resp.status_code == 200, login_resp.text
-    resp = client.post("/api/portal/users/pa_does_not_exist/role", json={"project": "cplan", "role": "editor"})
-    assert resp.status_code == 500, resp.text
+    # A genuinely misconfigured project (registered in the registry but whose
+    # <prefix>_viewer group role was never created) makes portal.create_user's
+    # GRANT fail inside Postgres with SQLSTATE 42704 (undefined_object) — a real
+    # server/config fault, distinct from the functions' own P0001 validation.
+    # It must surface as 500, never be echoed back as a 422 "invalid_input".
+    # raise_server_exceptions is disabled so the unhandled exception becomes an
+    # HTTP response instead of being re-raised in-process by the test client.
+    register_project(portal.state.engine, "brokenproj", "Broken", "http://x/", "brokenproj")
+    try:
+        client = TestClient(portal, raise_server_exceptions=False)
+        login_resp = client.post("/api/login", json={"username": "pa_admin", "password": PW["pa_admin"]})
+        assert login_resp.status_code == 200, login_resp.text
+        resp = client.post(
+            "/api/portal/users",
+            json={"username": "pa_broken", "password": "pw", "project": "brokenproj", "role": "viewer"},
+        )
+        assert resp.status_code == 500, resp.text
+    finally:
+        with portal.state.engine.begin() as c:
+            c.exec_driver_sql("DELETE FROM portal.projects WHERE slug = 'brokenproj'")

@@ -92,6 +92,37 @@ def test_function_rejects_unknown_project_role_and_reserved_name(engine):
         admin.exec_driver_sql("RESET ROLE"); admin.commit(); admin.close()
 
 
+def test_create_user_rejects_duplicate_name(engine):
+    admin = _as(engine, "p_admin")
+    try:
+        admin.exec_driver_sql("SELECT portal.create_user('dupe', 'pw', 'cplan', 'viewer')"); admin.commit()
+        with pytest.raises(ProgrammingError) as exc:
+            admin.exec_driver_sql("SELECT portal.create_user('dupe', 'pw2', 'cplan', 'editor')")
+        # Clean validation raise (P0001), not a raw CREATE ROLE 42710 duplicate_object.
+        assert exc.value.orig.sqlstate == "P0001"
+        assert "already exists" in str(exc.value.orig)
+        admin.rollback()
+    finally:
+        admin.exec_driver_sql("RESET ROLE"); admin.commit(); admin.close()
+
+
+def test_mutators_reject_unknown_user(engine):
+    admin = _as(engine, "p_admin")
+    try:
+        for sql in (
+            "SELECT portal.set_project_role('ghost', 'cplan', 'editor')",
+            "SELECT portal.reset_password('ghost', 'pw')",
+            "SELECT portal.set_active('ghost', false)",
+        ):
+            with pytest.raises(ProgrammingError) as exc:
+                admin.exec_driver_sql(sql)
+            # P0001 validation raise, not 42704 undefined_object.
+            assert exc.value.orig.sqlstate == "P0001"
+            admin.rollback()
+    finally:
+        admin.exec_driver_sql("RESET ROLE"); admin.commit(); admin.close()
+
+
 def test_set_role_password_and_active_functions(engine):
     admin = _as(engine, "p_admin")
     try:

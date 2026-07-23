@@ -91,6 +91,20 @@
     });
   }
 
+  // Surface a portal.* function's own validation message (422 invalid_input,
+  // e.g. "user X already exists") — first line only, since Postgres appends a
+  // CONTEXT block. Falls back to `fallback` for any other body shape.
+  async function validationMessage(response, fallback) {
+    try {
+      const body = await response.json();
+      const message = body && body.detail && body.detail.message;
+      if (typeof message === 'string' && message.trim()) {
+        return message.split('\n')[0].replace(/^ERROR:\s*/i, '').trim();
+      }
+    } catch (_) { /* not JSON */ }
+    return fallback;
+  }
+
   async function postJson(url, body) {
     const response = await apiFetch(url, { method: "POST", headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     if (!response.ok) { showToast('Action failed — you may not have permission.'); throw new Error('request failed'); }
@@ -146,7 +160,7 @@
       const response = await apiFetch('/api/portal/users', { method: "POST", headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       if (!response.ok) {
         const err = document.getElementById('uf-error');
-        err.textContent = response.status === 403 ? 'You do not have permission.' : 'Could not create user (check the inputs).';
+        err.textContent = response.status === 403 ? 'You do not have permission.' : await validationMessage(response, 'Could not create user (check the inputs).');
         err.classList.remove('hidden');
         return;
       }

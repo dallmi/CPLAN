@@ -62,6 +62,9 @@ BEGIN
   IF p_name = ANY ({_RESERVED_SQL_ARRAY}) THEN
     RAISE EXCEPTION 'reserved role %%', p_name;
   END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = p_name) THEN
+    RAISE EXCEPTION 'user %% already exists', p_name;
+  END IF;
   v_group := v_prefix || '_' || p_role;
   EXECUTE format('CREATE ROLE %%I LOGIN PASSWORD %%L', p_name, p_password);
   EXECUTE format('GRANT %%I TO %%I', v_group, p_name);
@@ -84,6 +87,9 @@ BEGIN
   IF v_prefix IS NULL THEN
     RAISE EXCEPTION 'unknown project %%', p_project;
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = p_name) THEN
+    RAISE EXCEPTION 'unknown user %%', p_name;
+  END IF;
   FOREACH r IN ARRAY ARRAY['viewer','contributor','editor','admin'] LOOP
     EXECUTE format('REVOKE %%I FROM %%I', v_prefix || '_' || r, p_name);
   END LOOP;
@@ -98,6 +104,9 @@ BEGIN
   IF p_name = ANY ({_RESERVED_SQL_ARRAY}) THEN
     RAISE EXCEPTION 'reserved role %%', p_name;
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = p_name) THEN
+    RAISE EXCEPTION 'unknown user %%', p_name;
+  END IF;
   EXECUTE format('ALTER ROLE %%I PASSWORD %%L', p_name, p_password);
 END; $fn$;
 """
@@ -108,6 +117,9 @@ RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pub
 BEGIN
   IF p_name = ANY ({_RESERVED_SQL_ARRAY}) THEN
     RAISE EXCEPTION 'reserved role %%', p_name;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = p_name) THEN
+    RAISE EXCEPTION 'unknown user %%', p_name;
   END IF;
   EXECUTE format('ALTER ROLE %%I %%s', p_name, CASE WHEN p_active THEN 'LOGIN' ELSE 'NOLOGIN' END);
 END; $fn$;
