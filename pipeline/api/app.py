@@ -605,6 +605,12 @@ def create_app(database_url: str | URL | None = None, auth_settings: AuthSetting
             finally:
                 session.close()
         finally:
+            # Ordering is load-bearing: rollback first to clear any failed
+            # transaction (SET ROLE is session-scoped and survives a commit),
+            # then RESET ROLE + commit so the connection never returns to the
+            # pool still impersonating the request's user. A rollback that
+            # itself raises invalidates the connection (SQLAlchemy discards it
+            # rather than pooling it), so no impersonating connection is reused.
             try:
                 connection.rollback()
                 if user.db_role is not None:
