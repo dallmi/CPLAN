@@ -178,7 +178,7 @@ export CPLAN_AUTH_SECRET=<the generated string>                # set before star
 ### Set up roles + first admin
 
 ```bash
-PYTHONPATH=. .venv/bin/python -m pipeline.api.setup_roles --create-user michael --role admin
+PYTHONPATH=. .venv/bin/python -m pipeline.api.setup_roles --create-user a.admin --role admin
 ```
 
 Prompts for a password (pass `--password` to skip the prompt, e.g. in a script). This single command both applies the role/grant/RLS model (idempotent — safe to re-run) and creates the first login. Re-run plain `setup_roles` (no flags) after every schema change: `GRANT ... ON ALL TABLES IN SCHEMA public` only covers tables that exist at the moment it runs, so a table added later needs another pass to pick up the grant.
