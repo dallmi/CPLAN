@@ -620,7 +620,7 @@
       const readiness=ready.score===100
         ?'<span class="readiness-ok">—</span>'
         :`<button type="button" class="missing-chip" data-fix-id="${esc(row.id||'')}" data-fix-field="${esc(ready.missing[0]||'')}" title="${esc(missingLabels(ready.missing).join(', '))}">${ready.missing.length} missing</button>`;
-      const duplicateBtn = canEditActivity(row) ? `<button type="button" class="icon-btn duplicate-btn" data-duplicate-id="${esc(row.id||'')}" aria-label="Duplicate ${esc(row.activity_name||'activity')}" title="Duplicate"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>` : '';
+      const duplicateBtn = canCreate() ? `<button type="button" class="icon-btn duplicate-btn" data-duplicate-id="${esc(row.id||'')}" aria-label="Duplicate ${esc(row.activity_name||'activity')}" title="Duplicate"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>` : '';
       return `<tr data-open-id="${esc(row.id||'')}"><td title="${esc(row.activity_name||'')}">${esc(row.activity_name||'Untitled')}</td><td>${trackingIdHtml(row.tracking_id,{copy:nonempty(row.tracking_id)})}</td><td>${esc(row.channel||'—')}</td><td>${fmtDate(row.start_date)}</td><td>${esc(row.priority||'—')}</td><td>${esc(row.lead_team||row.lead||'—')}</td><td>${esc(campaignLabel(row)||'—')}</td><td>${readiness}</td><td class="action-cell">${duplicateBtn}</td></tr>`;}).join('')||`<tr><td colspan="9">${emptyState(EMPTY_ICONS.search, 'No activities match the filters', 'Clear filters or adjust your search to see more results.')}</td></tr>`;
   }
 
@@ -1421,12 +1421,15 @@
     document.getElementById('drawer-mode-label').textContent=editing?'Editing':'Read only';
     document.getElementById('drawer-mode-label').className=`badge ${editing?'info':'neutral'}`;
     document.getElementById('drawer-mode-hint').hidden=!editing;
-    // Row/drawer edit and duplicate affordances only for users allowed to
-    // touch this specific activity (editor/admin always; contributor only
-    // on their own rows) — comfort gating, server is still the authority.
+    // Edit gates on this specific activity (editor/admin always; contributor
+    // only on their own rows). Duplicate creates a NEW activity owned by the
+    // duplicator, so it gates on canCreate() — any contributor may duplicate
+    // any visible row, mirroring "contributor may create". Comfort gating —
+    // the server is still the authority.
     const editAllowed=!editing&&state.selected&&canEditActivity(state.selected);
+    const duplicateAllowed=!editing&&state.selected&&canCreate();
     document.getElementById('drawer-edit').style.display=editAllowed?'block':'none';
-    document.getElementById('drawer-duplicate').style.display=editAllowed?'inline-block':'none';
+    document.getElementById('drawer-duplicate').style.display=duplicateAllowed?'inline-block':'none';
     document.getElementById('drawer-delete').textContent='Delete activity';
     document.getElementById('drawer-delete').hidden=!(!editing&&state.selected&&canDelete());
     document.querySelector('.drawer-actions').style.display=editing?'flex':'none';
