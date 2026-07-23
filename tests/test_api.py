@@ -306,6 +306,11 @@ def test_activity_create_and_list_include_computed_analytics_fields(client):
     assert listed["planning_lead_days"] == 14
 
 
+def test_create_activity_stamps_created_by(client):
+    created = create_activity(client)
+    assert created["created_by"] == "studio"
+
+
 def test_create_rejects_empty_activity_name_via_min_length(client):
     response = client.post(
         "/api/activities",
@@ -589,6 +594,7 @@ def test_batch_create_creates_all_activities_with_sequential_tracking_ids(client
         assert TRACKING_ID_PATTERN.match(item["tracking_id"])
     # Request order is preserved.
     assert [item["channel"] for item in body["items"]] == ["Email", "Intranet", "Townhall"]
+    assert all(item["created_by"] == "studio" for item in body["items"])
 
 
 def test_batch_create_is_atomic_when_one_item_is_invalid(client):

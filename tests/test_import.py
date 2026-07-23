@@ -90,9 +90,11 @@ def test_seed_records_writes_one_created_activity_change_row_per_activity_actor_
     engine = create_cplan_engine(database_url)
     try:
         with Session(engine) as session:
-            activity_ids = {activity.id for activity in session.query(Activity).all()}
+            seeded_activities = session.query(Activity).all()
+            activity_ids = {activity.id for activity in seeded_activities}
             changes = session.query(ActivityChange).all()
 
+            assert all(a.created_by == "cplan_sync" for a in seeded_activities)
             assert len(changes) == 2
             for change in changes:
                 assert change.actor == "seed"

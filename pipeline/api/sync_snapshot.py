@@ -137,7 +137,15 @@ def sync_records(
                 # default) so it is known here to link the ActivityChange row
                 # -- see create_activity's identical reasoning in app.py.
                 new_activity_id = uuid.uuid4()
-                session.add(Activity(id=new_activity_id, **normalized, version=1, synced_version=1))
+                session.add(
+                    Activity(
+                        id=new_activity_id,
+                        **normalized,
+                        version=1,
+                        synced_version=1,
+                        created_by="cplan_sync",
+                    )
+                )
                 session.add(
                     ActivityChange(
                         activity_id=new_activity_id, actor="sync", change_type="created", version_to=1

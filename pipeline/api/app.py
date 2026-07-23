@@ -144,6 +144,10 @@ class Activity(Base):
     communication_ref: Mapped[str | None] = mapped_column(Text, nullable=True)
     author: Mapped[str | None] = mapped_column(Text, nullable=True)
     author_email: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Who/what created this row: "studio" for API-created rows (Task 5 switches
+    # this to the logged-in username), "cplan_sync" for mirrored/seeded rows.
+    # Never settable by clients -- absent from ActivityCreate/Fields/Patch.
+    created_by: Mapped[str | None] = mapped_column(Text, nullable=True)
     audience: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     source_modified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -351,6 +355,7 @@ class ActivityRead(ActivityFields):
     id: uuid.UUID
     tracking_id: str | None = None
     version: int
+    created_by: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -563,7 +568,7 @@ def create_app(database_url: str | URL | None = None) -> FastAPI:
                 # committed, and both are discarded together on a tracking-id
                 # collision retry.
                 activity_id = uuid.uuid4()
-                activity = Activity(id=activity_id, **activity_fields, tracking_id=tracking_id)
+                activity = Activity(id=activity_id, **activity_fields, tracking_id=tracking_id, created_by="studio")
                 session.add(activity)
                 session.add(
                     ActivityChange(
@@ -630,7 +635,9 @@ def create_app(database_url: str | URL | None = None) -> FastAPI:
                         tracking_id = _increment_activity_number(tracking_id)
                     existing.append((item.channel, tracking_id))
                     activity_id = uuid.uuid4()
-                    activity = Activity(id=activity_id, **item.model_dump(), tracking_id=tracking_id)
+                    activity = Activity(
+                        id=activity_id, **item.model_dump(), tracking_id=tracking_id, created_by="studio"
+                    )
                     session.add(activity)
                     session.add(
                         ActivityChange(

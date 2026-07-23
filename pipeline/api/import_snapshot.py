@@ -116,7 +116,7 @@ def seed_records(database_url: str | URL, records: Iterable[dict[str, Any]]) -> 
             # default) so it is known here to link the ActivityChange row --
             # see create_activity's identical reasoning in app.py.
             activity_id = uuid.uuid4()
-            activities.append(Activity(id=activity_id, **normalize_record(record)))
+            activities.append(Activity(id=activity_id, **normalize_record(record), created_by="cplan_sync"))
             changes.append(
                 ActivityChange(activity_id=activity_id, actor="seed", change_type="created", version_to=1)
             )

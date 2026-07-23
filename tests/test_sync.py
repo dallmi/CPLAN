@@ -109,6 +109,7 @@ def test_sync_inserts_new_record_from_snapshot(database_url):
     assert activity.version == 1
     assert activity.synced_version == 1
     assert activity.activity_name == "Snapshot activity"
+    assert activity.created_by == "cplan_sync"
 
 
 def test_sync_insert_writes_one_created_activity_change_row_actor_sync(database_url):
