@@ -1,3 +1,4 @@
+import importlib.util
 import json
 import os
 
@@ -5,6 +6,15 @@ import pytest
 
 from pipeline.api.setup_backend import SETTINGS_SCHEMA_VERSION
 from pipeline.scripts.cplan_db import _resolve_target_pgdata, is_running, print_status, stop
+
+# cplan_db.py's status/stop paths import psutil (a pgserver dependency, also declared
+# directly in pipeline/api/requirements.txt since it's a hard runtime dependency of this
+# module). Skip the whole file rather than annotating individual tests -- simpler, and
+# every test here exists to cover this one psutil-dependent script.
+pytestmark = pytest.mark.skipif(
+    importlib.util.find_spec("psutil") is None,
+    reason="psutil is not installed; pipeline/scripts/cplan_db.py requires it",
+)
 
 
 def _write_postmaster_pid(pgdata, *, pid, port="5432", socket_dir="", hostname="localhost", status="ready") -> None:
@@ -125,6 +135,17 @@ def test_resolve_target_pgdata_uses_explicit_flag_bypassing_settings(tmp_path):
     result = _resolve_target_pgdata(args)
 
     assert result == explicit.resolve()
+
+
+def test_resolve_target_pgdata_gives_an_actionable_error_when_unconfigured(tmp_path):
+    """No raw FileNotFoundError traceback -- a clear message with the fix, same style as
+    the missing-psutil path in main()."""
+    from argparse import Namespace
+
+    args = Namespace(pgdata=None, settings=tmp_path / "missing-settings.json")
+
+    with pytest.raises(SystemExit, match="setup_backend --backend postgres-embedded"):
+        _resolve_target_pgdata(args)
 
 
 def test_resolve_target_pgdata_errors_when_backend_is_not_postgres_embedded(tmp_path):

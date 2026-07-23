@@ -142,7 +142,14 @@ def stop(pgdata: Path) -> int:
 def _resolve_target_pgdata(args: argparse.Namespace) -> Path:
     if args.pgdata is not None:
         return resolve_pgdata(explicit=args.pgdata)
-    config = load_backend_config(args.settings)
+    try:
+        config = load_backend_config(args.settings)
+    except FileNotFoundError as exc:
+        raise SystemExit(
+            f"{exc} Configure it first with: "
+            "python -m pipeline.api.setup_backend --backend postgres-embedded "
+            "-- or pass --pgdata to target a specific data directory directly."
+        ) from exc
     if config.backend != "postgres-embedded":
         raise SystemExit(
             f"Configured backend is {config.backend!r}, not postgres-embedded; nothing to control here. "
