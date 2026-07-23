@@ -681,6 +681,12 @@
     renderMultiselectOptions();
     setFormEnabled(true);
     setPackMode(true);
+    // Start from a clean slate: the checkbox/row DOM survives closeDrawer, so
+    // a previous pack session's selection and row values must not leak into a
+    // new pack (renderPackChannels/renderPackRows preserve current DOM state).
+    document.getElementById('pack-channels').innerHTML='';
+    document.getElementById('pack-rows').innerHTML='';
+    document.getElementById('pack-channel-new').value='';
     renderPackChannels('internal');
     renderPackRows();
     document.getElementById('activity-drawer').classList.add('open');
