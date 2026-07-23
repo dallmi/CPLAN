@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CPLAN Portal</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="login-overlay" class="login-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="login-title">
+    <form id="login-form" class="login-card">
+      <h2 id="login-title">Sign in</h2>
+      <p class="login-subtitle">CPLAN Portal</p>
+      <label for="login-username">Username</label>
+      <input id="login-username" name="username" autocomplete="username" required />
+      <label for="login-password">Password</label>
+      <input id="login-password" name="password" type="password" autocomplete="current-password" required />
+      <p id="login-error" class="login-error hidden">Invalid username or password.</p>
+      <button type="submit" class="btn-primary">Sign in</button>
+    </form>
+  </div>
+
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark"></span><h1>CPLAN Portal</h1></div>
+    <div id="user-chip" class="user-chip hidden">
+      <span id="user-chip-name"></span>
+      <button id="user-chip-logout" class="btn-ghost" type="button">Sign out</button>
+    </div>
+  </header>
+
+  <main class="content">
+    <section class="panel">
+      <div class="panel-head"><h2>Your projects</h2><p class="subtitle">Open a workspace you have access to.</p></div>
+      <div id="project-tiles" class="tiles"></div>
+    </section>
+
+    <section id="user-admin" class="panel hidden">
+      <div class="panel-head">
+        <div><h2>User administration</h2><p class="subtitle">Create and manage CPLAN accounts.</p></div>
+        <button id="user-new" class="btn-primary" type="button">New user</button>
+      </div>
+      <table class="user-table">
+        <thead><tr><th>Username</th><th>Project</th><th>Role</th><th>Status</th><th class="actions-col"></th></tr></thead>
+        <tbody id="user-rows"></tbody>
+      </table>
+    </section>
+  </main>
+
+  <div id="user-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="user-modal-title">
+    <form id="user-form" class="modal-card">
+      <h2 id="user-modal-title">New user</h2>
+      <label>Username<input id="uf-username" autocomplete="off" required /></label>
+      <label>Password<input id="uf-password" type="text" autocomplete="off" required /></label>
+      <label>Role
+        <select id="uf-role">
+          <option value="viewer">Viewer</option>
+          <option value="contributor">Contributor</option>
+          <option value="editor">Editor</option>
+          <option value="admin">Admin</option>
+        </select>
+      </label>
+      <input type="hidden" id="uf-project" value="cplan" />
+      <p id="uf-error" class="login-error hidden"></p>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" id="uf-cancel">Cancel</button>
+        <button type="submit" class="btn-primary">Create user</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="toast" id="toast" role="status"></div>
+  <script src="app.js"></script>
+</body>
+</html>
