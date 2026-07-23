@@ -45,6 +45,7 @@ def build_session_dependencies(engine: Engine, auth: AuthSettings | None) -> tup
                     connection.exec_driver_sql(f"SET ROLE {quoted}")
                     connection.commit()
                 except ProgrammingError:
+                    # Valid token but the role vanished (user deleted): dead session.
                     raise HTTPException(status_code=401, detail={"code": "unauthenticated"})
             session = Session(bind=connection)
             try:
