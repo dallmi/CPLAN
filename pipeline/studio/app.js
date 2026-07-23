@@ -648,6 +648,7 @@
   }
 
   function setDrawerEditing(editing) {
+    const wasEditing=state.editing;
     state.editing=editing;state.creating=false;state.dirty=false;
     setFormEnabled(editing);
     document.getElementById('drawer-mode-label').textContent=editing?`${backendLabel()} edit mode`:'Read only';
@@ -658,6 +659,14 @@
     document.getElementById('form-validation').textContent='';
     // History is a read-only panel: never shown while editing.
     document.getElementById('drawer-history').hidden=editing;
+    // Refetch when returning to read-only from an actual edit attempt (e.g.
+    // Cancel after a 409 conflict) so the panel can't go stale showing a
+    // pre-edit snapshot that silently omits the very change that caused the
+    // conflict. Guarded on `wasEditing` so openDrawer's own initial
+    // setDrawerEditing(false) call -- where state.editing is already false by
+    // this point, since openDrawer sets it before calling here -- does not
+    // double-fetch alongside its own loadHistory(row.id) call.
+    if (!editing && wasEditing && state.selected && state.selected.id) loadHistory(state.selected.id);
   }
 
   async function saveDraft(event) {

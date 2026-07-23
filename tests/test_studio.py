@@ -314,6 +314,19 @@ class StudioTests(unittest.TestCase):
 
         self.assertIn("emptyState(EMPTY_ICONS.layers, 'No history yet'", app)
 
+    def test_drawer_history_refetches_when_returning_to_read_only_after_editing(self):
+        """Regression guard: editing an activity (e.g. Edit -> save hits 409
+        -> Cancel) must not leave the History panel showing the stale
+        pre-edit snapshot -- the panel must refetch on the transition back to
+        read-only, not just on the initial openDrawer fetch."""
+        app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("const wasEditing=state.editing;", app)
+        self.assertIn(
+            "if (!editing && wasEditing && state.selected && state.selected.id) loadHistory(state.selected.id);",
+            app,
+        )
+
     def test_inline_svg_favicon_no_network(self):
         html = (DASHBOARD / "index.html").read_text(encoding="utf-8")
 
