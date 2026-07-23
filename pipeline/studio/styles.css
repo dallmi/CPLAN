@@ -17,3 +17,8 @@
 .pack-add-channel .btn{flex:none}
 .pack-row{border:1px solid var(--surface);border-left:3px solid var(--grey-1);padding:12px;margin-bottom:10px;background:var(--row-alt)}
 .pack-row-channel{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}
+.drawer-mode-actions{display:flex;gap:8px}
+.action-cell{width:34px;text-align:center}
+td.action-cell{overflow:visible}
+.duplicate-btn{width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;color:var(--grey-4)}
+.duplicate-btn:hover{color:var(--black);background:var(--surface)}

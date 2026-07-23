@@ -350,6 +350,20 @@ class StudioTests(unittest.TestCase):
         # Batch API item indices are translated to channel-row names.
         self.assertIn("function packErrorMessage(", app)
 
+    def test_duplicate_entry_points(self):
+        html = (DASHBOARD / "index.html").read_text(encoding="utf-8")
+        app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn('id="drawer-duplicate"', html)
+        self.assertIn(">Duplicate<", html)
+        self.assertIn("function openDuplicateDrawer(", app)
+        self.assertIn("data-duplicate-id", app)
+        self.assertIn("Duplicate of ", app)
+        # Row button must not bubble into the row's open-drawer handler.
+        self.assertIn("stopPropagation", app)
+        # Name is focused and pre-selected for quick overwrite.
+        self.assertIn("nameEl.select()", app)
+
     def test_inline_svg_favicon_no_network(self):
         html = (DASHBOARD / "index.html").read_text(encoding="utf-8")
 

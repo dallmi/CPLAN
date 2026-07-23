@@ -264,7 +264,7 @@
     }).sort((a,b)=>(A.parseDate(b.start_date)||0)-(A.parseDate(a.start_date)||0));
     state.filteredRows=rows;
     document.getElementById('activity-result-count').textContent=`${fmtNum(rows.length)} of ${fmtNum(state.rows.length)}`;
-    document.getElementById('activity-table-body').innerHTML=rows.map(row=>{const ready=A.planningCompleteness(row);return `<tr data-open-id="${esc(row.id||'')}"><td title="${esc(row.activity_name||'')}">${esc(row.activity_name||'Untitled')}</td><td>${esc(row.tracking_id||'—')}</td><td>${esc(row.channel||'—')}</td><td>${fmtDate(row.start_date)}</td><td>${esc(row.priority||'—')}</td><td>${esc(row.lead_team||row.lead||'—')}</td><td>${esc(campaignLabel(row)||'—')}</td><td><span class="badge ${ready.score===100?'success':'warning'}">${ready.score}%</span></td></tr>`;}).join('')||`<tr><td colspan="8">${emptyState(EMPTY_ICONS.search, 'No activities match the filters', 'Clear filters or adjust your search to see more results.')}</td></tr>`;
+    document.getElementById('activity-table-body').innerHTML=rows.map(row=>{const ready=A.planningCompleteness(row);return `<tr data-open-id="${esc(row.id||'')}"><td title="${esc(row.activity_name||'')}">${esc(row.activity_name||'Untitled')}</td><td>${esc(row.tracking_id||'—')}</td><td>${esc(row.channel||'—')}</td><td>${fmtDate(row.start_date)}</td><td>${esc(row.priority||'—')}</td><td>${esc(row.lead_team||row.lead||'—')}</td><td>${esc(campaignLabel(row)||'—')}</td><td><span class="badge ${ready.score===100?'success':'warning'}">${ready.score}%</span></td><td class="action-cell"><button type="button" class="icon-btn duplicate-btn" data-duplicate-id="${esc(row.id||'')}" aria-label="Duplicate ${esc(row.activity_name||'activity')}" title="Duplicate"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button></td></tr>`;}).join('')||`<tr><td colspan="9">${emptyState(EMPTY_ICONS.search, 'No activities match the filters', 'Clear filters or adjust your search to see more results.')}</td></tr>`;
   }
 
   // Adjacent markers within this many percentage points of the scale are
@@ -348,7 +348,7 @@
   }
 
   function renderAll() {
-    refreshRows(); renderOverview(); renderBoard(); renderCalendar(); renderConflicts(); renderCapacity(); populateActivityFilters(); applyActivityFilters(); renderPlanningHealth(); renderStrategic(); renderCampaignQuality(); renderDataQuality(); updateActivitiesCount(); bindOpenRows();
+    refreshRows(); renderOverview(); renderBoard(); renderCalendar(); renderConflicts(); renderCapacity(); populateActivityFilters(); applyActivityFilters(); renderPlanningHealth(); renderStrategic(); renderCampaignQuality(); renderDataQuality(); updateActivitiesCount(); bindOpenRows(); bindDuplicateButtons();
   }
 
   function bindOpenRows() {
@@ -358,6 +358,18 @@
       const activate=()=>{const key=String(el.dataset.openId);const row=state.rows.find(item=>String(item.id)===key);if(row)openDrawer(row,el);};
       el.onclick=activate;
       el.onkeydown=event=>{if(event.key==='Enter'||event.key===' '||event.key==='Spacebar'){event.preventDefault();activate();}};
+    });
+  }
+
+  function bindDuplicateButtons() {
+    document.querySelectorAll('[data-duplicate-id]').forEach(btn=>{
+      btn.onclick=event=>{
+        event.stopPropagation();
+        const row=state.rows.find(item=>String(item.id)===String(btn.dataset.duplicateId));
+        if(row)openDuplicateDrawer(row,btn);
+      };
+      // Enter/Space on the button must not bubble into the row's open handler.
+      btn.onkeydown=event=>event.stopPropagation();
     });
   }
 
@@ -579,6 +591,7 @@
     document.getElementById('drawer-mode-label').textContent='New record';
     document.getElementById('drawer-mode-label').className='badge info';
     document.getElementById('drawer-edit').style.display='none';
+    document.getElementById('drawer-duplicate').style.display='none';
     document.querySelector('.drawer-actions').style.display='flex';
     document.getElementById('drawer-save').textContent='Create activity';
     document.getElementById('form-validation').textContent='';
@@ -653,6 +666,7 @@
     document.getElementById('drawer-mode-label').textContent='New pack';
     document.getElementById('drawer-mode-label').className='badge info';
     document.getElementById('drawer-edit').style.display='none';
+    document.getElementById('drawer-duplicate').style.display='none';
     document.querySelector('.drawer-actions').style.display='flex';
     document.getElementById('form-validation').textContent='';
     document.getElementById('form-variant').hidden=false;
@@ -669,6 +683,34 @@
     document.getElementById('activity-drawer').classList.add('open');
     document.getElementById('activity-drawer').setAttribute('aria-hidden','false');
     form().elements.campaign.focus();
+  }
+
+  function openDuplicateDrawer(row, opener) {
+    const sourceType=row.source_type||'internal';
+    state.selected=null;state.creating=true;state.packing=false;state.editing=true;state.dirty=false;state.drawerOpener=opener||document.activeElement;
+    document.getElementById('drawer-title').textContent=`Duplicate of ${row.activity_name||'Untitled activity'}`;
+    document.getElementById('drawer-tracking').textContent='Tracking ID is generated on save';
+    document.getElementById('drawer-mode-label').textContent='New record';
+    document.getElementById('drawer-mode-label').className='badge info';
+    document.getElementById('drawer-edit').style.display='none';
+    document.getElementById('drawer-duplicate').style.display='none';
+    document.querySelector('.drawer-actions').style.display='flex';
+    document.getElementById('drawer-save').textContent='Create activity';
+    document.getElementById('form-validation').textContent='';
+    document.getElementById('form-variant').hidden=false;
+    document.getElementById('drawer-history').hidden=true;
+    setPackMode(false);
+    setSourceToggle(sourceType);
+    resetCreateForm();
+    applyVariant(sourceType);
+    populateSelectOptions(sourceType);
+    populateDrawerForm(row);
+    renderMultiselectOptions();
+    setFormEnabled(true);
+    document.getElementById('activity-drawer').classList.add('open');
+    document.getElementById('activity-drawer').setAttribute('aria-hidden','false');
+    const nameEl=form().elements.activity_name;
+    nameEl.focus();nameEl.select();
   }
 
   function packErrorMessage(message, rows) {
@@ -792,6 +834,7 @@
     document.getElementById('drawer-mode-label').textContent=editing?`${backendLabel()} edit mode`:'Read only';
     document.getElementById('drawer-mode-label').className=`badge ${editing?'info':'neutral'}`;
     document.getElementById('drawer-edit').style.display=editing?'none':'block';
+    document.getElementById('drawer-duplicate').style.display=editing?'none':'inline-block';
     document.querySelector('.drawer-actions').style.display=editing?'flex':'none';
     document.getElementById('drawer-save').textContent='Save activity';
     document.getElementById('form-validation').textContent='';
@@ -881,7 +924,7 @@
     document.getElementById('cal-prev').onclick=()=>{state.calendarDate=new Date(state.calendarDate.getFullYear(),state.calendarDate.getMonth()-1,1);renderCalendar();bindOpenRows();};
     document.getElementById('cal-next').onclick=()=>{state.calendarDate=new Date(state.calendarDate.getFullYear(),state.calendarDate.getMonth()+1,1);renderCalendar();bindOpenRows();};
     document.getElementById('cal-today').onclick=()=>{state.calendarDate=new Date();renderCalendar();bindOpenRows();};
-    const runActivityFilters=()=>{applyActivityFilters();bindOpenRows();};
+    const runActivityFilters=()=>{applyActivityFilters();bindOpenRows();bindDuplicateButtons();};
     const debouncedActivityFilters=debounce(runActivityFilters,200);
     document.getElementById('activity-search').addEventListener('input',debouncedActivityFilters);
     ['activity-source','activity-channel','activity-priority','activity-readiness'].forEach(id=>document.getElementById(id).addEventListener('change',runActivityFilters));
@@ -913,6 +956,7 @@
     };
     document.querySelectorAll('[data-close-drawer]').forEach(el=>el.onclick=async()=>{if(await confirmDiscardIfDirty())closeDrawer();});
     document.getElementById('drawer-edit').onclick=()=>{if(!state.selected||!state.selected.id){toast('Database ID required for safe editing');return;}setDrawerEditing(true);};
+    document.getElementById('drawer-duplicate').onclick=()=>{if(state.selected)openDuplicateDrawer(state.selected,state.drawerOpener);};
     document.getElementById('drawer-cancel').onclick=async()=>{
       if(!await confirmDiscardIfDirty())return;
       if(state.creating||state.packing){closeDrawer();return;}

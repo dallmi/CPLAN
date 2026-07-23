@@ -107,7 +107,7 @@
           <button class="btn secondary" id="activity-clear">Clear</button>
           <span id="activity-result-count"></span>
         </div>
-        <article class="card"><div class="table-wrap"><table><thead><tr><th>Activity</th><th>Tracking ID</th><th>Channel</th><th>Start</th><th>Priority</th><th>Lead team</th><th>Campaign / pack</th><th>Readiness</th></tr></thead><tbody id="activity-table-body"></tbody></table></div></article>
+        <article class="card"><div class="table-wrap"><table><thead><tr><th>Activity</th><th>Tracking ID</th><th>Channel</th><th>Start</th><th>Priority</th><th>Lead team</th><th>Campaign / pack</th><th>Readiness</th><th class="action-cell" aria-label="Row actions"></th></tr></thead><tbody id="activity-table-body"></tbody></table></div></article>
       </section>
 
       <section class="page" id="page-analytics">
@@ -148,7 +148,7 @@
     <div class="drawer-backdrop" data-close-drawer></div>
     <div class="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
       <div class="drawer-head"><div><p class="eyebrow">Activity detail</p><h2 id="drawer-title">Activity</h2><p id="drawer-tracking"></p></div><button class="icon-btn" id="drawer-close" data-close-drawer aria-label="Close">×</button></div>
-      <div class="drawer-mode"><span class="badge neutral" id="drawer-mode-label">Read only</span><button class="btn primary" id="drawer-edit">Edit activity</button></div>
+      <div class="drawer-mode"><span class="badge neutral" id="drawer-mode-label">Read only</span><div class="drawer-mode-actions"><button class="btn secondary" id="drawer-duplicate">Duplicate</button><button class="btn primary" id="drawer-edit">Edit activity</button></div></div>
       <form id="activity-form" novalidate>
         <div class="form-variant" id="form-variant" hidden>
           <span class="form-variant-label">Activity type</span>
