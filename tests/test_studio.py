@@ -364,6 +364,16 @@ class StudioTests(unittest.TestCase):
         # Name is focused and pre-selected for quick overwrite.
         self.assertIn("nameEl.select()", app)
 
+    def test_campaign_pack_filter(self):
+        html = (DASHBOARD / "index.html").read_text(encoding="utf-8")
+        app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn('id="activity-campaign"', html)
+        self.assertIn("All campaigns / packs", html)
+        # Wired into populate, apply, clear, and change-listener paths.
+        self.assertIn("'activity-campaign'", app)
+        self.assertIn("campaignLabel(row)===campaign", app.replace(" ", ""))
+
     def test_inline_svg_favicon_no_network(self):
         html = (DASHBOARD / "index.html").read_text(encoding="utf-8")
 

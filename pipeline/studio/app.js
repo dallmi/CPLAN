@@ -254,13 +254,16 @@
     const fill=(id,values,label)=>{const el=document.getElementById(id),current=el.value;el.innerHTML=`<option value="">All ${label}</option>`+values.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('');el.value=current;};
     fill('activity-channel',countBy(state.rows,'channel').map(x=>x[0]),'channels');
     fill('activity-priority',countBy(state.rows,'priority').map(x=>x[0]),'priorities');
+    const campaigns=new Set();
+    state.rows.forEach(row=>{const label=campaignLabel(row);if(label)campaigns.add(label);});
+    fill('activity-campaign',Array.from(campaigns).sort((a,b)=>a.localeCompare(b)),'campaigns / packs');
   }
 
   function applyActivityFilters() {
-    const q=document.getElementById('activity-search').value.toLowerCase(),source=document.getElementById('activity-source').value,channel=document.getElementById('activity-channel').value,priority=document.getElementById('activity-priority').value,readiness=document.getElementById('activity-readiness').value;
+    const q=document.getElementById('activity-search').value.toLowerCase(),source=document.getElementById('activity-source').value,channel=document.getElementById('activity-channel').value,priority=document.getElementById('activity-priority').value,campaign=document.getElementById('activity-campaign').value,readiness=document.getElementById('activity-readiness').value;
     const rows=state.rows.filter(row=>{
       const complete=A.planningCompleteness(row).score===100;
-      return (!q||Object.values(row).some(value=>String(value||'').toLowerCase().includes(q)))&&(!source||row.source_type===source)&&(!channel||split(row.channel).includes(channel))&&(!priority||split(row.priority).includes(priority))&&(!readiness||(readiness==='complete'&&complete)||(readiness==='incomplete'&&!complete));
+      return (!q||Object.values(row).some(value=>String(value||'').toLowerCase().includes(q)))&&(!source||row.source_type===source)&&(!channel||split(row.channel).includes(channel))&&(!priority||split(row.priority).includes(priority))&&(!campaign||campaignLabel(row)===campaign)&&(!readiness||(readiness==='complete'&&complete)||(readiness==='incomplete'&&!complete));
     }).sort((a,b)=>(A.parseDate(b.start_date)||0)-(A.parseDate(a.start_date)||0));
     state.filteredRows=rows;
     document.getElementById('activity-result-count').textContent=`${fmtNum(rows.length)} of ${fmtNum(state.rows.length)}`;
@@ -927,8 +930,8 @@
     const runActivityFilters=()=>{applyActivityFilters();bindOpenRows();bindDuplicateButtons();};
     const debouncedActivityFilters=debounce(runActivityFilters,200);
     document.getElementById('activity-search').addEventListener('input',debouncedActivityFilters);
-    ['activity-source','activity-channel','activity-priority','activity-readiness'].forEach(id=>document.getElementById(id).addEventListener('change',runActivityFilters));
-    document.getElementById('activity-clear').onclick=()=>{['activity-search','activity-source','activity-channel','activity-priority','activity-readiness'].forEach(id=>document.getElementById(id).value='');runActivityFilters();};
+    ['activity-source','activity-channel','activity-priority','activity-campaign','activity-readiness'].forEach(id=>document.getElementById(id).addEventListener('change',runActivityFilters));
+    document.getElementById('activity-clear').onclick=()=>{['activity-search','activity-source','activity-channel','activity-priority','activity-campaign','activity-readiness'].forEach(id=>document.getElementById(id).value='');runActivityFilters();};
     document.getElementById('activity-export').onclick=exportFilteredCsv;
     document.getElementById('activity-new').onclick=event=>openCreateDrawer(event.currentTarget);
     document.getElementById('pack-new').onclick=event=>openPackDrawer(event.currentTarget);

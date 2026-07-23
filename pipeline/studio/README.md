@@ -29,6 +29,7 @@ Start and backend setup instructions are in `pipeline/api/README.md`.
 - Strategic alignment and data-quality diagnostics
 - Activity drawer with validated database editing
 - Pack bulk creation: shared fields once, channel matrix, one atomic batch save
+- Activity duplication and campaign/pack filtering for fast find-and-clone
 - CSV export of filtered activities
 
 ## Tests
