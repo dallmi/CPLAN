@@ -395,6 +395,10 @@ class ActivityList(BaseModel):
     total: int
 
 
+class ActivityBatchCreate(BaseModel):
+    items: list[ActivityCreate] = Field(min_length=1, max_length=50)
+
+
 class ActivityChangeRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -584,6 +588,76 @@ def create_app(database_url: str | URL | None = None) -> FastAPI:
                     continue
                 session.refresh(activity)
                 return activity
+
+    @app.post("/api/activities/batch", response_model=ActivityList, status_code=status.HTTP_201_CREATED)
+    def create_activities_batch(payload: ActivityBatchCreate):
+        """Create a communication pack's activities in one atomic transaction.
+
+        Tracking IDs are generated sequentially inside the batch: each
+        generated (channel, tracking_id) pair is appended to `existing`
+        before the next item is processed, so activity numbers within the
+        pack are consecutive and cannot collide with each other.
+        """
+        with Session(engine) as session:
+            commit_attempts = 0
+            while True:
+                existing = [
+                    (channel, tracking_id)
+                    for channel, tracking_id in session.execute(
+                        select(Activity.channel, Activity.tracking_id).where(Activity.tracking_id.isnot(None))
+                    ).all()
+                ]
+                created: list[Activity] = []
+                for item in payload.items:
+                    tracking_id = generate_tracking_id(
+                        existing,
+                        communication_pack_cpid=item.communication_pack_cpid,
+                        start_date=item.start_date,
+                        channel=item.channel,
+                    )
+                    taken = {existing_tracking_id for _, existing_tracking_id in existing}
+                    generation_attempts = 0
+                    while (
+                        tracking_id in taken
+                        or session.scalar(select(Activity.id).where(Activity.tracking_id == tracking_id))
+                        is not None
+                    ):
+                        generation_attempts += 1
+                        if generation_attempts > MAX_TRACKING_ID_GENERATION_ATTEMPTS:
+                            raise HTTPException(
+                                status_code=500, detail={"code": "tracking_id_generation_exhausted"}
+                            )
+                        tracking_id = _increment_activity_number(tracking_id)
+                    existing.append((item.channel, tracking_id))
+                    activity_id = uuid.uuid4()
+                    activity = Activity(id=activity_id, **item.model_dump(), tracking_id=tracking_id)
+                    session.add(activity)
+                    session.add(
+                        ActivityChange(
+                            activity_id=activity_id,
+                            actor="studio",
+                            change_type="created",
+                            version_to=1,
+                        )
+                    )
+                    created.append(activity)
+                try:
+                    session.commit()
+                except IntegrityError:
+                    # Concurrency backstop mirroring create_activity: a
+                    # concurrent request committed one of our tracking_ids
+                    # after the fast-path SELECT passed. All-or-nothing:
+                    # roll back the whole batch and regenerate every ID.
+                    session.rollback()
+                    commit_attempts += 1
+                    if commit_attempts > MAX_TRACKING_ID_COMMIT_RETRIES:
+                        raise HTTPException(
+                            status_code=500, detail={"code": "tracking_id_generation_exhausted"}
+                        )
+                    continue
+                for activity in created:
+                    session.refresh(activity)
+                return {"items": created, "total": len(created)}
 
     @app.get("/api/activities", response_model=ActivityList)
     def list_activities():

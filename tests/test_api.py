@@ -561,6 +561,99 @@ def test_create_retries_on_tracking_id_collision_from_a_concurrent_insert(client
     assert response.json()["tracking_id"] == "STA-0000000-260101-0000002-GEN"
 
 
+def test_batch_create_creates_all_activities_with_sequential_tracking_ids(client):
+    response = client.post(
+        "/api/activities/batch",
+        json={
+            "items": [
+                {
+                    "source_type": "internal",
+                    "activity_name": f"Q2 results — {channel}",
+                    "communication_pack_cpid": "QRREP-0000058",
+                    "channel": channel,
+                    "start_date": "2026-08-12T09:00:00+02:00",
+                    "end_date": "2026-08-12T10:00:00+02:00",
+                }
+                for channel in ("Email", "Intranet", "Townhall")
+            ]
+        },
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["total"] == 3
+    assert len(body["items"]) == 3
+    numbers = [int(item["tracking_id"].split("-")[3]) for item in body["items"]]
+    assert numbers == [numbers[0], numbers[0] + 1, numbers[0] + 2]
+    for item in body["items"]:
+        assert item["tracking_id"].startswith("QRREP-0000058-")
+        assert TRACKING_ID_PATTERN.match(item["tracking_id"])
+    # Request order is preserved.
+    assert [item["channel"] for item in body["items"]] == ["Email", "Intranet", "Townhall"]
+
+
+def test_batch_create_is_atomic_when_one_item_is_invalid(client):
+    response = client.post(
+        "/api/activities/batch",
+        json={
+            "items": [
+                {
+                    "source_type": "internal",
+                    "activity_name": "Valid item",
+                    "start_date": "2026-08-12T09:00:00+02:00",
+                    "end_date": "2026-08-12T10:00:00+02:00",
+                },
+                {
+                    "source_type": "internal",
+                    "activity_name": "Invalid item",
+                    "start_date": "2026-08-12T10:00:00+02:00",
+                    "end_date": "2026-08-12T09:00:00+02:00",
+                },
+            ]
+        },
+    )
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    # The failing item's index is addressable for the frontend row mapping.
+    assert any(entry["loc"][:3] == ["body", "items", 1] for entry in detail)
+    assert client.get("/api/activities").json()["total"] == 0
+
+
+def test_batch_create_rejects_empty_and_oversized_batches(client):
+    assert client.post("/api/activities/batch", json={"items": []}).status_code == 422
+    item = {
+        "source_type": "internal",
+        "activity_name": "Limit probe",
+        "start_date": "2026-08-12T09:00:00+02:00",
+        "end_date": "2026-08-12T10:00:00+02:00",
+    }
+    assert client.post("/api/activities/batch", json={"items": [item] * 51}).status_code == 422
+    assert client.get("/api/activities").json()["total"] == 0
+
+
+def test_batch_create_writes_one_created_change_row_per_activity(client):
+    response = client.post(
+        "/api/activities/batch",
+        json={
+            "items": [
+                {
+                    "source_type": "internal",
+                    "activity_name": f"History probe {index}",
+                    "start_date": "2026-08-12T09:00:00+02:00",
+                    "end_date": "2026-08-12T10:00:00+02:00",
+                }
+                for index in range(2)
+            ]
+        },
+    )
+    assert response.status_code == 201, response.text
+    for item in response.json()["items"]:
+        changes = client.get(f"/api/activities/{item['id']}/changes").json()
+        assert changes["total"] == 1
+        assert changes["items"][0]["change_type"] == "created"
+        assert changes["items"][0]["actor"] == "studio"
+        assert changes["items"][0]["version_to"] == 1
+
+
 def test_time_zone_round_trips_through_create_patch_and_read(client):
     created = client.post(
         "/api/activities",
