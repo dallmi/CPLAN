@@ -40,6 +40,26 @@ def as_utc(value: datetime | None) -> datetime | None:
     return value.astimezone(timezone.utc)
 
 
+def stringify_change_value(value: Any) -> str | None:
+    """Render a field value for storage in `ActivityChange.old_value`/`new_value`.
+
+    Shared by every writer (create, patch, sync, seed) so history entries are
+    stringified identically regardless of which code path wrote them: `None`
+    stays `NULL` (not the string `"None"`), datetimes render as UTC ISO with a
+    trailing `Z` (matching `ActivityRead`'s own JSON serialization), booleans
+    render as the lowercase JSON-style literal (`'true'`/`'false'`, not
+    Python's `str(bool)` capitalization), everything else via plain `str()`.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        normalized = as_utc(value)
+        return normalized.isoformat().replace("+00:00", "Z") if normalized else None
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
 def _optional_str_field_names(model_fields: dict[str, Any]) -> set[str]:
     """Names of fields declared as `str | None` (i.e. optional strings).
 
@@ -169,6 +189,35 @@ class SyncRun(Base):
     local_only: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     skipped_no_id: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     details: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class ActivityChange(Base):
+    """One row per field-level change, written in the same transaction as the
+    data change it records: a `created` row (one per activity, `field` NULL)
+    from `POST /api/activities` (actor `studio`), `import_snapshot.seed_records`
+    (actor `seed`), and new mirror rows in `sync_snapshot` (actor `sync`); one
+    `updated` row per changed field from `PATCH /api/activities/{id}` (actor
+    `studio`) and from mirror updates in `sync_snapshot` (actor `sync`).
+
+    No FK constraint to `activities.id` — kept delete-free and SQLite-friendly,
+    matching this codebase's existing preference (see `Activity.legacy_sp_id`)
+    for plain indexed columns over enforced relationships.
+    """
+
+    __tablename__ = "activity_changes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    activity_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False, index=True)
+    changed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+    actor: Mapped[str] = mapped_column(String(16), nullable=False)
+    change_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    field: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    old_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    new_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    version_from: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    version_to: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class ActivityFields(BaseModel):
@@ -345,6 +394,30 @@ class ActivityList(BaseModel):
     total: int
 
 
+class ActivityChangeRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    activity_id: uuid.UUID
+    changed_at: datetime
+    actor: str
+    change_type: str
+    field: str | None = None
+    old_value: str | None = None
+    new_value: str | None = None
+    version_from: int | None = None
+    version_to: int | None = None
+
+    @field_serializer("changed_at", when_used="json")
+    def serialize_changed_at(self, value: datetime):
+        return as_utc(value).isoformat().replace("+00:00", "Z")
+
+
+class ActivityChangeList(BaseModel):
+    items: list[ActivityChangeRead]
+    total: int
+
+
 ZURICH = ZoneInfo("Europe/Zurich")
 STANDALONE_PACK_PREFIX = "STA-0000000"
 _CPID_PATTERN = re.compile(r"^[A-Z0-9]+-[0-9]+$")
@@ -476,8 +549,24 @@ def create_app(database_url: str | URL | None = None) -> FastAPI:
             activity_fields = payload.model_dump()
             attempts = 0
             while True:
-                activity = Activity(**activity_fields, tracking_id=tracking_id)
+                # Generated explicitly (rather than relying on the column's
+                # Python-side default, which SQLAlchemy only populates onto the
+                # instance at flush time) so the id is known up front to link
+                # the ActivityChange row -- there is no FK, so both rows must
+                # be added to the same session/transaction before either is
+                # committed, and both are discarded together on a tracking-id
+                # collision retry.
+                activity_id = uuid.uuid4()
+                activity = Activity(id=activity_id, **activity_fields, tracking_id=tracking_id)
                 session.add(activity)
+                session.add(
+                    ActivityChange(
+                        activity_id=activity_id,
+                        actor="studio",
+                        change_type="created",
+                        version_to=1,
+                    )
+                )
                 try:
                     session.commit()
                 except IntegrityError:
@@ -539,6 +628,18 @@ def create_app(database_url: str | URL | None = None) -> FastAPI:
                     },
                 )
 
+            # Captured before "version"/"updated_at" bookkeeping is added to
+            # `values` below: one ActivityChange row per key the client actually
+            # patched (exclude_unset), not per field that happens to differ --
+            # this is a UI edit trail, not a diff report (contrast with
+            # sync_snapshot's writer, which reuses its existing diffing since
+            # it always applies every mirrored field regardless of whether the
+            # source changed it).
+            changed_fields = list(values.keys())
+            old_values = {field_name: getattr(current, field_name) for field_name in changed_fields}
+            version_from = current.version
+            version_to = current.version + 1
+
             values["version"] = Activity.version + 1
             values["updated_at"] = func.now()
             statement = (
@@ -553,9 +654,36 @@ def create_app(database_url: str | URL | None = None) -> FastAPI:
                     status_code=409,
                     detail={"code": "version_conflict", "expected_version": payload.version},
                 )
+            for field_name in changed_fields:
+                session.add(
+                    ActivityChange(
+                        activity_id=activity_id,
+                        actor="studio",
+                        change_type="updated",
+                        field=field_name,
+                        old_value=stringify_change_value(old_values[field_name]),
+                        new_value=stringify_change_value(getattr(updated, field_name)),
+                        version_from=version_from,
+                        version_to=version_to,
+                    )
+                )
             session.commit()
             session.refresh(updated)
             return updated
+
+    @app.get("/api/activities/{activity_id}/changes", response_model=ActivityChangeList)
+    def list_activity_changes(activity_id: uuid.UUID):
+        with Session(engine) as session:
+            if session.scalar(select(Activity.id).where(Activity.id == activity_id)) is None:
+                raise HTTPException(status_code=404, detail={"code": "not_found"})
+            items = list(
+                session.scalars(
+                    select(ActivityChange)
+                    .where(ActivityChange.activity_id == activity_id)
+                    .order_by(ActivityChange.changed_at.desc(), ActivityChange.id.desc())
+                )
+            )
+            return {"items": items, "total": len(items)}
 
     @app.get("/api/sync-runs/latest")
     def latest_sync_run():

@@ -8,7 +8,16 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from pipeline.api.app import Activity, ActivityRead, Base, SyncRun, create_app, create_environment_app
+from pipeline.api.app import (
+    Activity,
+    ActivityChange,
+    ActivityRead,
+    Base,
+    SyncRun,
+    create_app,
+    create_environment_app,
+    stringify_change_value,
+)
 
 TRACKING_ID_PATTERN = re.compile(r"^[A-Z0-9]+-[0-9]+-\d{6}-\d{7}-[A-Z]{2,4}$")
 
@@ -611,3 +620,134 @@ def test_sync_runs_latest_returns_the_most_recently_run_sync(client):
     assert body["conflicts"] == 2
     assert body["created"] == 0
     assert body["details"]["conflicts"] == [{"field": "activity_name"}]
+
+
+def test_stringify_change_value_none_datetime_bool_and_plain():
+    assert stringify_change_value(None) is None
+    assert (
+        stringify_change_value(datetime(2026, 8, 3, 9, 0, tzinfo=timezone.utc)) == "2026-08-03T09:00:00Z"
+    )
+    # Naive datetimes are treated as UTC (matches `as_utc`'s own contract).
+    assert stringify_change_value(datetime(2026, 8, 3, 9, 0)) == "2026-08-03T09:00:00Z"
+    assert stringify_change_value(True) == "true"
+    assert stringify_change_value(False) == "false"
+    assert stringify_change_value("Email") == "Email"
+    assert stringify_change_value(42) == "42"
+
+
+def _activity_changes(client, activity_id):
+    with Session(client.app.state.engine) as session:
+        rows = (
+            session.query(ActivityChange)
+            .filter_by(activity_id=uuid.UUID(str(activity_id)))
+            .order_by(ActivityChange.id)
+            .all()
+        )
+        session.expunge_all()
+        return rows
+
+
+def test_create_writes_one_created_activity_change_row(client):
+    created = create_activity(client)
+
+    changes = _activity_changes(client, created["id"])
+
+    assert len(changes) == 1
+    change = changes[0]
+    assert change.actor == "studio"
+    assert change.change_type == "created"
+    assert change.field is None
+    assert change.old_value is None
+    assert change.new_value is None
+    assert change.version_from is None
+    assert change.version_to == 1
+
+
+def test_patch_writes_one_updated_activity_change_row_per_changed_field(client):
+    created = client.post(
+        "/api/activities",
+        json={
+            "source_type": "internal",
+            "activity_name": "Initial planning activity",
+            "channel": "Email",
+            "start_date": "2026-08-03T09:00:00+02:00",
+            "news_digest": False,
+        },
+    ).json()
+
+    response = client.patch(
+        f"/api/activities/{created['id']}",
+        json={
+            "version": created["version"],
+            "activity_name": "Renamed activity",
+            "channel": "",
+            "news_digest": True,
+            "start_date": "2026-08-05T09:00:00+02:00",
+        },
+    )
+    assert response.status_code == 200, response.text
+
+    changes = _activity_changes(client, created["id"])
+    updated = [change for change in changes if change.change_type == "updated"]
+    assert len(updated) == 4
+    by_field = {change.field: change for change in updated}
+
+    assert by_field["activity_name"].old_value == "Initial planning activity"
+    assert by_field["activity_name"].new_value == "Renamed activity"
+    assert by_field["activity_name"].version_from == 1
+    assert by_field["activity_name"].version_to == 2
+
+    assert by_field["channel"].old_value == "Email"
+    assert by_field["channel"].new_value is None
+
+    assert by_field["news_digest"].old_value == "false"
+    assert by_field["news_digest"].new_value == "true"
+
+    assert by_field["start_date"].old_value == "2026-08-03T07:00:00Z"
+    assert by_field["start_date"].new_value == "2026-08-05T07:00:00Z"
+
+    for change in updated:
+        assert change.actor == "studio"
+
+
+def test_patch_with_no_field_changes_writes_no_activity_change_row(client):
+    """A patch carrying only `version` (no field keys at all) has nothing to
+    record -- `changed_fields` is empty, so no ActivityChange row is written."""
+    created = create_activity(client)
+
+    response = client.patch(
+        f"/api/activities/{created['id']}",
+        json={"version": created["version"]},
+    )
+
+    assert response.status_code == 200, response.text
+    changes = _activity_changes(client, created["id"])
+    assert [change.change_type for change in changes] == ["created"]
+
+
+def test_get_activity_changes_orders_newest_first_and_404s_for_unknown(client):
+    created = create_activity(client)
+
+    client.patch(
+        f"/api/activities/{created['id']}", json={"version": created["version"], "channel": "Email"}
+    )
+    patched_once = client.get("/api/activities").json()["items"][0]
+    client.patch(
+        f"/api/activities/{created['id']}",
+        json={"version": patched_once["version"], "channel": "Webinar"},
+    )
+
+    response = client.get(f"/api/activities/{created['id']}/changes")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 3  # 1 created + 2 single-field updates
+    change_types = [item["change_type"] for item in body["items"]]
+    assert change_types[0] == "updated"  # newest first
+    assert change_types[-1] == "created"  # oldest last
+    assert body["items"][0]["new_value"] == "Webinar"
+    assert body["items"][0]["field"] == "channel"
+
+    missing_response = client.get(f"/api/activities/{uuid.uuid4()}/changes")
+    assert missing_response.status_code == 404
+    assert missing_response.json()["detail"]["code"] == "not_found"

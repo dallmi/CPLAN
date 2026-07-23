@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import math
 import os
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping
@@ -14,7 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.engine import URL
 from sqlalchemy.orm import Session
 
-from .app import Activity, Base, create_app
+from .app import Activity, ActivityChange, Base, create_app
 from .database import database_url_from_environment
 from .setup_backend import default_settings_path, load_backend_config, resolve_backend_database_url
 
@@ -108,8 +109,21 @@ def seed_records(database_url: str | URL, records: Iterable[dict[str, Any]]) -> 
     with Session(engine) as session:
         if session.scalar(select(func.count()).select_from(Activity)):
             return 0
-        activities = [Activity(**normalize_record(record)) for record in records]
+        activities = []
+        changes = []
+        for record in records:
+            # id generated explicitly (not left to the column's Python-side
+            # default) so it is known here to link the ActivityChange row --
+            # see create_activity's identical reasoning in app.py.
+            activity_id = uuid.uuid4()
+            activities.append(Activity(id=activity_id, **normalize_record(record)))
+            changes.append(
+                ActivityChange(activity_id=activity_id, actor="seed", change_type="created", version_to=1)
+            )
+        # Kept as two bulk add_all/commit calls (no per-row flush or query) so
+        # this stays fast at the ~5k-row snapshot size this seeds from.
         session.add_all(activities)
+        session.add_all(changes)
         session.commit()
         return len(activities)
 

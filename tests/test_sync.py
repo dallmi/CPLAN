@@ -1,12 +1,13 @@
 import json
 import os
+import uuid
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import Column, MetaData, Table, inspect
 from sqlalchemy.orm import Session
 
-from pipeline.api.app import Activity, Base, SyncRun, create_app
+from pipeline.api.app import Activity, ActivityChange, Base, SyncRun, create_app
 from pipeline.api.database import create_cplan_engine, ensure_schema
 from pipeline.api.import_snapshot import seed_records
 from pipeline.api.sync_snapshot import format_report, sync_parquet, sync_records
@@ -60,6 +61,22 @@ def _activity(database_url, legacy_sp_id):
         engine.dispose()
 
 
+def _activity_changes(database_url, activity_id):
+    engine = create_cplan_engine(database_url)
+    try:
+        with Session(engine) as session:
+            rows = (
+                session.query(ActivityChange)
+                .filter_by(activity_id=activity_id)
+                .order_by(ActivityChange.id)
+                .all()
+            )
+            session.expunge_all()
+            return rows
+    finally:
+        engine.dispose()
+
+
 def _latest_sync_run_snapshot(database_url):
     engine = create_cplan_engine(database_url)
     try:
@@ -92,6 +109,21 @@ def test_sync_inserts_new_record_from_snapshot(database_url):
     assert activity.version == 1
     assert activity.synced_version == 1
     assert activity.activity_name == "Snapshot activity"
+
+
+def test_sync_insert_writes_one_created_activity_change_row_actor_sync(database_url):
+    sync_records(database_url, [_snapshot_record(sp_id=111)], "test.parquet")
+
+    activity = _activity(database_url, 111)
+    changes = _activity_changes(database_url, activity.id)
+
+    assert len(changes) == 1
+    change = changes[0]
+    assert change.actor == "sync"
+    assert change.change_type == "created"
+    assert change.field is None
+    assert change.version_from is None
+    assert change.version_to == 1
 
 
 def test_sync_marks_unchanged_when_stored_values_already_match(database_url):
@@ -127,6 +159,33 @@ def test_sync_updates_when_source_changed_and_row_not_locally_dirty(database_url
     assert activity.synced_version == 2
 
 
+def test_sync_update_writes_one_updated_activity_change_row_per_changed_field_actor_sync(database_url):
+    sync_records(
+        database_url,
+        [_snapshot_record(sp_id=112, activity_name="Original name", channel="Email")],
+        "test.parquet",
+    )
+
+    sync_records(
+        database_url,
+        [_snapshot_record(sp_id=112, activity_name="Updated by source", channel="Webinar")],
+        "test.parquet",
+    )
+
+    activity = _activity(database_url, 112)
+    changes = [c for c in _activity_changes(database_url, activity.id) if c.change_type == "updated"]
+    by_field = {change.field: change for change in changes}
+
+    assert by_field["activity_name"].old_value == "Original name"
+    assert by_field["activity_name"].new_value == "Updated by source"
+    assert by_field["channel"].old_value == "Email"
+    assert by_field["channel"].new_value == "Webinar"
+    for change in changes:
+        assert change.actor == "sync"
+        assert change.version_from == 1
+        assert change.version_to == 2
+
+
 def test_sync_conflict_when_locally_dirty_row_is_overwritten_by_source(database_url):
     sync_records(database_url, [_snapshot_record(sp_id=104, activity_name="Original name")], "test.parquet")
 
@@ -159,6 +218,37 @@ def test_sync_conflict_when_locally_dirty_row_is_overwritten_by_source(database_
     field_diff = next(item for item in conflicts[0]["fields"] if item["field"] == "activity_name")
     assert field_diff["local"] == "Locally edited name"
     assert field_diff["incoming"] == "Source updated name"
+
+
+def test_sync_conflict_still_writes_updated_activity_change_rows(database_url):
+    """A conflict is still an applied field change (source wins) -- it must
+    show up in history the same as a plain sync update, not be dropped just
+    because the report buckets it under `conflicts` instead of `updated`."""
+    sync_records(database_url, [_snapshot_record(sp_id=113, activity_name="Original name")], "test.parquet")
+
+    engine = create_cplan_engine(database_url)
+    with Session(engine) as session:
+        activity = session.query(Activity).filter_by(legacy_sp_id=113).one()
+        activity.activity_name = "Locally edited name"
+        activity.version = activity.version + 1
+        session.commit()
+    engine.dispose()
+
+    report = sync_records(
+        database_url, [_snapshot_record(sp_id=113, activity_name="Source updated name")], "test.parquet"
+    )
+    assert report.conflicts == 1
+    assert report.updated == 0
+
+    activity = _activity(database_url, 113)
+    changes = [c for c in _activity_changes(database_url, activity.id) if c.change_type == "updated"]
+    by_field = {change.field: change for change in changes}
+
+    assert by_field["activity_name"].actor == "sync"
+    assert by_field["activity_name"].old_value == "Locally edited name"
+    assert by_field["activity_name"].new_value == "Source updated name"
+    assert by_field["activity_name"].version_from == 2
+    assert by_field["activity_name"].version_to == 3
 
 
 def test_sync_reports_vanished_rows_without_deleting_or_modifying_them(database_url):
@@ -340,6 +430,75 @@ def test_ui_patch_bumps_version_but_leaves_synced_version_untouched(database_url
         assert stored.version == 2
         assert stored.synced_version == 1  # untouched by PATCH
         assert stored.version > stored.synced_version  # locally dirty
+    engine.dispose()
+
+
+def test_patched_then_synced_row_shows_both_studio_and_sync_actors_in_history(database_url):
+    engine = create_cplan_engine(database_url)
+    with Session(engine) as session:
+        activity = Activity(
+            source_type="internal",
+            activity_name="Synced then patched",
+            legacy_sp_id=114,
+            tracking_id="QRREP-114",
+            version=1,
+            synced_version=1,
+        )
+        session.add(activity)
+        session.commit()
+        activity_id = activity.id
+    engine.dispose()
+
+    app = create_app(database_url)
+    with TestClient(app) as client:
+        response = client.patch(
+            f"/api/activities/{activity_id}",
+            json={"version": 1, "activity_name": "Patched locally"},
+        )
+        assert response.status_code == 200, response.text
+    app.state.engine.dispose()
+
+    sync_records(
+        database_url,
+        [_snapshot_record(sp_id=114, activity_name="Source updated name")],
+        "test.parquet",
+    )
+
+    changes = _activity_changes(database_url, activity_id)
+    actors = {change.actor for change in changes}
+    assert actors == {"studio", "sync"}
+    assert any(c.actor == "studio" and c.change_type == "updated" for c in changes)
+    assert any(c.actor == "sync" for c in changes)
+
+
+def test_create_all_adds_activity_changes_table_to_a_legacy_db_missing_it(tmp_path):
+    """Mirrors `test_ensure_schema_adds_synced_version_and_sync_runs_table_to_a_legacy_db`:
+    `activity_changes` is a brand new table, not a new column on an existing
+    table, so `Base.metadata.create_all` alone (checkfirst is the default) is
+    enough to top it up on an existing database -- no `ensure_schema` change
+    needed."""
+    engine = create_cplan_engine(f"sqlite:///{tmp_path / 'legacy-activity-changes-topup.sqlite3'}")
+
+    legacy_metadata = MetaData()
+    for table in Base.metadata.sorted_tables:
+        if table.name == "activity_changes":
+            continue
+        table.to_metadata(legacy_metadata)
+    legacy_metadata.create_all(engine)
+
+    assert not inspect(engine).has_table("activity_changes")
+    assert inspect(engine).has_table("activities")
+    assert inspect(engine).has_table("sync_runs")
+
+    Base.metadata.create_all(engine)
+    ensure_schema(engine, Base.metadata)
+
+    assert inspect(engine).has_table("activity_changes")
+    with Session(engine) as session:
+        session.add(
+            ActivityChange(activity_id=uuid.uuid4(), actor="seed", change_type="created", version_to=1)
+        )
+        session.commit()
     engine.dispose()
 
 

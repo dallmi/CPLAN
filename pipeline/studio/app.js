@@ -11,6 +11,10 @@
     const date = A.parseDate(value);
     return date ? date.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) : '—';
   };
+  const fmtDateTime = value => {
+    const date = A.parseDate(value);
+    return date ? date.toLocaleString('en-GB',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}) : '—';
+  };
   const isoLocal = value => {
     const date = A.parseDate(value);
     if (!date) return '';
@@ -33,6 +37,8 @@
   const REQUIRED_EXTERNAL = REQUIRED_COMMON.slice();
   const FIELD_LABELS = {activity_name:'Activity name', channel:'Channel', priority:'Priority', strategic_objectives:'Communications pillars', activity_description:'Description', target_audience:'Target audience', audience:'Estimated audience size', business_division:'Business division', region:'Region', start_date:'Start date', end_date:'End date', time_zone:'Time zone', lead:'Lead', lead_team:'Lead team'};
   const CREATE_FIELDS = ['activity_name', 'activity_description', 'target_audience', 'business_division', 'business_area', 'region', 'channel', 'partner_team', 'lead_team', 'lead', 'start_date', 'end_date', 'time_zone', 'priority', 'strategic_objectives', 'campaign', 'communication_pack_cpid', 'audience'];
+  const HISTORY_LIMIT = 30;
+  const HISTORY_ACTOR_LABELS = {studio:'You', sync:'Source sync', seed:'Initial import'};
 
   const apiErrorMessage = (detail, status) => {
     if (Array.isArray(detail)) {
@@ -66,6 +72,7 @@
     listActivities() { return this.request('/api/activities'); }
     health() { return this.request('/api/health'); }
     latestSyncRun() { return this.request('/api/sync-runs/latest'); }
+    getActivityChanges(id) { return this.request(`/api/activities/${encodeURIComponent(id)}/changes`); }
     createActivity(payload) {
       return this.request('/api/activities', {method:'POST',body:JSON.stringify(payload)});
     }
@@ -507,6 +514,43 @@
     return Array.from(panel.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')).filter(el=>el.offsetParent!==null);
   }
 
+  const historyValue = value => (value===null||value===undefined) ? '—' : String(value);
+  const actorLabel = actor => HISTORY_ACTOR_LABELS[actor] || actor;
+
+  function historyDetailText(entry) {
+    if (entry.change_type === 'created') return 'Created';
+    const label = FIELD_LABELS[entry.field] || entry.field || 'Field';
+    return `${label}: ${historyValue(entry.old_value)} → ${historyValue(entry.new_value)}`;
+  }
+
+  function renderHistoryEntries(items, total) {
+    const body = document.getElementById('history-body');
+    if (!items.length) {
+      body.innerHTML = emptyState(EMPTY_ICONS.layers, 'No history yet', 'Changes to this activity will appear here.');
+      return;
+    }
+    const shown = items.slice(0, HISTORY_LIMIT);
+    const rows = shown.map(entry => `<div class="history-entry"><div class="history-meta"><span class="history-when">${esc(fmtDateTime(entry.changed_at))}</span><span class="history-actor">${esc(actorLabel(entry.actor))}</span></div><div class="history-detail">${esc(historyDetailText(entry))}</div></div>`).join('');
+    const remaining = total - shown.length;
+    const more = remaining > 0 ? `<div class="history-more">${fmtNum(remaining)} earlier changes not shown</div>` : '';
+    body.innerHTML = rows + more;
+  }
+
+  // Fetched lazily every time the drawer opens on an existing activity (never
+  // for the create-activity drawer, which has no id yet) -- this also covers
+  // "re-fetched on reopen after save" for free, since saveDraft closes the
+  // drawer and any later re-open goes through openDrawer -> loadHistory again.
+  async function loadHistory(activityId) {
+    const body = document.getElementById('history-body');
+    body.innerHTML = '<div class="history-loading">Loading history…</div>';
+    try {
+      const result = await repository.getActivityChanges(activityId);
+      renderHistoryEntries(result.items, result.total);
+    } catch (error) {
+      body.innerHTML = emptyState(EMPTY_ICONS.alertTriangle, 'History unavailable', error.message);
+    }
+  }
+
   function openDrawer(row, opener) {
     state.selected=row;state.editing=false;state.creating=false;state.drawerOpener=opener||document.activeElement;
     const sourceType=row.source_type||'internal';
@@ -521,6 +565,7 @@
     document.getElementById('activity-drawer').classList.add('open');
     document.getElementById('activity-drawer').setAttribute('aria-hidden','false');
     document.getElementById('drawer-close').focus();
+    if (row.id) loadHistory(row.id);
   }
 
   function openCreateDrawer(opener) {
@@ -534,6 +579,7 @@
     document.getElementById('drawer-save').textContent='Create activity';
     document.getElementById('form-validation').textContent='';
     document.getElementById('form-variant').hidden=false;
+    document.getElementById('drawer-history').hidden=true;
     setSourceToggle('internal');
     resetCreateForm();
     applyVariant('internal');
@@ -610,6 +656,8 @@
     document.querySelector('.drawer-actions').style.display=editing?'flex':'none';
     document.getElementById('drawer-save').textContent='Save activity';
     document.getElementById('form-validation').textContent='';
+    // History is a read-only panel: never shown while editing.
+    document.getElementById('drawer-history').hidden=editing;
   }
 
   async function saveDraft(event) {

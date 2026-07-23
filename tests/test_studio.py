@@ -275,6 +275,45 @@ class StudioTests(unittest.TestCase):
         self.assertIn('class="metric-line"', app)
         self.assertIn('class="notice"', app)
 
+    def test_drawer_history_section_markup(self):
+        html = (DASHBOARD / "index.html").read_text(encoding="utf-8")
+
+        self.assertIn('id="drawer-history"', html)
+        self.assertIn('id="history-body"', html)
+        self.assertIn(">History<", html)
+
+    def test_drawer_history_fetch_is_lazy_and_reads_the_changes_endpoint(self):
+        app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("getActivityChanges(id) { return this.request(`/api/activities/${encodeURIComponent(id)}/changes`); }", app)
+        self.assertIn("async function loadHistory(", app)
+        # Fetched from openDrawer (existing-activity read mode), not from create mode.
+        self.assertIn("if (row.id) loadHistory(row.id);", app)
+        self.assertIn("document.getElementById('drawer-history').hidden=true;", app)
+        # Never shown/fetched while editing -- setDrawerEditing hides the panel.
+        self.assertIn("document.getElementById('drawer-history').hidden=editing;", app)
+
+    def test_drawer_history_actor_labels_and_entry_formatting(self):
+        app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("HISTORY_ACTOR_LABELS = {studio:'You', sync:'Source sync', seed:'Initial import'}", app)
+        self.assertIn("if (entry.change_type === 'created') return 'Created';", app)
+        # Em-dash for NULL old/new values.
+        self.assertIn("(value===null||value===undefined) ? '—' : String(value)", app)
+        self.assertIn('${label}: ${historyValue(entry.old_value)} → ${historyValue(entry.new_value)}', app)
+
+    def test_drawer_history_shows_latest_30_with_a_muted_overflow_line(self):
+        app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("HISTORY_LIMIT = 30", app)
+        self.assertIn("items.slice(0, HISTORY_LIMIT)", app)
+        self.assertIn("earlier changes not shown", app)
+
+    def test_drawer_history_uses_the_shared_empty_state_helper(self):
+        app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("emptyState(EMPTY_ICONS.layers, 'No history yet'", app)
+
     def test_inline_svg_favicon_no_network(self):
         html = (DASHBOARD / "index.html").read_text(encoding="utf-8")
 

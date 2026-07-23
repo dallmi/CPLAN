@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -31,7 +32,7 @@ from sqlalchemy import func, select
 from sqlalchemy.engine import URL
 from sqlalchemy.orm import Session
 
-from .app import Activity, Base, SyncRun, as_utc, create_app
+from .app import Activity, ActivityChange, Base, SyncRun, as_utc, create_app, stringify_change_value
 from .database import ensure_schema
 from .import_snapshot import ALLOWED_FIELDS, DATE_FIELDS, normalize_record, resolve_database_url
 from .setup_backend import default_settings_path
@@ -132,7 +133,16 @@ def sync_records(
             )
 
             if existing is None:
-                session.add(Activity(**normalized, version=1, synced_version=1))
+                # id generated explicitly (not left to the column's Python-side
+                # default) so it is known here to link the ActivityChange row
+                # -- see create_activity's identical reasoning in app.py.
+                new_activity_id = uuid.uuid4()
+                session.add(Activity(id=new_activity_id, **normalized, version=1, synced_version=1))
+                session.add(
+                    ActivityChange(
+                        activity_id=new_activity_id, actor="sync", change_type="created", version_to=1
+                    )
+                )
                 report.created += 1
                 continue
 
@@ -147,10 +157,31 @@ def sync_records(
                 existing.synced_version is not None and existing.version > existing.synced_version
             )
 
+            version_from = existing.version
             for field_name, _local_value, incoming_value in diffs:
                 setattr(existing, field_name, incoming_value)
             existing.version = existing.version + 1
             existing.synced_version = existing.version
+            version_to = existing.version
+
+            # One ActivityChange row per applied field diff -- reuses the same
+            # diffing this loop already computed for conflict reporting, but
+            # records every applied change here regardless of whether the row
+            # was locally dirty (a plain update) or not (a conflict, source
+            # still wins and every overwritten field is still history-worthy).
+            for field_name, local_value, incoming_value in diffs:
+                session.add(
+                    ActivityChange(
+                        activity_id=existing.id,
+                        actor="sync",
+                        change_type="updated",
+                        field=field_name,
+                        old_value=stringify_change_value(local_value),
+                        new_value=stringify_change_value(incoming_value),
+                        version_from=version_from,
+                        version_to=version_to,
+                    )
+                )
 
             if was_locally_dirty:
                 report.conflicts += 1

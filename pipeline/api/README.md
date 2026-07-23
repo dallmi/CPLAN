@@ -15,6 +15,7 @@ The planning studio replaces a browser-local draft store and Parquet runtime wit
 - computed read-only fields (`planning_lead_days`, `tracking_pack_id`) on every activity read
 - blank-string input on create/patch normalized to `NULL` for optional fields
 - daily snapshot sync: upserts the SharePoint mirror into the database (source wins, conflicts reported, nothing deleted) alongside activities created directly in the studio
+- field-level change history: every create/update, from any write path, is recorded per changed field and surfaced in the drawer's History panel
 
 ## Activity fields and generated values
 
@@ -129,6 +130,22 @@ PYTHONPATH=. .venv/bin/python -m pipeline.api.sync_snapshot
 Policy (binding): SharePoint is the system of record, so a row changed in both the source and locally in the studio is overwritten by the source value and reported as a **conflict** (field-level diff). Rows created in the studio (`legacy_sp_id IS NULL`) are never touched and are counted as **local-only**. Rows are never deleted — a `(source_type, legacy_sp_id)` missing from the snapshot is reported as **vanished** and left as-is. Records without an `sp_id` are **skipped**. Every run writes one `sync_runs` row (counts + a JSON detail blob capped at 50 entries each for conflicts/vanished); `GET /api/sync-runs/latest` returns it, or `{"status": "never_synced"}` before the first run. Accepts the same `--settings`/`--parquet` flags as `import_snapshot`.
 
 `pipeline/scripts/daily_refresh.py` is the recommended one-command entry point: it runs the CSV pipeline (`process_cplan.py`) and this sync in sequence, or `--skip-pipeline` to run the sync alone against the parquet already on disk — see the top-level [`README.md`](../../README.md#daily-workflow). The dashboard's Analytics → Data Quality → "Refresh & reconciliation" card reads `GET /api/sync-runs/latest` to surface the last sync timestamp, the created/updated/conflicts/local-only counts, and a warning line when conflicts overrode local edits.
+
+## Field-level change history
+
+Every write path records what changed, field by field, in the `activity_changes` table — the demo argument being that the SharePoint source cannot show what changed when; CPLAN can. Each row: `activity_id` (no FK — kept delete-free and SQLite-friendly, same as `Activity.legacy_sp_id`), `changed_at`, `actor`, `change_type` (`created` or `updated`), `field` (`NULL` for `created`), `old_value`/`new_value`, `version_from`/`version_to`. Values are stringified consistently everywhere: `NULL` for `None`, UTC ISO with a trailing `Z` for datetimes, `'true'`/`'false'` for booleans, `str()` otherwise.
+
+| Actor | Written by | When |
+|---|---|---|
+| `studio` | `POST /api/activities`, `PATCH /api/activities/{id}` | a user creates or edits an activity in the dashboard |
+| `sync` | `sync_snapshot.py` | a mirror row is created, or updated (including a conflict — source still wins and every overwritten field is still history-worthy, even though the run counts it separately from a plain update) |
+| `seed` | `import_snapshot.seed_records` | the one-time initial seed from `communications.parquet` |
+
+Every writer records the change in the same transaction as the data change itself — there is no separate audit step to fall out of sync. `PATCH` writes one row per field the client actually patched (not per field that happens to differ from its previous value — it is an edit trail, not a diff report); `sync_snapshot` reuses its existing per-field diffing (previously used only for conflict reporting) and now records every applied field change.
+
+`GET /api/activities/{activity_id}/changes` returns `{items: [...], total}`, newest first (`changed_at` DESC, `id` DESC as a tiebreaker), or 404 for an unknown activity. The dashboard's drawer fetches this lazily whenever it opens in read-only mode (never while editing) and renders a History section: date/time in local time, an actor label (`You` / `Source sync` / `Initial import`), and either `Created` or `field: old → new` (an em dash for `NULL`) — the latest 30 entries, with a muted "N earlier changes not shown" line beyond that.
+
+`activity_changes` is a brand new table, so `Base.metadata.create_all()` alone (its default `checkfirst=True`) creates it on an existing database at startup — no `ensure_schema()` top-up needed (that mechanism is for new columns/indexes on tables that already exist).
 
 ## Run with Docker Compose
 

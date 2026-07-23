@@ -1,9 +1,11 @@
 from datetime import timezone
 
 from sqlalchemy.engine import make_url
+from sqlalchemy.orm import Session
 
-from pipeline.api.database import backend_from_url
-from pipeline.api.import_snapshot import normalize_record, resolve_database_url
+from pipeline.api.app import Activity, ActivityChange
+from pipeline.api.database import backend_from_url, create_cplan_engine
+from pipeline.api.import_snapshot import normalize_record, resolve_database_url, seed_records
 from pipeline.api.setup_backend import configure_backend
 
 
@@ -73,6 +75,36 @@ def test_resolve_database_url_prefers_explicit_cplan_database_url_over_cplan_db_
     }
 
     assert resolve_database_url(environ=environ) == "postgresql+psycopg://explicit@localhost/cplan"
+
+
+def test_seed_records_writes_one_created_activity_change_row_per_activity_actor_seed(tmp_path):
+    database_url = f"sqlite:///{tmp_path / 'seed-changes.sqlite3'}"
+    records = [
+        {"sp_id": 1, "source_type": "internal", "activity_name": "Seed activity one"},
+        {"sp_id": 2, "source_type": "internal", "activity_name": "Seed activity two"},
+    ]
+
+    count = seed_records(database_url, records)
+    assert count == 2
+
+    engine = create_cplan_engine(database_url)
+    try:
+        with Session(engine) as session:
+            activity_ids = {activity.id for activity in session.query(Activity).all()}
+            changes = session.query(ActivityChange).all()
+
+            assert len(changes) == 2
+            for change in changes:
+                assert change.actor == "seed"
+                assert change.change_type == "created"
+                assert change.field is None
+                assert change.old_value is None
+                assert change.new_value is None
+                assert change.version_from is None
+                assert change.version_to == 1
+                assert change.activity_id in activity_ids
+    finally:
+        engine.dispose()
 
 
 def test_snapshot_record_rejects_unknown_source_type():
