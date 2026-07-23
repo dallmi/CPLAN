@@ -21,9 +21,11 @@ TIME_ZONE_OPTIONS = [
 ]
 
 # Actual emoji ranges only — deliberately excludes arrows (U+2190-U+21FF) and
-# other plain symbols (e.g. the drawer's "x" close glyph) already used as UI text.
+# other plain symbols (e.g. the drawer's "x" close glyph, and the range-banner
+# "Show everything" heavy-multiplication-x U+2715) already used as UI text.
 EMOJI_PATTERN = re.compile(
-    "[\U0001F000-\U0001FFFF\U00002600-\U000027BF\U00002B00-\U00002BFF]"
+    "[\U0001F000-\U0001FFFF\U00002600-\U00002714\U00002716-\U000027BF"
+    "\U00002B00-\U00002BFF]"
 )
 
 
@@ -33,7 +35,7 @@ class StudioTests(unittest.TestCase):
         app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
 
         self.assertIn("CPLAN Planning Studio", html)
-        self.assertIn("local database", html)
+        self.assertIn("local snapshot", html)
         self.assertNotIn("duckdb", html.lower())
         self.assertNotIn("jsdelivr", html.lower())
         self.assertIn("/api/activities", app)
@@ -121,10 +123,13 @@ class StudioTests(unittest.TestCase):
         self.assertIn('id="source-toggle"', html)
         self.assertIn('data-source="internal"', html)
         self.assertIn('data-source="external"', html)
-        # Create-mode header copy is applied dynamically in app.js.
+        # Create-mode header copy is applied dynamically in app.js: the
+        # drawer eyebrow switches to "Create" (the mode badge is hidden
+        # instead of showing a "New record" label) and the tracking-id
+        # slot shows the generated-on-save placeholder.
         self.assertIn("New activity", app)
-        self.assertIn("Tracking ID is generated on save", app)
-        self.assertIn("New record", app)
+        self.assertIn("Generated on save", app)
+        self.assertIn("drawer-eyebrow').textContent='Create'", app)
 
     def test_create_audience_bands_and_pillar_label(self):
         app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
@@ -135,7 +140,7 @@ class StudioTests(unittest.TestCase):
         self.assertIn("Estimated audience size", html)
         self.assertIn("Communications pillars", html)
         self.assertIn(
-            "Select an existing pack only when this activity is known to belong to it",
+            "Pack membership links this activity to cross-channel reporting via the tracking ID",
             html,
         )
 
