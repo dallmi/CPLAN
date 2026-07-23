@@ -123,7 +123,7 @@
   const REQUIRED_COMMON = ['activity_name', 'channel', 'priority', 'strategic_objectives', 'activity_description', 'region', 'start_date', 'end_date', 'time_zone', 'lead', 'lead_team'];
   const REQUIRED_INTERNAL = REQUIRED_COMMON.concat(['target_audience', 'audience', 'business_division']);
   const REQUIRED_EXTERNAL = REQUIRED_COMMON.slice();
-  const FIELD_LABELS = {activity_name:'Activity name', channel:'Channel', priority:'Priority', strategic_objectives:'Communications pillars', activity_description:'Description', target_audience:'Target audience', audience:'Estimated audience size', business_division:'Business division', region:'Region', start_date:'Start date', end_date:'End date', time_zone:'Time zone', lead:'Lead', lead_team:'Lead team'};
+  const FIELD_LABELS = {activity_name:'Activity name', channel:'Channel', priority:'Priority', strategic_objectives:'Communications pillars', activity_description:'Description', target_audience:'Target audience', audience:'Estimated audience size', business_division:'Business division', region:'Region', start_date:'Start date', end_date:'End date', time_zone:'Time zone', lead:'Lead', lead_team:'Lead team', campaign:'Campaign', communication_pack_cpid:'Communication pack', business_area:'Business area', partner_team:'Partner team', news_digest:'News digest'};
   const CREATE_FIELDS = ['activity_name', 'activity_description', 'target_audience', 'business_division', 'business_area', 'region', 'channel', 'partner_team', 'lead_team', 'lead', 'start_date', 'end_date', 'time_zone', 'priority', 'strategic_objectives', 'campaign', 'communication_pack_cpid', 'audience'];
   const HISTORY_LIMIT = 30;
   const HISTORY_ACTOR_LABELS = {studio:'You', sync:'Source sync', seed:'Initial import'};
@@ -927,6 +927,7 @@
     setDrawerTracking(row);
     document.getElementById('drawer-note').hidden=true;
     document.getElementById('drawer-mode').hidden=false;
+    hideConflictBanner();
     document.getElementById('form-variant').hidden=true;
     setPackMode(false);
     applyVariant(sourceType);
@@ -955,6 +956,7 @@
     noteEl.textContent=note||'';
     noteEl.hidden=!note;
     document.getElementById('drawer-mode').hidden=true;
+    hideConflictBanner();
     document.getElementById('detail-view').hidden=true;
     form().hidden=false;
     document.querySelector('.drawer-actions').style.display='flex';
@@ -1178,6 +1180,7 @@
 
   function closeDrawer() {
     multiselectContainers().forEach(closeMsPopover);
+    hideConflictBanner();
     document.getElementById('activity-drawer').classList.remove('open');document.getElementById('activity-drawer').setAttribute('aria-hidden','true');state.selected=null;state.editing=false;state.creating=false;state.packing=false;state.dirty=false;
     setPackMode(false);
     const opener=state.drawerOpener;state.drawerOpener=null;
@@ -1275,6 +1278,7 @@
   function setDrawerEditing(editing) {
     const wasEditing=state.editing;
     state.editing=editing;state.creating=false;state.dirty=false;
+    if(!editing)hideConflictBanner();
     setFormEnabled(editing);
     // Read-only shows the plain detail view; the form only exists while editing.
     document.getElementById('detail-view').hidden=editing;
@@ -1300,6 +1304,68 @@
     if (!editing && wasEditing && state.selected && state.selected.id) loadHistory(state.selected.id);
   }
 
+  // --- 409 conflict resolution -------------------------------------------
+  // On a version conflict the drawer shows what the database changed, marks
+  // true collisions (fields both sides touched), and offers two exits:
+  // "Reload record" discards my edits; "Keep my edits" rebases the form onto
+  // the fresh record and re-applies exactly the fields I touched — so a
+  // follow-up save can never patch untouched fields back to stale values.
+
+  const CONFLICT_COMPARE_FIELDS = CREATE_FIELDS.concat(['news_digest']);
+
+  const conflictDisplayValue = (field, value) => {
+    if (value === null || value === undefined || String(value).trim() === '') return '—';
+    if (field === 'start_date' || field === 'end_date') return fmtDateTime(value);
+    if (field === 'news_digest') return value ? 'Yes' : 'No';
+    return String(value);
+  };
+
+  function applyPatchToForm(patchObj) {
+    Object.entries(patchObj).forEach(([key, value]) => {
+      const el = form().elements[key];
+      if (!el) return;
+      if (el.type === 'checkbox') { el.checked = Boolean(value); return; }
+      el.value = value === null ? '' : (el.type === 'datetime-local' ? isoLocal(value) : String(value));
+    });
+  }
+
+  function hideConflictBanner() {
+    const banner = document.getElementById('conflict-banner');
+    banner.hidden = true;
+    banner.innerHTML = '';
+  }
+
+  function showConflictBanner(original, fresh, myPatch) {
+    const banner = document.getElementById('conflict-banner');
+    const theirs = CONFLICT_COMPARE_FIELDS.filter(field => A.fieldValueChanged(field, original[field], fresh[field]));
+    const rows = theirs.map(field => {
+      const label = FIELD_LABELS[field] || field;
+      const collision = Object.prototype.hasOwnProperty.call(myPatch, field);
+      return `<div class="conflict-field${collision ? ' collision' : ''}"><span class="conflict-field-label">${esc(label)}</span><span class="conflict-field-diff">${esc(conflictDisplayValue(field, original[field]))} → ${esc(conflictDisplayValue(field, fresh[field]))}</span>${collision ? '<span class="badge warning">also edited by you</span>' : ''}</div>`;
+    }).join('');
+    banner.innerHTML = `<strong>This record changed while you were editing</strong><p>${theirs.length ? 'The database now differs in:' : 'Another save bumped the version; no visible field differs.'}</p>${rows}<div class="conflict-actions"><button type="button" class="btn secondary" id="conflict-reload">Reload record — discard my edits</button><button type="button" class="btn primary" id="conflict-keep">Keep my edits</button></div>`;
+    banner.hidden = false;
+    document.getElementById('conflict-reload').onclick = () => {
+      hideConflictBanner();
+      populateDrawerForm(state.selected);
+      syncBelongsToFromFields();
+      renderMultiselectOptions();
+      renderDetailView(state.selected);
+      setDrawerEditing(false);
+      toast('Reloaded from the database');
+    };
+    document.getElementById('conflict-keep').onclick = () => {
+      hideConflictBanner();
+      populateDrawerForm(state.selected);
+      applyPatchToForm(myPatch);
+      syncBelongsToFromFields();
+      renderMultiselectOptions();
+      state.dirty = true;
+      document.getElementById('form-validation').textContent = 'Rebased on the current record — Save activity will apply only the fields you changed.';
+    };
+    banner.scrollIntoView({block: 'nearest'});
+  }
+
   async function saveDraft(event) {
     event.preventDefault();if(!state.selected||!state.selected.id||!state.selected.version)return;
     const data=new FormData(event.currentTarget),patch={};
@@ -1318,11 +1384,14 @@
       toast(`Activity saved to ${backendLabel()}`);closeDrawer();renderAll();
     } catch(error) {
       if(error.status===409){
+        const original=state.selected;
         const loaded=await loadData();
         state.snapshotRows=loaded.rows;state.meta=loaded.meta;refreshRows();
-        const fresh=state.rows.find(row=>String(row.id)===String(state.selected.id));
-        if(fresh)state.selected=fresh;
-        validation.textContent='This activity changed in the database since you opened it. Your entries are kept — review them, then save again to apply, or cancel to discard.';
+        const fresh=state.snapshotRows.find(row=>String(row.id)===String(original.id));
+        if(!fresh){validation.textContent='This activity no longer exists in the database.';return;}
+        state.selected=fresh;
+        validation.textContent='';
+        showConflictBanner(original,fresh,patch);
       } else {
         validation.textContent=error.message;
       }

@@ -142,3 +142,13 @@ td.action-cell{overflow:visible}
 td .copy-btn{opacity:0;margin-left:6px;transition:opacity .12s}
 tr:hover td .copy-btn,td .copy-btn:focus-visible{opacity:1}
 #belongs-new-label{margin-top:-4px}
+
+/* --- 409 conflict banner --- */
+.conflict-banner{margin:0 22px 4px;padding:12px 14px;border:1px solid var(--surface);border-left:3px solid var(--danger);background:var(--danger-tint);font-size:12px}
+.conflict-banner strong{display:block;font-size:13px;margin-bottom:2px}
+.conflict-banner p{margin:0 0 8px;color:var(--grey-5);font-size:11px}
+.conflict-field{display:flex;align-items:center;gap:10px;padding:5px 0;border-top:1px solid rgba(0,0,0,.06)}
+.conflict-field-label{flex:none;min-width:140px;font-weight:600}
+.conflict-field-diff{overflow-wrap:anywhere}
+.conflict-field.collision .conflict-field-label{color:var(--danger)}
+.conflict-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:10px}
