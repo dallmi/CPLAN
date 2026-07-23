@@ -30,6 +30,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
 from .database import backend_from_url, create_cplan_engine, database_url_from_environment, ensure_schema
+from .views import ensure_analysis_views
 
 
 def as_utc(value: datetime | None) -> datetime | None:
@@ -530,6 +531,7 @@ def create_app(database_url: str | URL | None = None) -> FastAPI:
     async def lifespan(_: FastAPI):
         Base.metadata.create_all(engine)
         ensure_schema(engine, Base.metadata)
+        ensure_analysis_views(engine)
         yield
         engine.dispose()
 

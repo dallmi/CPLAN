@@ -147,6 +147,21 @@ Every writer records the change in the same transaction as the data change itsel
 
 `activity_changes` is a brand new table, so `Base.metadata.create_all()` alone (its default `checkfirst=True`) creates it on an existing database at startup — no `ensure_schema()` top-up needed (that mechanism is for new columns/indexes on tables that already exist).
 
+## Analysis views (pgAdmin)
+
+`pipeline/api/views.py` creates a set of read-only SQL views for ad-hoc analysis directly in pgAdmin — no restructuring of how data is stored, just ready-made queries. **Postgres-only by design**: their whole purpose is pgAdmin access; SQLite users already have the studio's own analytics (`pipeline/studio/analytics.js`). `ensure_analysis_views(engine)` runs in the app lifespan right after `ensure_schema`, is a clean no-op on a SQLite engine, and re-creates every view with `CREATE OR REPLACE VIEW` on every startup (idempotent; a view renamed or dropped from a later version is not garbage-collected from an existing database). After the next app start, find them under `cplan → Schemas → public → Views`:
+
+| View | Purpose |
+|---|---|
+| `v_activity_overview` | The working set for ad-hoc filtering — one row per activity, the columns most commonly filtered/sorted on. |
+| `v_activities_by_month` | Activity count grouped by calendar month and source type. |
+| `v_activities_by_channel` | Activity count grouped by channel (NULL as `Unassigned`) and source type. |
+| `v_planning_completeness` | Per-activity booleans for each form-aligned required field (mirrors `REQUIRED_FIELDS` in `analytics.js`) plus `is_complete`. |
+| `v_lead_times` | Per-activity whole-day lead time between `start_date` and `coalesce(source_created_at, created_at)` — matches `planning_lead_days`. |
+| `v_pack_overview` | Activity count, date range and distinct channel count per communication pack (`tracking_id`'s `CLUSTER-PACKNUM` prefix). |
+| `v_sync_history` | One row per `sync_snapshot.py` run — the same counts as `GET /api/sync-runs/latest`. |
+| `v_change_log` | Every `activity_changes` row joined to its activity's `tracking_id`/`activity_name`; newest-first ordering is left to the consumer's own `ORDER BY`. |
+
 ## Run with Docker Compose
 
 Docker Desktop must be running. Keep the password outside Git:
@@ -172,6 +187,7 @@ PYTHONPATH=. .venv/bin/python -m pytest tests/test_api.py tests/test_import.py -
 PYTHONPATH=. .venv/bin/python -m pytest tests/test_database.py tests/test_setup_backend.py -q
 PYTHONPATH=. .venv/bin/python -m pytest tests/test_sync.py -q
 PYTHONPATH=. .venv/bin/python -m pytest tests/test_cplan_db.py tests/test_postgres_embedded.py -q
+PYTHONPATH=. .venv/bin/python -m pytest tests/test_views.py -q
 python3 tests/test_studio.py -v
 node --check pipeline/studio/app.js
 ```
