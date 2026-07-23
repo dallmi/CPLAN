@@ -85,6 +85,7 @@ The setup validates the database before persisting the choice. For `postgresql`,
 **Lifecycle:** the server is left running between CPLAN sessions — `start_cplan.py` and `daily_refresh.py` never stop it, so the next command starts instantly. Manage it explicitly with `pipeline/scripts/cplan_db.py`:
 
 ```bash
+PYTHONPATH=. .venv/bin/python -m pipeline.scripts.cplan_db --start    # start (idempotent) without studio/sync -- e.g. pgAdmin-only use after a reboot
 PYTHONPATH=. .venv/bin/python -m pipeline.scripts.cplan_db --status   # running? host/port or socket, pgdata, PG version
 PYTHONPATH=. .venv/bin/python -m pipeline.scripts.cplan_db --stop     # clean shutdown (pg_ctl -m fast) -- never a hard kill
 ```

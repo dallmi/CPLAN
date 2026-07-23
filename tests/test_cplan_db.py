@@ -166,3 +166,24 @@ def test_resolve_target_pgdata_errors_when_backend_is_not_postgres_embedded(tmp_
 
     with pytest.raises(SystemExit, match="not postgres-embedded"):
         _resolve_target_pgdata(args)
+
+
+def test_start_delegates_to_embedded_database_url_and_reports_status(tmp_path, capsys, monkeypatch):
+    """--start exists so pgAdmin can be used standalone (e.g. right after a reboot):
+    it must start the server via the same idempotent path the apps use, then report
+    the connection details."""
+    from pipeline.scripts import cplan_db
+
+    pgdata = tmp_path / "pgdata"
+    calls = []
+    monkeypatch.setattr(
+        "pipeline.api.database.embedded_database_url",
+        lambda target: calls.append(target) or "postgresql+psycopg://postgres@/cplan?host=/tmp/sock",
+    )
+
+    exit_code = cplan_db.start(pgdata)
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert calls == [pgdata]
+    assert "pgdata:" in captured.out

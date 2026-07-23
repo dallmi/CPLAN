@@ -6,6 +6,7 @@ paying PostgreSQL's startup cost again. Use this script to check on it or shut
 it down cleanly when you are done for the day.
 
 Usage:
+    python -m pipeline.scripts.cplan_db --start
     python -m pipeline.scripts.cplan_db --status
     python -m pipeline.scripts.cplan_db --stop
 """
@@ -85,6 +86,20 @@ def print_status(pgdata: Path, database: str = EMBEDDED_DATABASE_NAME) -> int:
         port = (info or {}).get("port") or "?"
         print(f"status:   running (pid {info['pid']}, host {host}, port {port})")
     return 0
+
+
+def start(pgdata: Path) -> int:
+    """Start the embedded server (idempotent) without launching the studio or a sync.
+
+    Exists so pgAdmin can be used standalone -- e.g. right after a reboot, when
+    nothing else has started PostgreSQL yet. Delegates to
+    `embedded_database_url()`, which starts (or attaches to) the server and
+    ensures the `cplan` database exists, then reports the connection details.
+    """
+    from pipeline.api.database import embedded_database_url
+
+    embedded_database_url(pgdata)
+    return print_status(pgdata)
 
 
 def _pid_is_postgres(pid: int) -> bool:
@@ -169,6 +184,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--pgdata", type=Path, default=None, help="Target this pgdata directly, bypassing persisted settings."
     )
     mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--start", action="store_true", help="Start the embedded server (idempotent) and show its status.")
     mode.add_argument("--status", action="store_true", help="Show whether the embedded server is running.")
     mode.add_argument("--stop", action="store_true", help="Stop the embedded server cleanly (pg_ctl -m fast).")
     return parser
@@ -185,6 +201,8 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(1)
 
     pgdata = _resolve_target_pgdata(args)
+    if args.start:
+        sys.exit(start(pgdata))
     sys.exit(print_status(pgdata) if args.status else stop(pgdata))
 
 
