@@ -1,5 +1,3 @@
-import pytest
-
 from pipeline.api.auth import (
     AuthSettings,
     auth_settings_from_environment,
@@ -46,3 +44,7 @@ def test_token_rejected_when_expired():
 def test_verify_credentials_rejects_unreachable_database():
     # Connection refused == False, never an exception.
     assert verify_credentials("postgresql+psycopg://u:pw@127.0.0.1:1/cplan", "u", "pw") is False
+
+
+def test_verify_credentials_returns_false_on_malformed_url():
+    assert verify_credentials("not-a-valid-url-at-all", "u", "pw") is False

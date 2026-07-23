@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from typing import Mapping
 
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
-from sqlalchemy import create_engine, make_url, select, text
+from sqlalchemy import create_engine, make_url, select
 from sqlalchemy.engine import URL
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.pool import NullPool
@@ -60,16 +60,18 @@ def verify_credentials(database_url: str | URL, username: str, password: str) ->
 
     NullPool + immediate dispose: this is a throwaway probe connection, it must
     never linger in a pool. Any failure — bad password, NOLOGIN (deactivated
-    user), unknown role, unreachable server — is simply `False`; the caller
-    turns that into a uniform 401 without leaking which part failed.
+    user), unknown role, unreachable server, malformed URL — is simply `False`;
+    the caller turns that into a uniform 401 without leaking which part failed.
     """
-    probe_url = make_url(database_url).set(username=username, password=password)
-    engine = create_engine(probe_url, poolclass=NullPool)
+    engine = None
     try:
+        probe_url = make_url(database_url).set(username=username, password=password)
+        engine = create_engine(probe_url, poolclass=NullPool)
         with engine.connect() as connection:
             connection.execute(select(1))
         return True
     except SQLAlchemyError:
         return False
     finally:
-        engine.dispose()
+        if engine is not None:
+            engine.dispose()
