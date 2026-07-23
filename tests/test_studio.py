@@ -400,6 +400,20 @@ class StudioTests(unittest.TestCase):
         self.assertNotIn("Anmelden", html)  # UI copy is English, matching the studio
         self.assertIn(".login-overlay", css)
 
+    def test_role_gating_helpers_and_delete_action(self):
+        app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+        html = (DASHBOARD / "index.html").read_text(encoding="utf-8")
+
+        self.assertIn("function canCreate", app)
+        self.assertIn("function canEditActivity", app)
+        self.assertIn("function canDelete", app)
+        self.assertIn("created_by", app)
+        self.assertIn('id="user-chip"', html)
+        self.assertIn("Sign out", app)
+        self.assertIn("Delete activity", app)
+        # DELETE verb actually used against the API
+        self.assertIn('method: "DELETE"', app)
+
 
 if __name__ == "__main__":
     unittest.main()

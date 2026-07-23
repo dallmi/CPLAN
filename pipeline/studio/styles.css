@@ -154,6 +154,9 @@ tr:hover td .copy-btn,td .copy-btn:focus-visible{opacity:1}
 .conflict-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:10px}
 
 /* --- Login overlay --- */
+.user-chip{display:flex;align-items:center;gap:8px;padding-left:12px;border-left:1px solid var(--surface);font-size:12px;color:var(--grey-4)}
+.btn-ghost{border:0;background:transparent;padding:4px 8px;border-radius:var(--radius);font-size:11px;font-weight:600;color:var(--grey-5)}
+.btn-ghost:hover{background:var(--surface);color:var(--black)}
 .login-overlay{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:1000}
 .login-overlay.hidden{display:none}
 .login-card{background:var(--white);border:1px solid var(--surface);border-radius:var(--radius);box-shadow:0 1px 3px rgba(0,0,0,.05);padding:32px;width:320px;display:flex;flex-direction:column;gap:8px}

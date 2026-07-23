@@ -46,7 +46,10 @@
           <span class="status-dot loading" id="status-dot"></span>
           <div><strong id="status-label">Loading data</strong><small id="snapshot-time">Analytics snapshot: —</small></div>
         </div>
-
+        <div id="user-chip" class="user-chip" hidden>
+          <span id="user-chip-name"></span>
+          <button id="user-chip-logout" class="btn-ghost" type="button">Sign out</button>
+        </div>
       </div>
     </header>
 
@@ -184,7 +187,7 @@
     <div class="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
       <div class="drawer-head"><div><p class="eyebrow" id="drawer-eyebrow">Activity detail</p><h2 id="drawer-title">Activity</h2><div id="drawer-tracking"></div></div><button class="icon-btn" id="drawer-close" data-close-drawer aria-label="Close">×</button></div>
       <div class="drawer-note" id="drawer-note" hidden></div>
-      <div class="drawer-mode" id="drawer-mode"><span class="badge neutral" id="drawer-mode-label">Read only</span><span class="drawer-mode-hint" id="drawer-mode-hint" hidden>Version-checked save — conflicts are flagged before anything is overwritten</span><div class="drawer-mode-actions"><button class="btn secondary" id="drawer-duplicate">Duplicate</button><button class="btn primary" id="drawer-edit">Edit activity</button></div></div>
+      <div class="drawer-mode" id="drawer-mode"><span class="badge neutral" id="drawer-mode-label">Read only</span><span class="drawer-mode-hint" id="drawer-mode-hint" hidden>Version-checked save — conflicts are flagged before anything is overwritten</span><div class="drawer-mode-actions"><button class="btn danger-outline" id="drawer-delete" type="button" hidden>Delete activity</button><button class="btn secondary" id="drawer-duplicate">Duplicate</button><button class="btn primary" id="drawer-edit">Edit activity</button></div></div>
       <div class="conflict-banner" id="conflict-banner" hidden></div>
       <div class="detail-view" id="detail-view" hidden></div>
       <form id="activity-form" novalidate>
@@ -318,6 +321,17 @@
       <div class="modal-actions">
         <button type="button" class="btn secondary" id="incomplete-save">Save as incomplete</button>
         <button type="button" class="btn primary" id="incomplete-back">Go back and complete</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="delete-modal" aria-hidden="true">
+    <div class="modal-card" role="alertdialog" aria-modal="true" aria-labelledby="delete-modal-title" aria-describedby="delete-modal-body">
+      <h2 id="delete-modal-title">Delete this activity?</h2>
+      <p id="delete-modal-body">This permanently removes the activity and its tracking ID. This cannot be undone.</p>
+      <div class="modal-actions">
+        <button type="button" class="btn secondary" id="delete-cancel">Cancel</button>
+        <button type="button" class="btn danger" id="delete-confirm">Delete activity</button>
       </div>
     </div>
   </div>

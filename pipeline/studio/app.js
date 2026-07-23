@@ -3,7 +3,7 @@
 
   const A = window.CplanAnalytics;
   const COLORS = {grey:'#404040', bronze:'#B98E2C'};
-  const state = {snapshotRows:[], rows:[], meta:null, syncRun:null, horizonWeeks:8, boardGroup:'channel', channelHorizonWeeks:4, trendMode:'', calendarDate:new Date(), selected:null, editing:false, creating:false, packing:false, customChannels:[], dirty:false, filteredRows:[], collisionsCache:new Map(), drawerOpener:null, discardModalOpen:false, incompleteModalOpen:false, queueFilter:null, dateFrom:null, dateTo:null};
+  const state = {snapshotRows:[], rows:[], meta:null, syncRun:null, horizonWeeks:8, boardGroup:'channel', channelHorizonWeeks:4, trendMode:'', calendarDate:new Date(), selected:null, editing:false, creating:false, packing:false, customChannels:[], dirty:false, filteredRows:[], collisionsCache:new Map(), drawerOpener:null, discardModalOpen:false, incompleteModalOpen:false, deleteModalOpen:false, queueFilter:null, dateFrom:null, dateTo:null};
 
   const esc = A.escapeHtml;
   const fmtNum = value => Number(value || 0).toLocaleString('en-GB');
@@ -167,12 +167,50 @@
   function showLoginOverlay() {
     document.getElementById('login-overlay').classList.remove('hidden');
     document.getElementById('login-error').classList.add('hidden');
+    // A mid-session 401 (e.g. an expired cookie) must not leave a stale
+    // "unauthenticated"/save-error message sitting behind the overlay for
+    // the next person to log in and see.
+    document.getElementById('form-validation').textContent = '';
     document.getElementById('login-username').focus();
   }
 
   function hideLoginOverlay() {
     document.getElementById('login-overlay').classList.add('hidden');
     document.getElementById('login-error').classList.add('hidden');
+  }
+
+  // --- role gating -----------------------------------------------------
+  // Comfort only: Postgres RLS/grants are the authority. A manipulated UI
+  // can still call the API directly; the server answers with 403 and the
+  // action simply fails (handled at the call sites, e.g. deleteActivity).
+  function canCreate() {
+    const role = state.currentUser && state.currentUser.role;
+    return role === 'contributor' || role === 'editor' || role === 'admin';
+  }
+
+  function canEditActivity(activity) {
+    const user = state.currentUser;
+    if (!user) return false;
+    if (user.role === 'editor' || user.role === 'admin') return true;
+    return user.role === 'contributor' && Boolean(activity) && activity.created_by === user.username;
+  }
+
+  function canDelete() {
+    return Boolean(state.currentUser) && state.currentUser.role === 'admin';
+  }
+
+  function applyRoleGating() {
+    document.getElementById('activity-new').hidden = !canCreate();
+    document.getElementById('pack-new').hidden = !canCreate();
+  }
+
+  function updateUserChip() {
+    const user = state.currentUser;
+    const chip = document.getElementById('user-chip');
+    if (!user || user.auth !== true) { chip.hidden = true; return; }
+    document.getElementById('user-chip-name').textContent = `${user.username} · ${user.role}`;
+    document.getElementById('user-chip-logout').textContent = 'Sign out';
+    chip.hidden = false;
   }
 
   async function initSession() {
@@ -182,12 +220,26 @@
       return null;
     }
     state.currentUser = await response.json();
+    document.body.dataset.role = state.currentUser.role;
+    applyRoleGating();
+    updateUserChip();
     return state.currentUser;
   }
 
   async function logout() {
     await fetch('/api/logout', {method:'POST'});
     window.location.reload();
+  }
+
+  async function deleteActivity(activityId) {
+    const response = await apiFetch(`/api/activities/${encodeURIComponent(activityId)}`, { method: "DELETE" });
+    if (response.status === 403) {
+      toast('You do not have permission to delete activities.');
+      return;
+    }
+    state.snapshotRows = state.snapshotRows.filter(row => String(row.id) !== String(activityId));
+    closeDrawer();
+    await loadAndRenderAll();
   }
 
   class DatabasePlanningRepository {
@@ -568,7 +620,8 @@
       const readiness=ready.score===100
         ?'<span class="readiness-ok">—</span>'
         :`<button type="button" class="missing-chip" data-fix-id="${esc(row.id||'')}" data-fix-field="${esc(ready.missing[0]||'')}" title="${esc(missingLabels(ready.missing).join(', '))}">${ready.missing.length} missing</button>`;
-      return `<tr data-open-id="${esc(row.id||'')}"><td title="${esc(row.activity_name||'')}">${esc(row.activity_name||'Untitled')}</td><td>${trackingIdHtml(row.tracking_id,{copy:nonempty(row.tracking_id)})}</td><td>${esc(row.channel||'—')}</td><td>${fmtDate(row.start_date)}</td><td>${esc(row.priority||'—')}</td><td>${esc(row.lead_team||row.lead||'—')}</td><td>${esc(campaignLabel(row)||'—')}</td><td>${readiness}</td><td class="action-cell"><button type="button" class="icon-btn duplicate-btn" data-duplicate-id="${esc(row.id||'')}" aria-label="Duplicate ${esc(row.activity_name||'activity')}" title="Duplicate"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button></td></tr>`;}).join('')||`<tr><td colspan="9">${emptyState(EMPTY_ICONS.search, 'No activities match the filters', 'Clear filters or adjust your search to see more results.')}</td></tr>`;
+      const duplicateBtn = canEditActivity(row) ? `<button type="button" class="icon-btn duplicate-btn" data-duplicate-id="${esc(row.id||'')}" aria-label="Duplicate ${esc(row.activity_name||'activity')}" title="Duplicate"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>` : '';
+      return `<tr data-open-id="${esc(row.id||'')}"><td title="${esc(row.activity_name||'')}">${esc(row.activity_name||'Untitled')}</td><td>${trackingIdHtml(row.tracking_id,{copy:nonempty(row.tracking_id)})}</td><td>${esc(row.channel||'—')}</td><td>${fmtDate(row.start_date)}</td><td>${esc(row.priority||'—')}</td><td>${esc(row.lead_team||row.lead||'—')}</td><td>${esc(campaignLabel(row)||'—')}</td><td>${readiness}</td><td class="action-cell">${duplicateBtn}</td></tr>`;}).join('')||`<tr><td colspan="9">${emptyState(EMPTY_ICONS.search, 'No activities match the filters', 'Clear filters or adjust your search to see more results.')}</td></tr>`;
   }
 
   // Adjacent markers within this many percentage points of the scale are
@@ -949,7 +1002,7 @@
         // STA-0000000" under "Communication pack: —" reads as contradiction.
         if(field==='tracking_pack_id'&&(!nonempty(value)||value===STANDALONE_PACK_PREFIX))return '';
         const has=nonempty(value);
-        const editable=EDITABLE_DETAIL_FIELDS.has(field)&&row.id;
+        const editable=EDITABLE_DETAIL_FIELDS.has(field)&&row.id&&canEditActivity(row);
         const display=has?esc(String(value)):(editable?`<button type="button" class="detail-add" data-add-field="${esc(field)}">— Add</button>`:'—');
         return `<div class="detail-row"><dt>${esc(label)}</dt><dd>${display}</dd></div>`;
       }).join('');
@@ -1270,6 +1323,43 @@
     });
   }
 
+  // Admin-only delete confirmation — same focus-trapped modal shape as
+  // openDiscardModal above, no window.confirm.
+  function openDeleteModal() {
+    return new Promise(resolve => {
+      if (state.deleteModalOpen) { resolve(false); return; }
+      state.deleteModalOpen = true;
+      const modal = document.getElementById('delete-modal');
+      const cancelBtn = document.getElementById('delete-cancel');
+      const confirmBtn = document.getElementById('delete-confirm');
+      const returnFocus = document.activeElement;
+      const settle = result => {
+        modal.classList.remove('open');
+        modal.setAttribute('aria-hidden', 'true');
+        modal.removeEventListener('keydown', onKeydown);
+        cancelBtn.onclick = null;
+        confirmBtn.onclick = null;
+        state.deleteModalOpen = false;
+        if (returnFocus && typeof returnFocus.focus === 'function') returnFocus.focus();
+        resolve(result);
+      };
+      const onKeydown = event => {
+        if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); settle(false); return; }
+        if (event.key === 'Enter') { event.stopPropagation(); return; }
+        if (event.key === 'Tab') {
+          event.preventDefault(); event.stopPropagation();
+          (document.activeElement === cancelBtn ? confirmBtn : cancelBtn).focus();
+        }
+      };
+      cancelBtn.onclick = () => settle(false);
+      confirmBtn.onclick = () => settle(true);
+      modal.addEventListener('keydown', onKeydown);
+      modal.classList.add('open');
+      modal.setAttribute('aria-hidden', 'false');
+      cancelBtn.focus();
+    });
+  }
+
   async function confirmDiscardIfDirty() {
     if (!(state.editing && state.dirty)) return true;
     return openDiscardModal();
@@ -1331,8 +1421,14 @@
     document.getElementById('drawer-mode-label').textContent=editing?'Editing':'Read only';
     document.getElementById('drawer-mode-label').className=`badge ${editing?'info':'neutral'}`;
     document.getElementById('drawer-mode-hint').hidden=!editing;
-    document.getElementById('drawer-edit').style.display=editing?'none':'block';
-    document.getElementById('drawer-duplicate').style.display=editing?'none':'inline-block';
+    // Row/drawer edit and duplicate affordances only for users allowed to
+    // touch this specific activity (editor/admin always; contributor only
+    // on their own rows) — comfort gating, server is still the authority.
+    const editAllowed=!editing&&state.selected&&canEditActivity(state.selected);
+    document.getElementById('drawer-edit').style.display=editAllowed?'block':'none';
+    document.getElementById('drawer-duplicate').style.display=editAllowed?'inline-block':'none';
+    document.getElementById('drawer-delete').textContent='Delete activity';
+    document.getElementById('drawer-delete').hidden=!(!editing&&state.selected&&canDelete());
     document.querySelector('.drawer-actions').style.display=editing?'flex':'none';
     document.getElementById('drawer-save').textContent='Save activity';
     document.getElementById('form-validation').textContent='';
@@ -1644,6 +1740,13 @@
     document.querySelectorAll('[data-close-drawer]').forEach(el=>el.onclick=async()=>{if(await confirmDiscardIfDirty())closeDrawer();});
     document.getElementById('drawer-edit').onclick=()=>{if(!state.selected||!state.selected.id){toast('Database ID required for safe editing');return;}setDrawerEditing(true);};
     document.getElementById('drawer-duplicate').onclick=()=>{if(state.selected)openDuplicateDrawer(state.selected,state.drawerOpener);};
+    document.getElementById('drawer-delete').onclick=async()=>{
+      if(!state.selected||!state.selected.id||!canDelete())return;
+      const activityId=state.selected.id;
+      if(!await openDeleteModal())return;
+      await deleteActivity(activityId);
+    };
+    document.getElementById('user-chip-logout').onclick=()=>logout();
     document.getElementById('drawer-cancel').onclick=async()=>{
       if(!await confirmDiscardIfDirty())return;
       if(state.creating||state.packing){closeDrawer();return;}
