@@ -1,6 +1,6 @@
 <#
-Start CPLAN for daily work: launches the studio (port 8780) and — if
-CPLAN_AUTH_SECRET is set — the portal (port 8781), each in its own window,
+Start CPLAN for daily work: launches the studio (port 8780) and - if
+CPLAN_AUTH_SECRET is set - the portal (port 8781), each in its own window,
 then opens the browser. Data loading is separate (refresh.cmd).
 
   studio  http://127.0.0.1:8780/   activities, planning, analytics
@@ -20,7 +20,7 @@ $root = $PSScriptRoot
 $python = Join-Path $root ".venv\Scripts\python.exe"
 
 if (-not (Test-Path $python)) {
-    Write-Host "Virtualenv not found at $python — run the one-time setup first (see README)." -ForegroundColor Red
+    Write-Host "Virtualenv not found at $python - run the one-time setup first (see README)." -ForegroundColor Red
     exit 1
 }
 

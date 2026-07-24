@@ -1,5 +1,5 @@
 <#
-CPLAN daily refresh — one command for the whole load:
+CPLAN daily refresh - one command for the whole load:
   SharePoint CSVs (already synced into OneDrive by Power Automate)
     -> process_cplan  (CSV -> parquet)
     -> sync_snapshot  (parquet -> PostgreSQL)
