@@ -43,6 +43,26 @@ if (-not $python) {
 }
 Write-Host "Using Python: $python" -ForegroundColor DarkGray
 
+# Poll a URL until the server actually answers, so the browser never opens
+# onto a connection-refused page while the database is still starting.
+# Any HTTP response (including 401/404) proves the server is up.
+function Wait-ForUrl([string]$url, [int]$timeoutSeconds) {
+    $ProgressPreference = "SilentlyContinue"
+    $deadline = (Get-Date).AddSeconds($timeoutSeconds)
+    while ((Get-Date) -lt $deadline) {
+        try {
+            Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 3 | Out-Null
+            return $true
+        }
+        catch {
+            if ($_.Exception.Response) { return $true }
+            Write-Host "." -NoNewline
+            Start-Sleep -Seconds 2
+        }
+    }
+    return $false
+}
+
 Push-Location $root
 $env:PYTHONPATH = "."
 try {
@@ -50,23 +70,30 @@ try {
     Start-Process -FilePath $python -ArgumentList "pipeline\scripts\start_cplan.py" -WorkingDirectory $root
 
     $hasSecret = -not [string]::IsNullOrEmpty($env:CPLAN_AUTH_SECRET)
+    $openUrl = "http://127.0.0.1:8780/"
     if (-not $StudioOnly -and $hasSecret) {
         Write-Host "Starting portal  -> http://127.0.0.1:8781/" -ForegroundColor Green
         Start-Process -FilePath $python -ArgumentList "pipeline\scripts\start_portal.py" -WorkingDirectory $root
-        Start-Sleep -Seconds 2
-        Start-Process "http://127.0.0.1:8781/"
+        $openUrl = "http://127.0.0.1:8781/"
+    }
+    elseif (-not $hasSecret) {
+        Write-Host "CPLAN_AUTH_SECRET not set -> studio only (solo mode, no login/portal)." -ForegroundColor Yellow
+        Write-Host 'Enable the portal once with: setx CPLAN_AUTH_SECRET (python -c "import secrets;print(secrets.token_urlsafe(48))")  then open a NEW window.' -ForegroundColor Yellow
+    }
+
+    Write-Host "Waiting for the server to come up (after an unclean shutdown the database can need a few minutes)" -NoNewline
+    if (Wait-ForUrl $openUrl 420) {
+        Write-Host " ready." -ForegroundColor Green
+        Start-Process $openUrl
     }
     else {
-        if (-not $hasSecret) {
-            Write-Host "CPLAN_AUTH_SECRET not set -> studio only (solo mode, no login/portal)." -ForegroundColor Yellow
-            Write-Host 'Enable the portal once with: setx CPLAN_AUTH_SECRET (python -c "import secrets;print(secrets.token_urlsafe(48))")  then open a NEW window.' -ForegroundColor Yellow
-        }
-        Start-Sleep -Seconds 2
-        Start-Process "http://127.0.0.1:8780/"
+        Write-Host ""
+        Write-Host "The server did not answer within 7 minutes - check the server window for errors," -ForegroundColor Red
+        Write-Host "then open $openUrl manually once it shows 'Uvicorn running'." -ForegroundColor Red
     }
 }
 finally {
     Pop-Location
 }
 
-Write-Host "`nServers run in their own windows. Close those windows (or Ctrl+C in them) to stop." -ForegroundColor Cyan
+Write-Host "`nServers run in their own windows. Stop them with stop.cmd (or Ctrl+C in their windows)." -ForegroundColor Cyan

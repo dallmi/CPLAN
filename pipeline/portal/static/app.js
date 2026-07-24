@@ -44,8 +44,11 @@
   async function loadProjects() {
     const data = await (await apiFetch('/api/portal/projects')).json();
     const tiles = document.getElementById('project-tiles');
+    // target="_blank": the workspace opens in its own tab so the portal (the
+    // admin home base) stays where it is; rel="noopener" severs the reverse
+    // window handle.
     tiles.innerHTML = data.projects.length
-      ? data.projects.map(p => `<a class="tile" href="${escapeHtml(p.url)}"><div class="tile-name">${escapeHtml(p.name)}</div><div class="tile-url">${escapeHtml(p.url)}</div></a>`).join('')
+      ? data.projects.map(p => `<a class="tile" href="${escapeHtml(p.url)}" target="_blank" rel="noopener"><div class="tile-name">${escapeHtml(p.name)}</div><div class="tile-url">${escapeHtml(p.url)}</div></a>`).join('')
       : '<p class="subtitle">No projects assigned yet.</p>';
   }
 

@@ -40,3 +40,10 @@ class PortalFrontendTests(unittest.TestCase):
         self.assertIsNone(EMOJI.search(app))
         self.assertIn("#E60000", css)   # corporate red primary
         self.assertIn("#F7F7F5", css)   # page background
+
+    def test_tiles_open_in_new_tab_and_favicon_present(self):
+        app = (STATIC / "app.js").read_text(encoding="utf-8")
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        self.assertIn('target="_blank"', app)
+        self.assertIn('rel="noopener"', app)
+        self.assertIn('rel="icon"', html)

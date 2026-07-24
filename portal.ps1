@@ -46,12 +46,40 @@ if ([string]::IsNullOrEmpty($env:CPLAN_AUTH_SECRET)) {
     exit 1
 }
 
+# Poll until the server answers so the browser never opens onto a
+# connection-refused page; any HTTP response proves it is up.
+function Wait-ForUrl([string]$url, [int]$timeoutSeconds) {
+    $ProgressPreference = "SilentlyContinue"
+    $deadline = (Get-Date).AddSeconds($timeoutSeconds)
+    while ((Get-Date) -lt $deadline) {
+        try {
+            Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 3 | Out-Null
+            return $true
+        }
+        catch {
+            if ($_.Exception.Response) { return $true }
+            Write-Host "." -NoNewline
+            Start-Sleep -Seconds 2
+        }
+    }
+    return $false
+}
+
 Push-Location $root
 $env:PYTHONPATH = "."
 try {
-    Write-Host "Starting portal at http://127.0.0.1:8781/  (Ctrl+C to stop)" -ForegroundColor Green
-    Start-Process "http://127.0.0.1:8781/"
-    & $python (Join-Path $root "pipeline\scripts\start_portal.py")
+    Write-Host "Starting portal  -> http://127.0.0.1:8781/  (own window; stop via stop.cmd)" -ForegroundColor Green
+    Start-Process -FilePath $python -ArgumentList "pipeline\scripts\start_portal.py" -WorkingDirectory $root
+    Write-Host "Waiting for the server to come up" -NoNewline
+    if (Wait-ForUrl "http://127.0.0.1:8781/" 420) {
+        Write-Host " ready." -ForegroundColor Green
+        Start-Process "http://127.0.0.1:8781/"
+    }
+    else {
+        Write-Host ""
+        Write-Host "The server did not answer within 7 minutes - check the server window, then" -ForegroundColor Red
+        Write-Host "open http://127.0.0.1:8781/ manually once it shows 'Uvicorn running'." -ForegroundColor Red
+    }
 }
 catch {
     Write-Host "`nERROR: $_" -ForegroundColor Red

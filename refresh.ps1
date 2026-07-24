@@ -56,9 +56,36 @@ try {
     Write-Host "`nRefresh complete." -ForegroundColor Green
 
     if (-not $NoStudio) {
-        Write-Host "Starting studio at http://127.0.0.1:8780/  (Ctrl+C to stop)" -ForegroundColor Green
-        Start-Process "http://127.0.0.1:8780/"
-        & $python (Join-Path $root "pipeline\scripts\start_cplan.py")
+        # Poll until the server answers so the browser never opens onto a
+        # connection-refused page; any HTTP response proves it is up.
+        function Wait-ForUrl([string]$url, [int]$timeoutSeconds) {
+            $ProgressPreference = "SilentlyContinue"
+            $deadline = (Get-Date).AddSeconds($timeoutSeconds)
+            while ((Get-Date) -lt $deadline) {
+                try {
+                    Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 3 | Out-Null
+                    return $true
+                }
+                catch {
+                    if ($_.Exception.Response) { return $true }
+                    Write-Host "." -NoNewline
+                    Start-Sleep -Seconds 2
+                }
+            }
+            return $false
+        }
+        Write-Host "Starting studio  -> http://127.0.0.1:8780/  (own window; stop via stop.cmd)" -ForegroundColor Green
+        Start-Process -FilePath $python -ArgumentList "pipeline\scripts\start_cplan.py" -WorkingDirectory $root
+        Write-Host "Waiting for the server to come up" -NoNewline
+        if (Wait-ForUrl "http://127.0.0.1:8780/" 420) {
+            Write-Host " ready." -ForegroundColor Green
+            Start-Process "http://127.0.0.1:8780/"
+        }
+        else {
+            Write-Host ""
+            Write-Host "The server did not answer within 7 minutes - check the server window, then" -ForegroundColor Red
+            Write-Host "open http://127.0.0.1:8780/ manually once it shows 'Uvicorn running'." -ForegroundColor Red
+        }
     }
 }
 catch {

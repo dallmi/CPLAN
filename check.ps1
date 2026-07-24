@@ -26,16 +26,16 @@ $manifest = @(
     @{ Path = "pipeline\api\session.py";       Marker = "build_session_dependencies";        Why = "shared SET ROLE session module" },
     @{ Path = "pipeline\api\setup_portal.py";  Marker = "p_caller";                          Why = "self/last-admin disable guards" },
     @{ Path = "pipeline\portal\app.py";        Marker = "Refusing to start";                 Why = "portal fails closed without auth" },
-    @{ Path = "pipeline\portal\static\app.js"; Marker = "response.status === 422";           Why = "surfaces server validation messages on row actions" },
-    @{ Path = "pipeline\portal\static\index.html"; Marker = "project-tiles";                 Why = "portal landing page" },
+    @{ Path = "pipeline\portal\static\app.js"; Marker = 'target="_blank"';                    Why = "tiles open in a new tab; server messages on row actions" },
+    @{ Path = "pipeline\portal\static\index.html"; Marker = 'rel="icon"';                     Why = "portal landing page incl. favicon" },
     @{ Path = "pipeline\portal\static\styles.css"; Marker = "#E60000";                       Why = "portal styling" },
     @{ Path = "pipeline\scripts\cplan_db.py";  Marker = "def stop";                          Why = "clean database stop" },
     @{ Path = "pipeline\scripts\start_portal.py"; Marker = "DEFAULT_PORT";                   Why = "portal launcher" },
     @{ Path = "setup.ps1";                     Marker = "cplan.config";                      Why = "config-driven one-time setup" },
-    @{ Path = "start.ps1";                     Marker = "CPLAN_PYTHON";                      Why = "combined launcher with interpreter resolution" },
+    @{ Path = "start.ps1";                     Marker = "Wait-ForUrl";                       Why = "opens the browser only once the server answers" },
     @{ Path = "stop.ps1";                      Marker = "CPLAN_PYTHON";                      Why = "clean shutdown launcher" },
-    @{ Path = "refresh.ps1";                   Marker = "CPLAN_PYTHON";                      Why = "daily refresh launcher" },
-    @{ Path = "portal.ps1";                    Marker = "CPLAN_PYTHON";                      Why = "portal launcher script" }
+    @{ Path = "refresh.ps1";                   Marker = "Wait-ForUrl";                       Why = "daily refresh; browser waits for the server" },
+    @{ Path = "portal.ps1";                    Marker = "Wait-ForUrl";                       Why = "portal launcher; browser waits for the server" }
 )
 
 Write-Host ""
