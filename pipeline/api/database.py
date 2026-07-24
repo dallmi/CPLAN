@@ -99,6 +99,15 @@ def embedded_database_url(pgdata: str | os.PathLike[str]) -> str:
 
     pgdata_path = Path(pgdata).expanduser()
     pgdata_path.parent.mkdir(parents=True, exist_ok=True)
+    if _IS_WINDOWS and not (pgdata_path / "PG_VERSION").exists():
+        # First-time init: pgserver's initdb + first start are console-attached.
+        # Recycle immediately (clean stop, drop the cached instance) so the
+        # server that actually serves this session is the detached one below --
+        # otherwise the very first session stays kill-on-window-close.
+        _get_server_through_recovery(pgserver, pgdata_path)
+        _stop_embedded_server(pgdata_path)
+        _evict_cached_server_instance(pgserver, pgdata_path)
+    _prestart_server_detached(pgdata_path)
     server = _get_server_through_recovery(pgserver, pgdata_path)
     _ensure_embedded_database_exists(server)
     _harden_local_authentication(server)
@@ -109,7 +118,226 @@ def embedded_database_url(pgdata: str | os.PathLike[str]) -> str:
     )
 
 
-def _get_server_through_recovery(pgserver, pgdata_path, total_wait: float = 120.0, poll: float = 10.0):
+# Windows CreateProcess flags (subprocess exposes them only on Windows; defined
+# here as plain constants so the module imports everywhere). CREATE_NO_WINDOW --
+# NOT DETACHED_PROCESS -- is deliberate: pg_ctl starts the postmaster through a
+# cmd.exe wrapper, and a console-subsystem child of a *console-less* parent gets
+# a brand-new VISIBLE console window allocated by the OS; closing that mystery
+# window would deliver CTRL_CLOSE_EVENT to postgres and kill it -- the exact
+# failure this code exists to prevent. CREATE_NO_WINDOW gives pg_ctl a hidden
+# console that cmd.exe and postgres inherit: no window exists to close, and the
+# launching console's Ctrl+C can never reach the server.
+_CREATE_NO_WINDOW = 0x08000000
+_CREATE_NEW_PROCESS_GROUP = 0x00000200
+
+_IS_WINDOWS = os.name == "nt"
+
+
+class _ServerNotReady(Exception):
+    """The embedded server is up but not accepting connections yet (e.g. WAL recovery)."""
+
+
+def _probe_server_ready(uri: str) -> None:
+    """Open one real connection to prove the server accepts sessions.
+
+    `get_uri()` succeeding only proves postmaster.pid was readable -- during
+    crash recovery the file exists (status 'starting') while every connection
+    is refused with 'the database system is starting up'. Wrapped in a local
+    exception type so the retry loop can catch readiness precisely without
+    importing psycopg at module level.
+    """
+    import psycopg
+
+    try:
+        with psycopg.connect(uri, connect_timeout=10):
+            pass
+    except psycopg.OperationalError as error:
+        raise _ServerNotReady(str(error)) from error
+
+
+def _evict_cached_server_instance(pgserver, pgdata_path) -> None:
+    """Drop pgserver's cached PostgresServer for `pgdata_path`, if any.
+
+    pgserver registers the instance in `PostgresServer._instances` BEFORE
+    `ensure_postgres_running()` runs; when that raises (10s pg_ctl timeout under
+    antivirus, or an attach during WAL recovery), the broken instance stays
+    cached and every later `get_server` in this process returns it unchanged --
+    without eviction a retry loop can structurally never succeed.
+    """
+    try:
+        instances = pgserver.PostgresServer._instances
+    except AttributeError:
+        try:
+            from pgserver.postgres_server import PostgresServer
+
+            instances = PostgresServer._instances
+        except Exception:
+            return
+    try:
+        instances.pop(Path(pgdata_path).expanduser().resolve(), None)
+    except Exception:
+        pass
+
+
+def _find_free_port() -> int:
+    """A currently free localhost TCP port (same approach as pgserver's own start)."""
+    try:
+        from pgserver.utils import find_suitable_port
+
+        return int(find_suitable_port("127.0.0.1"))
+    except Exception:
+        import socket
+
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.bind(("127.0.0.1", 0))
+            return probe.getsockname()[1]
+
+
+def _postmaster_alive(pgdata_path: Path) -> bool:
+    """True if postmaster.pid names a live process that looks like postgres.
+
+    Mirrors cplan_db._pid_is_postgres (kept local to avoid an api -> scripts
+    import). A stale pid file after a hard crash is handled by pg_ctl itself,
+    so returning False for a dead/recycled pid is safe.
+    """
+    pid_file = pgdata_path / "postmaster.pid"
+    if not pid_file.exists():
+        return False
+    try:
+        pid = int(pid_file.read_text().splitlines()[0].strip())
+    except (ValueError, IndexError, OSError):
+        return False
+    try:
+        import psutil
+
+        return "postgres" in psutil.Process(pid).name().lower()
+    except Exception:
+        return False
+
+
+def _build_prestart_command(pg_ctl_exe, pgdata_path, port: int) -> list[str]:
+    """pg_ctl start command with a generous readiness wait (-w -t 300).
+
+    300s covers the worst observed corp-Windows cold start: antivirus-throttled
+    fsync (~40s) + a 30s locked-log retry window + WAL crash recovery.
+
+    Host/port are passed explicitly (mirroring pgserver's own Windows start):
+    without them postgres would bind postgresql.conf's default 5432, which
+    (a) fails outright on any machine where 5432 is taken -- silently losing
+    the detached protection every run -- and (b) squats the well-known port.
+    Attaching is port-agnostic either way: pgserver reads host/port back from
+    postmaster.pid.
+    """
+    return [
+        str(pg_ctl_exe),
+        "-D", str(pgdata_path),
+        "-l", str(pgdata_path / "log"),
+        "-o", '-h "127.0.0.1"',
+        "-o", f"-p {port}",
+        "-w", "-t", "300",
+        "start",
+    ]
+
+
+def _stop_embedded_server(pgdata_path: Path) -> None:
+    """Cleanly stop the embedded server (`pg_ctl stop -m fast`), best-effort.
+
+    Used by the first-run recycle: after initdb pgserver has started a
+    console-attached postmaster; it is stopped here so the detached pre-start
+    below owns the running server. Failure is non-fatal -- the caller falls
+    back to attaching to whatever is running.
+    """
+    try:
+        from pgserver._commands import POSTGRES_BIN_PATH
+    except ImportError:
+        return
+    pg_ctl_exe = POSTGRES_BIN_PATH / ("pg_ctl.exe" if _IS_WINDOWS else "pg_ctl")
+    if not pg_ctl_exe.exists():
+        return
+    try:
+        subprocess.run(
+            [str(pg_ctl_exe), "-D", str(pgdata_path), "stop", "-m", "fast", "-w", "-t", "120"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=150,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        pass
+
+
+def _prestart_server_detached(pgdata_path: Path) -> None:
+    """Windows only: start the embedded postmaster detached from this console.
+
+    pgserver launches postgres as a child of the calling console window, so
+    every Ctrl+C in that window -- and closing it -- delivers a console control
+    event straight to the postmaster (exception 0xC000013A), killing it mid-run
+    or even mid-recovery. Real session logs show the resulting death spiral:
+    slow start -> silent multi-minute wait -> user presses Ctrl+C -> crash ->
+    next start needs even longer recovery. Starting the postmaster ourselves
+    with DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP severs the console tie:
+    the server then survives any window close or Ctrl+C, and pgserver's
+    get_server simply attaches to the already-running instance.
+
+    No-op when: not Windows (POSIX pg_ctl daemonizes the postmaster away from
+    the terminal already), the cluster does not exist yet (the caller recycles
+    a fresh cluster through this function afterwards), or a postmaster is
+    already alive (attach path). Failures here are non-fatal --
+    _get_server_through_recovery remains the backstop, though a server started
+    by that fallback is console-attached again, which the fallback message
+    states honestly.
+
+    stdout/stderr go to DEVNULL, never pipes: pg_ctl hands its std handles to
+    the cmd.exe wrapper that lives as long as the postmaster, so pipe read
+    ends would never see EOF and subprocess.run would hang forever precisely
+    when the start SUCCEEDS (pgserver's own _commands.py documents this exact
+    hang and uses temp files for the same reason).
+    """
+    if not _IS_WINDOWS:
+        return
+    if not (pgdata_path / "PG_VERSION").exists():
+        return
+    if _postmaster_alive(pgdata_path):
+        return
+    try:
+        from pgserver._commands import POSTGRES_BIN_PATH
+    except ImportError:
+        return
+    pg_ctl_exe = POSTGRES_BIN_PATH / "pg_ctl.exe"
+    if not pg_ctl_exe.exists():
+        return
+    print(
+        "Starting the embedded PostgreSQL server. After an unclean shutdown or "
+        "under antivirus scanning this can take a few MINUTES - it is working, "
+        "do not press Ctrl+C and do not close this window...",
+        flush=True,
+    )
+    try:
+        result = subprocess.run(
+            _build_prestart_command(pg_ctl_exe, pgdata_path, _find_free_port()),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=330,
+            creationflags=_CREATE_NO_WINDOW | _CREATE_NEW_PROCESS_GROUP,
+        )
+        if result.returncode == 0:
+            print("Embedded PostgreSQL is ready.", flush=True)
+        else:
+            print(
+                "Pre-start could not confirm readiness (details in the server log); "
+                "falling back to the standard start. NOTE: a server started this way "
+                "is tied to this window - closing it stops the database.",
+                flush=True,
+            )
+    except (subprocess.TimeoutExpired, OSError):
+        print(
+            "Pre-start is taking unusually long; continuing to wait for the server...",
+            flush=True,
+        )
+
+
+def _get_server_through_recovery(pgserver, pgdata_path, total_wait: float = 300.0, poll: float = 10.0):
     """`pgserver.get_server`, tolerating a slow crash-recovery start.
 
     After an unclean shutdown -- common on Windows, where closing the owning
@@ -130,15 +358,36 @@ def _get_server_through_recovery(pgserver, pgdata_path, total_wait: float = 120.
     for attempt in range(polls + 1):
         try:
             server = pgserver.get_server(str(pgdata_path), cleanup_mode=None)
-            # Force pgserver to read postmaster.pid now. Mid crash-reinit it can
-            # hand back a server whose _postmaster_info is still None, which only
-            # surfaces later as an AssertionError deep in get_uri(); probing here
-            # turns that transient state into one more retry instead of a crash.
-            server.get_uri()
+            # Force pgserver to read postmaster.pid now (mid crash-reinit it can
+            # hand back a server whose _postmaster_info is still None -> a later
+            # AssertionError deep in get_uri), then prove the server actually
+            # accepts sessions -- during WAL recovery postmaster.pid exists while
+            # every connection is refused with 'the database system is starting
+            # up'. Either failure becomes one more retry instead of a crash.
+            uri = server.get_uri()
+            _probe_server_ready(uri)
             return server
-        except (subprocess.TimeoutExpired, subprocess.CalledProcessError, AssertionError) as error:
+        except (
+            subprocess.TimeoutExpired,
+            subprocess.CalledProcessError,
+            AssertionError,
+            _ServerNotReady,
+        ) as error:
             last_error = error
+            # Drop the (possibly half-initialized) cached instance, or every
+            # further get_server would return the same broken object and the
+            # retry could structurally never succeed.
+            _evict_cached_server_instance(pgserver, pgdata_path)
             if attempt < polls:
+                # Never wait silently: silent multi-minute hangs are what tempt
+                # users into Ctrl+C, which used to kill the recovering server.
+                print(
+                    f"Waiting for the embedded PostgreSQL server to become ready "
+                    f"({(attempt + 1) * poll:.0f}s of up to {total_wait:.0f}s; crash "
+                    "recovery and antivirus scanning can take a few minutes) - do "
+                    "not press Ctrl+C and do not close this window...",
+                    flush=True,
+                )
                 time.sleep(poll)
     raise RuntimeError(
         f"The embedded PostgreSQL server did not become ready in {total_wait:.0f}s. "

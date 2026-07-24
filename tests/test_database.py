@@ -203,6 +203,9 @@ def _stub_pgserver(monkeypatch, raw_uri: str) -> None:
     # Same rationale as _ensure_embedded_database_exists above: pointless (and
     # unreachable -- no pg_hba.conf on disk) against a fake server.
     monkeypatch.setattr(database, "_harden_local_authentication", lambda server: None)
+    # The readiness probe opens a real psycopg connection -- meaningless against
+    # a fake URI, so it is stubbed for URI-conversion tests.
+    monkeypatch.setattr(database, "_probe_server_ready", lambda uri: None)
 
 
 def test_embedded_database_url_converts_socket_style_uri(monkeypatch, tmp_path):
@@ -297,10 +300,15 @@ def test_tracking_id_unique_index_allows_duplicates_among_legacy_rows(tmp_path):
     engine.dispose()
 
 
-def test_get_server_through_recovery_retries_slow_crash_recovery():
+def _no_probe(monkeypatch):
+    monkeypatch.setattr(database, "_probe_server_ready", lambda uri: None)
+
+
+def test_get_server_through_recovery_retries_slow_crash_recovery(monkeypatch):
     """A slow crash-recovery start (pg_ctl 10s subprocess timeout) is retried, not fatal."""
     import subprocess
 
+    _no_probe(monkeypatch)
     calls = {"n": 0}
 
     class RecoveringPgserver:
@@ -317,8 +325,56 @@ def test_get_server_through_recovery_retries_slow_crash_recovery():
     assert calls["n"] == 3
 
 
-def test_get_server_through_recovery_gives_up_with_actionable_error():
+def test_get_server_through_recovery_retries_not_ready_connections(monkeypatch):
+    """postmaster.pid readable but connections refused (WAL recovery) is retried too."""
+    probes = {"n": 0}
+
+    def flaky_probe(uri):
+        probes["n"] += 1
+        if probes["n"] <= 2:
+            raise database._ServerNotReady("the database system is starting up")
+
+    monkeypatch.setattr(database, "_probe_server_ready", flaky_probe)
+
+    class AlwaysAttaches:
+        def get_server(self, pgdata, cleanup_mode=None):
+            return SimpleNamespace(get_uri=lambda: "postgresql://postgres:@127.0.0.1:5/x")
+
+    server = database._get_server_through_recovery(
+        AlwaysAttaches(), "/tmp/pgdata", total_wait=1.0, poll=0.01
+    )
+    assert probes["n"] == 3
+    assert server.get_uri().startswith("postgresql://")
+
+
+def test_get_server_through_recovery_evicts_poisoned_cache_between_attempts(monkeypatch):
+    """pgserver caches the instance BEFORE its start succeeds; without eviction a
+    retry would receive the same broken object forever."""
     import subprocess
+
+    _no_probe(monkeypatch)
+    evictions = []
+    monkeypatch.setattr(
+        database, "_evict_cached_server_instance", lambda pg, path: evictions.append(str(path))
+    )
+
+    calls = {"n": 0}
+
+    class FailsOnce:
+        def get_server(self, pgdata, cleanup_mode=None):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise subprocess.TimeoutExpired(cmd="pg_ctl", timeout=10)
+            return SimpleNamespace(get_uri=lambda: "postgresql://postgres:@/x")
+
+    database._get_server_through_recovery(FailsOnce(), "/tmp/pgdata", total_wait=1.0, poll=0.01)
+    assert evictions == ["/tmp/pgdata"]
+
+
+def test_get_server_through_recovery_gives_up_with_actionable_error(monkeypatch):
+    import subprocess
+
+    _no_probe(monkeypatch)
 
     class NeverReady:
         def get_server(self, pgdata, cleanup_mode=None):
@@ -326,3 +382,113 @@ def test_get_server_through_recovery_gives_up_with_actionable_error():
 
     with pytest.raises(RuntimeError, match="did not become ready"):
         database._get_server_through_recovery(NeverReady(), "/tmp/pgdata", total_wait=0.05, poll=0.01)
+
+
+def test_evict_cached_server_instance_pops_pgserver_registry(tmp_path):
+    resolved = tmp_path.expanduser().resolve()
+    fake_pgserver = SimpleNamespace(PostgresServer=SimpleNamespace(_instances={resolved: object()}))
+    database._evict_cached_server_instance(fake_pgserver, tmp_path)
+    assert resolved not in fake_pgserver.PostgresServer._instances
+    # And it must tolerate a pgserver without the expected attribute.
+    database._evict_cached_server_instance(SimpleNamespace(), tmp_path)
+
+
+def test_build_prestart_command_waits_generously_and_binds_dynamic_port():
+    cmd = database._build_prestart_command("/bins/pg_ctl.exe", database.Path("/data/pg"), 54999)
+    assert cmd[0] == "/bins/pg_ctl.exe"
+    assert cmd[-1] == "start"
+    assert "-w" in cmd
+    assert cmd[cmd.index("-t") + 1] == "300"
+    assert cmd[cmd.index("-D") + 1].endswith("pg")
+    # Explicit host/port, mirroring pgserver's own Windows start: without them
+    # the server would bind postgresql.conf's default 5432 and fail wherever
+    # that port is taken -- silently losing the detached protection.
+    assert '-h "127.0.0.1"' in cmd
+    assert "-p 54999" in cmd
+
+
+def test_prestart_is_noop_on_posix(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(database.subprocess, "run", lambda *a, **k: calls.append(a))
+    monkeypatch.setattr(database, "_IS_WINDOWS", False)
+    database._prestart_server_detached(tmp_path)
+    assert calls == []
+
+
+def test_prestart_skips_uninitialized_cluster_and_running_server(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(database.subprocess, "run", lambda *a, **k: calls.append(a))
+    monkeypatch.setattr(database, "_IS_WINDOWS", True)
+    # No PG_VERSION -> first-time init is handled by the caller's recycle path.
+    database._prestart_server_detached(tmp_path)
+    assert calls == []
+    # Cluster exists but a postmaster is already alive -> attach path, no start.
+    (tmp_path / "PG_VERSION").write_text("16")
+    monkeypatch.setattr(database, "_postmaster_alive", lambda p: True)
+    database._prestart_server_detached(tmp_path)
+    assert calls == []
+
+
+def test_prestart_starts_hidden_console_devnull_no_pipes(tmp_path, monkeypatch):
+    captured = {}
+
+    def fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        captured["kwargs"] = kwargs
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(database.subprocess, "run", fake_run)
+    monkeypatch.setattr(database, "_IS_WINDOWS", True)
+    (tmp_path / "PG_VERSION").write_text("16")
+    monkeypatch.setattr(database, "_postmaster_alive", lambda p: False)
+    monkeypatch.setattr(database, "_find_free_port", lambda: 55123)
+
+    fake_bin = tmp_path / "bins"
+    fake_bin.mkdir()
+    (fake_bin / "pg_ctl.exe").write_text("")
+    fake_commands = SimpleNamespace(POSTGRES_BIN_PATH=fake_bin)
+    monkeypatch.setitem(sys.modules, "pgserver._commands", fake_commands)
+    monkeypatch.setitem(sys.modules, "pgserver", SimpleNamespace(_commands=fake_commands))
+
+    database._prestart_server_detached(tmp_path)
+
+    assert captured["cmd"][-1] == "start"
+    assert "-p 55123" in captured["cmd"]
+    kwargs = captured["kwargs"]
+    # Hidden console (NOT a detached ghost window whose closure would kill the
+    # server), isolated from the launching console's Ctrl+C.
+    assert kwargs["creationflags"] == database._CREATE_NO_WINDOW | database._CREATE_NEW_PROCESS_GROUP
+    # DEVNULL, never pipes: pg_ctl hands its std handles to the postmaster's
+    # cmd.exe wrapper, so pipes would never see EOF and hang the SUCCESS path
+    # (pgserver's own _commands.py documents this exact hang).
+    import subprocess as sp
+
+    assert kwargs["stdout"] == sp.DEVNULL and kwargs["stderr"] == sp.DEVNULL
+    assert "capture_output" not in kwargs
+
+
+def test_embedded_database_url_recycles_first_run_to_detached(tmp_path, monkeypatch):
+    """A fresh cluster's console-attached first start is stopped and replaced."""
+    order = []
+    fake_server = SimpleNamespace(get_uri=lambda database=None: "postgresql://postgres:@127.0.0.1:5/postgres")
+    fake_pgserver = SimpleNamespace(get_server=lambda pgdata, cleanup_mode=None: fake_server)
+    monkeypatch.setitem(sys.modules, "pgserver", fake_pgserver)
+    monkeypatch.setattr(database, "_IS_WINDOWS", True)
+    monkeypatch.setattr(database, "_probe_server_ready", lambda uri: order.append("probe"))
+    monkeypatch.setattr(database, "_stop_embedded_server", lambda p: order.append("stop"))
+    monkeypatch.setattr(database, "_evict_cached_server_instance", lambda pg, p: order.append("evict"))
+    monkeypatch.setattr(database, "_prestart_server_detached", lambda p: order.append("prestart"))
+    monkeypatch.setattr(database, "_ensure_embedded_database_exists", lambda server: None)
+    monkeypatch.setattr(database, "_harden_local_authentication", lambda server: None)
+
+    pgdata = tmp_path / "pgdata"  # no PG_VERSION -> first run
+    url = database.embedded_database_url(pgdata)
+
+    assert url.startswith("postgresql+psycopg://")
+    assert order == ["probe", "stop", "evict", "prestart", "probe"]
+
+
+def test_postmaster_alive_false_without_pidfile_or_garbage(tmp_path):
+    assert database._postmaster_alive(tmp_path) is False
+    (tmp_path / "postmaster.pid").write_text("not-a-pid\n")
+    assert database._postmaster_alive(tmp_path) is False
