@@ -129,8 +129,14 @@ def _get_server_through_recovery(pgserver, pgdata_path, total_wait: float = 120.
     last_error: Exception | None = None
     for attempt in range(polls + 1):
         try:
-            return pgserver.get_server(str(pgdata_path), cleanup_mode=None)
-        except (subprocess.TimeoutExpired, subprocess.CalledProcessError) as error:
+            server = pgserver.get_server(str(pgdata_path), cleanup_mode=None)
+            # Force pgserver to read postmaster.pid now. Mid crash-reinit it can
+            # hand back a server whose _postmaster_info is still None, which only
+            # surfaces later as an AssertionError deep in get_uri(); probing here
+            # turns that transient state into one more retry instead of a crash.
+            server.get_uri()
+            return server
+        except (subprocess.TimeoutExpired, subprocess.CalledProcessError, AssertionError) as error:
             last_error = error
             if attempt < polls:
                 time.sleep(poll)

@@ -1,11 +1,13 @@
 <#
-Recover a wedged embedded CPLAN database. Use this when a start hangs or fails
-with "Timeout starting server" / "database system was interrupted" after an
-unclean shutdown (a console window closed while postgres was connected).
+Reset a wedged embedded CPLAN database to a clean, stopped state. Use this when
+a start hangs or fails with "Timeout starting server" / "database system was
+interrupted" / an AssertionError after an unclean shutdown.
 
-It stops the database cleanly (clearing any half-crashed postmaster and stale
-postmaster.pid), then starts it once - giving crash recovery all the time it
-needs - so the next setup.cmd / start.cmd finds a healthy server.
+It ONLY stops the database cleanly (clearing a half-crashed postmaster and any
+stale postmaster.pid). It deliberately does NOT start it: a short-lived window
+that starts the embedded server would kill it again the moment the window
+closes, leaving the next step to trip over a dying server. After this, the
+next setup.cmd / start.cmd cold-starts a fresh, healthy server itself.
 
 Usage (or double-click fix-db.cmd):
   .\fix-db.ps1
@@ -41,21 +43,19 @@ try {
     Write-Host "First: close any open studio/portal/setup windows so nothing is holding the database." -ForegroundColor Yellow
     Write-Host ""
 
-    Write-Host "[1/2] Stopping the database cleanly (clears a half-crashed server and stale pid)..." -ForegroundColor Cyan
+    Write-Host "Stopping the database cleanly (clears a half-crashed server and stale pid)..." -ForegroundColor Cyan
     & $python -m pipeline.scripts.cplan_db --stop
     # A non-zero exit here usually just means it was not running - that is fine.
 
-    Write-Host "[2/2] Starting it once and letting crash recovery finish (this can take a minute)..." -ForegroundColor Cyan
-    & $python -m pipeline.scripts.cplan_db --start
-    if ($LASTEXITCODE -ne 0) { throw "the database did not come up (exit $LASTEXITCODE)" }
-
-    Write-Host "`nDatabase is healthy again." -ForegroundColor Green
-    Write-Host "Next: double-click setup.cmd (if setup never finished) or start.cmd." -ForegroundColor Green
+    Write-Host "`nDatabase reset to a clean, stopped state." -ForegroundColor Green
+    Write-Host "Next: double-click setup.cmd (if setup never finished) or start.cmd -" -ForegroundColor Green
+    Write-Host "it will cold-start a fresh server itself. Do NOT run any other CPLAN" -ForegroundColor Green
+    Write-Host "window at the same time." -ForegroundColor Green
 }
 catch {
-    Write-Host "`nRecovery failed: $_" -ForegroundColor Red
-    Write-Host "If it keeps failing: make sure no python.exe / postgres.exe is still running" -ForegroundColor Yellow
-    Write-Host "(Task Manager), then run this again. Data directory:" -ForegroundColor Yellow
+    Write-Host "`nClean stop failed: $_" -ForegroundColor Red
+    Write-Host "Make sure no python.exe / postgres.exe is still running (Task Manager)," -ForegroundColor Yellow
+    Write-Host "then run this again. Data directory:" -ForegroundColor Yellow
     Write-Host "  $env:LOCALAPPDATA\CPLAN\postgres" -ForegroundColor Yellow
     exit 1
 }
