@@ -92,7 +92,7 @@
   }
 
   // Surface a portal.* function's own validation message (422 invalid_input,
-  // e.g. "user X already exists") — first line only, since Postgres appends a
+  // e.g. "user X already exists") - first line only, since Postgres appends a
   // CONTEXT block. Falls back to `fallback` for any other body shape.
   async function validationMessage(response, fallback) {
     try {
@@ -107,7 +107,15 @@
 
   async function postJson(url, body) {
     const response = await apiFetch(url, { method: "POST", headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    if (!response.ok) { showToast('Action failed — you may not have permission.'); throw new Error('request failed'); }
+    if (!response.ok) {
+      // 422 carries the server's own validation message (e.g. "you cannot
+      // disable your own account", "last active admin") - surface it verbatim.
+      const message = response.status === 422
+        ? await validationMessage(response, 'Invalid input.')
+        : 'Action failed - you may not have permission.';
+      showToast(message);
+      throw new Error('request failed');
+    }
     return response;
   }
 

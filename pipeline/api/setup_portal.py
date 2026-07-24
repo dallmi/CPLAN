@@ -111,15 +111,47 @@ BEGIN
 END; $fn$;
 """
 
+# p_caller's DEFAULT current_user is evaluated in the CALLER's context (before
+# the SECURITY DEFINER switch), so it reliably names the SET ROLE'd admin who
+# invoked the function -- the API always calls with two arguments. An admin
+# passing an explicit third argument only bypasses the self-disable guard, and
+# admins are trusted with worse; the guards protect against accidents, not
+# malice. Lockout guards fire only when DISABLING:
+#   - you cannot disable your own account (the session would outlive the lock
+#     and the lockout would surface hours later, after logout);
+#   - you cannot disable the last ACTIVE admin of any project (nobody could
+#     re-enable anyone via the portal afterwards; recovery would require the
+#     setup_roles CLI on the host machine).
 _SET_ACTIVE_FN = f"""
-CREATE OR REPLACE FUNCTION portal.set_active(p_name text, p_active boolean)
+CREATE OR REPLACE FUNCTION portal.set_active(p_name text, p_active boolean, p_caller text DEFAULT current_user)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $fn$
+DECLARE v_admin_group text; v_other_active_admins int;
 BEGIN
   IF p_name = ANY ({_RESERVED_SQL_ARRAY}) THEN
     RAISE EXCEPTION 'reserved role %%', p_name;
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = p_name) THEN
     RAISE EXCEPTION 'unknown user %%', p_name;
+  END IF;
+  IF NOT p_active THEN
+    IF p_name = p_caller THEN
+      RAISE EXCEPTION 'you cannot disable your own account (%%)', p_name;
+    END IF;
+    FOR v_admin_group IN SELECT role_prefix || '_admin' FROM portal.projects LOOP
+      IF EXISTS (
+        SELECT 1 FROM pg_auth_members m
+        JOIN pg_roles g ON g.oid = m.roleid AND g.rolname = v_admin_group
+        JOIN pg_roles u ON u.oid = m.member AND u.rolname = p_name
+      ) THEN
+        SELECT count(*) INTO v_other_active_admins FROM pg_auth_members m
+        JOIN pg_roles g ON g.oid = m.roleid AND g.rolname = v_admin_group
+        JOIN pg_roles u ON u.oid = m.member
+        WHERE u.rolcanlogin AND u.rolname <> p_name;
+        IF v_other_active_admins = 0 THEN
+          RAISE EXCEPTION 'cannot disable %%: last active admin (%%)', p_name, v_admin_group;
+        END IF;
+      END IF;
+    END LOOP;
   END IF;
   EXECUTE format('ALTER ROLE %%I %%s', p_name, CASE WHEN p_active THEN 'LOGIN' ELSE 'NOLOGIN' END);
 END; $fn$;
@@ -152,8 +184,14 @@ _FUNCTIONS = (
     ("portal.create_user(text, text, text, text)", _CREATE_USER_FN),
     ("portal.set_project_role(text, text, text)", _SET_ROLE_FN),
     ("portal.reset_password(text, text)", _RESET_PW_FN),
-    ("portal.set_active(text, boolean)", _SET_ACTIVE_FN),
+    ("portal.set_active(text, boolean, text)", _SET_ACTIVE_FN),
 )
+
+# Superseded signatures that must be dropped before (re)creating the functions:
+# CREATE OR REPLACE cannot change a signature -- it would ADD an overload, and
+# the API's two-argument call would keep resolving to the old, guard-free
+# variant that still carries its EXECUTE grant.
+_LEGACY_SIGNATURES = ("portal.set_active(text, boolean)",)
 
 
 def apply_portal(engine: Engine) -> None:
@@ -191,6 +229,8 @@ def apply_portal(engine: Engine) -> None:
         c.exec_driver_sql("ALTER VIEW portal.users OWNER TO portal_owner")
         c.exec_driver_sql("GRANT SELECT ON portal.users TO cplan_admin")
 
+        for legacy in _LEGACY_SIGNATURES:
+            c.exec_driver_sql(f"DROP FUNCTION IF EXISTS {legacy}")
         for signature, ddl in _FUNCTIONS:
             c.exec_driver_sql(ddl)
             c.exec_driver_sql(f"ALTER FUNCTION {signature} OWNER TO portal_owner")

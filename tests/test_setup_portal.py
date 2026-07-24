@@ -169,3 +169,60 @@ def test_register_project_upserts(engine):
     with engine.connect() as c:
         name = c.execute(text("SELECT name FROM portal.projects WHERE slug = 'demo'")).scalar_one()
     assert name == "Demo Project Renamed"
+
+
+def test_set_active_rejects_self_disable(engine):
+    admin = _as(engine, "p_admin")
+    try:
+        with pytest.raises(ProgrammingError) as exc:
+            admin.exec_driver_sql("SELECT portal.set_active('p_admin', false)")
+        assert exc.value.orig.sqlstate == "P0001"
+        assert "own account" in str(exc.value.orig)
+        admin.rollback()
+    finally:
+        admin.exec_driver_sql("RESET ROLE"); admin.commit(); admin.close()
+    with engine.connect() as c:
+        assert c.execute(text("SELECT rolcanlogin FROM pg_roles WHERE rolname = 'p_admin'")).scalar_one() is True
+
+
+def test_set_active_blocks_disabling_last_active_admin(engine):
+    # p_admin is the only active cplan admin in this fixture. An explicit
+    # p_caller bypasses the self-guard, so this exercises the last-admin rule
+    # in isolation (the cross-project case a future second registry row makes
+    # reachable without any bypass).
+    admin = _as(engine, "p_admin")
+    try:
+        with pytest.raises(ProgrammingError) as exc:
+            admin.exec_driver_sql("SELECT portal.set_active('p_admin', false, 'someone_else')")
+        assert exc.value.orig.sqlstate == "P0001"
+        assert "last active admin" in str(exc.value.orig)
+        admin.rollback()
+    finally:
+        admin.exec_driver_sql("RESET ROLE"); admin.commit(); admin.close()
+
+
+def test_set_active_allows_disable_when_another_active_admin_exists(engine):
+    admin = _as(engine, "p_admin")
+    try:
+        admin.exec_driver_sql("SELECT portal.create_user('second_admin', 'pw-2nd', 'cplan', 'admin')"); admin.commit()
+        admin.exec_driver_sql("SELECT portal.set_active('second_admin', false)"); admin.commit()
+        # Re-enabling is never guarded.
+        admin.exec_driver_sql("SELECT portal.set_active('second_admin', true)"); admin.commit()
+    finally:
+        admin.rollback(); admin.exec_driver_sql("RESET ROLE"); admin.commit(); admin.close()
+    with engine.connect() as c:
+        assert c.execute(text("SELECT rolcanlogin FROM pg_roles WHERE rolname = 'second_admin'")).scalar_one() is True
+
+
+def test_no_guard_free_set_active_overload_remains(engine):
+    # CREATE OR REPLACE cannot change a signature; apply_portal must have
+    # dropped the legacy (text, boolean) variant, or the API's two-argument
+    # call would silently resolve to the unguarded overload.
+    with engine.connect() as c:
+        count = c.execute(
+            text(
+                "SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace "
+                "WHERE n.nspname = 'portal' AND p.proname = 'set_active'"
+            )
+        ).scalar_one()
+    assert count == 1

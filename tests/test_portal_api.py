@@ -147,3 +147,13 @@ def test_unexpected_db_fault_is_not_masked_as_422(portal):
     finally:
         with portal.state.engine.begin() as c:
             c.exec_driver_sql("DELETE FROM portal.projects WHERE slug = 'brokenproj'")
+
+
+def test_admin_cannot_disable_own_account_via_endpoint(portal):
+    admin = login(portal, "pa_admin")
+    denied = admin.post("/api/portal/users/pa_admin/active", json={"active": False})
+    assert denied.status_code == 422, denied.text
+    assert denied.json()["detail"]["code"] == "invalid_input"
+    assert "own account" in denied.json()["detail"]["message"]
+    # Still enabled and still able to act.
+    assert admin.get("/api/portal/users").status_code == 200
