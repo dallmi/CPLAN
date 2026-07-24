@@ -142,3 +142,42 @@ def test_user_mutators_reject_reserved_roles(engine):
         set_user_password(engine, "cplan_sync", "x")
     with pytest.raises(ValueError):
         create_user(engine, "cplan_viewer", "x", "viewer")
+
+
+def test_apply_roles_survives_existing_change_log_view(engine):
+    """Regression: v_change_log references activity_changes.actor.
+
+    apply_roles must not fail trying to widen a column a view depends on
+    (Postgres SQLSTATE 0A000 FeatureNotSupported). New databases already have
+    actor as VARCHAR(64), so the widen is skipped and the view is left intact.
+    """
+    from pipeline.api.views import ensure_analysis_views
+
+    ensure_analysis_views(engine)
+    apply_roles(engine)  # must not raise even with the view present
+    with engine.connect() as connection:
+        assert connection.execute(
+            text("SELECT 1 FROM pg_views WHERE viewname = 'v_change_log'")
+        ).first() is not None
+
+
+def test_apply_roles_widens_narrow_actor_despite_view(engine):
+    """When actor is genuinely narrower than 64, the dependent view is dropped and the widen succeeds."""
+    from pipeline.api.views import ensure_analysis_views
+
+    with engine.begin() as connection:
+        connection.exec_driver_sql("DROP VIEW IF EXISTS v_change_log")
+        connection.exec_driver_sql("ALTER TABLE activity_changes ALTER COLUMN actor TYPE VARCHAR(16)")
+    ensure_analysis_views(engine)  # recreate the view so it now blocks a naive ALTER
+
+    apply_roles(engine)  # must drop the view, widen, and not raise
+
+    with engine.connect() as connection:
+        length = connection.execute(
+            text(
+                "SELECT character_maximum_length FROM information_schema.columns "
+                "WHERE table_name = 'activity_changes' AND column_name = 'actor'"
+            )
+        ).scalar_one()
+        assert length == 64
+    ensure_analysis_views(engine)  # restore the view for any later test

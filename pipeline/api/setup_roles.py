@@ -74,8 +74,22 @@ def apply_roles(engine: Engine) -> None:
         c.exec_driver_sql("UPDATE activities SET created_by = 'cplan_sync' WHERE created_by IS NULL")
         c.exec_driver_sql("ALTER TABLE activities ALTER COLUMN created_by SET NOT NULL")
         c.exec_driver_sql("ALTER TABLE activities ALTER COLUMN created_by SET DEFAULT current_user")
-        # -- audit actor must fit real usernames, not just 'studio'/'sync'/'seed'
-        c.exec_driver_sql("ALTER TABLE activity_changes ALTER COLUMN actor TYPE VARCHAR(64)")
+        # -- audit actor must fit real usernames, not just 'studio'/'sync'/'seed'.
+        # Idempotent and view-safe: new databases already get VARCHAR(64) from the
+        # model, so skip the ALTER unless the column is genuinely narrower. When a
+        # widen IS needed, drop the one analysis view that references actor first --
+        # Postgres refuses to change the type of a column a view depends on
+        # (SQLSTATE 0A000); ensure_analysis_views recreates the view on the next
+        # app startup.
+        actor_len = c.execute(
+            text(
+                "SELECT character_maximum_length FROM information_schema.columns "
+                "WHERE table_name = 'activity_changes' AND column_name = 'actor'"
+            )
+        ).scalar()
+        if actor_len is not None and actor_len < 64:
+            c.exec_driver_sql("DROP VIEW IF EXISTS v_change_log")
+            c.exec_driver_sql("ALTER TABLE activity_changes ALTER COLUMN actor TYPE VARCHAR(64)")
 
         # -- grants: viewer ⊂ contributor ⊂ editor ⊂ admin; sync writes like an editor
         c.exec_driver_sql("GRANT USAGE ON SCHEMA public TO cplan_viewer")
