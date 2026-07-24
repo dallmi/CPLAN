@@ -17,16 +17,32 @@ param(
 
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
-$python = Join-Path $root ".venv\Scripts\python.exe"
+# Resolve the Python interpreter: CPLAN_PYTHON override, then an active venv,
+# then a repo-local .venv. Set CPLAN_PYTHON once (setx) to use a venv you set
+# up elsewhere, without moving it into the repo.
+function Resolve-CplanPython {
+    if ($env:CPLAN_PYTHON -and (Test-Path $env:CPLAN_PYTHON)) { return $env:CPLAN_PYTHON }
+    if ($env:VIRTUAL_ENV) {
+        $p = Join-Path $env:VIRTUAL_ENV "Scripts\python.exe"
+        if (Test-Path $p) { return $p }
+    }
+    $p = Join-Path $root ".venv\Scripts\python.exe"
+    if (Test-Path $p) { return $p }
+    return $null
+}
 
-if (-not (Test-Path $python)) {
-    Write-Host "Virtualenv not found at $python" -ForegroundColor Red
-    Write-Host "Set it up once with:" -ForegroundColor Yellow
+$python = Resolve-CplanPython
+if (-not $python) {
+    Write-Host "No Python environment found for CPLAN." -ForegroundColor Red
+    Write-Host "Point the launcher at your existing venv once, then open a NEW window:" -ForegroundColor Yellow
+    Write-Host '  setx CPLAN_PYTHON "C:\path\to\your\venv\Scripts\python.exe"'
+    Write-Host "Or create a repo venv:" -ForegroundColor Yellow
     Write-Host "  py -m venv .venv"
     Write-Host "  .venv\Scripts\python -m pip install -r pipeline\api\requirements.txt"
     Write-Host "  .venv\Scripts\python -m pip install pandas duckdb"
     exit 1
 }
+Write-Host "Using Python: $python" -ForegroundColor DarkGray
 
 Push-Location $root
 $env:PYTHONPATH = "."
