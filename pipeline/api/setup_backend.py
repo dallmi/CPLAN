@@ -42,7 +42,11 @@ def default_pgdata_dir() -> Path:
 
     Windows: `%LOCALAPPDATA%/CPLAN/postgres` (falls back to `~/AppData/Local` if
     the env var is somehow unset -- it always is on a real Windows session).
-    macOS: `~/Library/Application Support/CPLAN/postgres`.
+    macOS: `~/.cplan/postgres` -- deliberately NOT the conventional
+    `~/Library/Application Support`: that path contains a space, and pgserver's
+    POSIX start passes the socket directory through pg_ctl's `-o` option, which
+    splits on whitespace -- postgres then dies with
+    `invalid argument: "Support/CPLAN/postgres"` on every start.
     Linux: `$XDG_DATA_HOME/CPLAN/postgres`, or `~/.local/share/CPLAN/postgres`.
 
     Branches on `sys.platform` rather than `os.name`: `os.name` also selects
@@ -55,7 +59,7 @@ def default_pgdata_dir() -> Path:
         local_app_data = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
         return Path(local_app_data) / "CPLAN" / "postgres"
     if sys.platform == "darwin":
-        return Path.home() / "Library" / "Application Support" / "CPLAN" / "postgres"
+        return Path.home() / ".cplan" / "postgres"
     xdg_data_home = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
     return Path(xdg_data_home) / "CPLAN" / "postgres"
 

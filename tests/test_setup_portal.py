@@ -226,3 +226,15 @@ def test_no_guard_free_set_active_overload_remains(engine):
             )
         ).scalar_one()
     assert count == 1
+
+
+def test_portal_users_view_excludes_group_and_service_roles(engine):
+    """The privilege hierarchy makes group roles members of each other; they
+    must never list as pseudo-users ("cplan_admin / editor / Disabled")."""
+    apply_portal(engine)  # ensure the current view definition
+    with engine.connect() as c:
+        usernames = set(c.execute(text("SELECT username FROM portal.users")).scalars())
+    assert usernames.isdisjoint(
+        {"cplan_viewer", "cplan_contributor", "cplan_editor", "cplan_admin", "cplan_sync"}
+    )
+    assert "p_admin" in usernames

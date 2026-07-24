@@ -24,7 +24,7 @@ $manifest = @(
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
     @{ Path = "pipeline\api\setup_roles.py";   Marker = "DROP VIEW IF EXISTS v_change_log";  Why = "view-dependency fix for actor column" },
     @{ Path = "pipeline\api\session.py";       Marker = "build_session_dependencies";        Why = "shared SET ROLE session module" },
-    @{ Path = "pipeline\api\setup_portal.py";  Marker = "p_caller";                          Why = "self/last-admin disable guards" },
+    @{ Path = "pipeline\api\setup_portal.py";  Marker = "not accounts";                      Why = "disable guards + user list hides group roles" },
     @{ Path = "pipeline\portal\app.py";        Marker = "Refusing to start";                 Why = "portal fails closed without auth" },
     @{ Path = "pipeline\portal\static\app.js"; Marker = 'target="_blank"';                    Why = "tiles open in a new tab; server messages on row actions" },
     @{ Path = "pipeline\portal\static\index.html"; Marker = 'rel="icon"';                     Why = "portal landing page incl. favicon" },

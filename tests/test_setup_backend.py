@@ -170,8 +170,11 @@ def test_default_pgdata_dir_on_windows_falls_back_without_localappdata(monkeypat
 def test_default_pgdata_dir_on_macos(monkeypatch):
     monkeypatch.setattr(setup_backend.sys, "platform", "darwin")
 
-    expected = Path.home() / "Library" / "Application Support" / "CPLAN" / "postgres"
+    # NOT ~/Library/Application Support: its space breaks pgserver's POSIX
+    # socket-dir option (pg_ctl -o splits on whitespace) on every start.
+    expected = Path.home() / ".cplan" / "postgres"
     assert default_pgdata_dir() == expected
+    assert " " not in str(expected)
 
 
 def test_default_pgdata_dir_on_linux_uses_xdg_data_home(monkeypatch):

@@ -177,7 +177,16 @@ JOIN pg_roles g ON g.oid = am.roleid
 JOIN portal.projects p ON g.rolname IN (
     p.role_prefix || '_viewer', p.role_prefix || '_contributor',
     p.role_prefix || '_editor', p.role_prefix || '_admin')
-WHERE u.rolname NOT IN ('cplan_authenticator', 'portal_owner');
+WHERE u.rolname NOT IN ('cplan_authenticator', 'portal_owner')
+  -- Group and service roles are not accounts: the privilege hierarchy
+  -- (GRANT <prefix>_viewer TO <prefix>_contributor TO ...) makes the group
+  -- roles members of each other, so without this filter they would list as
+  -- pseudo-users ("cplan_admin / editor / Disabled").
+  AND u.rolname NOT IN (
+      SELECT p2.role_prefix || suffix.s
+      FROM portal.projects p2,
+           (VALUES ('_viewer'), ('_contributor'), ('_editor'), ('_admin'), ('_sync')) AS suffix(s)
+  );
 """
 
 _FUNCTIONS = (
