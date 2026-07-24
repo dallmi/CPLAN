@@ -40,7 +40,7 @@ try {
     else {
         if (-not $hasSecret) {
             Write-Host "CPLAN_AUTH_SECRET not set -> studio only (solo mode, no login/portal)." -ForegroundColor Yellow
-            Write-Host "Enable the portal once with: setx CPLAN_AUTH_SECRET (python -c ""import secrets;print(secrets.token_urlsafe(48))"")  then open a NEW window." -ForegroundColor Yellow
+            Write-Host 'Enable the portal once with: setx CPLAN_AUTH_SECRET (python -c "import secrets;print(secrets.token_urlsafe(48))")  then open a NEW window.' -ForegroundColor Yellow
         }
         Start-Sleep -Seconds 2
         Start-Process "http://127.0.0.1:8780/"

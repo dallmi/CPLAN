@@ -26,7 +26,7 @@ if (-not (Test-Path $python)) {
 if ([string]::IsNullOrEmpty($env:CPLAN_AUTH_SECRET)) {
     Write-Host "CPLAN_AUTH_SECRET is not set — the portal will refuse to start." -ForegroundColor Red
     Write-Host "Set it once (then open a NEW window so it takes effect):" -ForegroundColor Yellow
-    Write-Host "  setx CPLAN_AUTH_SECRET (python -c ""import secrets;print(secrets.token_urlsafe(48))"")"
+    Write-Host '  setx CPLAN_AUTH_SECRET (python -c "import secrets;print(secrets.token_urlsafe(48))")'
     exit 1
 }
 
