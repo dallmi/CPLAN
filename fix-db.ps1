@@ -47,6 +47,19 @@ try {
     & $python -m pipeline.scripts.cplan_db --stop
     # A non-zero exit here usually just means it was not running - that is fine.
 
+    # Kill any orphaned CPLAN postgres.exe left behind by an unclean shutdown.
+    # These keep the data directory's files locked ("sharing violation on ./log"),
+    # which blocks the next start. Scoped by command line to the CPLAN data
+    # directory so no unrelated PostgreSQL is touched. Needs no admin rights.
+    $pgdata = Join-Path $env:LOCALAPPDATA "CPLAN\postgres"
+    $orphans = Get-CimInstance Win32_Process -Filter "Name = 'postgres.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -and $_.CommandLine -like "*CPLAN*postgres*" }
+    if ($orphans) {
+        Write-Host "Killing $($orphans.Count) orphaned postgres.exe process(es) holding the data directory..." -ForegroundColor Cyan
+        foreach ($p in $orphans) { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }
+        Start-Sleep -Seconds 2
+    }
+
     Write-Host "`nDatabase reset to a clean, stopped state." -ForegroundColor Green
     Write-Host "Next: double-click setup.cmd (if setup never finished) or start.cmd -" -ForegroundColor Green
     Write-Host "it will cold-start a fresh server itself. Do NOT run any other CPLAN" -ForegroundColor Green
