@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
@@ -97,7 +99,7 @@ def embedded_database_url(pgdata: str | os.PathLike[str]) -> str:
 
     pgdata_path = Path(pgdata).expanduser()
     pgdata_path.parent.mkdir(parents=True, exist_ok=True)
-    server = pgserver.get_server(str(pgdata_path), cleanup_mode=None)
+    server = _get_server_through_recovery(pgserver, pgdata_path)
     _ensure_embedded_database_exists(server)
     _harden_local_authentication(server)
     return (
@@ -105,6 +107,40 @@ def embedded_database_url(pgdata: str | os.PathLike[str]) -> str:
         .set(drivername="postgresql+psycopg", database=EMBEDDED_DATABASE_NAME)
         .render_as_string(hide_password=False)
     )
+
+
+def _get_server_through_recovery(pgserver, pgdata_path, total_wait: float = 120.0, poll: float = 10.0):
+    """`pgserver.get_server`, tolerating a slow crash-recovery start.
+
+    After an unclean shutdown -- common on Windows, where closing the owning
+    console delivers Ctrl+C to postgres' backend processes and the postmaster
+    crash-restarts (exception 0xC000013A / STATUS_CONTROL_C_EXIT) -- the next
+    start must replay WAL before it accepts connections. pgserver's internal
+    `pg_ctl start` has a fixed 10s subprocess timeout that this recovery
+    routinely exceeds on a corp machine (antivirus + WAL replay), raising
+    `subprocess.TimeoutExpired` (or a `pg_ctl` "already running" error while the
+    launched postmaster is still recovering in the background). The postmaster
+    keeps recovering regardless, so we retry: once it accepts connections,
+    get_server attaches to it in well under a second instead of starting a new
+    one (measured: cold start ~0.5s, attach ~0.00s). Bounded, so a genuine
+    misconfiguration still fails with a clear, actionable error.
+    """
+    polls = max(1, int(total_wait // poll))
+    last_error: Exception | None = None
+    for attempt in range(polls + 1):
+        try:
+            return pgserver.get_server(str(pgdata_path), cleanup_mode=None)
+        except (subprocess.TimeoutExpired, subprocess.CalledProcessError) as error:
+            last_error = error
+            if attempt < polls:
+                time.sleep(poll)
+    raise RuntimeError(
+        f"The embedded PostgreSQL server did not become ready in {total_wait:.0f}s. "
+        "Crash recovery may still be running after an unclean shutdown (e.g. a "
+        "console window closed while it was connected), or the data directory is "
+        "unavailable. Wait a minute and retry, or stop it cleanly first with: "
+        "python -m pipeline.scripts.cplan_db --stop"
+    ) from last_error
 
 
 def _harden_local_authentication(server) -> None:

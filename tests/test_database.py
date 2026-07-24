@@ -295,3 +295,34 @@ def test_tracking_id_unique_index_allows_duplicates_among_legacy_rows(tmp_path):
         )
         session.commit()  # must not raise
     engine.dispose()
+
+
+def test_get_server_through_recovery_retries_slow_crash_recovery():
+    """A slow crash-recovery start (pg_ctl 10s subprocess timeout) is retried, not fatal."""
+    import subprocess
+
+    calls = {"n": 0}
+
+    class RecoveringPgserver:
+        def get_server(self, pgdata, cleanup_mode=None):
+            calls["n"] += 1
+            if calls["n"] <= 2:
+                raise subprocess.TimeoutExpired(cmd="pg_ctl", timeout=10)
+            return SimpleNamespace(get_uri=lambda: "postgresql://postgres:@/postgres?host=/x")
+
+    server = database._get_server_through_recovery(
+        RecoveringPgserver(), "/tmp/pgdata", total_wait=1.0, poll=0.01
+    )
+    assert server.get_uri().startswith("postgresql://")
+    assert calls["n"] == 3
+
+
+def test_get_server_through_recovery_gives_up_with_actionable_error():
+    import subprocess
+
+    class NeverReady:
+        def get_server(self, pgdata, cleanup_mode=None):
+            raise subprocess.TimeoutExpired(cmd="pg_ctl", timeout=10)
+
+    with pytest.raises(RuntimeError, match="did not become ready"):
+        database._get_server_through_recovery(NeverReady(), "/tmp/pgdata", total_wait=0.05, poll=0.01)
