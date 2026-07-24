@@ -76,10 +76,15 @@
   // --- SVG donut (thin ring, white dividers, large white centre) ---
   const DONUT_SEQUENCE = ['#404040', '#B98E2C', '#8E8D83', '#CCCABC', '#5A5D5C', '#946F29', '#B8B3A2', '#6C5312'];
   // Priority is a neutral portfolio mix, not a status judgement: Bordeaux
-  // anchors Critical, warm greys carry the rest — RAG stays reserved for
-  // data-driven exceptions (short notice, conflicts, incomplete).
+  // anchors Critical, then bronze + spaced warm greys carry the rest so four
+  // adjacent levels stay distinct on the thin ring instead of blurring into one
+  // beige. RAG stays reserved for data-driven exceptions (short notice,
+  // conflicts, incomplete). Unknown vocabularies fall back to distinct colours
+  // by position rather than one flat bronze.
   const PRIORITY_RANKS = {critical: 4, high: 3, medium: 2, normal: 1, low: 0};
-  const PRIORITY_DONUT_COLORS = {critical: '#620004', high: '#5A5D5C', medium: '#8E8D83', normal: '#B8B3A2', low: '#CCCABC'};
+  const PRIORITY_DONUT_COLORS = {critical: '#620004', high: '#B98E2C', medium: '#7A7870', normal: '#B8B3A2', low: '#CCCABC'};
+  const PRIORITY_FALLBACK = ['#404040', '#B98E2C', '#8E8D83', '#CCCABC', '#946F29', '#5A5D5C'];
+  const priorityColor = (label, i) => PRIORITY_DONUT_COLORS[String(label).toLowerCase()] || PRIORITY_FALLBACK[i % PRIORITY_FALLBACK.length];
 
   function donutHtml(entries, colorOf, centerText) {
     if (!entries.length) return emptyState(EMPTY_ICONS.barChart, 'No data available', 'Nothing to show for the current selection.');
@@ -106,16 +111,30 @@
       const date = A.parseDate(row.start_date);
       if (!date) return;
       const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-      buckets.set(key, (buckets.get(key) || 0) + 1);
+      const bucket = buckets.get(key) || {internal: 0, external: 0};
+      bucket[row.source_type === 'external' ? 'external' : 'internal'] += 1;
+      buckets.set(key, bucket);
     });
     const keys = Array.from(buckets.keys()).sort().slice(-18);
     if (!keys.length) return emptyState(EMPTY_ICONS.barChart, 'No dated activities in range', 'Adjust the time filter to see the monthly trend.');
-    const max = Math.max(...keys.map(key => buckets.get(key)), 1);
+    const totalOf = key => buckets.get(key).internal + buckets.get(key).external;
+    const max = Math.max(...keys.map(totalOf), 1);
     const label = key => {
       const [y, m] = key.split('-');
       return `${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][Number(m) - 1]} ${y.slice(2)}`;
     };
-    return `<div class="trend">${keys.map(key => `<div class="trend-col"><span class="trend-value">${fmtNum(buckets.get(key))}</span><div class="trend-bar" style="height:${buckets.get(key) / max * 100}%"></div></div>`).join('')}</div><div class="trend-labels">${keys.map(key => `<span class="trend-label">${label(key)}</span>`).join('')}</div>`;
+    // Stacked: internal (grey) at the base, external (bronze) on top — same
+    // source-type colours as the timeline/calendar, so the split reads at a
+    // glance without cross-referencing the toggle.
+    const cols = keys.map(key => {
+      const bucket = buckets.get(key), total = totalOf(key);
+      const stack = ['external', 'internal'].map(type => bucket[type]
+        ? `<div class="trend-seg ${type}" style="height:${bucket[type] / total * 100}%" title="${fmtNum(bucket[type])} ${type}"></div>`
+        : '').join('');
+      return `<div class="trend-col"><span class="trend-value">${fmtNum(total)}</span><div class="trend-stack" style="height:${total / max * 100}%">${stack}</div></div>`;
+    }).join('');
+    const legend = `<div class="trend-legend"><i class="internal"></i>Internal<i class="external"></i>External</div>`;
+    return `<div class="trend">${cols}</div><div class="trend-labels">${keys.map(key => `<span class="trend-label">${label(key)}</span>`).join('')}</div>${legend}`;
   }
 
   const AUDIENCE_BANDS = ['< 1000', '1–10k', '10–50k', '50–100k', '> 100k'];
@@ -464,7 +483,7 @@
     // division), so no big centre number that could be misread as activities.
     document.getElementById('division-donut').innerHTML = donutHtml(countBy(rows,'business_division'),(label,i)=>DONUT_SEQUENCE[i%DONUT_SEQUENCE.length],'');
     const priorityEntries = countBy(rows,'priority').sort((a,b)=>(PRIORITY_RANKS[String(b[0]).toLowerCase()]??1)-(PRIORITY_RANKS[String(a[0]).toLowerCase()]??1));
-    document.getElementById('priority-donut').innerHTML = donutHtml(priorityEntries,label=>PRIORITY_DONUT_COLORS[String(label).toLowerCase()]||'#B98E2C');
+    document.getElementById('priority-donut').innerHTML = donutHtml(priorityEntries,priorityColor);
     renderTrend();
   }
 

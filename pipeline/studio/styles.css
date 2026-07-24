@@ -77,10 +77,17 @@ td.action-cell{overflow:visible}
 /* --- Monthly trend --- */
 .trend{display:flex;align-items:flex-end;gap:14px;height:180px;padding:8px 6px 0;border-bottom:1px solid var(--black)}
 .trend-col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;min-width:26px}
-.trend-bar{width:60%;max-width:46px;background:var(--grey-6)}
+.trend-stack{width:60%;max-width:46px;display:flex;flex-direction:column;justify-content:flex-end}
+.trend-seg{width:100%;min-height:2px}
+.trend-seg.internal{background:var(--grey-6)}
+.trend-seg.external{background:var(--bronze-1)}
 .trend-value{font-size:10px;font-weight:700;margin-bottom:4px}
 .trend-labels{display:flex;gap:14px;padding:6px 6px 0}
 .trend-label{flex:1;text-align:center;font-size:10px;color:var(--grey-4);min-width:26px}
+.trend-legend{display:flex;align-items:center;gap:6px;padding:10px 6px 0;font-size:10px;color:var(--grey-5)}
+.trend-legend i{width:12px;height:8px;display:inline-block}
+.trend-legend i.internal{background:var(--grey-6)}
+.trend-legend i.external{background:var(--bronze-1);margin-left:10px}
 
 /* --- Planning board swimlanes --- */
 .timeline-group{grid-column:1/-1;padding:7px 8px;font-size:11px;font-weight:700;background:var(--surface);border-bottom:1px solid var(--grey-1)}
