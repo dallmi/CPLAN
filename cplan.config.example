@@ -1,0 +1,16 @@
+# CPLAN local setup configuration.
+#
+# Copy this file to  cplan.config  and adjust the values, OR just run setup.cmd
+# once - it creates cplan.config for you from your current environment.
+# cplan.config is machine-specific and gitignored; this .example file is not.
+
+# Full path to the Python interpreter to use. Leave blank to fall back to
+# CPLAN_PYTHON, then an active virtualenv, then a repo-local .venv.
+# Example (Anaconda env): C:\Users\you\AppData\Local\Anaconda\envs\Analytics\python.exe
+PYTHON=
+
+# Login name for the first admin user created during setup.
+ADMIN_USER=a.admin
+
+# Database backend: postgres-embedded (recommended) | postgresql | sqlite
+BACKEND=postgres-embedded
