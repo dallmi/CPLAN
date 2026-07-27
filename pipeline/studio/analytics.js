@@ -5,10 +5,17 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
 
-  const REQUIRED_FIELDS = [
-    'activity_name', 'start_date', 'channel', 'lead_team',
-    'target_audience', 'priority', 'strategic_objectives', 'activity_description'
-  ];
+  // Single completeness authority, shared with the create/edit drawer
+  // (app.js reads REQUIRED_INTERNAL/REQUIRED_EXTERNAL off this module). The
+  // dashboard readiness badge, the "Drafts" KPI, the readiness filter and the
+  // attention queue all run through planningCompleteness() below, so a row is
+  // "complete" by exactly the same rule the create form enforces -- a synced
+  // row still missing its planning fields therefore reads as a draft
+  // everywhere, not "ready" in the table yet "draft" in the drawer.
+  const REQUIRED_COMMON = ['activity_name', 'channel', 'priority', 'strategic_objectives', 'activity_description', 'region', 'start_date', 'end_date', 'time_zone', 'lead', 'lead_team'];
+  const REQUIRED_INTERNAL = REQUIRED_COMMON.concat(['target_audience', 'audience', 'business_division']);
+  const REQUIRED_EXTERNAL = REQUIRED_COMMON.slice();
+  const requiredFor = row => (row && row.source_type === 'internal') ? REQUIRED_INTERNAL : REQUIRED_EXTERNAL;
 
   const empty = value => value === null || value === undefined || String(value).trim() === '' || value === 'None' || value === 'null';
 
@@ -32,14 +39,13 @@
   }
 
   function planningCompleteness(row) {
-    const missing = [];
-    for (const field of REQUIRED_FIELDS) {
-      if (field === 'lead_team') {
-        if (empty(row.lead_team) && empty(row.lead)) missing.push(field);
-      } else if (empty(row[field])) missing.push(field);
-    }
+    // lead and lead_team are two distinct required fields (the create form
+    // asks for both) -- no "either satisfies" shortcut, so the metric never
+    // calls a row complete that the drawer would still flag.
+    const required = requiredFor(row);
+    const missing = required.filter(field => empty(row[field]));
     return {
-      score: Math.round(((REQUIRED_FIELDS.length - missing.length) / REQUIRED_FIELDS.length) * 100),
+      score: Math.round(((required.length - missing.length) / required.length) * 100),
       missing
     };
   }
@@ -281,6 +287,9 @@
     applyChanges,
     attentionItems,
     weeklyCoverage,
-    parseDate
+    parseDate,
+    REQUIRED_INTERNAL,
+    REQUIRED_EXTERNAL,
+    requiredFor
   };
 });

@@ -140,9 +140,11 @@
 
   const AUDIENCE_BANDS = ['< 1000', '1–10k', '10–50k', '50–100k', '> 100k'];
   const MULTISELECT_FIELDS = ['strategic_objectives', 'business_division', 'region'];
-  const REQUIRED_COMMON = ['activity_name', 'channel', 'priority', 'strategic_objectives', 'activity_description', 'region', 'start_date', 'end_date', 'time_zone', 'lead', 'lead_team'];
-  const REQUIRED_INTERNAL = REQUIRED_COMMON.concat(['target_audience', 'audience', 'business_division']);
-  const REQUIRED_EXTERNAL = REQUIRED_COMMON.slice();
+  // Single source of truth lives in analytics.js so the dashboard readiness
+  // badge / "Drafts" KPI / filter (all via A.planningCompleteness) and this
+  // drawer share one variant-aware rule -- never two lists that can disagree.
+  const REQUIRED_INTERNAL = A.REQUIRED_INTERNAL;
+  const REQUIRED_EXTERNAL = A.REQUIRED_EXTERNAL;
   const FIELD_LABELS = {activity_name:'Activity name', channel:'Channel', priority:'Priority', strategic_objectives:'Communications pillars', activity_description:'Description', target_audience:'Target audience', audience:'Estimated audience size', business_division:'Business division', region:'Region', start_date:'Start date', end_date:'End date', time_zone:'Time zone', lead:'Lead', lead_team:'Lead team', campaign:'Campaign', communication_pack_cpid:'Communication pack', business_area:'Business area', partner_team:'Partner team', news_digest:'News digest', pack_name:'Pack name'};
   const CREATE_FIELDS = ['activity_name', 'activity_description', 'target_audience', 'business_division', 'business_area', 'region', 'channel', 'partner_team', 'lead_team', 'lead', 'start_date', 'end_date', 'time_zone', 'priority', 'strategic_objectives', 'campaign', 'communication_pack_cpid', 'audience'];
   const HISTORY_LIMIT = 30;
@@ -1027,10 +1029,11 @@
 
   // Same source of truth, applied to a persisted row instead of the live
   // form -- used for the post-save toast wording and the read-only detail
-  // view's "Saved as draft" notice (P13).
+  // view's "Saved as draft" notice (P13). Delegates to the exact function the
+  // table badge / KPI / filter use, so a row's draft status reads identically
+  // in the list and in the drawer.
   function missingRequiredForRow(row) {
-    const required=row.source_type==='internal'?REQUIRED_INTERNAL:REQUIRED_EXTERNAL;
-    return required.filter(name=>!nonempty(row[name]));
+    return A.planningCompleteness(row).missing;
   }
 
   function paintMissing(missingNames) {

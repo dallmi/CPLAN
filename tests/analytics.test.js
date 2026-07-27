@@ -144,23 +144,58 @@ test('collision left/right ordering follows original input index even when dates
   assert.equal(result[0].id, 'idx0-later-date::idx1-earlier-date');
 });
 
-test('planning completeness identifies missing applicable fields', () => {
-  const result = analytics.planningCompleteness({...base, priority: ''});
-  assert.equal(result.score, 88);
+// Completeness is variant-aware and matches the create form's required lists
+// (single source of truth shared with app.js). Internal needs all 14 fields,
+// external the 11 common ones. `base` alone is an incomplete internal row
+// (no region/time_zone/audience/business_division) -- exactly the shape a
+// source sync produces -- so it must read as a draft, not "ready".
+const internalComplete = {
+  ...base,
+  region: 'EMEA', time_zone: 'Europe/Zurich', audience: '10-50k', business_division: 'Retail'
+};
+const externalComplete = {...internalComplete, source_type: 'external'};
+
+test('a synced internal row missing its planning fields is not complete', () => {
+  const result = analytics.planningCompleteness(base);
+  assert.equal(result.score, 71); // 10 of 14 present
+  assert.deepEqual(result.missing, ['region', 'time_zone', 'audience', 'business_division']);
+});
+
+test('planning completeness scores a fully planned internal activity 100%', () => {
+  const result = analytics.planningCompleteness(internalComplete);
+  assert.equal(result.score, 100);
+  assert.deepEqual(result.missing, []);
+  // Campaign/pack membership is not a completeness field: a standalone
+  // activity with no campaign or pack still scores 100 when fully planned.
+  const standalone = analytics.planningCompleteness({...internalComplete, tracking_pack_id: '', communication_pack: '', campaign: ''});
+  assert.equal(standalone.score, 100);
+  assert.deepEqual(standalone.missing, []);
+});
+
+test('planning completeness identifies a single missing applicable field', () => {
+  const result = analytics.planningCompleteness({...internalComplete, priority: ''});
+  assert.equal(result.score, 93); // 13 of 14
   assert.deepEqual(result.missing, ['priority']);
 });
 
-test('planning completeness scores a standalone activity 100% when it has no campaign or pack', () => {
-  const standalone = {...base, tracking_pack_id: '', communication_pack: '', campaign: ''};
-  const result = analytics.planningCompleteness(standalone);
-  assert.equal(result.score, 100);
-  assert.deepEqual(result.missing, []);
+test('planning completeness flags a missing activity description', () => {
+  const result = analytics.planningCompleteness({...internalComplete, activity_description: ''});
+  assert.equal(result.score, 93);
+  assert.deepEqual(result.missing, ['activity_description']);
 });
 
-test('planning completeness flags a missing activity description', () => {
-  const result = analytics.planningCompleteness({...base, activity_description: ''});
-  assert.equal(result.score, 88);
-  assert.deepEqual(result.missing, ['activity_description']);
+test('external activities do not require the internal-only fields', () => {
+  const result = analytics.planningCompleteness(externalComplete);
+  assert.equal(result.score, 100);
+  assert.deepEqual(result.missing, []);
+  // ...and the same row as internal would flag the three internal-only gaps.
+  const asInternal = analytics.planningCompleteness({...externalComplete, source_type: 'internal', target_audience: '', audience: '', business_division: ''});
+  assert.deepEqual(asInternal.missing, ['target_audience', 'audience', 'business_division']);
+});
+
+test('lead and lead_team are both required (no either-satisfies shortcut)', () => {
+  const result = analytics.planningCompleteness({...internalComplete, lead_team: ''});
+  assert.deepEqual(result.missing, ['lead_team']);
 });
 
 test('lead time stats report distribution, short notice, and exclusions', () => {
