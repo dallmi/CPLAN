@@ -138,6 +138,15 @@ class StudioFlowTests(unittest.TestCase):
         )
 
     # --------------------------------------------------------------- P13
+    def test_create_chrome_clears_pack_width_for_both_callers(self):
+        # Review (whole-branch): .wide is only added by setScope('pack') and
+        # removed by setDrawerEditing; duplicate never touches scope, so
+        # without a reset here a prior pack session leaks 920px into the
+        # single-activity duplicate drawer. prepareCreateChrome is the shared
+        # seam for openCreateDrawer + openDuplicateDrawer.
+        chrome = _slice(self.app, "function prepareCreateChrome(", "\n  function ")
+        self.assertIn("classList.remove('wide')", chrome)
+
     def test_detail_rows_offer_field_scoped_edit_and_add(self):
         self.assertIn('class="row-edit" data-edit-field=', self.app)
         self.assertIn('class="detail-add" data-edit-field=', self.app)

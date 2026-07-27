@@ -1240,6 +1240,11 @@
     state.showErrors=false;
     clearMissingPaint();
     clearCreateAnotherButton();
+    // Width belongs to pack scope. Duplicate is always single-scope and never
+    // touches setScope, so clear the pack-width class here (shared by both
+    // create callers) or a prior pack session leaks its 920px into the
+    // single-activity duplicate drawer; openCreateDrawer's setScope re-widens.
+    document.getElementById('activity-drawer').classList.remove('wide');
     document.getElementById('drawer-eyebrow').textContent='Create';
     document.getElementById('drawer-title').textContent=title;
     setDrawerTracking(null);
