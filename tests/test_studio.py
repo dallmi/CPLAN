@@ -414,10 +414,6 @@ class StudioTests(unittest.TestCase):
         # DELETE verb actually used against the API
         self.assertIn('method: "DELETE"', app)
 
-
-if __name__ == "__main__":
-    unittest.main()
-
     def test_kit_compliance_pass(self):
         """Design-system pass: no ALL CAPS, grey eyebrows/asterisks, palette focus ring, neutral KPI tones."""
         css = (DASHBOARD / "styles.css").read_text(encoding="utf-8")
@@ -436,3 +432,23 @@ if __name__ == "__main__":
         self.assertIn("centerSub", app)
         self.assertIn("'mentions'", app)
         self.assertIn("'activities')", app)
+
+        # I11: no brand-colour tint tokens survive anywhere in the kit --
+        # status is carried by the 3px left rule or a badge dot, never a tint.
+        self.assertNotIn("-tint", css)
+        # I11: badges carry status via a coloured dot on a flat Pastel I fill.
+        self.assertIn(".badge .dot", css)
+        # P4 / kit: "No underlines. No ALL CAPS. No exceptions."
+        self.assertNotIn("text-decoration:underline", css)
+        # New class contract (T3-T5): the drawer's live-ready indicator.
+        self.assertIn(".ready-line", css)
+        # P5: flat cards on white -- no drop shadow (drawer/modal keep theirs).
+        self.assertNotIn("box-shadow", css.split(".card{", 1)[1].split("}", 1)[0])
+        self.assertIn("box-shadow", css.split(".drawer-panel", 1)[1].split("}", 1)[0])
+        # I10: focus rings never use the scarce red accent.
+        self.assertIn("[data-open-id]:focus-visible{outline:2px solid var(--info)", css)
+        self.assertNotIn("outline:2px solid var(--primary)", css)
+
+
+if __name__ == "__main__":
+    unittest.main()
