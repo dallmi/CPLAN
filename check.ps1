@@ -32,7 +32,7 @@ $manifest = @(
     @{ Path = "pipeline\studio\app.js";        Marker = "updateReady";                       Why = "workbench flow: live ready-line, draft save, pack table" },
     @{ Path = "pipeline\studio\styles.css";    Marker = "ready-line";                        Why = "workbench styling: ready-line, pack table, draft flow" },
     @{ Path = "pipeline\studio\index.html";    Marker = "scope-toggle";                      Why = "single create entry with one-channel/several-channels scope toggle" },
-    @{ Path = "pipeline\studio\analytics.js";  Marker = "CplanAnalytics";                    Why = "studio analytics engine present" },
+    @{ Path = "pipeline\studio\analytics.js";  Marker = "requiredFor";                       Why = "unified completeness rule that app.js reads (A.REQUIRED_INTERNAL) - old analytics.js lacks it and would break the drawer" },
     @{ Path = "pipeline\scripts\cplan_db.py";  Marker = "def stop";                          Why = "clean database stop" },
     @{ Path = "pipeline\scripts\start_portal.py"; Marker = "DEFAULT_PORT";                   Why = "portal launcher" },
     @{ Path = "setup.ps1";                     Marker = "cplan.config";                      Why = "config-driven one-time setup" },
