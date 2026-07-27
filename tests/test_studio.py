@@ -345,8 +345,9 @@ class StudioTests(unittest.TestCase):
         html = (DASHBOARD / "index.html").read_text(encoding="utf-8")
         app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
 
-        self.assertIn('id="pack-new"', html)
-        self.assertIn(">New pack<", html)
+        # I1: pack scope is reached in-drawer via #scope-toggle, not a
+        # dedicated "New pack" button (see test_studio_drawer.py for the
+        # single-CTA/scope-toggle markers this superseded).
         self.assertIn('id="pack-section"', html)
         self.assertIn('id="pack-channels"', html)
         self.assertIn('id="pack-rows"', html)

@@ -38,6 +38,23 @@
 .detail-row .row-edit{opacity:0;border:0;background:none;color:var(--info);font-size:11px;font-weight:600;padding:0}
 .detail-row:hover .row-edit,.detail-row .row-edit:focus-visible{opacity:1}
 .detail-row .row-edit:hover{color:var(--info-dark)}
+
+/* --- T3 entry point & drawer chrome (waves 1-2) --- */
+/* P8: required markers are grey non-italic "(required)", never red asterisks --
+   .f-label wraps single-field labels, .ms-field wraps multiselects, legend
+   covers the pack-section "Channels" group. */
+.f-label em,.ms-field em,legend em{font-style:normal;color:var(--grey-4)}
+/* T4 hook (T4 has no styles.css access): the missing-field paint state its
+   updateReady()/attemptSave() will toggle -- added now so that work is not
+   silently invisible once wired. */
+.f-label.missing input,.f-label.missing select,.f-label.missing textarea,.ms-field.missing .ms-trigger{border-color:var(--danger)}
+/* I1: pack scope needs more width for the per-channel table (T5). */
+.drawer.wide .drawer-panel{width:min(920px,96vw)}
+/* Stacked Activity-type + Scope segmented rows in the create drawer. */
+.form-variant+.form-variant{border-top:1px solid var(--surface);padding-top:12px}
+/* P12: spacing for the "Add a channel that is not listed" link-inline toggle
+   above its (collapsed by default) free-text row. */
+.pack-add-channel-toggle{margin-bottom:10px}
 .drawer-history{border-top:1px solid var(--surface);padding:16px 22px 22px}.drawer-history-head{margin-bottom:10px}.drawer-history-head h3{margin:0;font-size:13px;font-weight:600}.history-entry{padding:8px 0;border-bottom:1px solid var(--surface)}.history-entry:last-child{border-bottom:0}.history-meta{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:11px;color:var(--grey-4)}.history-actor{font-weight:600;color:var(--grey-6);white-space:nowrap}.history-detail{margin-top:3px;font-size:12px;color:var(--black)}.history-more{margin-top:8px;font-size:11px;color:var(--grey-4)}.history-loading{font-size:11px;color:var(--grey-4)}
 @media(max-width:1000px){.kpi-grid{grid-template-columns:repeat(2,1fr)}.grid.two,.grid.two-one{grid-template-columns:1fr}.topbar{align-items:flex-start}.top-actions{flex-wrap:wrap;justify-content:flex-end}.main-nav{top:96px}}
 @media(max-width:700px){.topbar{position:static;display:block;padding:13px 16px}.top-actions{margin-top:12px;justify-content:flex-start}.freshness{width:100%;border:0}.main-nav{position:static;padding:0 8px;overflow:auto}.content{padding:16px}.kpi-grid{grid-template-columns:1fr 1fr}.page-heading{align-items:flex-start}.filterbar{align-items:stretch}.filterbar>*{width:100%;margin-left:0!important}.calendar-day{min-height:70px}.form-grid{grid-template-columns:1fr}.conflict-pair{grid-template-columns:1fr}.conflict-vs{text-align:center}}

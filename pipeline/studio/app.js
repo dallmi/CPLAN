@@ -221,7 +221,6 @@
 
   function applyRoleGating() {
     document.getElementById('activity-new').hidden = !canCreate();
-    document.getElementById('pack-new').hidden = !canCreate();
   }
 
   function updateUserChip() {
@@ -914,7 +913,13 @@
   function applyVariant(sourceType) {
     const internal=sourceType==='internal';
     document.querySelectorAll('#activity-form [data-variant="internal"]').forEach(el=>{el.hidden=!internal;});
-    document.querySelectorAll('#activity-form .req[data-vreq]').forEach(el=>{el.hidden=!internal;});
+    document.querySelectorAll('#activity-form [data-vreq]').forEach(el=>{el.hidden=!internal;});
+    // P11: forward-framed per variant (kit rule -- describe what the current
+    // choice does, not what the other one lacks). Text per prototype setSource.
+    const variantHelp=document.querySelector('.variant-help');
+    if(variantHelp)variantHelp.textContent=internal
+      ?'Internal also captures audience size and news-digest consideration.'
+      :'External runs without the audience-size and news-digest fields.';
   }
 
   function currentSourceType() {
@@ -924,6 +929,11 @@
 
   function setSourceToggle(source) {
     document.querySelectorAll('#source-toggle button').forEach(btn=>btn.classList.toggle('active',btn.dataset.source===source));
+  }
+
+  function currentScope() {
+    const active=document.querySelector('#scope-toggle button.active');
+    return active?active.dataset.scope:'single';
   }
 
   function focusField(name) {
@@ -1093,25 +1103,48 @@
     hideConflictBanner();
     document.getElementById('detail-view').hidden=true;
     form().hidden=false;
-    document.querySelector('.drawer-actions').style.display='flex';
+    document.querySelector('.drawer-actions').style.display='grid';
     document.getElementById('form-validation').textContent='';
     document.getElementById('form-variant').hidden=false;
+    // I1: scope choice only makes sense while creating -- an existing
+    // activity has already committed to single or pack at creation time.
+    // Reset the toggle's visual state to single here (before any of the
+    // three callers' own setScope() calls, if any) so a stale 'pack' active
+    // class from an earlier session cannot leak into openDuplicateDrawer,
+    // which never calls setScope itself.
+    document.querySelectorAll('#scope-toggle button').forEach(btn=>btn.classList.toggle('active',btn.dataset.scope==='single'));
+    document.getElementById('scope-row').hidden=false;
+    // C2/I3: no version to conflict-check yet; the footer's ready-line
+    // (T4-wired) is the relevant signal while creating, not the save-hint.
+    document.getElementById('save-hint').hidden=true;
+    document.getElementById('ready-line').classList.remove('ready');
+    document.getElementById('ready-text').textContent='';
     document.getElementById('drawer-history').hidden=true;
     document.getElementById('pack-summary').hidden=true;
   }
 
   function openCreateDrawer(opener) {
     state.selected=null;state.creating=true;state.packing=false;state.editing=true;state.dirty=false;state.drawerOpener=opener||document.activeElement;
-    prepareCreateChrome('New activity','Single channel, single date — the tracking ID is minted on save from channel and start date.');
-    document.getElementById('drawer-save').textContent='Create activity';
+    state.customChannels=[];
+    // I1: single entry point -- title/note are scope-driven now, set by
+    // setScope('single') below rather than passed in here.
+    prepareCreateChrome('New activity','');
     setSourceToggle('internal');
     resetCreateForm();
-    setPackMode(false);
     applyVariant('internal');
     populateSelectOptions('internal');
     syncBelongsToFromFields();
     renderMultiselectOptions();
     setFormEnabled(true);
+    // Fresh slate for a genuinely new drawer session -- the pack checkbox/row
+    // DOM survives closeDrawer, so a previous pack session's selection and
+    // row values must not leak into this one. setScope('pack') re-renders
+    // non-destructively from here on (mid-session scope toggling keeps ticks).
+    document.getElementById('pack-channels').innerHTML='';
+    document.getElementById('pack-rows').innerHTML='';
+    document.getElementById('pack-channel-new').value='';
+    document.getElementById('pack-add-channel-row').hidden=true;
+    setScope('single');
     document.getElementById('activity-drawer').classList.add('open');
     document.getElementById('activity-drawer').setAttribute('aria-hidden','false');
     form().elements.activity_name.focus();
@@ -1126,6 +1159,33 @@
     document.querySelectorAll('#activity-form [data-pack-only]').forEach(el=>{el.hidden=!on;});
     document.querySelector('.pack-shared-heading').hidden=!on;
     if(!on)document.getElementById('pack-summary').hidden=true;
+  }
+
+  // I1: the in-drawer scope toggle is the single switch between the two
+  // create shapes -- it drives the existing state.packing machinery
+  // (setPackMode's data-single-only/data-pack-only visibility), widens the
+  // drawer, and swaps title/note per scope. Non-destructive: re-entering an
+  // already-rendered pack scope re-renders from the current DOM/state
+  // (packSelectedChannels/packRowValues), it does not clear channel ticks or
+  // row edits -- only openCreateDrawer clears pack-channels/pack-rows, once,
+  // for a genuinely fresh drawer session.
+  function setScope(scope) {
+    state.packing=scope==='pack';
+    document.querySelectorAll('#scope-toggle button').forEach(btn=>btn.classList.toggle('active',btn.dataset.scope===scope));
+    document.getElementById('activity-drawer').classList.toggle('wide',state.packing);
+    document.getElementById('drawer-title').textContent=state.packing?'New communication pack':'New activity';
+    const noteEl=document.getElementById('drawer-note');
+    noteEl.textContent=state.packing
+      ?'Pick channels first — each channel becomes one activity with its own tracking ID.'
+      :'Single channel, single date — the tracking ID is minted on save from channel and start date.';
+    noteEl.hidden=false;
+    setPackMode(state.packing);
+    if(state.packing){
+      renderPackChannels(currentSourceType());
+      renderPackRows();
+    } else {
+      document.getElementById('drawer-save').textContent='Create activity';
+    }
   }
 
   function packSelectedChannels() {
@@ -1190,25 +1250,11 @@
   }
 
   function openPackDrawer(opener) {
-    state.selected=null;state.creating=false;state.packing=true;state.editing=true;state.dirty=false;state.customChannels=[];state.drawerOpener=opener||document.activeElement;
-    prepareCreateChrome('New communication pack','Pick channels first — each channel becomes one activity with its own tracking ID.');
-    setSourceToggle('internal');
-    resetCreateForm();
-    applyVariant('internal');
-    populateSelectOptions('internal');
-    renderMultiselectOptions();
-    setFormEnabled(true);
-    setPackMode(true);
-    // Start from a clean slate: the checkbox/row DOM survives closeDrawer, so
-    // a previous pack session's selection and row values must not leak into a
-    // new pack (renderPackChannels/renderPackRows preserve current DOM state).
-    document.getElementById('pack-channels').innerHTML='';
-    document.getElementById('pack-rows').innerHTML='';
-    document.getElementById('pack-channel-new').value='';
-    renderPackChannels('internal');
-    renderPackRows();
-    document.getElementById('activity-drawer').classList.add('open');
-    document.getElementById('activity-drawer').setAttribute('aria-hidden','false');
+    // I1: pack scope is reached in-drawer via #scope-toggle now (single CTA,
+    // no dedicated "New pack" button) -- this stays as a direct pack-scope
+    // entry point built on the same unified chrome/state setup.
+    openCreateDrawer(opener);
+    setScope('pack');
     form().elements.pack_name.focus();
   }
 
@@ -1455,9 +1501,19 @@
     document.getElementById('detail-view').hidden=editing;
     form().hidden=!editing;
     if(state.selected)setDrawerTracking(state.selected,editing);
+    // P1/P2: the eyebrow names the mode; the mode bar (badge/edit/duplicate/
+    // delete) is only useful read-only -- while editing it is hidden and its
+    // version-check hint lives in the footer's #save-hint instead.
+    document.getElementById('drawer-eyebrow').textContent=editing?'Editing':'Activity detail';
+    document.getElementById('drawer-mode').hidden=editing;
+    // Scope only means anything while creating -- an existing activity
+    // already committed to single or pack at creation time (setDrawerEditing
+    // is never reached from the create/pack flows, only from an existing
+    // record's view<->edit toggle, so this is unconditional here).
+    document.getElementById('scope-row').hidden=true;
+    document.getElementById('activity-drawer').classList.remove('wide');
     document.getElementById('drawer-mode-label').textContent=editing?'Editing':'Read only';
     document.getElementById('drawer-mode-label').className=`badge ${editing?'info':'neutral'}`;
-    document.getElementById('drawer-mode-hint').hidden=!editing;
     // Edit gates on this specific activity (editor/admin always; contributor
     // only on their own rows). Duplicate creates a NEW activity owned by the
     // duplicator, so it gates on canCreate() — any contributor may duplicate
@@ -1469,7 +1525,8 @@
     document.getElementById('drawer-duplicate').style.display=duplicateAllowed?'inline-block':'none';
     document.getElementById('drawer-delete').textContent='Delete activity';
     document.getElementById('drawer-delete').hidden=!(!editing&&state.selected&&canDelete());
-    document.querySelector('.drawer-actions').style.display=editing?'flex':'none';
+    document.querySelector('.drawer-actions').style.display=editing?'grid':'none';
+    document.getElementById('save-hint').hidden=!editing;
     document.getElementById('drawer-save').textContent='Save activity';
     document.getElementById('form-validation').textContent='';
     // History is a read-only panel: never shown while editing.
@@ -1739,7 +1796,6 @@
     document.getElementById('activity-clear').onclick=()=>{state.queueFilter=null;['activity-search','activity-source','activity-channel','activity-priority','activity-campaign','activity-readiness'].forEach(id=>document.getElementById(id).value='');runActivityFilters();};
     document.getElementById('activity-export').onclick=exportFilteredCsv;
     document.getElementById('activity-new').onclick=event=>openCreateDrawer(event.currentTarget);
-    document.getElementById('pack-new').onclick=event=>openPackDrawer(event.currentTarget);
     document.getElementById('pack-channels').addEventListener('change',()=>{renderPackRows();state.dirty=true;});
     document.getElementById('pack-rows').addEventListener('input',updatePackSubmitLabel);
     form().elements.pack_name.addEventListener('input',()=>{if(state.packing)updatePackStubs();});
@@ -1757,6 +1813,14 @@
       form().elements.campaign.value=document.getElementById('belongs-new').value;
       if(state.editing)state.dirty=true;
     });
+    // P12: the free-text add-channel input stays behind a link-inline toggle
+    // (it is the escape hatch for a genuinely missing channel, not the
+    // default path -- ticking an existing channel above is).
+    document.getElementById('pack-channel-toggle').onclick=()=>{
+      const row=document.getElementById('pack-add-channel-row');
+      row.hidden=!row.hidden;
+      if(!row.hidden)document.getElementById('pack-channel-new').focus();
+    };
     document.getElementById('pack-channel-add').onclick=()=>{
       const input=document.getElementById('pack-channel-new');
       const channel=String(input.value||'').trim();
@@ -1766,6 +1830,7 @@
       const box=Array.from(document.querySelectorAll('#pack-channels input')).find(item=>item.value===channel);
       if(box)box.checked=true;
       input.value='';
+      document.getElementById('pack-add-channel-row').hidden=true;
       renderPackRows();
       state.dirty=true;
     };
@@ -1776,6 +1841,15 @@
       setSourceToggle(source);applyVariant(source);populateSelectOptions(source);renderMultiselectOptions();
       if(state.packing){renderPackChannels(source);renderPackRows();}
       if(state.editing)state.dirty=true;
+    };
+    // I1: setScope('pack') drives the existing state.packing machinery --
+    // same data-single-only/data-pack-only visibility, .drawer.wide, and
+    // pack-channel rendering openPackDrawer used, now reachable mid-session.
+    document.getElementById('scope-toggle').onclick=event=>{
+      const btn=event.target.closest('button');if(!btn)return;
+      const scope=btn.dataset.scope;if(scope===currentScope())return;
+      state.dirty=true;
+      setScope(scope);
     };
     document.querySelectorAll('[data-close-drawer]').forEach(el=>el.onclick=async()=>{if(await confirmDiscardIfDirty())closeDrawer();});
     document.getElementById('drawer-edit').onclick=()=>{if(!state.selected||!state.selected.id){toast('Database ID required for safe editing');return;}setDrawerEditing(true);};
