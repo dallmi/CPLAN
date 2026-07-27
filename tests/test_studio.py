@@ -280,11 +280,11 @@ class StudioTests(unittest.TestCase):
         self.assertIn("Status unavailable", app)
         # Metric-line counts in the specified format.
         self.assertIn("new · ${fmtNum(sync.updated)} updated · ${fmtNum(sync.conflicts)} conflicts · ${fmtNum(sync.local_only)} local-only", app)
-        # Conflict warning line, RAG amber via the existing --warning/--warning-tint vars.
+        # Conflict warning line: RAG amber carried by the .notice.warn class
+        # (kit pass I11 removed the brand-colour tints and inline styles).
         self.assertIn("source conflicts overrode local edits (source wins).", app)
         self.assertIn("sync.conflicts > 0", app)
-        self.assertIn("var(--warning)", app)
-        self.assertIn("var(--warning-tint)", app)
+        self.assertIn('class="notice warn"', app)
         # Reuses the existing metric-line/notice design-system classes, no new ones.
         self.assertIn('class="metric-line"', app)
         self.assertIn('class="notice"', app)

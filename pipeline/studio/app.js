@@ -726,7 +726,7 @@
       `<div class="metric-line"><span>Sync summary</span><strong>+${fmtNum(sync.created)} new · ${fmtNum(sync.updated)} updated · ${fmtNum(sync.conflicts)} conflicts · ${fmtNum(sync.local_only)} local-only</strong></div>`,
     ];
     if (sync.conflicts > 0) {
-      lines.push(`<div class="notice" style="border-left-color:var(--warning);background:var(--warning-tint)"><strong>${fmtNum(sync.conflicts)} source conflicts overrode local edits (source wins).</strong></div>`);
+      lines.push(`<div class="notice warn"><strong>${fmtNum(sync.conflicts)} source conflicts overrode local edits (source wins).</strong></div>`);
     }
     return lines.join('');
   }
