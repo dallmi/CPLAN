@@ -86,6 +86,16 @@ class StudioTests(unittest.TestCase):
         app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
         html = (DASHBOARD / "index.html").read_text(encoding="utf-8")
 
+        # C4: the activity-name cell is a real <button> — the accessible,
+        # keyboard-operable control (native button = Enter works with no
+        # extra wiring). The <tr> keeps data-open-id only as a mouse-click
+        # convenience and is no longer given role/tabindex.
+        self.assertIn('class="name-btn"', app)
+        self.assertIn("if (el.tagName !== 'TR')", app)
+        # bindOpenRows still applies tabindex/role for the other
+        # data-open-id surfaces (overview/board/calendar/conflicts) that
+        # have no inner control of their own — those calls stay in source,
+        # just no longer reachable for <tr>.
         self.assertIn("setAttribute('tabindex','0')", app)
         self.assertIn("setAttribute('role','button')", app)
         self.assertIn("'Enter'", app)

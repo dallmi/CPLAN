@@ -82,7 +82,7 @@
   // conflicts, incomplete). Unknown vocabularies fall back to distinct colours
   // by position rather than one flat bronze.
   const PRIORITY_RANKS = {critical: 4, high: 3, medium: 2, normal: 1, low: 0};
-  const PRIORITY_DONUT_COLORS = {critical: '#620004', high: '#B98E2C', medium: '#7A7870', normal: '#B8B3A2', low: '#CCCABC'};
+  const PRIORITY_DONUT_COLORS = {critical: '#620004', high: '#B98E2C', medium: '#5A5D5C', normal: '#B8B3A2', low: '#8E8D83'};
   const PRIORITY_FALLBACK = ['#404040', '#B98E2C', '#8E8D83', '#CCCABC', '#946F29', '#5A5D5C'];
   const priorityColor = (label, i) => PRIORITY_DONUT_COLORS[String(label).toLowerCase()] || PRIORITY_FALLBACK[i % PRIORITY_FALLBACK.length];
 
@@ -450,6 +450,11 @@
     const totalIssues = incompleteRows.length+shortNoticeRows.length+invalidRows.length+collisions.length;
     document.getElementById('attention-count').textContent = totalIssues;
     document.getElementById('attention-subtitle').textContent = `${fmtNum(totalIssues)} findings grouped by issue type`;
+    // P10: the card's top border is a status signal, not decoration — red
+    // only while findings are outstanding, neutral the moment the queue
+    // clears (class consumed by styles.css: .priority-card.danger).
+    const priorityCard = document.querySelector('.priority-card');
+    if (priorityCard) priorityCard.classList.toggle('danger', totalIssues > 0);
     const missingCounts = new Map();
     incompleteRows.forEach(row=>A.planningCompleteness(row).missing.forEach(field=>missingCounts.set(field,(missingCounts.get(field)||0)+1)));
     const topMissing = Array.from(missingCounts.entries()).sort((a,b)=>b[1]-a[1])[0];
@@ -605,7 +610,7 @@
       return `<div class="metric-line"><span>${label}</span><strong>${detail}</strong></div>`;
     }).join('');
     const ownershipRows=future.map(row=>Object.assign({},row,{lead_team:row.lead_team||row.lead||'Unassigned'}));
-    document.getElementById('coverage-dimensions').innerHTML=`<div class="grid two"><div><h3>Lead teams</h3>${barList(countBy(ownershipRows,'lead_team'))}</div><div><h3>Communications pillars</h3>${barList(countBy(future,'strategic_objectives'),true)}</div></div>`;
+    document.getElementById('coverage-dimensions').innerHTML=`<div class="grid two"><div><h3>Lead teams</h3>${barList(countBy(ownershipRows,'lead_team'))}</div><div><h3>Communications pillars</h3>${barList(countBy(future,'strategic_objectives'))}</div></div>`;
   }
 
   function populateActivityFilters() {
@@ -641,9 +646,9 @@
       const ready=A.planningCompleteness(row);
       const readiness=ready.score===100
         ?'<span class="readiness-ok">—</span>'
-        :`<button type="button" class="missing-chip" data-fix-id="${esc(row.id||'')}" data-fix-field="${esc(ready.missing[0]||'')}" title="${esc(missingLabels(ready.missing).join(', '))}">${ready.missing.length} missing</button>`;
+        :`<button type="button" class="badge warn" data-fix-id="${esc(row.id||'')}" data-fix-field="${esc(ready.missing[0]||'')}" title="${esc(missingLabels(ready.missing).join(', '))}"><span class="dot"></span>${ready.missing.length} missing</button>`;
       const duplicateBtn = canCreate() ? `<button type="button" class="icon-btn duplicate-btn" data-duplicate-id="${esc(row.id||'')}" aria-label="Duplicate ${esc(row.activity_name||'activity')}" title="Duplicate"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>` : '';
-      return `<tr data-open-id="${esc(row.id||'')}"><td title="${esc(row.activity_name||'')}">${esc(row.activity_name||'Untitled')}</td><td>${trackingIdHtml(row.tracking_id,{copy:nonempty(row.tracking_id)})}</td><td>${esc(row.channel||'—')}</td><td>${fmtDate(row.start_date)}</td><td>${esc(row.priority||'—')}</td><td>${esc(row.lead_team||row.lead||'—')}</td><td>${esc(campaignLabel(row)||'—')}</td><td>${readiness}</td><td class="action-cell">${duplicateBtn}</td></tr>`;}).join('')||`<tr><td colspan="9">${emptyState(EMPTY_ICONS.search, 'No activities match the filters', 'Clear filters or adjust your search to see more results.')}</td></tr>`;
+      return `<tr data-open-id="${esc(row.id||'')}"><td><button type="button" class="name-btn" data-open-id="${esc(row.id||'')}" title="${esc(row.activity_name||'')}">${esc(row.activity_name||'Untitled')}</button></td><td>${trackingIdHtml(row.tracking_id,{copy:nonempty(row.tracking_id)})}</td><td>${esc(row.channel||'—')}</td><td>${fmtDate(row.start_date)}</td><td>${esc(row.priority||'—')}</td><td>${esc(row.lead_team||row.lead||'—')}</td><td>${esc(campaignLabel(row)||'—')}</td><td>${readiness}</td><td class="action-cell"><div class="row-actions">${duplicateBtn}</div></td></tr>`;}).join('')||`<tr><td colspan="9">${emptyState(EMPTY_ICONS.search, 'No activities match the filters', 'Clear filters or adjust your search to see more results.')}</td></tr>`;
   }
 
   // Adjacent markers within this many percentage points of the scale are
@@ -695,7 +700,7 @@
     const rows=state.rows,aligned=rows.filter(r=>nonempty(r.strategic_objectives)),objectives=countBy(rows,'strategic_objectives'),divisions=countBy(rows,'business_division'),unaligned=rows.filter(r=>!nonempty(r.strategic_objectives));
     document.getElementById('strategic-kpis').innerHTML=[kpi('Aligned',`${rows.length?Math.round(aligned.length/rows.length*100):0}%`,`${aligned.length} activities`,''),kpi('Unaligned',unaligned.length,'No pillar assigned',unaligned.length?'danger':'success'),kpi('Pillars',objectives.length,'Unique values',''),kpi('Divisions',divisions.length,'Represented','')].join('');
     document.getElementById('objective-coverage').innerHTML=barList(objectives);
-    document.getElementById('division-coverage').innerHTML=barList(divisions,true);
+    document.getElementById('division-coverage').innerHTML=barList(divisions);
     document.getElementById('unaligned-list').innerHTML=unaligned.length?unaligned.slice(0,30).map(row=>`<div class="list-row" data-open-id="${esc(row.id||'')}"><span class="severity-line high"></span><div><div class="list-title">${esc(row.activity_name||'Untitled')}</div><div class="list-meta">${fmtDate(row.start_date)} · ${esc(row.lead_team||row.lead||'Unassigned')}</div></div><span class="badge warning">Unaligned</span></div>`).join(''):emptyState(EMPTY_ICONS.checkCircle, 'All activities have a communications pillar', 'Nothing left to align.');
   }
 
@@ -743,10 +748,20 @@
 
   function bindOpenRows() {
     document.querySelectorAll('[data-open-id]').forEach(el=>{
-      el.setAttribute('tabindex','0');
-      el.setAttribute('role','button');
+      // Table rows keep data-open-id as a mouse-click convenience only: the
+      // row itself is no longer a keyboard/AT stop (C4) — the in-row
+      // name-btn is the real accessible control. Every other data-open-id
+      // element (overview/board/calendar/conflict rows) has no inner
+      // control yet, so it keeps the tabindex/role treatment.
+      if (el.tagName !== 'TR') {
+        el.setAttribute('tabindex','0');
+        el.setAttribute('role','button');
+      }
       const activate=()=>{const key=String(el.dataset.openId);const row=state.rows.find(item=>String(item.id)===key);if(row)openDrawer(row,el);};
-      el.onclick=activate;
+      // A click on the name-btn bubbles up to its parent <tr>, which is also
+      // bound here — stopPropagation avoids opening the same drawer twice
+      // (same guard bindDuplicateButtons uses for its icon button).
+      el.onclick=event=>{if(el.tagName==='BUTTON')event.stopPropagation();activate();};
       el.onkeydown=event=>{if(event.key==='Enter'||event.key===' '||event.key==='Spacebar'){event.preventDefault();activate();}};
     });
   }
