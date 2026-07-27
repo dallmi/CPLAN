@@ -926,6 +926,10 @@
   }
 
   function applyVariant(sourceType) {
+    // Invariant: currentSourceType() (the toggle) must always agree with the
+    // variant actually applied to the form -- edit mode keeps the toggle
+    // hidden, but missingRequiredFields()/attemptSave() still read it.
+    setSourceToggle(sourceType);
     const internal=sourceType==='internal';
     document.querySelectorAll('#activity-form [data-variant="internal"]').forEach(el=>{el.hidden=!internal;});
     document.querySelectorAll('#activity-form [data-vreq]').forEach(el=>{el.hidden=!internal;});
@@ -1596,8 +1600,15 @@
       const onKeydown = event => {
         if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); settle(false); return; }
         if (event.key === 'Tab') {
+          // The "Fill it in" jump links are part of the cycle, not just the
+          // two footer buttons -- keyboard users must reach them.
           event.preventDefault(); event.stopPropagation();
-          (document.activeElement === saveBtn ? backBtn : saveBtn).focus();
+          const focusable = Array.from(modal.querySelectorAll('button'));
+          const idx = focusable.indexOf(document.activeElement);
+          const next = event.shiftKey
+            ? focusable[(idx <= 0 ? focusable.length : idx) - 1]
+            : focusable[(idx + 1) % focusable.length];
+          next.focus();
         }
       };
       saveBtn.onclick = () => {
@@ -1737,6 +1748,7 @@
       syncBelongsToFromFields();
       renderMultiselectOptions();
       state.dirty = true;
+      updateReady();
       document.getElementById('form-validation').textContent = 'Rebased on the current record — Save activity will apply only the fields you changed.';
     };
     banner.scrollIntoView({block: 'nearest'});
@@ -1918,12 +1930,15 @@
     const last=newestOwnRow(),note=document.getElementById('prefill-note');
     if(!last){note.hidden=true;return;}
     PREFILL_KEYS.forEach(key=>{
+      // Empty source values are skipped so resetCreateForm's defaults
+      // (e.g. time_zone) survive a prefill from a sparse row.
+      if(!nonempty(last[key]))return;
       if(MULTISELECT_FIELDS.includes(key)){
         const container=msContainer(key);
-        if(container)msHidden(container).value=nonempty(last[key])?String(last[key]):'';
+        if(container)msHidden(container).value=String(last[key]);
       } else {
         const el=form().elements[key];
-        if(el)el.value=last[key]||'';
+        if(el)el.value=String(last[key]);
       }
     });
     renderMultiselectOptions();
@@ -2145,10 +2160,12 @@
       if(event.key==='Escape'){
         const openPop=document.querySelector('.ms-popover:not([hidden])');
         if(openPop){const container=openPop.closest('[data-multiselect]');closeMsPopover(container);container.querySelector('.ms-trigger').focus();return;}
-        // C3: an open modal (discard/draft/delete) owns this Escape via its
-        // own keydown handler + stopPropagation -- do not also close the
-        // drawer underneath it.
-        if(document.querySelector('.modal-overlay.open'))return;
+        // C3: an open modal (discard/draft/delete) owns this Escape. Its own
+        // keydown handler covers focus inside the modal; when focus sits
+        // outside (e.g. after a backdrop click), forward the key to the modal
+        // so Escape still dismisses it -- never the drawer underneath.
+        const openModal=document.querySelector('.modal-overlay.open');
+        if(openModal){openModal.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}));return;}
         if(isOpen)requestClose();
         return;
       }

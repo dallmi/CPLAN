@@ -41,6 +41,19 @@ class StudioFlowTests(unittest.TestCase):
         self.assertIn("Ready to save", self.app)
         self.assertIn("required field", self.app)  # "N required fields left"
 
+    def test_source_toggle_can_never_diverge_from_applied_variant(self):
+        # Review C1: missingRequiredFields()/attemptSave() read the (hidden)
+        # source toggle even while editing, so every variant application must
+        # sync the toggle -- otherwise editing an external row validates
+        # against the internal required list and full save is impossible.
+        variant = _slice(self.app, "function applyVariant(", "\n  function ")
+        self.assertIn("setSourceToggle(sourceType)", variant)
+        # openDrawer (edit path) and revertToViewFromEdit rely on that fold:
+        # neither may grow its own toggle handling again.
+        for fn in ("function openDrawer(", "function revertToViewFromEdit("):
+            body = _slice(self.app, fn, "\n  function ")
+            self.assertIn("applyVariant(sourceType)", body)
+
     def test_submit_paints_missing_and_hints_the_draft_path(self):
         # Failed submit paints .missing via the data-f attributes and points
         # at the always-visible draft escape hatch.
@@ -59,6 +72,12 @@ class StudioFlowTests(unittest.TestCase):
 
     def test_draft_still_requires_a_name(self):
         self.assertIn("still needs a name", self.app)
+
+    def test_draft_modal_focus_trap_includes_jump_links(self):
+        # Review I1: Tab must cycle over every button in the modal (the
+        # "Fill it in" links included), not just the two footer buttons.
+        modal = _slice(self.app, "function confirmDraftSave(", "\n  function ")
+        self.assertIn("modal.querySelectorAll('button')", modal)
 
     # ---------------------------------------------------------------- I5
     def test_create_stays_open_with_copyable_id_and_create_another(self):
@@ -81,6 +100,8 @@ class StudioFlowTests(unittest.TestCase):
         self.assertIn("Prefilled from your last activity", self.app)
         self.assertIn('id="prefill-clear"', self.html)
         self.assertIn("Start blank", self.html)
+        # Review M2: sparse source rows must not blank out create defaults.
+        self.assertIn("if(!nonempty(last[key]))return;", prefill)
 
     def test_duplicate_note_not_overwritten_by_prefill(self):
         dup = _slice(self.app, "function openDuplicateDrawer(", "\n  function ")
@@ -99,8 +120,22 @@ class StudioFlowTests(unittest.TestCase):
         self.assertIn("confirmDiscardIfDirty()", guard)
         confirm = _slice(self.app, "async function confirmDiscardIfDirty()", "\n  function ")
         self.assertIn("state.dirty", confirm)
-        # Backdrop/close/cancel routes reference the guard, not closeDrawer directly.
-        self.assertGreaterEqual(self.app.count("requestClose("), 3)
+        # Review M4: pin each dismissal route to the guard verbatim -- a count
+        # would keep passing after unbinding any single route.
+        self.assertIn(
+            "document.querySelectorAll('[data-close-drawer]').forEach(el=>el.onclick=()=>requestClose());",
+            self.app,
+        )
+        self.assertIn("document.getElementById('drawer-cancel').onclick=()=>requestClose(", self.app)
+        self.assertIn("if(isOpen)requestClose();", self.app)  # document-level Escape
+
+    def test_escape_reaches_open_modal_even_when_focus_left_it(self):
+        # Review M3: with a modal open but focus outside it (backdrop click),
+        # the document-level Escape forwards to the modal instead of no-oping.
+        self.assertIn(
+            "openModal.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))",
+            self.app,
+        )
 
     # --------------------------------------------------------------- P13
     def test_detail_rows_offer_field_scoped_edit_and_add(self):
