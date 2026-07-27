@@ -168,17 +168,37 @@ td.action-cell{overflow:visible}
 
 /* --- Pack drawer --- */
 .pack-shared-heading{margin-top:16px;padding:8px 10px;background:var(--surface);font-size:10px;font-weight:700;letter-spacing:.02em}
+/* I7 pack-scope section order (per prototype): Type/Scope → Identity →
+   Channels → "Applies to every activity in this pack" → shared fieldsets →
+   per-channel rows → summary. #pack-section stays the single show/hide unit
+   (setPackMode toggles one node) but becomes display:contents in pack mode
+   so its two fieldsets (#fs-channels, #fs-pack-rows) participate in the
+   form's flex order individually. Single scope has no .pack-mode class and
+   keeps pure DOM order — no order rule applies. */
 #activity-form.pack-mode{display:flex;flex-direction:column}
 #activity-form.pack-mode .form-variant{order:1}
-#activity-form.pack-mode #fs-identity{order:2}
-#activity-form.pack-mode #pack-section{order:3;display:block}
-#activity-form.pack-mode .pack-shared-heading{order:4}
-#activity-form.pack-mode fieldset:not(#fs-identity){order:5}
-#activity-form.pack-mode .pack-summary{order:6}
-#activity-form.pack-mode .validation-message{order:7}
-#activity-form.pack-mode .drawer-actions{order:8}
-#activity-form.pack-mode datalist{order:9}
+#activity-form.pack-mode .prefill-note{order:2}
+#activity-form.pack-mode #fs-identity{order:3}
+#activity-form.pack-mode #pack-section{display:contents}
+#activity-form.pack-mode #fs-channels{order:4}
+#activity-form.pack-mode .pack-shared-heading{order:5}
+#activity-form.pack-mode fieldset:not(#fs-identity):not(#fs-channels):not(#fs-pack-rows){order:6}
+#activity-form.pack-mode #fs-pack-rows{order:7}
+#activity-form.pack-mode .pack-summary{order:8}
+#activity-form.pack-mode .validation-message{order:9}
+#activity-form.pack-mode .drawer-actions{order:10}
+#activity-form.pack-mode datalist{order:11}
 .pack-row .pack-stub{margin-top:6px;font-size:10px;color:var(--grey-4)}
+/* --- T5 pack flow (I6/C1): per-channel pack-table + fill-down --- */
+/* The pack-table is a form surface, not a clickable data table: neutralise
+   the global row striping/hover-pointer and the legacy card-row .pack-row
+   treatment inside it (the old .pack-row rules above stay for T6's sweep). */
+.pack-table tbody tr:nth-child(even),.pack-table tbody tr:hover{background:transparent;cursor:auto}
+.pack-table tr.pack-row{border:0;background:transparent}
+.pack-table th em{font-style:normal;color:var(--grey-4);font-weight:400}
+.pack-table th:nth-child(3),.pack-table th:nth-child(4){width:172px}
+.pack-table input.missing{border-color:var(--danger)}
+.fill-down .field-help{flex:1 1 100%;margin-top:2px}
 .pack-summary{position:sticky;bottom:56px;background:var(--surface-alt);border:1px solid var(--surface);border-left:3px solid var(--bronze-1);padding:10px 12px;font-size:11px;margin-top:10px}
 .pack-summary strong{display:block;font-size:12px;margin-bottom:5px}
 .pack-summary-row{display:flex;justify-content:space-between;gap:10px;padding:2px 0;color:var(--grey-5)}

@@ -143,7 +143,7 @@
   const REQUIRED_COMMON = ['activity_name', 'channel', 'priority', 'strategic_objectives', 'activity_description', 'region', 'start_date', 'end_date', 'time_zone', 'lead', 'lead_team'];
   const REQUIRED_INTERNAL = REQUIRED_COMMON.concat(['target_audience', 'audience', 'business_division']);
   const REQUIRED_EXTERNAL = REQUIRED_COMMON.slice();
-  const FIELD_LABELS = {activity_name:'Activity name', channel:'Channel', priority:'Priority', strategic_objectives:'Communications pillars', activity_description:'Description', target_audience:'Target audience', audience:'Estimated audience size', business_division:'Business division', region:'Region', start_date:'Start date', end_date:'End date', time_zone:'Time zone', lead:'Lead', lead_team:'Lead team', campaign:'Campaign', communication_pack_cpid:'Communication pack', business_area:'Business area', partner_team:'Partner team', news_digest:'News digest'};
+  const FIELD_LABELS = {activity_name:'Activity name', channel:'Channel', priority:'Priority', strategic_objectives:'Communications pillars', activity_description:'Description', target_audience:'Target audience', audience:'Estimated audience size', business_division:'Business division', region:'Region', start_date:'Start date', end_date:'End date', time_zone:'Time zone', lead:'Lead', lead_team:'Lead team', campaign:'Campaign', communication_pack_cpid:'Communication pack', business_area:'Business area', partner_team:'Partner team', news_digest:'News digest', pack_name:'Pack name'};
   const CREATE_FIELDS = ['activity_name', 'activity_description', 'target_audience', 'business_division', 'business_area', 'region', 'channel', 'partner_team', 'lead_team', 'lead', 'start_date', 'end_date', 'time_zone', 'priority', 'strategic_objectives', 'campaign', 'communication_pack_cpid', 'audience'];
   const HISTORY_LIMIT = 30;
   const HISTORY_ACTOR_LABELS = {studio:'You', sync:'Source sync', seed:'Initial import'};
@@ -956,6 +956,19 @@
   }
 
   function focusField(name) {
+    // T5: pack gap tokens land inside the pack UI -- a row token focuses
+    // that channel row's input, the channel token the first checkbox.
+    const token=PACK_ROW_TOKEN_RE.exec(name||'');
+    if(token){
+      const rowEl=document.querySelector(`#pack-rows .pack-row[data-channel="${CSS.escape(token[1])}"]`);
+      const input=rowEl&&rowEl.querySelector(`[data-pack-${token[2]}]`);
+      if(input){input.focus();return;}
+    }
+    if(name==='pack_channels'){
+      const box=document.querySelector('#pack-channels input');
+      if(box)box.focus();
+      return;
+    }
     const container=msContainer(name);
     if(container){container.querySelector('.ms-trigger').focus();return;}
     const el=form().elements[name];
@@ -971,12 +984,39 @@
     return el?String(el.value||'').trim():'';
   }
 
-  // T5 seam: pack-row-level gaps (pack name, channel selection, per-row
-  // name/date) are pack scope's own concern. This keeps the shared
-  // computation clean and returns [] until T5 extends it -- pack scope's
-  // ready-line/draft-modal therefore show only the single-scope-shared
-  // portion in the meantime, never a hand-built pack list.
-  function missingExtra() { return []; }
+  // T5: pack-scope gap tokens. pack_name is a real form field; the other
+  // two shapes (pack_channels, pack_row:<channel>:<col>) are synthetic --
+  // missingFieldLabel() gives them user-facing labels for the draft modal
+  // and focusField() knows how to land on them, so the ready-line, draft
+  // modal and submit gate all speak pack through the one existing funnel.
+  const PACK_ROW_TOKEN_RE = /^pack_row:(.+):(name|start|end)$/;
+  const PACK_ROW_COL_LABELS = {name:'activity name', start:'start date', end:'end date'};
+
+  function missingFieldLabel(name) {
+    if (name==='pack_channels') return 'At least one channel';
+    const token=PACK_ROW_TOKEN_RE.exec(name);
+    if (token) return `${token[1]} — ${PACK_ROW_COL_LABELS[token[2]]}`;
+    return FIELD_LABELS[name]||name;
+  }
+
+  // T5 seam: pack scope's own gaps -- pack name, channel selection, and the
+  // per-channel row fields that replace the single-scope name/dates
+  // (missingRequiredFields filters PACK_ROW_FIELDS while packing). Never a
+  // second required-fields list: REQUIRED_INTERNAL/EXTERNAL stay the source
+  // of truth for the shared fields, this only adds what packs it.
+  function missingExtra() {
+    if (!state.packing) return [];
+    const extra=[];
+    if (!formValue('pack_name')) extra.push('pack_name');
+    const rows=packRowValues();
+    if (!rows.length) extra.push('pack_channels');
+    rows.forEach(row=>{
+      if (!row.name.trim()) extra.push(`pack_row:${row.channel}:name`);
+      if (!row.start) extra.push(`pack_row:${row.channel}:start`);
+      if (!row.end) extra.push(`pack_row:${row.channel}:end`);
+    });
+    return extra;
+  }
 
   function missingRequiredFields() {
     const sourceType=currentSourceType();
@@ -997,10 +1037,18 @@
     document.querySelectorAll('.f-label[data-f],.ms-field[data-f]').forEach(el=>{
       el.classList.toggle('missing',missingNames.includes(el.dataset.f));
     });
+    // Pack rows paint per cell -- the token carries channel + column, so a
+    // failed pack submit marks exactly the empty inputs in the pack-table.
+    document.querySelectorAll('#pack-rows .pack-row').forEach(rowEl=>{
+      ['name','start','end'].forEach(col=>{
+        const input=rowEl.querySelector(`[data-pack-${col}]`);
+        if(input)input.classList.toggle('missing',missingNames.includes(`pack_row:${rowEl.dataset.channel}:${col}`));
+      });
+    });
   }
 
   function clearMissingPaint() {
-    document.querySelectorAll('.f-label.missing,.ms-field.missing').forEach(el=>el.classList.remove('missing'));
+    document.querySelectorAll('.f-label.missing,.ms-field.missing,#pack-rows .missing').forEach(el=>el.classList.remove('missing'));
   }
 
   // Runs on every input/change (including multiselects) while the form is
@@ -1016,6 +1064,9 @@
       ?`${missing.length} required field${missing.length===1?'':'s'} left`
       :(state.creating?'Ready to create':'Ready to save');
     if (state.showErrors) paintMissing(missing);
+    // C1: pack scope's CTA count and pre-save summary ride the same funnel
+    // as the ready-line, so every input/change keeps all three in step.
+    if (state.packing){updatePackCta();renderPackSummary();}
     return missing;
   }
 
@@ -1222,6 +1273,9 @@
     document.getElementById('save-hint').hidden=true;
     document.getElementById('ready-line').classList.remove('ready');
     document.getElementById('ready-text').textContent='';
+    // C1: the pack CTA disables itself at zero channels -- a fresh create/
+    // duplicate session must never inherit that disabled state.
+    document.getElementById('drawer-save').disabled=false;
     document.getElementById('drawer-history').hidden=true;
     document.getElementById('pack-summary').hidden=true;
   }
@@ -1247,6 +1301,8 @@
     document.getElementById('pack-rows').innerHTML='';
     document.getElementById('pack-channel-new').value='';
     document.getElementById('pack-add-channel-row').hidden=true;
+    document.getElementById('fill-start').value='';
+    document.getElementById('fill-end').value='';
     // T3-review: only this entry point reveals #scope-row -- it just reset
     // the pack DOM above, so flipping to pack scope from here is safe.
     // prepareCreateChrome (shared with openDuplicateDrawer) leaves it
@@ -1295,7 +1351,11 @@
       renderPackChannels(currentSourceType());
       renderPackRows();
     } else {
-      document.getElementById('drawer-save').textContent='Create activity';
+      const save=document.getElementById('drawer-save');
+      save.textContent='Create activity';
+      // A zero-channel pack disables the CTA -- flipping back to single
+      // scope must re-arm it.
+      save.disabled=false;
     }
     updateReady();
   }
@@ -1322,43 +1382,68 @@
     }));
   }
 
+  // I6: per-channel rows render as a compact pack-table -- Channel ·
+  // Activity name · Start · End · live tracking-ID stub. Values survive
+  // re-renders (channel ticks) via packRowValues(); ticking a channel seeds
+  // the row name "<pack name> — <channel>" when a pack name exists,
+  // otherwise the name stays open and the ready-line/draft rule chase it.
   function renderPackRows() {
-    const previousRows=packRowValues();
-    const previous=new Map(previousRows.map(row=>[row.channel,row]));
-    const first=previousRows[0];
-    const packName=String(form().elements.pack_name.value||'').trim();
-    document.getElementById('pack-rows').innerHTML=packSelectedChannels().map(channel=>{
-      const prev=previous.get(channel);
-      const name=prev?prev.name:(packName?`${packName} — ${channel}`:channel);
-      const start=prev?prev.start:(first?first.start:'');
-      const end=prev?prev.end:(first?first.end:'');
-      return `<div class="pack-row" data-channel="${esc(channel)}"><div class="pack-row-channel">${esc(channel)}</div><label>Activity name <span class="req">*</span><input data-pack-name value="${esc(name)}"></label><div class="form-grid"><label>Start date (local time) <span class="req">*</span><input type="datetime-local" data-pack-start value="${esc(start)}"></label><label>End date (local time) <span class="req">*</span><input type="datetime-local" data-pack-end value="${esc(end)}"></label></div><div class="pack-stub" data-pack-stub></div></div>`;
-    }).join('')||'<div class="ms-empty">Select at least one channel above</div>';
-    updatePackSubmitLabel();
+    const previous=new Map(packRowValues().map(row=>[row.channel,row]));
+    const packName=formValue('pack_name');
+    const selected=packSelectedChannels();
+    const required='<em>(required)</em>';
+    document.getElementById('pack-rows').innerHTML=selected.length
+      ?`<table class="pack-table"><thead><tr><th>Channel</th><th>Activity name ${required}</th><th>Start ${required}</th><th>End ${required}</th><th title="Sequence number assigned on save">Tracking ID</th></tr></thead><tbody>${selected.map(channel=>{
+          const prev=previous.get(channel);
+          const name=prev?prev.name:(packName?`${packName} — ${channel}`:'');
+          return `<tr class="pack-row" data-channel="${esc(channel)}"><td class="ch-name">${esc(channel)}</td><td><input data-pack-name value="${esc(name)}" aria-label="Activity name for ${esc(channel)}"></td><td><input type="datetime-local" data-pack-start value="${esc(prev?prev.start:'')}" aria-label="Start for ${esc(channel)}"></td><td><input type="datetime-local" data-pack-end value="${esc(prev?prev.end:'')}" aria-label="End for ${esc(channel)}"></td><td class="stub" data-pack-stub></td></tr>`;
+        }).join('')}</tbody></table>`
+      :'<div class="ms-empty">Tick a channel above and its row appears here.</div>';
+    // Fill down only makes sense once there are rows to fill.
+    document.getElementById('pack-fill-down').hidden=!selected.length;
+    updatePackStubs();
   }
 
-  // The informed commit: live tracking-ID stubs per channel row plus a sticky
-  // pre-save summary — this is where channel + date + pack → ID is learned.
+  // The informed commit: live tracking-ID stubs per channel row -- this is
+  // where channel + date + pack → ID is learned. The sequence stays "…"
+  // until the server assigns it on save (see the pack-table column title).
   function updatePackStubs() {
     if(!state.packing)return;
     const prefix=packIdPrefix();
     document.querySelectorAll('#pack-rows .pack-row').forEach(rowEl=>{
       const channel=rowEl.dataset.channel;
       const start=rowEl.querySelector('[data-pack-start]').value;
-      rowEl.querySelector('[data-pack-stub]').innerHTML=`Tracking ID <span class="tracking-id"><span class="tid-prefix">${esc(prefix)}-</span><span class="tid-date">${esc(stubDate(start))}</span>-<span class="tid-seq">…</span>-<span class="tid-channel">${esc(channelAbbr(channel))}</span></span> · sequence assigned on save`;
+      rowEl.querySelector('[data-pack-stub]').innerHTML=`<span class="tracking-id"><span class="tid-prefix">${esc(prefix)}-</span><span class="tid-date">${esc(stubDate(start))}</span>-<span class="tid-seq">…</span>-<span class="tid-channel">${esc(channelAbbr(channel))}</span></span>`;
     });
-    const rows=packRowValues();
-    const summary=document.getElementById('pack-summary');
-    if(!rows.length){summary.hidden=true;return;}
-    summary.hidden=false;
-    summary.innerHTML=`<strong>Creates ${rows.length} ${rows.length===1?'activity':'activities'}</strong>`+rows.map(row=>`<div class="pack-summary-row"><span>${esc(row.name||row.channel)}</span><span>${row.start?fmtDate(row.start):'no date'} · <span class="tracking-id"><span class="tid-prefix">${esc(packIdPrefix())}-</span>${esc(stubDate(row.start))}-…-${esc(channelAbbr(row.channel))}</span></span></div>`).join('');
   }
 
-  function updatePackSubmitLabel() {
+  // C1: the pre-save summary is a permanent fixture of pack scope -- it
+  // narrates exactly what the primary button will do, including the empty
+  // state, and always ends on the atomicity promise.
+  function renderPackSummary() {
     if(!state.packing)return;
+    const summary=document.getElementById('pack-summary');
+    summary.hidden=false;
+    const rows=packRowValues();
+    if(!rows.length){
+      summary.innerHTML='<strong>Nothing will be created yet</strong><div class="pack-summary-row"><span>Tick at least one channel to build the pack.</span></div>';
+      return;
+    }
+    const prefix=packIdPrefix(),packName=formValue('pack_name');
+    summary.innerHTML=`<strong>${rows.length} ${rows.length===1?'activity':'activities'} will be created${packName?` in "${esc(packName)}"`:''}</strong>`
+      +rows.map(row=>`<div class="pack-summary-row"><span>${esc(row.channel)} · ${esc(row.name.trim()||'unnamed')}</span><span class="tracking-id"><span class="tid-prefix">${esc(prefix)}-</span><span class="tid-date">${esc(stubDate(row.start))}</span>-<span class="tid-seq">…</span>-<span class="tid-channel">${esc(channelAbbr(row.channel))}</span></span></div>`).join('')
+      +`<span class="atomic">All ${rows.length} are created together, or none of them are.</span>`;
+  }
+
+  // C1: count-labelled primary CTA -- "Create N activities", disabled with
+  // an instruction label at zero channels. Driven from updateReady() so
+  // every input/change keeps the count live.
+  function updatePackCta() {
+    if(!state.packing)return;
+    const save=document.getElementById('drawer-save');
     const count=packSelectedChannels().length;
-    document.getElementById('drawer-save').textContent=count?`Create ${count} ${count===1?'activity':'activities'}`:'Create activities';
-    updatePackStubs();
+    save.disabled=count===0;
+    save.textContent=count===0?'Select a channel to continue':`Create ${count} ${count===1?'activity':'activities'}`;
   }
 
   function openPackDrawer(opener) {
@@ -1413,23 +1498,35 @@
     });
   }
 
+  // I3/I6: the form-submit gate for pack scope -- mirrors attemptSave for
+  // the pack shape: block on ANY missing required field (shared fields plus
+  // the pack gaps missingExtra() adds), paint, focus the first, hint the
+  // draft path. The count-labelled CTA is already disabled at zero
+  // channels, but Enter in a field still submits, so the gate re-checks.
   async function submitPack(event) {
     event.preventDefault();
-    const sourceType=currentSourceType(),validation=document.getElementById('form-validation');
-    const value=name=>{const el=form().elements[name];return el?String(el.value||'').trim():'';};
-    if(!value('pack_name')){
-      validation.textContent='Pack name is required.';
-      focusField('pack_name');
+    state.showErrors=true;
+    const missing=updateReady();
+    if(missing.length){
+      focusField(missing[0]);
+      document.getElementById('ready-text').textContent=`${missing.length} required field${missing.length===1?'':'s'} left — or use "Save as draft"`;
       return;
     }
-    const required=(sourceType==='internal'?REQUIRED_INTERNAL:REQUIRED_EXTERNAL).filter(name=>!PACK_ROW_FIELDS.includes(name)&&name!=='activity_name');
-    const missing=required.filter(name=>!value(name));
-    if(missing.length&&!await confirmDraftSave(missing))return;
+    await commitCreatePack(false);
+  }
+
+  // Batch commit for both pack paths -- full create (submitPack, nothing
+  // missing) and draft (openDraftModal; pack name, channels and row names
+  // guaranteed, dates may stay open). Posts whatever is filled per row:
+  // only present dates are sent, so the API's nullable date fields stay
+  // null for a draft pack. C1's atomicity promise is the API's own -- one
+  // POST /api/activities/batch, all rows or none.
+  async function commitCreatePack(draft) {
+    const sourceType=currentSourceType(),validation=document.getElementById('form-validation');
     const rows=packRowValues();
-    if(!rows.length){validation.textContent='Select at least one channel.';return;}
     for(const row of rows){
-      if(!row.name.trim()){validation.textContent=`${row.channel}: activity name is required.`;return;}
-      if(!row.start||!row.end){validation.textContent=`${row.channel}: start and end date are required.`;return;}
+      // Validity, not completeness: a present-but-reversed date pair must
+      // never reach the API from either path.
       const start=A.parseDate(row.start),end=A.parseDate(row.end);
       if(start&&end&&end<start){validation.textContent=`${row.channel}: end date cannot be before start date.`;return;}
     }
@@ -1437,28 +1534,33 @@
     CREATE_FIELDS.forEach(name=>{
       if(PACK_ROW_FIELDS.includes(name))return;
       if(name==='audience'&&sourceType!=='internal')return;
-      const raw=value(name);
+      const raw=formValue(name);
       if(raw)shared[name]=raw;
     });
     // Pack mode replaces the circular campaign/pack pair with one pack name
     // (stored as the communication pack) plus an optional campaign umbrella.
-    shared.communication_pack=value('pack_name');
-    const packCampaign=value('pack_campaign');
+    shared.communication_pack=formValue('pack_name');
+    const packCampaign=formValue('pack_campaign');
     if(packCampaign)shared.campaign=packCampaign;
     if(sourceType==='internal')shared.news_digest=form().elements.news_digest.checked;
-    const items=rows.map(row=>Object.assign({},shared,{
-      activity_name:row.name.trim(),
-      channel:row.channel,
-      start_date:new Date(row.start).toISOString(),
-      end_date:new Date(row.end).toISOString(),
-    }));
+    const items=rows.map(row=>{
+      const item=Object.assign({},shared,{activity_name:row.name.trim(),channel:row.channel});
+      if(row.start)item.start_date=new Date(row.start).toISOString();
+      if(row.end)item.end_date=new Date(row.end).toISOString();
+      return item;
+    });
     validation.textContent='';
     try {
       const created=await repository.createActivitiesBatch(items);
       created.items.forEach(item=>state.snapshotRows.push(item));
       state.packing=false;state.dirty=false;
-      const ids=created.items.map(item=>item.tracking_id).filter(Boolean);
-      toast(`${created.items.length} activities created — ${ids.join(', ')}`);
+      if(draft){
+        // Plain toast on purpose: a batch has no single ID to copy.
+        toast(`${created.items.length} draft activities created — chased on the Overview`);
+      } else {
+        const ids=created.items.map(item=>item.tracking_id).filter(Boolean);
+        toast(`${created.items.length} activities created — ${ids.join(', ')}`);
+      }
       closeDrawer();
       // Post-save orientation: land on the Activities table pre-filtered to the
       // new pack so the created records and their IDs are immediately visible.
@@ -1573,7 +1675,15 @@
   // A draft still needs a name: if activity_name is among the missing
   // fields, "Save as draft" never posts -- it behaves like "go back", just
   // focused on the name, so the API's own hard requirement is never the
-  // thing that silently rejects a click.
+  // thing that silently rejects a click. T5 extends the same rule to pack
+  // scope: a draft pack still needs its pack name, at least one channel and
+  // a name on every channel row -- dates may stay open.
+  const isDraftBlocker = name => {
+    if (name==='activity_name'||name==='pack_name'||name==='pack_channels') return true;
+    const token=PACK_ROW_TOKEN_RE.exec(name);
+    return Boolean(token&&token[2]==='name');
+  };
+
   function confirmDraftSave(missing) {
     return new Promise(resolve => {
       if (state.draftModalOpen) { resolve(false); return; }
@@ -1582,7 +1692,10 @@
       const saveBtn = document.getElementById('draft-save');
       const backBtn = document.getElementById('draft-back');
       const list = document.getElementById('draft-modal-list');
-      list.innerHTML = missing.map(name=>`<li><span>${esc(FIELD_LABELS[name]||name)}</span><button type="button" class="link-inline" data-jump="${esc(name)}">Fill it in</button></li>`).join('');
+      document.getElementById('draft-modal-body').textContent = state.packing
+        ? "The pack's activities are saved with what is filled in. The rest is chased on the Overview until they are complete:"
+        : 'This activity is saved with what is filled in. The rest is chased on the Overview until it is complete:';
+      list.innerHTML = missing.map(name=>`<li><span>${esc(missingFieldLabel(name))}</span><button type="button" class="link-inline" data-jump="${esc(name)}">Fill it in</button></li>`).join('');
       const settle = (result, jumpTo) => {
         modal.classList.remove('open');
         modal.setAttribute('aria-hidden','true');
@@ -1612,9 +1725,12 @@
         }
       };
       saveBtn.onclick = () => {
-        if (missing.includes('activity_name')) {
-          document.getElementById('form-validation').textContent = 'A draft still needs a name.';
-          settle(false, 'activity_name');
+        const blocker = missing.find(isDraftBlocker);
+        if (blocker) {
+          document.getElementById('form-validation').textContent = blocker==='pack_channels'
+            ? 'A draft pack still needs at least one channel.'
+            : 'A draft still needs a name.';
+          settle(false, blocker);
           return;
         }
         settle(true);
@@ -1677,6 +1793,9 @@
     document.querySelector('.drawer-actions').style.display=editing?'grid':'none';
     document.getElementById('save-hint').hidden=!editing;
     document.getElementById('drawer-save').textContent='Save activity';
+    // Never inherit a disabled zero-channel pack CTA from an abandoned
+    // pack session in the same (reused) drawer DOM.
+    document.getElementById('drawer-save').disabled=false;
     document.getElementById('form-validation').textContent='';
     // History is a read-only panel: never shown while editing.
     document.getElementById('drawer-history').hidden=editing;
@@ -1850,17 +1969,18 @@
     if(state.creating)commitCreate();else commitEditPatch();
   }
 
-  // C2/I4: #btn-draft's handler. Pack scope has no draft concept of its own
-  // yet (each batch item still needs its own name/dates -- T5's territory),
-  // so it delegates to the pack form's own submit path rather than building
-  // pack-specific draft logic here. Single create/edit: if the form is
-  // already complete this is just a normal save; otherwise confirm via the
-  // draft modal, then persist with whatever is filled.
+  // C2/I4: #btn-draft's handler. If the form is already complete this is
+  // just a normal save (pack scope included -- requestSubmit routes to
+  // submitPack). Otherwise confirm via the shared draft modal, then persist
+  // with whatever is filled: pack scope through the batch commit (T5) --
+  // confirmDraftSave has already enforced the pack draft rule (pack name,
+  // at least one channel, every row named; dates optional) -- single
+  // create/edit through their normal POST/PATCH twins.
   async function openDraftModal() {
-    if(state.packing){form().requestSubmit();return;}
     const missing=missingRequiredFields();
     if(!missing.length){form().requestSubmit();return;}
     if(!await confirmDraftSave(missing))return;
+    if(state.packing){await commitCreatePack(true);return;}
     if(state.creating)await commitCreate();else await commitEditPatch();
   }
 
@@ -2069,8 +2189,24 @@
     document.getElementById('activity-export').onclick=exportFilteredCsv;
     document.getElementById('activity-new').onclick=event=>openCreateDrawer(event.currentTarget);
     document.getElementById('pack-channels').addEventListener('change',()=>{renderPackRows();state.dirty=true;});
-    document.getElementById('pack-rows').addEventListener('input',updatePackSubmitLabel);
-    form().elements.pack_name.addEventListener('input',()=>{if(state.packing)updatePackStubs();});
+    // I6: stubs live-update as row dates are typed; the ready-line, CTA
+    // count and summary refresh via the form-level input listener below
+    // (updateReady is the single funnel for those).
+    document.getElementById('pack-rows').addEventListener('input',updatePackStubs);
+    // I6: fill down -- one start/end applied to every channel row; each row
+    // stays individually editable afterwards.
+    document.getElementById('fill-apply').onclick=()=>{
+      const start=document.getElementById('fill-start').value,end=document.getElementById('fill-end').value;
+      if(!start&&!end){toast('Set a start or end date first');return;}
+      document.querySelectorAll('#pack-rows .pack-row').forEach(rowEl=>{
+        if(start)rowEl.querySelector('[data-pack-start]').value=start;
+        if(end)rowEl.querySelector('[data-pack-end]').value=end;
+      });
+      state.dirty=true;
+      updatePackStubs();
+      updateReady();
+      toast('Dates applied to every channel — still editable per row');
+    };
     document.getElementById('belongs-to').addEventListener('change',()=>{
       const value=document.getElementById('belongs-to').value;
       const newLabel=document.getElementById('belongs-new-label');
@@ -2105,6 +2241,9 @@
       document.getElementById('pack-add-channel-row').hidden=true;
       renderPackRows();
       state.dirty=true;
+      // A programmatic tick fires no change event, so the ready-line/CTA/
+      // summary funnel must be pushed by hand here.
+      updateReady();
     };
     wireMultiselects();
     document.getElementById('source-toggle').onclick=event=>{

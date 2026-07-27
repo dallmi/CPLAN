@@ -288,7 +288,7 @@
         </fieldset>
 
         <div id="pack-section" hidden>
-          <fieldset><legend>Channels <em>(required)</em></legend>
+          <fieldset id="fs-channels"><legend>Channels <em>(required)</em></legend>
             <div class="channel-matrix" id="pack-channels"></div>
             <div class="pack-add-channel-toggle"><button type="button" class="link-inline" id="pack-channel-toggle">Add a channel that is not listed</button></div>
             <div class="pack-add-channel" id="pack-add-channel-row" hidden>
@@ -297,7 +297,13 @@
             </div>
             <span class="field-help">Channels are managed centrally so analytics and tracking IDs stay consistent — add a new one only if it genuinely does not exist yet</span>
           </fieldset>
-          <fieldset><legend>Activities in this pack</legend>
+          <fieldset id="fs-pack-rows"><legend>Activities in this pack</legend>
+            <div class="fill-down" id="pack-fill-down" hidden>
+              <label>Start date (local time)<input type="datetime-local" id="fill-start"></label>
+              <label>End date (local time)<input type="datetime-local" id="fill-end"></label>
+              <button type="button" class="btn secondary" id="fill-apply">Fill down</button>
+              <span class="field-help">Applied to every channel row — each row stays editable</span>
+            </div>
             <div id="pack-rows"></div>
           </fieldset>
         </div>
