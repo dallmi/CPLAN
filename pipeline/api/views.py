@@ -66,9 +66,23 @@ ANALYSIS_VIEWS: dict[str, str] = {
         GROUP BY coalesce(channel, 'Unassigned'), source_type
     """,
     "v_planning_completeness": """
-        -- Mirrors REQUIRED_FIELDS in pipeline/studio/analytics.js (Task 7):
-        -- activity_name, start_date, channel, lead_team (lead_team OR lead),
-        -- target_audience, priority, strategic_objectives, activity_description.
+        -- Core-fields data-quality lens for pgAdmin. is_complete here means the
+        -- eight foundational fields are present: activity_name, start_date,
+        -- channel, lead_team (lead_team OR lead), target_audience, priority,
+        -- strategic_objectives, activity_description.
+        --
+        -- NOTE: this is intentionally LOOSER than the studio's completeness
+        -- rule and does NOT match the dashboard. Since the completeness
+        -- unification the studio (readiness badge, Drafts KPI, filter, and the
+        -- create/edit drawer) judges a row complete only against the full
+        -- variant-aware required set in analytics.js planningCompleteness()
+        -- (the 11 common fields for external; +target_audience, audience,
+        -- business_division for internal; lead AND lead_team both required).
+        -- A row can therefore read is_complete=true here yet show as a draft
+        -- in the studio. Realigning this view to that stricter, variant-aware
+        -- rule is a pending decision (it would flip most synced rows to
+        -- is_complete=false, matching the dashboard) -- see the founder note.
+        --
         -- A field is "missing" when NULL or an empty/whitespace-only string
         -- (no such concept for the start_date timestamp -- missing means NULL
         -- there). activity_name is required at write time and is not flagged
