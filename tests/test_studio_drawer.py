@@ -73,6 +73,52 @@ class StudioDrawerTests(unittest.TestCase):
         self.assertIn("document.getElementById('scope-row').hidden=true;", app)
         self.assertIn("document.getElementById('activity-drawer').classList.remove('wide');", app)
 
+    def test_duplicate_never_reveals_scope_toggle(self):
+        """T3-review Important finding: prepareCreateChrome used to reveal
+        #scope-row unconditionally for every caller, including
+        openDuplicateDrawer. Duplicate has no reset path for the pack DOM
+        (#pack-channels/#pack-rows survive closeDrawer -- only
+        openCreateDrawer clears them), so a user who abandoned a pack draft
+        and later duplicated an unrelated activity could click "Several
+        channels" and get the stale pack session (old channels, old row
+        names/dates) back under a silently rewritten "Duplicate of ..."
+        title. Fix: prepareCreateChrome hides the row by default; only
+        openCreateDrawer opts back in. Sliced on real function bodies (not
+        comments/docstrings) so this fails if the reveal drifts back into
+        prepareCreateChrome or into openDuplicateDrawer itself.
+        """
+        app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+
+        def body(start_marker, end_marker):
+            start = app.index(start_marker)
+            end = app.index(end_marker, start)
+            self.assertGreater(end, start)
+            return app[start:end]
+
+        prepare_chrome = body(
+            "function prepareCreateChrome(title, note) {",
+            "function openCreateDrawer(opener) {",
+        )
+        create_drawer = body(
+            "function openCreateDrawer(opener) {",
+            "const PACK_ROW_FIELDS=",
+        )
+        duplicate_drawer = body(
+            "function openDuplicateDrawer(row, opener) {",
+            "function packErrorMessage(message, rows) {",
+        )
+
+        # Shared chrome setup (both create and duplicate call this) hides
+        # the toggle by default -- it must never unconditionally reveal it.
+        self.assertIn("document.getElementById('scope-row').hidden=true;", prepare_chrome)
+        self.assertNotIn("document.getElementById('scope-row').hidden=false;", prepare_chrome)
+        # Only the plain-create entry point opts back in.
+        self.assertIn("document.getElementById('scope-row').hidden=false;", create_drawer)
+        # Duplicate stays single-channel: no reveal, and no setScope() call
+        # either (that would be the same hole via a different door).
+        self.assertNotIn("document.getElementById('scope-row').hidden=false;", duplicate_drawer)
+        self.assertNotIn("setScope(", duplicate_drawer)
+
     def test_drawer_wide_css_exists_for_pack_scope(self):
         css = (DASHBOARD / "styles.css").read_text(encoding="utf-8")
         self.assertIn(".drawer.wide .drawer-panel", css)

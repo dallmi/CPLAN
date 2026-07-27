@@ -1106,14 +1106,21 @@
     document.querySelector('.drawer-actions').style.display='grid';
     document.getElementById('form-validation').textContent='';
     document.getElementById('form-variant').hidden=false;
-    // I1: scope choice only makes sense while creating -- an existing
-    // activity has already committed to single or pack at creation time.
-    // Reset the toggle's visual state to single here (before any of the
-    // three callers' own setScope() calls, if any) so a stale 'pack' active
-    // class from an earlier session cannot leak into openDuplicateDrawer,
-    // which never calls setScope itself.
+    // I1/T3-review: scope choice only makes sense while creating a
+    // genuinely NEW activity -- an existing activity has already committed
+    // to single or pack at creation time, and openDuplicateDrawer has no
+    // reset path for the pack DOM (#pack-channels/#pack-rows survive
+    // closeDrawer). So #scope-row stays HIDDEN here by default -- shared by
+    // both create callers -- and only openCreateDrawer opts back in, right
+    // next to its own setScope('single'). Duplicate therefore can never
+    // reach pack mode and revive a stale pack session (old channels, old
+    // row names/dates) under its rewritten "Duplicate of ..." title. Still
+    // reset the toggle's visual state to single here (before any caller's
+    // own setScope() call, if any) so a stale 'pack' active class from an
+    // earlier session cannot leak into whichever caller does end up
+    // revealing the row.
     document.querySelectorAll('#scope-toggle button').forEach(btn=>btn.classList.toggle('active',btn.dataset.scope==='single'));
-    document.getElementById('scope-row').hidden=false;
+    document.getElementById('scope-row').hidden=true;
     // C2/I3: no version to conflict-check yet; the footer's ready-line
     // (T4-wired) is the relevant signal while creating, not the save-hint.
     document.getElementById('save-hint').hidden=true;
@@ -1144,6 +1151,11 @@
     document.getElementById('pack-rows').innerHTML='';
     document.getElementById('pack-channel-new').value='';
     document.getElementById('pack-add-channel-row').hidden=true;
+    // T3-review: only this entry point reveals #scope-row -- it just reset
+    // the pack DOM above, so flipping to pack scope from here is safe.
+    // prepareCreateChrome (shared with openDuplicateDrawer) leaves it
+    // hidden by default; openDuplicateDrawer never opts back in.
+    document.getElementById('scope-row').hidden=false;
     setScope('single');
     document.getElementById('activity-drawer').classList.add('open');
     document.getElementById('activity-drawer').setAttribute('aria-hidden','false');
