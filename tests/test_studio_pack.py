@@ -194,6 +194,17 @@ class StudioPackTests(unittest.TestCase):
         self.assertIn("pack_row:${rowEl.dataset.channel}:${col}", paint)
         self.assertIn(".pack-table input.missing{border-color:var(--danger)}", self.css)
 
+    def test_pack_channels_gap_paints_the_channels_legend(self):
+        # T6: pack_channels has no input to paint, so the Channels legend
+        # carries the same .f-label/data-f hook paintMissing() already
+        # matches -- a failed zero-channel submit turns the legend red like
+        # every other gap, and clearMissingPaint() clears it the same way.
+        self.assertIn(
+            '<legend class="f-label" data-f="pack_channels">Channels <em>(required)</em></legend>',
+            self.html,
+        )
+        self.assertIn("legend.f-label.missing,legend.f-label.missing em{color:var(--danger)}", self.css)
+
     def test_pack_draft_rule_names_required_dates_optional(self):
         # Blockers: pack name, at least one channel, every row name -- the
         # draft modal's Save refuses and focuses instead of posting.

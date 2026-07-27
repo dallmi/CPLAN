@@ -453,7 +453,7 @@
     document.getElementById('overview-kpis').innerHTML = [
       kpi('Total activities',fmtNum(rows.length),`${fmtNum(internal)} internal + ${fmtNum(external)} external`,''),
       kpi('Active now',fmtNum(active.length),'Currently running',''),
-      kpi('Incomplete',fmtNum(quality.incomplete),`${quality.completenessRate}% fully complete`,quality.incomplete?'warning':'success'),
+      kpi('Drafts',fmtNum(quality.incomplete),`${quality.completenessRate}% fully complete`,quality.incomplete?'warning':'success'),
       kpi('Next 30 days',fmtNum(upcoming.length),'Upcoming activities','')
     ].join('');
 
@@ -1446,15 +1446,6 @@
     save.textContent=count===0?'Select a channel to continue':`Create ${count} ${count===1?'activity':'activities'}`;
   }
 
-  function openPackDrawer(opener) {
-    // I1: pack scope is reached in-drawer via #scope-toggle now (single CTA,
-    // no dedicated "New pack" button) -- this stays as a direct pack-scope
-    // entry point built on the same unified chrome/state setup.
-    openCreateDrawer(opener);
-    setScope('pack');
-    form().elements.pack_name.focus();
-  }
-
   function openDuplicateDrawer(row, opener) {
     const sourceType=row.source_type||'internal';
     state.selected=null;state.creating=true;state.packing=false;state.editing=true;state.dirty=false;state.drawerOpener=opener||document.activeElement;
@@ -1669,7 +1660,7 @@
     return openDiscardModal();
   }
 
-  // C2/I4: the draft modal (former incomplete-modal). Resolves true = save
+  // C2/I4: the draft modal. Resolves true = save
   // as draft with whatever is filled, false = go back (first missing field
   // focused) -- or, when a "Fill it in" link is clicked, that specific field.
   // A draft still needs a name: if activity_name is among the missing
@@ -2254,8 +2245,9 @@
       if(state.editing){state.dirty=true;updateReady();}
     };
     // I1: setScope('pack') drives the existing state.packing machinery --
-    // same data-single-only/data-pack-only visibility, .drawer.wide, and
-    // pack-channel rendering openPackDrawer used, now reachable mid-session.
+    // data-single-only/data-pack-only visibility, .drawer.wide and
+    // pack-channel rendering -- so pack scope is reachable mid-session
+    // from the one create drawer (no separate pack entry point).
     document.getElementById('scope-toggle').onclick=event=>{
       const btn=event.target.closest('button');if(!btn)return;
       const scope=btn.dataset.scope;if(scope===currentScope())return;

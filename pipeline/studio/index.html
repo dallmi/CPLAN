@@ -141,7 +141,7 @@
           <select id="activity-channel"><option value="">All channels</option></select>
           <select id="activity-priority"><option value="">All priorities</option></select>
           <select id="activity-campaign"><option value="">All campaigns / packs</option></select>
-          <select id="activity-readiness"><option value="">All readiness</option><option value="complete">Complete</option><option value="incomplete">Incomplete</option></select>
+          <select id="activity-readiness"><option value="">All readiness</option><option value="complete">Complete</option><option value="incomplete">Draft</option></select>
           <button class="btn secondary" id="activity-clear">Clear</button>
           <span id="activity-result-count"></span>
         </div>
@@ -288,7 +288,7 @@
         </fieldset>
 
         <div id="pack-section" hidden>
-          <fieldset id="fs-channels"><legend>Channels <em>(required)</em></legend>
+          <fieldset id="fs-channels"><legend class="f-label" data-f="pack_channels">Channels <em>(required)</em></legend>
             <div class="channel-matrix" id="pack-channels"></div>
             <div class="pack-add-channel-toggle"><button type="button" class="link-inline" id="pack-channel-toggle">Add a channel that is not listed</button></div>
             <div class="pack-add-channel" id="pack-add-channel-row" hidden>

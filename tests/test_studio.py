@@ -358,7 +358,10 @@ class StudioTests(unittest.TestCase):
         self.assertIn("/api/activities/batch", app)
         self.assertIn("createActivitiesBatch", app)
         self.assertIn("async function submitPack(", app)
-        self.assertIn("function openPackDrawer(", app)
+        # T6: no dedicated pack entry point survives -- the scope toggle is
+        # the only way in (openPackDrawer was dead code, removed).
+        self.assertNotIn("openPackDrawer", app)
+        self.assertIn("function setScope(", app)
         self.assertIn("function setPackMode(", app)
         self.assertIn("state.packing", app)
         self.assertIn("activities created", app)
@@ -434,7 +437,7 @@ class StudioTests(unittest.TestCase):
         self.assertNotIn("text-transform:uppercase", css)
         # Eyebrows and required-field markers are grey, not red (red stays a scarce accent).
         self.assertIn(".eyebrow{font-size:10px!important;font-weight:600!important;letter-spacing:.02em;color:var(--grey-4)!important", css)
-        self.assertIn(".req{color:var(--grey-4)", css)
+        self.assertIn(".f-label em,.ms-field em,legend em{font-style:normal;color:var(--grey-4)}", css)
         # Form fields get a palette focus ring (never the browser's off-palette blue).
         self.assertIn("input:focus,select:focus,textarea:focus,.ms-trigger:focus{outline:2px solid var(--info)", css)
         # KPI bars: category colouring removed; RAG only where data-driven.

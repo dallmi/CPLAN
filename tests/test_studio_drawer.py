@@ -14,9 +14,10 @@ class StudioDrawerTests(unittest.TestCase):
     edit-mode chrome, the P8 required-marker convention, the P11 variant
     help copy, and the P12 add-channel toggle. Mirrors the text-assertion
     style already used in test_studio.py / test_studio_list.py. Per the T3
-    file-ownership matrix this file owns index.html and the five named
-    app.js chrome functions (openCreateDrawer/openPackDrawer/
-    prepareCreateChrome/applyRoleGating/setDrawerEditing) -- it does not
+    file-ownership matrix this file owns index.html and the named app.js
+    chrome functions (openCreateDrawer/prepareCreateChrome/applyRoleGating/
+    setDrawerEditing; the openPackDrawer wrapper was removed as dead code
+    in the T6 sweep) -- it does not
     assert anything about the table-render block, pack-table rows, or
     flow/validation logic owned by other tasks.
     """
@@ -181,14 +182,12 @@ class StudioDrawerTests(unittest.TestCase):
         # rows are T5's own per-channel markup, out of scope here).
         self.assertIn("<em>(required)</em>", html)
         self.assertIn("<em data-vreq>(required)</em>", html)
-        # The literal asterisk marker is gone from the fields T3 owns.
-        drawer_start = html.index('<form id="activity-form"')
-        pack_section_start = html.index('id="pack-section"')
-        shared_fields_markup = html[drawer_start:pack_section_start]
-        self.assertNotIn('<span class="req"', shared_fields_markup)
-        # .req CSS rule itself stays (T5's pack-row markup still uses it;
-        # T6 cleans it up once nothing references it).
-        self.assertIn(".req{color:var(--grey-4)", css)
+        # The literal asterisk marker is gone everywhere -- T5 removed the
+        # last emitter, T6 retired the orphaned .req rule with it.
+        app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+        self.assertNotIn('class="req"', html)
+        self.assertNotIn('class="req"', app)
+        self.assertNotIn(".req{", css)
         # New style contract: grey, non-italic, wherever it appears.
         self.assertIn("font-style:normal;color:var(--grey-4)", css)
 
@@ -258,14 +257,16 @@ class StudioDrawerTests(unittest.TestCase):
         ]:
             self.assertIn(f'data-f="{field}"', html)
 
-    def test_create_entry_still_reachable_and_pack_wrapper_reuses_it(self):
+    def test_create_entry_still_reachable_and_pack_scope_via_toggle(self):
         app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
 
         self.assertIn("function openCreateDrawer(opener)", app)
-        self.assertIn("function openPackDrawer(opener)", app)
-        # The pack wrapper builds on the unified entry point + scope switch,
-        # it does not duplicate chrome/state setup.
-        self.assertIn("openCreateDrawer(opener);\n    setScope('pack');", app)
+        # T6: the openPackDrawer wrapper had zero call sites and is gone --
+        # pack scope is reached only through the in-drawer scope toggle,
+        # on the same unified chrome/state setup.
+        self.assertNotIn("openPackDrawer", app)
+        self.assertIn("document.getElementById('scope-toggle').onclick", app)
+        self.assertIn("setScope(scope);", app)
 
     def test_no_emoji_in_new_markup(self):
         """Sentence case, English, no emojis -- re-asserted narrowly on the
