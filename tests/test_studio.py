@@ -417,3 +417,22 @@ class StudioTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_kit_compliance_pass(self):
+        """Design-system pass: no ALL CAPS, grey eyebrows/asterisks, palette focus ring, neutral KPI tones."""
+        css = (DASHBOARD / "styles.css").read_text(encoding="utf-8")
+        app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+
+        # Kit: "No ALL CAPS. No exceptions." — labels are sentence case via markup.
+        self.assertNotIn("text-transform:uppercase", css)
+        # Eyebrows and required-field markers are grey, not red (red stays a scarce accent).
+        self.assertIn(".eyebrow{font-size:10px!important;font-weight:600!important;letter-spacing:.02em;color:var(--grey-4)!important", css)
+        self.assertIn(".req{color:var(--grey-4)", css)
+        # Form fields get a palette focus ring (never the browser's off-palette blue).
+        self.assertIn("input:focus,select:focus,textarea:focus,.ms-trigger:focus{outline:2px solid var(--info)", css)
+        # KPI bars: category colouring removed; RAG only where data-driven.
+        self.assertNotIn("'highlight'", app)
+        # Donut centres unified: number + unit label on both.
+        self.assertIn("centerSub", app)
+        self.assertIn("'mentions'", app)
+        self.assertIn("'activities')", app)

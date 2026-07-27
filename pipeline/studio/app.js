@@ -86,7 +86,7 @@
   const PRIORITY_FALLBACK = ['#404040', '#B98E2C', '#8E8D83', '#CCCABC', '#946F29', '#5A5D5C'];
   const priorityColor = (label, i) => PRIORITY_DONUT_COLORS[String(label).toLowerCase()] || PRIORITY_FALLBACK[i % PRIORITY_FALLBACK.length];
 
-  function donutHtml(entries, colorOf, centerText) {
+  function donutHtml(entries, colorOf, centerText, centerSub) {
     if (!entries.length) return emptyState(EMPTY_ICONS.barChart, 'No data available', 'Nothing to show for the current selection.');
     const total = entries.reduce((sum, [, count]) => sum + count, 0);
     const shown = entries.slice(0, 8);
@@ -100,8 +100,9 @@
     }).join('');
     const legend = shown.map(([label, count], i) => `<div class="legend-row"><span class="swatch" style="background:${colorOf(label, i)}"></span>${esc(label)} — ${fmtNum(count)} (${Math.round(count / total * 100)}%)</div>`).join('');
     const rest = entries.length > shown.length ? `<div class="legend-row"><span class="swatch" style="background:var(--grey-1)"></span>+${entries.length - shown.length} more</div>` : '';
-    const center = centerText === undefined ? fmtNum(total) : centerText;
-    const centerSvg = center === '' ? '' : `<text x="${cx}" y="${cy + 8}" text-anchor="middle" class="donut-center" font-size="26" font-weight="300">${center}</text>`;
+    const center = (centerText === undefined || centerText === null) ? fmtNum(total) : centerText;
+    const subSvg = centerSub ? `<text x="${cx}" y="${cy + 20}" text-anchor="middle" font-size="9" fill="var(--grey-4)">${esc(centerSub)}</text>` : '';
+    const centerSvg = center === '' ? '' : `<text x="${cx}" y="${cy + (centerSub ? 2 : 8)}" text-anchor="middle" class="donut-center" font-size="26" font-weight="300">${center}</text>` + subSvg;
     return `<div class="donut-wrap"><svg class="donut-svg" width="140" height="140" viewBox="0 0 140 140" role="img">${segments}${centerSvg}</svg><div class="donut-legend">${legend}${rest}</div></div>`;
   }
 
@@ -436,8 +437,8 @@
     // KPI row: portfolio counts plus one problem signal — the first scan line
     // must carry the portfolio's biggest issue, not two near-identical twins.
     document.getElementById('overview-kpis').innerHTML = [
-      kpi('Total activities',fmtNum(rows.length),`${fmtNum(internal)} internal + ${fmtNum(external)} external`,'highlight'),
-      kpi('Active now',fmtNum(active.length),'Currently running','success'),
+      kpi('Total activities',fmtNum(rows.length),`${fmtNum(internal)} internal + ${fmtNum(external)} external`,''),
+      kpi('Active now',fmtNum(active.length),'Currently running',''),
       kpi('Incomplete',fmtNum(quality.incomplete),`${quality.completenessRate}% fully complete`,quality.incomplete?'warning':'success'),
       kpi('Next 30 days',fmtNum(upcoming.length),'Upcoming activities','')
     ].join('');
@@ -479,11 +480,13 @@
       : emptyState(EMPTY_ICONS.calendar, 'No activities in the next 30 days', 'Check back later or widen the planning horizon.');
 
     renderChannelLoad();
-    // Division: mention counts (multi-division activities count once per
-    // division), so no big centre number that could be misread as activities.
-    document.getElementById('division-donut').innerHTML = donutHtml(countBy(rows,'business_division'),(label,i)=>DONUT_SEQUENCE[i%DONUT_SEQUENCE.length],'');
+    // Both donuts carry a centre number with a small unit label so the two
+    // cannot be misread against each other: divisions count MENTIONS
+    // (multi-division activities count once per division), priorities count
+    // activities.
+    document.getElementById('division-donut').innerHTML = donutHtml(countBy(rows,'business_division'),(label,i)=>DONUT_SEQUENCE[i%DONUT_SEQUENCE.length],null,'mentions');
     const priorityEntries = countBy(rows,'priority').sort((a,b)=>(PRIORITY_RANKS[String(b[0]).toLowerCase()]??1)-(PRIORITY_RANKS[String(a[0]).toLowerCase()]??1));
-    document.getElementById('priority-donut').innerHTML = donutHtml(priorityEntries,priorityColor);
+    document.getElementById('priority-donut').innerHTML = donutHtml(priorityEntries,priorityColor,null,'activities');
     renderTrend();
   }
 
@@ -526,7 +529,7 @@
     const lead=A.leadTimeStats(rows,7);
     const coverage=A.weeklyCoverage(rows,state.horizonWeeks,new Date());
     const peak=coverage.reduce((best,w)=>w.count>(best?best.count:-1)?w:best,null);
-    document.getElementById('planning-kpis').innerHTML=[kpi('In horizon',rows.length,`Next ${state.horizonWeeks} weeks`,'highlight'),kpi('Short notice',lead.shortNotice,`${lead.shortNoticeRate}% of valid`,'warning'),kpi('Median lead',lead.median===null?'—':`${lead.median}d`,`${lead.excluded} excluded`,''),kpi('Peak week',peak?peak.count:0,peak?fmtDate(peak.from):'—','')].join('');
+    document.getElementById('planning-kpis').innerHTML=[kpi('In horizon',rows.length,`Next ${state.horizonWeeks} weeks`,''),kpi('Short notice',lead.shortNotice,`${lead.shortNoticeRate}% of valid`,lead.shortNotice?'warning':''),kpi('Median lead',lead.median===null?'—':`${lead.median}d`,`${lead.excluded} excluded`,''),kpi('Peak week',peak?peak.count:0,peak?fmtDate(peak.from):'—','')].join('');
 
     const grouping = BOARD_GROUPS[state.boardGroup]||BOARD_GROUPS.channel;
     document.getElementById('board-subtitle').textContent = `Swimlanes per ${grouping.label} · bars span start to end`;
@@ -582,7 +585,7 @@
   function renderConflicts() {
     const all=collisionsFor(Number(document.getElementById('conflict-proximity').value)),items=filteredConflicts();
     const conflicts=all.filter(i=>i.kind==='conflict'),orchestration=all.filter(i=>i.kind==='orchestration');
-    document.getElementById('conflict-kpis').innerHTML=[kpi('Matching pairs',items.length,'Current filters','highlight'),kpi('Critical',conflicts.filter(i=>i.severity==='critical').length,'Requires review','danger'),kpi('Other conflicts',conflicts.filter(i=>i.severity!=='critical').length,'Potential competition','warning'),kpi('Orchestration',orchestration.length,'Same-pack coordination','')].join('');
+    document.getElementById('conflict-kpis').innerHTML=[kpi('Matching pairs',items.length,'Current filters',''),kpi('Critical',conflicts.filter(i=>i.severity==='critical').length,'Requires review',conflicts.some(i=>i.severity==='critical')?'danger':''),kpi('Other conflicts',conflicts.filter(i=>i.severity!=='critical').length,'Potential competition',conflicts.some(i=>i.severity!=='critical')?'warning':''),kpi('Orchestration',orchestration.length,'Same-pack coordination','')].join('');
     document.getElementById('conflict-list').innerHTML=items.length?items.slice(0,60).map(item=>{const reason=`${item.gapDays===0?'Same day':item.gapDays+' day gap'} · ${esc(item.left.channel||'No channel')} · ${esc(split(item.left.target_audience)[0]||'Shared audience')}`;return `<div class="conflict-row"><div class="conflict-top"><div><span class="badge ${esc(item.severity)}">${esc(item.severity)}</span> <span class="badge ${item.kind==='orchestration'?'info':'neutral'}">${esc(item.kind)}</span></div><span class="list-meta">${reason}</span></div><div class="conflict-pair"><div class="conflict-item" data-open-id="${esc(item.left.id||'')}"><strong>${esc(item.left.activity_name||'Untitled')}</strong><br>${esc(campaignLabel(item.left)||'No campaign')}</div><div class="conflict-vs">overlaps with</div><div class="conflict-item" data-open-id="${esc(item.right.id||'')}"><strong>${esc(item.right.activity_name||'Untitled')}</strong><br>${esc(campaignLabel(item.right)||'No campaign')}</div></div></div>`;}).join(''):emptyState(EMPTY_ICONS.checkCircle, 'No matching conflicts', 'Try widening the proximity window or clearing filters.');
   }
 
@@ -660,7 +663,7 @@
 
   function renderPlanningHealth() {
     const rows=state.rows,quality=A.dataQuality(rows),lead=A.leadTimeStats(rows,7),complete=rows.length-quality.incomplete;
-    document.getElementById('health-kpis').innerHTML=[kpi('Complete',`${quality.completenessRate}%`,`${complete} of ${rows.length}`,'success'),kpi('Short notice',`${lead.shortNoticeRate}%`,`Threshold <7 days`,'warning'),kpi('Median lead',lead.median===null?'—':`${lead.median}d`,`P25 ${lead.p25??'—'} · P75 ${lead.p75??'—'}`,''),kpi('Excluded',lead.excluded,'Missing or negative lead time','')].join('');
+    document.getElementById('health-kpis').innerHTML=[kpi('Complete',`${quality.completenessRate}%`,`${complete} of ${rows.length}`,quality.incomplete?'warning':'success'),kpi('Short notice',`${lead.shortNoticeRate}%`,`Threshold <7 days`,lead.shortNotice?'warning':'success'),kpi('Median lead',lead.median===null?'—':`${lead.median}d`,`P25 ${lead.p25??'—'} · P75 ${lead.p75??'—'}`,''),kpi('Excluded',lead.excluded,'Missing or negative lead time','')].join('');
     const max=Math.max(lead.p75||0,lead.median||0,lead.p25||0,1),xOf=v=>v/max*90+5;
     // Degenerate distribution: every valid lead time is zero — a broken-looking
     // chart hides the actual story, so state it as a diagnosis instead.
@@ -683,14 +686,14 @@
 
   function renderMissingFieldsAndTeams(rows) {
     const fields=new Map();rows.forEach(row=>A.planningCompleteness(row).missing.forEach(field=>fields.set(field,(fields.get(field)||0)+1)));
-    document.getElementById('missing-fields').innerHTML=barList(Array.from(fields.entries()).map(([field,count])=>[FIELD_LABELS[field]||field,count]).sort((a,b)=>b[1]-a[1]),true);
+    document.getElementById('missing-fields').innerHTML=barList(Array.from(fields.entries()).map(([field,count])=>[FIELD_LABELS[field]||field,count]).sort((a,b)=>b[1]-a[1]));
     const teamRows=new Map();rows.forEach(row=>{const key=row.lead_team||row.lead||'Unassigned';if(!teamRows.has(key))teamRows.set(key,[]);teamRows.get(key).push(row);});
     document.getElementById('team-health').innerHTML=`<table><thead><tr><th>Team</th><th class="num">Activities</th><th class="num">Complete</th><th class="num">Short notice</th><th class="num">Median lead</th></tr></thead><tbody>${Array.from(teamRows.entries()).map(([team,items])=>{const q=A.dataQuality(items),l=A.leadTimeStats(items,7);return `<tr><td>${esc(team)}</td><td class="num">${items.length}</td><td class="num">${q.completenessRate}%</td><td class="num">${l.shortNoticeRate}%</td><td class="num">${l.median===null?'—':l.median+'d'}</td></tr>`;}).join('')}</tbody></table>`;
   }
 
   function renderStrategic() {
     const rows=state.rows,aligned=rows.filter(r=>nonempty(r.strategic_objectives)),objectives=countBy(rows,'strategic_objectives'),divisions=countBy(rows,'business_division'),unaligned=rows.filter(r=>!nonempty(r.strategic_objectives));
-    document.getElementById('strategic-kpis').innerHTML=[kpi('Aligned',`${rows.length?Math.round(aligned.length/rows.length*100):0}%`,`${aligned.length} activities`,'success'),kpi('Unaligned',unaligned.length,'No pillar assigned','danger'),kpi('Pillars',objectives.length,'Unique values',''),kpi('Divisions',divisions.length,'Represented','')].join('');
+    document.getElementById('strategic-kpis').innerHTML=[kpi('Aligned',`${rows.length?Math.round(aligned.length/rows.length*100):0}%`,`${aligned.length} activities`,''),kpi('Unaligned',unaligned.length,'No pillar assigned',unaligned.length?'danger':'success'),kpi('Pillars',objectives.length,'Unique values',''),kpi('Divisions',divisions.length,'Represented','')].join('');
     document.getElementById('objective-coverage').innerHTML=barList(objectives);
     document.getElementById('division-coverage').innerHTML=barList(divisions,true);
     document.getElementById('unaligned-list').innerHTML=unaligned.length?unaligned.slice(0,30).map(row=>`<div class="list-row" data-open-id="${esc(row.id||'')}"><span class="severity-line high"></span><div><div class="list-title">${esc(row.activity_name||'Untitled')}</div><div class="list-meta">${fmtDate(row.start_date)} · ${esc(row.lead_team||row.lead||'Unassigned')}</div></div><span class="badge warning">Unaligned</span></div>`).join(''):emptyState(EMPTY_ICONS.checkCircle, 'All activities have a communications pillar', 'Nothing left to align.');
@@ -698,7 +701,7 @@
 
   function renderCampaignQuality() {
     const cards=A.campaignScorecards(state.rows),multi=cards.filter(c=>c.channels>1),single=cards.filter(c=>c.channels===1),avg=cards.length?Math.round(cards.reduce((s,c)=>s+c.activities,0)/cards.length*10)/10:0;
-    document.getElementById('campaign-kpis').innerHTML=[kpi('Packs / campaigns',cards.length,'Identified planning units','highlight'),kpi('Multi-channel',multi.length,`${cards.length?Math.round(multi.length/cards.length*100):0}% of units`,'success'),kpi('Single-channel',single.length,'Review orchestration','warning'),kpi('Avg activities',avg,'Per planning unit','')].join('');
+    document.getElementById('campaign-kpis').innerHTML=[kpi('Packs / campaigns',cards.length,'Identified planning units',''),kpi('Multi-channel',multi.length,`${cards.length?Math.round(multi.length/cards.length*100):0}% of units`,''),kpi('Single-channel',single.length,'Review orchestration',single.length?'warning':''),kpi('Avg activities',avg,'Per planning unit','')].join('');
     document.getElementById('campaign-scorecard').innerHTML=cards.length?`<table><thead><tr><th>Campaign / pack</th><th class="num">Activities</th><th class="num">Channels</th><th>Channel mix</th><th class="num">Objectives</th><th class="num">Audiences</th><th>Activity window</th><th class="num"><span class="th-help" title="Longest quiet period between the first and last activity of this pack or campaign">Quiet period ⓘ</span></th></tr></thead><tbody>${cards.slice(0,50).map(card=>`<tr><td>${esc(card.campaign)}</td><td class="num">${card.activities}</td><td class="num"><span class="badge ${card.channels>1?'success':'warning'}">${card.channels}</span></td><td title="${esc(card.channelNames.join(', '))}">${esc(card.channelNames.join(', ')||'—')}</td><td class="num">${card.objectives}</td><td class="num">${card.audiences}</td><td>${fmtDate(card.firstDate)} – ${fmtDate(card.lastDate)}</td><td class="num">${card.channelGapDays===null?'—':card.channelGapDays+'d'}</td></tr>`).join('')}</tbody></table>`:emptyState(EMPTY_ICONS.layers, 'No campaign or pack identifiers available', 'Add a campaign, pack ID, or tracking pack to group activities.');
   }
 
@@ -725,7 +728,7 @@
 
   function renderDataQuality() {
     const q=A.dataQuality(state.rows),generated=state.meta&&(state.meta.generated_at_iso||state.meta.generated_at)||'Unknown';
-    document.getElementById('quality-kpis').innerHTML=[kpi('Complete records',`${q.completenessRate}%`,`${q.incomplete} incomplete`,'highlight'),kpi('Duplicate IDs',q.duplicateTrackingIds,'Unique duplicated identifiers',q.duplicateTrackingIds?'danger':'success'),kpi('Missing IDs',q.missingTrackingIds,'Cannot safely edit',q.missingTrackingIds?'danger':'success'),kpi('Invalid dates',q.invalidDateRanges,'End before start',q.invalidDateRanges?'danger':'success')].join('');
+    document.getElementById('quality-kpis').innerHTML=[kpi('Complete records',`${q.completenessRate}%`,`${q.incomplete} incomplete`,q.incomplete?'warning':'success'),kpi('Duplicate IDs',q.duplicateTrackingIds,'Unique duplicated identifiers',q.duplicateTrackingIds?'danger':'success'),kpi('Missing IDs',q.missingTrackingIds,'Cannot safely edit',q.missingTrackingIds?'danger':'success'),kpi('Invalid dates',q.invalidDateRanges,'End before start',q.invalidDateRanges?'danger':'success')].join('');
     document.getElementById('quality-diagnostics').innerHTML=[['Missing campaign / pack',q.missingPackIds],['Incomplete planning records',q.incomplete],['Duplicate tracking IDs',q.duplicateTrackingIds],['Missing tracking IDs',q.missingTrackingIds],['Invalid date ranges',q.invalidDateRanges]].map(([label,value])=>`<div class="metric-line"><span>${esc(label)}</span><strong>${fmtNum(value)}</strong></div>`).join('');
     document.getElementById('reconciliation').innerHTML=`<div class="metric-line"><span>API refresh</span><strong>${esc(String(generated))}</strong></div><div class="metric-line"><span>${esc(backendLabel())} rows</span><strong>${fmtNum(state.snapshotRows.length)}</strong></div><div class="metric-line"><span>Write adapter</span><strong>${esc(backendLabel())} REST API</strong></div>${syncRunSummaryHtml()}<div class="notice"><strong>Versioned writes:</strong> stale updates are rejected with HTTP 409 and must be reviewed against the current database record.</div>`;
   }
