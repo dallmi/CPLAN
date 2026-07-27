@@ -3,7 +3,7 @@
 
   const A = window.CplanAnalytics;
   const COLORS = {grey:'#404040', bronze:'#B98E2C'};
-  const state = {snapshotRows:[], rows:[], meta:null, syncRun:null, horizonWeeks:8, boardGroup:'channel', channelHorizonWeeks:4, trendMode:'', calendarDate:new Date(), selected:null, editing:false, creating:false, packing:false, customChannels:[], dirty:false, filteredRows:[], collisionsCache:new Map(), drawerOpener:null, discardModalOpen:false, incompleteModalOpen:false, deleteModalOpen:false, queueFilter:null, dateFrom:null, dateTo:null};
+  const state = {snapshotRows:[], rows:[], meta:null, syncRun:null, horizonWeeks:8, boardGroup:'channel', channelHorizonWeeks:4, trendMode:'', calendarDate:new Date(), selected:null, editing:false, creating:false, packing:false, customChannels:[], dirty:false, showErrors:false, filteredRows:[], collisionsCache:new Map(), drawerOpener:null, discardModalOpen:false, draftModalOpen:false, deleteModalOpen:false, queueFilter:null, dateFrom:null, dateTo:null};
 
   const esc = A.escapeHtml;
   const fmtNum = value => Number(value || 0).toLocaleString('en-GB');
@@ -291,11 +291,26 @@
   const repository = new DatabasePlanningRepository();
   const backendLabel = () => state.meta&&state.meta.backend==='postgresql'?'PostgreSQL':state.meta&&state.meta.backend==='sqlite'?'SQLite':'Local database';
 
-  function toast(message) {
+  // copyValue is optional: when set, the toast grows a "Copy ID" action
+  // button (I5/C2 -- create/draft toasts carry the new tracking ID). Clears
+  // any pending hide timer so a toast-triggered toast (e.g. clicking Copy)
+  // does not get cut short by the first toast's own timeout.
+  function toast(message, copyValue) {
     const el = document.getElementById('toast');
     el.textContent = message;
+    if (copyValue) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'toast-action';
+      btn.textContent = 'Copy ID';
+      btn.onclick = () => {
+        navigator.clipboard.writeText(copyValue).then(() => toast('Tracking ID copied')).catch(() => toast('Copy failed'));
+      };
+      el.appendChild(btn);
+    }
     el.classList.add('show');
-    window.setTimeout(() => el.classList.remove('show'), 2400);
+    window.clearTimeout(toast._timer);
+    toast._timer = window.setTimeout(() => el.classList.remove('show'), copyValue ? 4000 : 2400);
   }
 
   function download(name, content, type) {
@@ -840,7 +855,7 @@
         const checked=Array.from(container.querySelectorAll('.ms-option input:checked')).map(input=>input.value);
         msHidden(container).value=checked.join('; ');
         msUpdateTrigger(container);
-        if(state.editing)state.dirty=true;
+        if(state.editing){state.dirty=true;updateReady();}
       });
       container.querySelector('.ms-filter').addEventListener('input',event=>msFilter(container,event.target.value));
     });
@@ -943,6 +958,63 @@
     if(el&&typeof el.focus==='function')el.focus();
   }
 
+  // --- I3/C2/C3: live readiness, draft save, single source of truth ------
+  // Missing-field computation derives ONLY from REQUIRED_INTERNAL/EXTERNAL --
+  // never a second list (ready-line, draft modal and the detail-head notice
+  // all funnel through missingRequiredFields()/missingRequiredForRow() below).
+  function formValue(name) {
+    const el=form().elements[name];
+    return el?String(el.value||'').trim():'';
+  }
+
+  // T5 seam: pack-row-level gaps (pack name, channel selection, per-row
+  // name/date) are pack scope's own concern. This keeps the shared
+  // computation clean and returns [] until T5 extends it -- pack scope's
+  // ready-line/draft-modal therefore show only the single-scope-shared
+  // portion in the meantime, never a hand-built pack list.
+  function missingExtra() { return []; }
+
+  function missingRequiredFields() {
+    const sourceType=currentSourceType();
+    const required=(sourceType==='internal'?REQUIRED_INTERNAL:REQUIRED_EXTERNAL)
+      .filter(name=>!(state.packing&&PACK_ROW_FIELDS.includes(name)));
+    return required.filter(name=>!nonempty(formValue(name))).concat(missingExtra());
+  }
+
+  // Same source of truth, applied to a persisted row instead of the live
+  // form -- used for the post-save toast wording and the read-only detail
+  // view's "Saved as draft" notice (P13).
+  function missingRequiredForRow(row) {
+    const required=row.source_type==='internal'?REQUIRED_INTERNAL:REQUIRED_EXTERNAL;
+    return required.filter(name=>!nonempty(row[name]));
+  }
+
+  function paintMissing(missingNames) {
+    document.querySelectorAll('.f-label[data-f],.ms-field[data-f]').forEach(el=>{
+      el.classList.toggle('missing',missingNames.includes(el.dataset.f));
+    });
+  }
+
+  function clearMissingPaint() {
+    document.querySelectorAll('.f-label.missing,.ms-field.missing').forEach(el=>el.classList.remove('missing'));
+  }
+
+  // Runs on every input/change (including multiselects) while the form is
+  // active (create or edit -- state.editing covers both, see openCreateDrawer).
+  // Only paints .missing once an attempt has actually failed (state.showErrors),
+  // so opening a blank create drawer is not greeted with a wall of red.
+  function updateReady() {
+    if (!state.editing) return [];
+    const missing=missingRequiredFields();
+    const line=document.getElementById('ready-line'),text=document.getElementById('ready-text');
+    line.classList.toggle('ready',missing.length===0);
+    text.textContent=missing.length
+      ?`${missing.length} required field${missing.length===1?'':'s'} left`
+      :(state.creating?'Ready to create':'Ready to save');
+    if (state.showErrors) paintMissing(missing);
+    return missing;
+  }
+
   function populateDrawerForm(row) {
     Array.from(form().elements).forEach(el=>{
       if(!el.name)return;
@@ -999,8 +1071,9 @@
 
   // Fetched lazily every time the drawer opens on an existing activity (never
   // for the create-activity drawer, which has no id yet) -- this also covers
-  // "re-fetched on reopen after save" for free, since saveDraft closes the
-  // drawer and any later re-open goes through openDrawer -> loadHistory again.
+  // "re-fetched after save" for free, since commitEditPatch/commitCreate
+  // (I5) reopen read-only via openDrawer -> loadHistory again rather than
+  // closing the drawer.
   async function loadHistory(activityId) {
     const body = document.getElementById('history-body');
     body.innerHTML = '<div class="history-loading">Loading history…</div>';
@@ -1050,15 +1123,27 @@
         if(field==='tracking_pack_id'&&(!nonempty(value)||value===STANDALONE_PACK_PREFIX))return '';
         const has=nonempty(value);
         const editable=EDITABLE_DETAIL_FIELDS.has(field)&&row.id&&canEditActivity(row);
-        const display=has?esc(String(value)):(editable?`<button type="button" class="detail-add" data-add-field="${esc(field)}">— Add</button>`:'—');
+        // P13: filled + editable rows get a hover/focus-revealed Edit button;
+        // empty + editable rows keep the "— Add" affordance; both share the
+        // same data-edit-field mechanism (extends the former data-add-field-
+        // only wiring) and gate on the same canEditActivity() check, so
+        // viewers/foreign-row contributors get neither affordance.
+        const display=has
+          ?`${esc(String(value))}${editable?`<button type="button" class="row-edit" data-edit-field="${esc(field)}">Edit</button>`:''}`
+          :(editable?`<button type="button" class="detail-add" data-edit-field="${esc(field)}">— Add</button>`:'—');
         return `<div class="detail-row"><dt>${esc(label)}</dt><dd>${display}</dd></div>`;
       }).join('');
       return rowsHtml?`<div class="detail-section"><h4>${esc(section.title)}</h4><dl>${rowsHtml}</dl></div>`:'';
     }).join('');
     const digest=row.source_type==='internal'?`<div class="detail-section"><h4>Visibility</h4><dl><div class="detail-row"><dt>News digest</dt><dd>${row.news_digest?'Considered':'Not considered'}</dd></div></dl></div>`:'';
-    document.getElementById('detail-view').innerHTML=sections+digest;
-    document.getElementById('detail-view').querySelectorAll('[data-add-field]').forEach(btn=>{
-      btn.onclick=()=>{setDrawerEditing(true);focusField(btn.dataset.addField);};
+    // C2/I4: the read-only reopen after a draft save names the gap instead
+    // of silently looking "done" -- same REQUIRED_INTERNAL/EXTERNAL source
+    // of truth as updateReady(), never a second list.
+    const missing=missingRequiredForRow(row);
+    const head=missing.length?`<div class="notice warn"><strong>Saved as draft.</strong> ${missing.length} required field${missing.length===1?'':'s'} outstanding.</div>`:'';
+    document.getElementById('detail-view').innerHTML=head+sections+digest;
+    document.getElementById('detail-view').querySelectorAll('[data-edit-field]').forEach(btn=>{
+      btn.onclick=()=>{setDrawerEditing(true);focusField(btn.dataset.editField);};
     });
   }
 
@@ -1070,6 +1155,7 @@
     document.getElementById('drawer-title').textContent=row.activity_name||'Untitled activity';
     setDrawerTracking(row);
     document.getElementById('drawer-note').hidden=true;
+    document.getElementById('prefill-note').hidden=true;
     document.getElementById('drawer-mode').hidden=false;
     hideConflictBanner();
     document.getElementById('form-variant').hidden=true;
@@ -1093,6 +1179,12 @@
   }
 
   function prepareCreateChrome(title, note) {
+    // I3/C3: a fresh create/duplicate session starts with no failed-submit
+    // state -- any .missing paint left over from a previous session in this
+    // same (reused) drawer DOM must not bleed into this one.
+    state.showErrors=false;
+    clearMissingPaint();
+    clearCreateAnotherButton();
     document.getElementById('drawer-eyebrow').textContent='Create';
     document.getElementById('drawer-title').textContent=title;
     setDrawerTracking(null);
@@ -1157,6 +1249,9 @@
     // hidden by default; openDuplicateDrawer never opts back in.
     document.getElementById('scope-row').hidden=false;
     setScope('single');
+    // I2: prefill from the user's own newest row -- after the blank reset
+    // above, so there is nothing stale left in the form for it to clash with.
+    applyPrefill();
     document.getElementById('activity-drawer').classList.add('open');
     document.getElementById('activity-drawer').setAttribute('aria-hidden','false');
     form().elements.activity_name.focus();
@@ -1198,6 +1293,7 @@
     } else {
       document.getElementById('drawer-save').textContent='Create activity';
     }
+    updateReady();
   }
 
   function packSelectedChannels() {
@@ -1290,8 +1386,15 @@
     const nameEl=form().elements.activity_name;
     if(nonempty(nameEl.value))nameEl.value=`${nameEl.value} (copy)`;
     setFormEnabled(true);
+    // I2: duplicate keeps its own note in the same #prefill-note slot --
+    // applyPrefill() is never called here, so it cannot be overwritten.
+    // textContent (not innerHTML), so no esc() -- the browser already treats
+    // this as plain text, and esc() would show literal escaped entities.
+    document.getElementById('prefill-text').textContent=`Copied from "${row.activity_name||'the original activity'}" — dates cleared so nothing ships on a stale date.`;
+    document.getElementById('prefill-note').hidden=false;
     document.getElementById('activity-drawer').classList.add('open');
     document.getElementById('activity-drawer').setAttribute('aria-hidden','false');
+    updateReady();
     nameEl.focus();nameEl.select();
   }
 
@@ -1317,7 +1420,7 @@
     }
     const required=(sourceType==='internal'?REQUIRED_INTERNAL:REQUIRED_EXTERNAL).filter(name=>!PACK_ROW_FIELDS.includes(name)&&name!=='activity_name');
     const missing=required.filter(name=>!value(name));
-    if(missing.length&&!await confirmSaveIncomplete(missing))return;
+    if(missing.length&&!await confirmDraftSave(missing))return;
     const rows=packRowValues();
     if(!rows.length){validation.textContent='Select at least one channel.';return;}
     for(const row of rows){
@@ -1460,27 +1563,35 @@
     return openDiscardModal();
   }
 
-  // Completeness check at save time instead of shame afterwards: missing
-  // recommended fields raise an informed choice, not a hard block. Resolves
-  // true = save as incomplete, false = go back (first missing field focused).
-  function confirmSaveIncomplete(missing) {
+  // C2/I4: the draft modal (former incomplete-modal). Resolves true = save
+  // as draft with whatever is filled, false = go back (first missing field
+  // focused) -- or, when a "Fill it in" link is clicked, that specific field.
+  // A draft still needs a name: if activity_name is among the missing
+  // fields, "Save as draft" never posts -- it behaves like "go back", just
+  // focused on the name, so the API's own hard requirement is never the
+  // thing that silently rejects a click.
+  function confirmDraftSave(missing) {
     return new Promise(resolve => {
-      if (state.incompleteModalOpen) { resolve(false); return; }
-      state.incompleteModalOpen = true;
-      const modal = document.getElementById('incomplete-modal');
-      const saveBtn = document.getElementById('incomplete-save');
-      const backBtn = document.getElementById('incomplete-back');
-      const count = missing.length;
-      document.getElementById('incomplete-modal-title').textContent = `Save with ${count} ${count===1?'field':'fields'} missing?`;
-      document.getElementById('incomplete-modal-list').innerHTML = missing.map(name=>`<li><strong>${esc(FIELD_LABELS[name]||name)}</strong><span>required</span></li>`).join('');
-      const settle = result => {
+      if (state.draftModalOpen) { resolve(false); return; }
+      state.draftModalOpen = true;
+      const modal = document.getElementById('draft-modal');
+      const saveBtn = document.getElementById('draft-save');
+      const backBtn = document.getElementById('draft-back');
+      const list = document.getElementById('draft-modal-list');
+      list.innerHTML = missing.map(name=>`<li><span>${esc(FIELD_LABELS[name]||name)}</span><button type="button" class="link-inline" data-jump="${esc(name)}">Fill it in</button></li>`).join('');
+      const settle = (result, jumpTo) => {
         modal.classList.remove('open');
         modal.setAttribute('aria-hidden','true');
         modal.removeEventListener('keydown', onKeydown);
+        list.removeEventListener('click', onListClick);
         saveBtn.onclick = null; backBtn.onclick = null;
-        state.incompleteModalOpen = false;
-        if (!result) focusField(missing[0]);
+        state.draftModalOpen = false;
+        if (!result) focusField(jumpTo || missing[0]);
         resolve(result);
+      };
+      const onListClick = event => {
+        const jump = event.target.closest('[data-jump]');
+        if (jump) settle(false, jump.dataset.jump);
       };
       const onKeydown = event => {
         if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); settle(false); return; }
@@ -1489,12 +1600,20 @@
           (document.activeElement === saveBtn ? backBtn : saveBtn).focus();
         }
       };
-      saveBtn.onclick = () => settle(true);
+      saveBtn.onclick = () => {
+        if (missing.includes('activity_name')) {
+          document.getElementById('form-validation').textContent = 'A draft still needs a name.';
+          settle(false, 'activity_name');
+          return;
+        }
+        settle(true);
+      };
       backBtn.onclick = () => settle(false);
+      list.addEventListener('click', onListClick);
       modal.addEventListener('keydown', onKeydown);
       modal.classList.add('open');
       modal.setAttribute('aria-hidden','false');
-      backBtn.focus();
+      saveBtn.focus();
     });
   }
 
@@ -1507,6 +1626,13 @@
   function setDrawerEditing(editing) {
     const wasEditing=state.editing;
     state.editing=editing;state.creating=false;state.dirty=false;
+    // I3/C3/I5: any view<->edit transition on an existing record starts a
+    // clean slate -- no stale .missing paint from a previous edit attempt,
+    // and the "Save and create another" affordance only belongs on the
+    // record it was just created for (openDrawer always routes through here).
+    state.showErrors=false;
+    clearMissingPaint();
+    clearCreateAnotherButton();
     if(!editing)hideConflictBanner();
     setFormEnabled(editing);
     // Read-only shows the plain detail view; the form only exists while editing.
@@ -1551,6 +1677,7 @@
     // this point, since openDrawer sets it before calling here -- does not
     // double-fetch alongside its own loadHistory(row.id) call.
     if (!editing && wasEditing && state.selected && state.selected.id) loadHistory(state.selected.id);
+    updateReady();
   }
 
   // --- 409 conflict resolution -------------------------------------------
@@ -1615,22 +1742,35 @@
     banner.scrollIntoView({block: 'nearest'});
   }
 
-  async function saveDraft(event) {
-    event.preventDefault();if(!state.selected||!state.selected.id||!state.selected.version)return;
-    const data=new FormData(event.currentTarget),patch={};
+  // Builds the PATCH from a diff of the live form against state.selected and
+  // sends it. No completeness gating of its own -- attemptSave() (full save)
+  // and openDraftModal() (explicit draft save) are the two gates, and both
+  // call this only once they have decided the save may proceed. Same
+  // function either way: "draft save = the same PATCH as today with
+  // whatever is filled" (see commitCreate() for the create-side twin).
+  async function commitEditPatch() {
+    if(!state.selected||!state.selected.id||!state.selected.version)return;
+    const data=new FormData(form()),patch={};
     data.forEach((value,key)=>{if(key==='news_digest')return;let normalized=String(value);if((key==='start_date'||key==='end_date')&&normalized)normalized=new Date(normalized).toISOString();if(A.fieldValueChanged(key,state.selected[key],normalized))patch[key]=normalized===''?null:normalized;});
     if(state.selected.source_type==='internal'){const checked=form().elements.news_digest.checked;if(Boolean(state.selected.news_digest)!==checked)patch.news_digest=checked;}
-    if(!patch.activity_name&&data.get('activity_name').trim()===''){document.getElementById('form-validation').textContent='Activity name is required.';return;}
-    const start=A.parseDate(patch.start_date||state.selected.start_date),end=A.parseDate(patch.end_date||state.selected.end_date);if(start&&end&&end<start){document.getElementById('form-validation').textContent='End date cannot be before start date.';return;}
-    if(!Object.keys(patch).length){toast('No changes to save');setDrawerEditing(false);return;}
-    const merged=Object.assign({},state.selected,patch);
-    const stillMissing=A.planningCompleteness(merged).missing;
-    if(stillMissing.length&&!await confirmSaveIncomplete(stillMissing))return;
     const validation=document.getElementById('form-validation');
+    // Defence in depth only -- attemptSave()/openDraftModal() already block
+    // an empty name before either ever calls this function.
+    if(patch.activity_name===null){validation.textContent='A draft still needs a name.';focusField('activity_name');return;}
+    const start=A.parseDate(patch.start_date||state.selected.start_date),end=A.parseDate(patch.end_date||state.selected.end_date);
+    if(start&&end&&end<start){validation.textContent='End date cannot be before start date.';focusField('end_date');return;}
+    if(!Object.keys(patch).length){toast('No changes to save');setDrawerEditing(false);return;}
     try {
       const updated=await repository.updateActivity(state.selected.id,state.selected.version,patch);
       state.snapshotRows=state.snapshotRows.map(row=>row.id===updated.id?updated:row);
-      toast(`Activity saved to ${backendLabel()}`);closeDrawer();renderAll();
+      state.dirty=false;
+      renderAll();
+      const missing=missingRequiredForRow(updated);
+      // I5/C2: stay open, read-only, on the saved record -- never close the
+      // drawer after a save (create's "stay open" principle applied
+      // symmetrically to edit, so draft vs full save never look different).
+      toast(missing.length?`Draft saved · ${updated.tracking_id}`:`Saved · ${updated.tracking_id}`,updated.tracking_id);
+      openDrawer(updated,state.drawerOpener);
     } catch(error) {
       if(error.status===409){
         const original=state.selected;
@@ -1647,23 +1787,12 @@
     }
   }
 
-  async function submitCreate(event) {
-    event.preventDefault();
+  // Create-side twin of commitEditPatch(): posts whatever is currently
+  // filled in, no completeness gating of its own. Only date-order is
+  // enforced here (a validity error, not a completeness gap).
+  async function commitCreate() {
     const sourceType=currentSourceType(),validation=document.getElementById('form-validation');
     const value=name=>{const el=form().elements[name];return el?String(el.value||'').trim():'';};
-    // Hard requirements feed the tracking ID (name, channel, dates); everything
-    // else is a completeness recommendation the planner may defer past the
-    // save-time intercept.
-    const HARD_REQUIRED=['activity_name','channel','start_date','end_date'];
-    const required=sourceType==='internal'?REQUIRED_INTERNAL:REQUIRED_EXTERNAL;
-    const hardMissing=HARD_REQUIRED.filter(name=>!value(name));
-    if(hardMissing.length){
-      validation.textContent=`Complete the required fields: ${hardMissing.map(name=>FIELD_LABELS[name]||name).join(', ')}.`;
-      focusField(hardMissing[0]);
-      return;
-    }
-    const softMissing=required.filter(name=>!HARD_REQUIRED.includes(name)&&!value(name));
-    if(softMissing.length&&!await confirmSaveIncomplete(softMissing))return;
     const start=A.parseDate(value('start_date')),end=A.parseDate(value('end_date'));
     if(start&&end&&end<start){validation.textContent='End date cannot be before start date.';focusField('end_date');return;}
     const payload={source_type:sourceType};
@@ -1679,12 +1808,128 @@
       const created=await repository.createActivity(payload);
       state.snapshotRows.push(created);
       state.creating=false;state.dirty=false;
-      toast(`Activity created — ${created.tracking_id}`);
       renderAll();
+      const missing=missingRequiredForRow(created);
+      // I5: stay open, read-only, on the new record; toast carries the
+      // minted tracking ID with a Copy-ID action (see toast()).
+      toast(missing.length?`Draft saved · ${created.tracking_id}`:`Activity created — ${created.tracking_id}`,created.tracking_id);
       openDrawer(created,state.drawerOpener);
+      showCreateAnotherButton();
     } catch(error) {
       validation.textContent=error.message;
     }
+  }
+
+  // I3: the form-submit gate for create/edit (pack has its own submitPack).
+  // Blocks on ANY missing required field -- paints .missing, focuses the
+  // first gap, and points at "Save as draft" as the alternative -- rather
+  // than silently accepting a partial save the way the old soft-confirm
+  // modal used to. Only once nothing required is missing does it actually
+  // persist.
+  function attemptSave(event) {
+    if(event)event.preventDefault();
+    state.showErrors=true;
+    const missing=updateReady();
+    if(missing.length){
+      focusField(missing[0]);
+      document.getElementById('ready-text').textContent=`${missing.length} required field${missing.length===1?'':'s'} left — or use "Save as draft"`;
+      return;
+    }
+    if(state.creating)commitCreate();else commitEditPatch();
+  }
+
+  // C2/I4: #btn-draft's handler. Pack scope has no draft concept of its own
+  // yet (each batch item still needs its own name/dates -- T5's territory),
+  // so it delegates to the pack form's own submit path rather than building
+  // pack-specific draft logic here. Single create/edit: if the form is
+  // already complete this is just a normal save; otherwise confirm via the
+  // draft modal, then persist with whatever is filled.
+  async function openDraftModal() {
+    if(state.packing){form().requestSubmit();return;}
+    const missing=missingRequiredFields();
+    if(!missing.length){form().requestSubmit();return;}
+    if(!await confirmDraftSave(missing))return;
+    if(state.creating)await commitCreate();else await commitEditPatch();
+  }
+
+  // C3: every dismissal route (backdrop, x, Cancel, Escape) funnels through
+  // here so exactly one place decides dirty-vs-clean. `after` lets Cancel
+  // supply "revert to read-only" instead of the default full close.
+  async function requestClose(after) {
+    if(!await confirmDiscardIfDirty())return;
+    (after||closeDrawer)();
+  }
+
+  // Cancel's behaviour for an existing activity: revert the form back to
+  // the saved record and return to the read-only detail view (the drawer
+  // itself stays open). Creating/duplicating/packing has no saved record to
+  // revert to, so drawer-cancel's own handler closes the whole drawer
+  // instead of calling this.
+  function revertToViewFromEdit() {
+    if(state.selected){
+      const sourceType=state.selected.source_type||'internal';
+      applyVariant(sourceType);
+      populateSelectOptions(sourceType);
+      populateDrawerForm(state.selected);
+      syncBelongsToFromFields();
+      renderMultiselectOptions();
+      renderDetailView(state.selected);
+    }
+    setDrawerEditing(false);
+  }
+
+  // I5: "Save and create another" -- a secondary mode-bar button that only
+  // exists right after a create succeeds (added by commitCreate(), removed
+  // by the next setDrawerEditing() transition -- see there for why that is
+  // the correct single cleanup point).
+  function clearCreateAnotherButton() {
+    const old=document.getElementById('btn-create-another');
+    if(old)old.remove();
+  }
+
+  function showCreateAnotherButton() {
+    clearCreateAnotherButton();
+    const bar=document.querySelector('.drawer-mode-actions');
+    if(!bar)return;
+    const btn=document.createElement('button');
+    btn.type='button';
+    btn.className='btn secondary';
+    btn.id='btn-create-another';
+    btn.textContent='Save and create another';
+    btn.onclick=()=>openCreateDrawer(state.drawerOpener);
+    bar.insertBefore(btn,bar.firstChild);
+  }
+
+  // I2: prefill a blank create from the user's own newest activity.
+  const PREFILL_KEYS=['lead','lead_team','time_zone','region','business_division'];
+
+  function newestOwnRow() {
+    const username=(state.currentUser&&state.currentUser.username)||'studio';
+    return state.snapshotRows
+      .filter(row=>row.created_by===username)
+      .reduce((latest,row)=>{
+        if(!latest)return row;
+        const a=A.parseDate(row.created_at),b=A.parseDate(latest.created_at);
+        return (a&&(!b||a>b))?row:latest;
+      },null);
+  }
+
+  function applyPrefill() {
+    const last=newestOwnRow(),note=document.getElementById('prefill-note');
+    if(!last){note.hidden=true;return;}
+    PREFILL_KEYS.forEach(key=>{
+      if(MULTISELECT_FIELDS.includes(key)){
+        const container=msContainer(key);
+        if(container)msHidden(container).value=nonempty(last[key])?String(last[key]):'';
+      } else {
+        const el=form().elements[key];
+        if(el)el.value=last[key]||'';
+      }
+    });
+    renderMultiselectOptions();
+    document.getElementById('prefill-text').textContent='Prefilled from your last activity.';
+    note.hidden=false;
+    updateReady();
   }
 
   function exportFilteredCsv() {
@@ -1852,7 +2097,7 @@
       const source=btn.dataset.source;if(source===currentSourceType())return;
       setSourceToggle(source);applyVariant(source);populateSelectOptions(source);renderMultiselectOptions();
       if(state.packing){renderPackChannels(source);renderPackRows();}
-      if(state.editing)state.dirty=true;
+      if(state.editing){state.dirty=true;updateReady();}
     };
     // I1: setScope('pack') drives the existing state.packing machinery --
     // same data-single-only/data-pack-only visibility, .drawer.wide, and
@@ -1863,7 +2108,19 @@
       state.dirty=true;
       setScope(scope);
     };
-    document.querySelectorAll('[data-close-drawer]').forEach(el=>el.onclick=async()=>{if(await confirmDiscardIfDirty())closeDrawer();});
+    document.getElementById('prefill-clear').onclick=()=>{
+      resetCreateForm();
+      MULTISELECT_FIELDS.forEach(key=>{const container=msContainer(key);if(container)msHidden(container).value='';});
+      renderMultiselectOptions();
+      document.getElementById('prefill-note').hidden=true;
+      if(state.packing){renderPackChannels(currentSourceType());renderPackRows();}
+      updateReady();
+      focusField(state.packing?'pack_name':'activity_name');
+    };
+    // C3: every dismissal route funnels through requestClose() -- backdrop
+    // and the x default to a full close; Cancel supplies its own "revert to
+    // read-only" action when there is a saved record to revert to.
+    document.querySelectorAll('[data-close-drawer]').forEach(el=>el.onclick=()=>requestClose());
     document.getElementById('drawer-edit').onclick=()=>{if(!state.selected||!state.selected.id){toast('Database ID required for safe editing');return;}setDrawerEditing(true);};
     document.getElementById('drawer-duplicate').onclick=()=>{if(state.selected)openDuplicateDrawer(state.selected,state.drawerOpener);};
     document.getElementById('drawer-delete').onclick=async()=>{
@@ -1873,23 +2130,27 @@
       await deleteActivity(activityId);
     };
     document.getElementById('user-chip-logout').onclick=()=>logout();
-    document.getElementById('drawer-cancel').onclick=async()=>{
-      if(!await confirmDiscardIfDirty())return;
+    document.getElementById('drawer-cancel').onclick=()=>requestClose(()=>{
       if(state.creating||state.packing){closeDrawer();return;}
-      if(state.selected){const sourceType=state.selected.source_type||'internal';applyVariant(sourceType);populateSelectOptions(sourceType);populateDrawerForm(state.selected);syncBelongsToFromFields();renderMultiselectOptions();renderDetailView(state.selected);}
-      setDrawerEditing(false);
-    };
+      revertToViewFromEdit();
+    });
+    document.getElementById('btn-draft').onclick=()=>openDraftModal();
     const activityForm=document.getElementById('activity-form');
-    activityForm.onsubmit=event=>state.packing?submitPack(event):state.creating?submitCreate(event):saveDraft(event);
-    activityForm.addEventListener('input',()=>{if(state.editing)state.dirty=true;});
-    activityForm.addEventListener('change',()=>{if(state.editing)state.dirty=true;});
+    activityForm.onsubmit=event=>{if(state.packing){submitPack(event);return;}attemptSave(event);};
+    activityForm.addEventListener('input',()=>{if(state.editing){state.dirty=true;updateReady();}});
+    activityForm.addEventListener('change',()=>{if(state.editing){state.dirty=true;updateReady();}});
     document.addEventListener('click',event=>{if(!event.target.closest('[data-multiselect]'))multiselectContainers().forEach(closeMsPopover);});
     document.addEventListener('keydown',async event=>{
       const isOpen=document.getElementById('activity-drawer').classList.contains('open');
       if(event.key==='Escape'){
         const openPop=document.querySelector('.ms-popover:not([hidden])');
         if(openPop){const container=openPop.closest('[data-multiselect]');closeMsPopover(container);container.querySelector('.ms-trigger').focus();return;}
-        if(await confirmDiscardIfDirty())closeDrawer();return;
+        // C3: an open modal (discard/draft/delete) owns this Escape via its
+        // own keydown handler + stopPropagation -- do not also close the
+        // drawer underneath it.
+        if(document.querySelector('.modal-overlay.open'))return;
+        if(isOpen)requestClose();
+        return;
       }
       if(isOpen&&event.key==='Tab'){
         const focusable=drawerFocusables();

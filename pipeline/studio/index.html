@@ -207,6 +207,11 @@
           </div>
         </div>
 
+        <div class="prefill-note" id="prefill-note" hidden>
+          <span id="prefill-text"></span>
+          <button type="button" class="link-inline" id="prefill-clear">Start blank</button>
+        </div>
+
         <fieldset id="fs-identity"><legend>Identity</legend>
           <label class="f-label" data-single-only data-f="activity_name">Activity name <em>(required)</em><input name="activity_name" maxlength="500"></label>
           <label class="f-label" data-pack-only hidden data-f="pack_name">Pack name <em>(required)</em><input name="pack_name" maxlength="500"><span class="field-help">Names the pack and its activities — the pack links them for cross-channel reporting</span></label>
@@ -335,14 +340,14 @@
     </div>
   </div>
 
-  <div class="modal-overlay" id="incomplete-modal" aria-hidden="true">
-    <div class="modal-card" role="alertdialog" aria-modal="true" aria-labelledby="incomplete-modal-title" aria-describedby="incomplete-modal-body">
-      <h2 id="incomplete-modal-title">Save with missing fields?</h2>
-      <p id="incomplete-modal-body">This record will be flagged as incomplete on the Overview until it is filled in:</p>
-      <ul class="incomplete-list" id="incomplete-modal-list"></ul>
+  <div class="modal-overlay" id="draft-modal" aria-hidden="true">
+    <div class="modal-card" role="alertdialog" aria-modal="true" aria-labelledby="draft-modal-title" aria-describedby="draft-modal-body">
+      <h2 id="draft-modal-title">Save as draft?</h2>
+      <p id="draft-modal-body">This activity is saved with what is filled in. The rest is chased on the Overview until it is complete:</p>
+      <ul class="missing-list" id="draft-modal-list"></ul>
       <div class="modal-actions">
-        <button type="button" class="btn secondary" id="incomplete-save">Save as incomplete</button>
-        <button type="button" class="btn primary" id="incomplete-back">Go back and complete</button>
+        <button type="button" class="btn secondary" id="draft-back">Go back and complete</button>
+        <button type="button" class="btn primary" id="draft-save">Save as draft</button>
       </div>
     </div>
   </div>
