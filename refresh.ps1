@@ -75,7 +75,12 @@ try {
             return $false
         }
         Write-Host "Starting studio  -> http://127.0.0.1:8780/  (own window; stop via stop.cmd)" -ForegroundColor Green
-        Start-Process -FilePath $python -ArgumentList "pipeline\scripts\start_cplan.py" -WorkingDirectory $root
+        # Hosted in a -NoExit PowerShell so a crashing server leaves its traceback
+        # on screen instead of closing its own window - see start.ps1.
+        Start-Process -FilePath "powershell" -WorkingDirectory $root -ArgumentList @(
+            "-NoProfile", "-ExecutionPolicy", "Bypass", "-NoExit",
+            "-Command", "& '$python' 'pipeline\scripts\start_cplan.py'"
+        )
         Write-Host "Waiting for the server to come up" -NoNewline
         if (Wait-ForUrl "http://127.0.0.1:8780/" 420) {
             Write-Host " ready." -ForegroundColor Green
@@ -83,8 +88,9 @@ try {
         }
         else {
             Write-Host ""
-            Write-Host "The server did not answer within 7 minutes - check the server window, then" -ForegroundColor Red
-            Write-Host "open http://127.0.0.1:8780/ manually once it shows 'Uvicorn running'." -ForegroundColor Red
+            Write-Host "The server did not answer within 7 minutes. The server window stays open on a" -ForegroundColor Red
+            Write-Host "crash - read the error there ('No module named ...' means: run check.cmd)." -ForegroundColor Red
+            Write-Host "Otherwise open http://127.0.0.1:8780/ once it shows 'Uvicorn running'." -ForegroundColor Red
         }
     }
 }

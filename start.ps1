@@ -63,17 +63,29 @@ function Wait-ForUrl([string]$url, [int]$timeoutSeconds) {
     return $false
 }
 
+# Launch a server in its own window that SURVIVES a crash. Starting python.exe
+# directly closes the window the instant the process dies, so an import error
+# ("No module named uvicorn") or a database failure leaves nothing to read and
+# looks exactly like a hung server. Hosting it in a -NoExit PowerShell keeps the
+# traceback on screen.
+function Start-CplanServer([string]$python, [string]$script, [string]$root) {
+    Start-Process -FilePath "powershell" -WorkingDirectory $root -ArgumentList @(
+        "-NoProfile", "-ExecutionPolicy", "Bypass", "-NoExit",
+        "-Command", "& '$python' '$script'"
+    )
+}
+
 Push-Location $root
 $env:PYTHONPATH = "."
 try {
     Write-Host "Starting studio  -> http://127.0.0.1:8780/" -ForegroundColor Green
-    Start-Process -FilePath $python -ArgumentList "pipeline\scripts\start_cplan.py" -WorkingDirectory $root
+    Start-CplanServer $python "pipeline\scripts\start_cplan.py" $root
 
     $hasSecret = -not [string]::IsNullOrEmpty($env:CPLAN_AUTH_SECRET)
     $openUrl = "http://127.0.0.1:8780/"
     if (-not $StudioOnly -and $hasSecret) {
         Write-Host "Starting portal  -> http://127.0.0.1:8781/" -ForegroundColor Green
-        Start-Process -FilePath $python -ArgumentList "pipeline\scripts\start_portal.py" -WorkingDirectory $root
+        Start-CplanServer $python "pipeline\scripts\start_portal.py" $root
         $openUrl = "http://127.0.0.1:8781/"
     }
     elseif (-not $hasSecret) {
@@ -88,8 +100,10 @@ try {
     }
     else {
         Write-Host ""
-        Write-Host "The server did not answer within 7 minutes - check the server window for errors," -ForegroundColor Red
-        Write-Host "then open $openUrl manually once it shows 'Uvicorn running'." -ForegroundColor Red
+        Write-Host "The server did not answer within 7 minutes." -ForegroundColor Red
+        Write-Host "Read the server window - it stays open on a crash and holds the real error." -ForegroundColor Red
+        Write-Host "'No module named ...' there means packages are missing: run check.cmd." -ForegroundColor Yellow
+        Write-Host "Otherwise open $openUrl manually once it shows 'Uvicorn running'." -ForegroundColor Red
     }
 }
 finally {

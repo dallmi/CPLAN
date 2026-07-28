@@ -65,11 +65,20 @@ function Wait-ForUrl([string]$url, [int]$timeoutSeconds) {
     return $false
 }
 
+# Own window that survives a crash - see the identical helper in start.ps1:
+# launching python.exe directly closes the window with the traceback in it.
+function Start-CplanServer([string]$python, [string]$script, [string]$root) {
+    Start-Process -FilePath "powershell" -WorkingDirectory $root -ArgumentList @(
+        "-NoProfile", "-ExecutionPolicy", "Bypass", "-NoExit",
+        "-Command", "& '$python' '$script'"
+    )
+}
+
 Push-Location $root
 $env:PYTHONPATH = "."
 try {
     Write-Host "Starting portal  -> http://127.0.0.1:8781/  (own window; stop via stop.cmd)" -ForegroundColor Green
-    Start-Process -FilePath $python -ArgumentList "pipeline\scripts\start_portal.py" -WorkingDirectory $root
+    Start-CplanServer $python "pipeline\scripts\start_portal.py" $root
     Write-Host "Waiting for the server to come up" -NoNewline
     if (Wait-ForUrl "http://127.0.0.1:8781/" 420) {
         Write-Host " ready." -ForegroundColor Green
@@ -77,8 +86,9 @@ try {
     }
     else {
         Write-Host ""
-        Write-Host "The server did not answer within 7 minutes - check the server window, then" -ForegroundColor Red
-        Write-Host "open http://127.0.0.1:8781/ manually once it shows 'Uvicorn running'." -ForegroundColor Red
+        Write-Host "The server did not answer within 7 minutes. The server window stays open on a" -ForegroundColor Red
+        Write-Host "crash - read the error there ('No module named ...' means: run check.cmd)." -ForegroundColor Red
+        Write-Host "Otherwise open http://127.0.0.1:8781/ once it shows 'Uvicorn running'." -ForegroundColor Red
     }
 }
 catch {
