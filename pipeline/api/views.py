@@ -66,65 +66,83 @@ ANALYSIS_VIEWS: dict[str, str] = {
         GROUP BY coalesce(channel, 'Unassigned'), source_type
     """,
     "v_planning_completeness": """
-        -- Core-fields data-quality lens for pgAdmin. is_complete here means the
-        -- eight foundational fields are present: activity_name, start_date,
-        -- channel, lead_team (lead_team OR lead), target_audience, priority,
-        -- strategic_objectives, activity_description.
+        -- Variant-aware completeness, mirroring analytics.js
+        -- planningCompleteness() -- the single studio/dashboard authority since
+        -- the completeness unification, so is_complete here matches exactly
+        -- what the studio shows for the same row (readiness badge, Drafts KPI,
+        -- filter, create/edit drawer).
         --
-        -- NOTE: this is intentionally LOOSER than the studio's completeness
-        -- rule and does NOT match the dashboard. Since the completeness
-        -- unification the studio (readiness badge, Drafts KPI, filter, and the
-        -- create/edit drawer) judges a row complete only against the full
-        -- variant-aware required set in analytics.js planningCompleteness()
-        -- (the 11 common fields for external; +target_audience, audience,
-        -- business_division for internal; lead AND lead_team both required).
-        -- A row can therefore read is_complete=true here yet show as a draft
-        -- in the studio. Realigning this view to that stricter, variant-aware
-        -- rule is a pending decision (it would flip most synced rows to
-        -- is_complete=false, matching the dashboard) -- see the founder note.
+        -- Every activity needs the 11 common fields (activity_name, channel,
+        -- priority, strategic_objectives, activity_description, region,
+        -- start_date, end_date, time_zone, lead, lead_team). Internal
+        -- activities additionally need target_audience, audience and
+        -- business_division; those internal-only flags are always false for
+        -- external rows (not required there). lead and lead_team are BOTH
+        -- required -- no either-satisfies shortcut.
         --
-        -- A field is "missing" when NULL or an empty/whitespace-only string
-        -- (no such concept for the start_date timestamp -- missing means NULL
-        -- there). activity_name is required at write time and is not flagged
-        -- here; lead_team is only missing when both lead_team and lead are
-        -- empty (either one satisfies the requirement). is_complete is the
-        -- AND of all seven "not missing" checks below.
+        -- A text field is "missing" when NULL, empty/whitespace-only, or the
+        -- literal string 'None'/'null' (mirroring analytics.js empty(), which
+        -- guards against Python str(None) leaking in from the sync). Date
+        -- fields (start_date, end_date) are missing only when NULL.
+        -- activity_name is NOT NULL at write time so its flag is always false,
+        -- kept for a faithful mirror. is_complete is the AND of every
+        -- applicable "not missing" check below.
         WITH flagged AS (
             SELECT
                 id,
                 tracking_id,
                 activity_name,
-                (activity_description IS NULL OR trim(activity_description) = '') AS missing_description,
-                (channel IS NULL OR trim(channel) = '') AS missing_channel,
-                (priority IS NULL OR trim(priority) = '') AS missing_priority,
-                (target_audience IS NULL OR trim(target_audience) = '') AS missing_target_audience,
-                (
-                    (lead_team IS NULL OR trim(lead_team) = '')
-                    AND (lead IS NULL OR trim(lead) = '')
-                ) AS missing_lead_team,
+                source_type,
+                (activity_name IS NULL OR trim(activity_name) = '' OR activity_name IN ('None', 'null')) AS missing_activity_name,
+                (activity_description IS NULL OR trim(activity_description) = '' OR activity_description IN ('None', 'null')) AS missing_description,
+                (channel IS NULL OR trim(channel) = '' OR channel IN ('None', 'null')) AS missing_channel,
+                (priority IS NULL OR trim(priority) = '' OR priority IN ('None', 'null')) AS missing_priority,
+                (strategic_objectives IS NULL OR trim(strategic_objectives) = '' OR strategic_objectives IN ('None', 'null')) AS missing_pillars,
+                (region IS NULL OR trim(region) = '' OR region IN ('None', 'null')) AS missing_region,
                 (start_date IS NULL) AS missing_start_date,
-                (strategic_objectives IS NULL OR trim(strategic_objectives) = '') AS missing_pillars
+                (end_date IS NULL) AS missing_end_date,
+                (time_zone IS NULL OR trim(time_zone) = '' OR time_zone IN ('None', 'null')) AS missing_time_zone,
+                (lead IS NULL OR trim(lead) = '' OR lead IN ('None', 'null')) AS missing_lead,
+                (lead_team IS NULL OR trim(lead_team) = '' OR lead_team IN ('None', 'null')) AS missing_lead_team,
+                (source_type = 'internal' AND (target_audience IS NULL OR trim(target_audience) = '' OR target_audience IN ('None', 'null'))) AS missing_target_audience,
+                (source_type = 'internal' AND (audience IS NULL OR trim(audience) = '' OR audience IN ('None', 'null'))) AS missing_audience,
+                (source_type = 'internal' AND (business_division IS NULL OR trim(business_division) = '' OR business_division IN ('None', 'null'))) AS missing_business_division
             FROM activities
         )
         SELECT
             id,
             tracking_id,
             activity_name,
+            source_type,
+            missing_activity_name,
             missing_description,
             missing_channel,
             missing_priority,
-            missing_target_audience,
-            missing_lead_team,
-            missing_start_date,
             missing_pillars,
+            missing_region,
+            missing_start_date,
+            missing_end_date,
+            missing_time_zone,
+            missing_lead,
+            missing_lead_team,
+            missing_target_audience,
+            missing_audience,
+            missing_business_division,
             NOT (
-                missing_description
+                missing_activity_name
+                OR missing_description
                 OR missing_channel
                 OR missing_priority
-                OR missing_target_audience
-                OR missing_lead_team
-                OR missing_start_date
                 OR missing_pillars
+                OR missing_region
+                OR missing_start_date
+                OR missing_end_date
+                OR missing_time_zone
+                OR missing_lead
+                OR missing_lead_team
+                OR missing_target_audience
+                OR missing_audience
+                OR missing_business_division
             ) AS is_complete
         FROM flagged
     """,
