@@ -7,6 +7,13 @@ ROOT = Path(__file__).resolve().parents[1]
 DASHBOARD = ROOT / "pipeline" / "studio"
 
 
+def _slice(source: str, start_marker: str, end_marker: str) -> str:
+    """Source between two verbatim markers; fails loudly if either is missing."""
+    start = source.index(start_marker)
+    end = source.index(end_marker, start)
+    return source[start:end]
+
+
 class StudioListTests(unittest.TestCase):
     """T2 -- table semantics & chart polish (app.js list region).
 
@@ -286,14 +293,38 @@ class StudioListTests(unittest.TestCase):
 
         # setDrawerEditing is the single funnel for every view<->edit
         # transition, so a row opened read-only and then edited gets the bar
-        # too. Rendering it from openDrawer alone would miss that path.
-        self.assertIn("renderIssueJump(editing);", app)
+        # too. Rendering it from openDrawer alone would miss that path. Scoped
+        # to setDrawerEditing's own body -- a whole-file assertIn would still
+        # pass if the call were moved to any other function entirely.
+        editing_body = _slice(app, "function setDrawerEditing(editing)", "\n  function ")
+        self.assertIn("renderIssueJump(editing);", editing_body)
         self.assertIn("function renderIssueJump(editing)", app)
         self.assertIn("A.rowIssues(state.selected)", app)
         # Create/duplicate sessions reuse the drawer DOM -- no stale list.
-        self.assertIn("renderIssueJump(false);", app)
+        # Scoped to prepareCreateChrome's own body for the same reason.
+        create_body = _slice(app, "function prepareCreateChrome(title, note)", "\n  function ")
+        self.assertIn("renderIssueJump(false);", create_body)
         # Same label vocabulary as the Issue column.
         self.assertIn("${esc(issueLabel(issue))}</button>", app)
+
+    def test_issue_jump_bar_stays_sticky_below_the_drawer_head(self):
+        css = (DASHBOARD / "styles.css").read_text(encoding="utf-8")
+
+        # The whole reason the bar exists is working several findings in
+        # sequence -- if it scrolls away with the form the first time a jump
+        # centres a mid-form field, the user has to scroll back up before
+        # every subsequent jump. Sticks directly under .drawer-head (top:
+        # 120px, the head's measured rendered height while editing -- the
+        # only state this bar ever shows in), z-index above the form but
+        # below the head, same idiom .drawer-actions already uses at the
+        # bottom edge (position:sticky;bottom:0;z-index:3). Pinned as the
+        # exact declaration so a later cleanup cannot silently un-stick it.
+        self.assertIn(
+            ".issue-jump{display:flex;flex-wrap:wrap;align-items:center;gap:10px;"
+            "padding:10px 22px;background:var(--surface-alt);"
+            "border-bottom:1px solid var(--surface);position:sticky;top:120px;z-index:1}",
+            css,
+        )
 
 
 if __name__ == "__main__":
