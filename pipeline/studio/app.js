@@ -1037,6 +1037,15 @@
   // drawer and pulsed once so the jump is visible even mid-form.
   function highlightField(el) {
     const box=el.closest('.f-label,.ms-field,.pack-row')||el;
+    // .drawer-head-wrap is sticky and scrollIntoView knows nothing about it --
+    // without this, block:'center' can land the field underneath it (a title
+    // long enough to wrap grows the wrap tall enough to fully cover a
+    // mid-form field). Measured fresh on every jump, from the DOM, never
+    // hardcoded: the wrap's height depends on whether the title has
+    // wrapped, which varies per record -- a fixed pixel offset was tried
+    // and removed once already for exactly this reason (see git history).
+    const headWrap=document.querySelector('.drawer-head-wrap');
+    box.style.scrollMarginTop=headWrap?`${headWrap.getBoundingClientRect().height}px`:'';
     box.scrollIntoView({block:'center'});
     box.classList.remove('pulse');
     // Force a reflow, or re-jumping to the same field never restarts the
