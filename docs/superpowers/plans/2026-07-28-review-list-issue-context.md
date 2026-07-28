@@ -291,7 +291,10 @@ the call-site guard:
         self.assertIn("'End before start'", app)
         self.assertIn("${issue.leadDays}d lead", app)
         self.assertNotIn("End before start", analytics)
-        self.assertNotIn("d lead", analytics)
+        # Match the interpolation, not the bare words: analytics.js:42 already
+        # contains "and lead" in a prose comment, so a plain "d lead" needle
+        # would fire on that.
+        self.assertNotIn("}d lead", analytics)
 
     def test_date_predicates_are_called_not_reinlined(self):
         app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
@@ -766,7 +769,16 @@ listing every open finding so several gaps can be worked in sequence."
 Michael copies files by hand onto the corp machine, and `check.ps1` flags a
 stale copy by looking for a string that exists **only** in the current version.
 All four studio markers currently match the pre-change files too, so a stale
-copy would pass. In `check.ps1`, replace lines 34-37 with:
+copy would pass.
+
+`check.ps1`'s own header says a marker is updated in the same commit as its
+file. Tasks 1-4 deliberately defer that: the four studio files reach their
+final shape only after Task 4, and a marker set at Task 1 would wrongly
+accept a half-finished studio for the rest of the branch. The markers land
+once here, over the finished set. Nothing between Tasks 1 and 4 is a
+copyable state.
+
+In `check.ps1`, replace lines 34-37 with:
 
 ```powershell
     @{ Path = "pipeline\studio\app.js";        Marker = "issueLabel";                       Why = "Issue column, queue context bar and drawer jump bar" },
