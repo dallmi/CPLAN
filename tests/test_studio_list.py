@@ -206,14 +206,57 @@ class StudioListTests(unittest.TestCase):
         # The old inline suffix on the result count is retired.
         self.assertNotIn("— Clear to remove", app)
 
-    def test_both_clear_controls_share_one_reset(self):
+    def test_toolbar_clear_resets_everything_bar_clear_resets_only_the_queue(self):
         app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+        flat = app.replace(" ", "").replace("\n", "")
 
-        # The filter id list existed twice inline; one constant now, used by
-        # the filter-change binding and by both clear buttons.
-        self.assertIn("const ACTIVITY_FILTER_IDS=[", app)
-        self.assertIn("function clearActivityFilters()", app)
-        self.assertIn("document.getElementById('queue-bar-clear').onclick=", app)
+        # The two Clear controls do NOT share one reset -- that is the whole
+        # point. #activity-clear (toolbar) is a hard reset: every filter
+        # control plus the queue. #queue-bar-clear drops only the queue, so a
+        # user who narrowed a review list with a search keeps that search.
+        # What they share is the id list and the re-render funnel, never the
+        # scope. Each fact below is pinned by real source, not by "a handler
+        # is wired to something" -- an existence-only check would stay green
+        # if someone "simplified" the bar's Clear onto clearActivityFilters
+        # and silently collapsed the two scopes.
+
+        # The id list existed twice inline; one constant now. Pin that
+        # 'activity-search' is still a member -- the exclusion below is only
+        # meaningful if the id it excludes is actually in the list.
+        self.assertIn("const ACTIVITY_FILTER_IDS=['activity-search',", app)
+        # activity-search has its own debounced 'input' listener, so the
+        # 'change'-binding loop must exclude it or double-fire on every
+        # keystroke.
+        self.assertIn(
+            "ACTIVITY_FILTER_IDS.filter(id=>id!=='activity-search')"
+            ".forEach(id=>document.getElementById(id).addEventListener('change',runActivityFilters));",
+            app,
+        )
+
+        # Toolbar Clear wipes state.queueFilter AND every id in
+        # ACTIVITY_FILTER_IDS. Pinned as one flattened statement (order and
+        # tokens fixed, incidental whitespace ignored) so dropping the queue
+        # reset, dropping the value wipe, or narrowing the id set fails here.
+        self.assertIn(
+            "functionclearActivityFilters(){state.queueFilter=null;"
+            "ACTIVITY_FILTER_IDS.forEach(id=>document.getElementById(id).value='');"
+            "runActivityFilters();}",
+            flat,
+        )
+        self.assertIn(
+            "document.getElementById('activity-clear').onclick=clearActivityFilters;", app
+        )
+
+        # Bar Clear touches state.queueFilter only -- no ACTIVITY_FILTER_IDS
+        # loop, no .value='' anywhere in it. Pinned as the complete handler
+        # body: if this were ever rewired to call clearActivityFilters
+        # instead (the exact regression this test exists to catch), this
+        # exact literal stops matching and the test fails.
+        self.assertIn(
+            "document.getElementById('queue-bar-clear').onclick="
+            "()=>{state.queueFilter=null;runActivityFilters();};",
+            app,
+        )
 
     def test_queue_severity_is_shared_and_reserves_red_for_the_date_error(self):
         app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
