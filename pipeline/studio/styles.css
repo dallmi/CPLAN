@@ -252,6 +252,9 @@ tr:hover td .copy-btn,td .copy-btn:focus-visible{opacity:1}
 .issue-jump-label{font-size:10px;font-weight:700;letter-spacing:.02em;color:var(--grey-4)}
 .issue-jump .link-inline.active{color:var(--black);font-weight:700}
 /* One-shot tint on the jumped-to field -- the native focus ring alone is too
-   easy to lose in a form this long. */
+   easy to lose in a form this long. Tint alone measured near-invisible
+   (rgb(245,240,225) on white is ~1.14:1 contrast, and it is confined to the
+   label sliver beside the opaque input/trigger) -- the left border is what
+   actually carries the signal; the tint is a soft flourish on top of it. */
 @keyframes field-pulse{from{background:var(--surface-alt)}to{background:transparent}}
-.f-label.pulse,.ms-field.pulse,.pack-row.pulse{animation:field-pulse 1.1s ease-out}
+.f-label.pulse,.ms-field.pulse,.pack-row.pulse{animation:field-pulse 1.1s ease-out;border-left:3px solid var(--bronze-1);border-radius:var(--radius)}

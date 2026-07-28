@@ -353,6 +353,40 @@ class StudioListTests(unittest.TestCase):
         self.assertNotIn("position:", issue_jump_rule.group(0))
         self.assertNotIn("z-index:", issue_jump_rule.group(0))
 
+    def test_field_pulse_carries_a_border_not_just_a_fading_tint(self):
+        css = (DASHBOARD / "styles.css").read_text(encoding="utf-8")
+
+        # Measured empirically (Task 5 browser verification): the bare
+        # background-fade version of this rule sampled at rgb(245,240,225)
+        # on white -- a ~1.14:1 contrast ratio, confined to the label sliver
+        # beside the opaque input/.ms-trigger -- and is effectively
+        # imperceptible for most of its 1.1s run. A solid left border in an
+        # existing palette token (bronze-1, already the default .issue-chip
+        # accent) is the part that actually reads as "look here"; the tint
+        # stays as a secondary flourish. Pinned as the whole declaration so
+        # a future edit cannot quietly drop the border back to tint-only.
+        self.assertIn(
+            ".f-label.pulse,.ms-field.pulse,.pack-row.pulse{"
+            "animation:field-pulse 1.1s ease-out;"
+            "border-left:3px solid var(--bronze-1);"
+            "border-radius:var(--radius)}",
+            css,
+        )
+        # Retired: tint-only pulse with no border accent.
+        self.assertNotIn(
+            ".f-label.pulse,.ms-field.pulse,.pack-row.pulse{animation:field-pulse 1.1s ease-out}",
+            css,
+        )
+        # No raw hex -- the border colour must come from the palette token,
+        # same rule as everywhere else in this kit.
+        self.assertNotIn("border-left:3px solid #", css)
+        # Kit rule: no underlines, anywhere, no exceptions -- this rule adds
+        # a border, not text-decoration, but a regression that reached for
+        # the forbidden pattern instead must still fail here.
+        pulse_rule = re.search(r"\.f-label\.pulse,\.ms-field\.pulse,\.pack-row\.pulse\{[^}]*\}", css)
+        self.assertIsNotNone(pulse_rule)
+        self.assertNotIn("text-decoration", pulse_rule.group(0))
+
 
 if __name__ == "__main__":
     unittest.main()
