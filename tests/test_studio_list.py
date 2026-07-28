@@ -215,6 +215,17 @@ class StudioListTests(unittest.TestCase):
         self.assertIn("function clearActivityFilters()", app)
         self.assertIn("document.getElementById('queue-bar-clear').onclick=", app)
 
+    def test_queue_severity_is_shared_and_reserves_red_for_the_date_error(self):
+        app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+
+        # The attention card and the context bar describe the same finding;
+        # one map so they cannot disagree. Red is the genuine error only --
+        # a short lead time is a warning, not a broken record.
+        self.assertIn("const QUEUE_SEVERITY = {", app)
+        self.assertIn("'short-notice':'high'", app)
+        self.assertIn("'invalid-date':'critical'", app)
+        self.assertNotIn("severity:'critical'", app)
+
 
 if __name__ == "__main__":
     unittest.main()

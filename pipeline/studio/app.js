@@ -499,10 +499,10 @@
     incompleteRows.forEach(row=>A.planningCompleteness(row).missing.forEach(field=>missingCounts.set(field,(missingCounts.get(field)||0)+1)));
     const topMissing = Array.from(missingCounts.entries()).sort((a,b)=>b[1]-a[1])[0];
     const groups = [];
-    if (incompleteRows.length) groups.push({severity:'high',title:`${fmtNum(incompleteRows.length)} activities with missing fields`,meta:topMissing?`Largest gap: ${esc(FIELD_LABELS[topMissing[0]]||topMissing[0])} (${fmtNum(topMissing[1])})`:'',action:'Review list',queue:'incomplete'});
-    if (shortNoticeRows.length) groups.push({severity:'critical',title:`${fmtNum(shortNoticeRows.length)} activities on short notice`,meta:`Under 7 days lead time · median ${lead.median===null?'—':lead.median+'d'}`,action:'Review list',queue:'short-notice'});
-    if (invalidRows.length) groups.push({severity:'critical',title:`${fmtNum(invalidRows.length)} invalid date ranges`,meta:'End date before start date',action:'Review list',queue:'invalid-date'});
-    if (collisions.length) groups.push({severity:'medium',title:`${fmtNum(collisions.length)} scheduling ${collisions.length===1?'conflict':'conflicts'}`,meta:'Shared audience and channel',action:'Open conflicts',queue:'conflicts'});
+    if (incompleteRows.length) groups.push({severity:QUEUE_SEVERITY.incomplete,title:`${fmtNum(incompleteRows.length)} activities with missing fields`,meta:topMissing?`Largest gap: ${esc(FIELD_LABELS[topMissing[0]]||topMissing[0])} (${fmtNum(topMissing[1])})`:'',action:'Review list',queue:'incomplete'});
+    if (shortNoticeRows.length) groups.push({severity:QUEUE_SEVERITY['short-notice'],title:`${fmtNum(shortNoticeRows.length)} activities on short notice`,meta:`Under 7 days lead time · median ${lead.median===null?'—':lead.median+'d'}`,action:'Review list',queue:'short-notice'});
+    if (invalidRows.length) groups.push({severity:QUEUE_SEVERITY['invalid-date'],title:`${fmtNum(invalidRows.length)} invalid date ranges`,meta:'End date before start date',action:'Review list',queue:'invalid-date'});
+    if (collisions.length) groups.push({severity:QUEUE_SEVERITY.conflicts,title:`${fmtNum(collisions.length)} scheduling ${collisions.length===1?'conflict':'conflicts'}`,meta:'Shared audience and channel',action:'Open conflicts',queue:'conflicts'});
     const deadlineRows = upcoming.filter(row=>A.planningCompleteness(row).score<100||shortNoticeRows.includes(row)).slice(0,5);
     const deadlines = deadlineRows.map(row=>{
       const completeness=A.planningCompleteness(row);
@@ -673,6 +673,11 @@
 
   const QUEUE_FILTER_LABELS = {incomplete:'Missing fields', 'short-notice':'Short notice', 'invalid-date':'Invalid dates'};
 
+  // One severity per queue, shared by the overview attention card and the
+  // workbench context bar -- they describe the same finding, so they must not
+  // be able to disagree. Red is reserved for the one genuine error.
+  const QUEUE_SEVERITY = {incomplete:'high', 'short-notice':'high', 'invalid-date':'critical', conflicts:'medium'};
+
   const ACTIVITY_FILTER_IDS=['activity-search','activity-source','activity-channel','activity-priority','activity-campaign','activity-readiness'];
 
   function applyActivityFilters() {
@@ -710,7 +715,7 @@
     } else if(state.queueFilter==='invalid-date'){
       detail='End date before start date';
     }
-    document.getElementById('queue-bar-severity').className=`severity-line ${state.queueFilter==='incomplete'?'high':'critical'}`;
+    document.getElementById('queue-bar-severity').className=`severity-line ${QUEUE_SEVERITY[state.queueFilter]||''}`;
     document.getElementById('queue-bar-title').textContent=QUEUE_FILTER_LABELS[state.queueFilter]||state.queueFilter;
     document.getElementById('queue-bar-meta').textContent=`${fmtNum(rows.length)} in view${detail?` · ${detail}`:''}`;
     bar.hidden=false;
