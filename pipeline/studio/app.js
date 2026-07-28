@@ -673,6 +673,8 @@
 
   const QUEUE_FILTER_LABELS = {incomplete:'Missing fields', 'short-notice':'Short notice', 'invalid-date':'Invalid dates'};
 
+  const ACTIVITY_FILTER_IDS=['activity-search','activity-source','activity-channel','activity-priority','activity-campaign','activity-readiness'];
+
   function applyActivityFilters() {
     const q=document.getElementById('activity-search').value.toLowerCase(),source=document.getElementById('activity-source').value,channel=document.getElementById('activity-channel').value,priority=document.getElementById('activity-priority').value,campaign=document.getElementById('activity-campaign').value,readiness=document.getElementById('activity-readiness').value;
     const rows=state.rows.filter(row=>{
@@ -680,8 +682,8 @@
       return matchesQueueFilter(row)&&(!q||Object.values(row).some(value=>String(value||'').toLowerCase().includes(q)))&&(!source||row.source_type===source)&&(!channel||split(row.channel).includes(channel))&&(!priority||split(row.priority).includes(priority))&&(!campaign||campaignLabel(row)===campaign)&&(!readiness||(readiness==='complete'&&complete)||(readiness==='incomplete'&&!complete));
     }).sort((a,b)=>(A.parseDate(b.start_date)||0)-(A.parseDate(a.start_date)||0));
     state.filteredRows=rows;
-    const queueNote=state.queueFilter?` · ${QUEUE_FILTER_LABELS[state.queueFilter]||state.queueFilter} — Clear to remove`:'';
-    document.getElementById('activity-result-count').textContent=`${fmtNum(rows.length)} of ${fmtNum(state.rows.length)}${queueNote}`;
+    document.getElementById('activity-result-count').textContent=`${fmtNum(rows.length)} of ${fmtNum(state.rows.length)}`;
+    renderQueueBar(rows);
     document.getElementById('activity-table-body').innerHTML=rows.map(row=>{
       const issues=A.rowIssues(row);
       const issueCell=issues.length
@@ -689,6 +691,29 @@
         : '<span class="readiness-ok">—</span>';
       const duplicateBtn = canCreate() ? `<button type="button" class="icon-btn duplicate-btn" data-duplicate-id="${esc(row.id||'')}" aria-label="Duplicate ${esc(row.activity_name||'activity')}" title="Duplicate"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>` : '';
       return `<tr data-open-id="${esc(row.id||'')}"><td><button type="button" class="name-btn" data-open-id="${esc(row.id||'')}" title="${esc(row.activity_name||'')}">${esc(row.activity_name||'Untitled')}</button></td><td>${trackingIdHtml(row.tracking_id,{copy:nonempty(row.tracking_id)})}</td><td>${esc(row.channel||'—')}</td><td>${fmtDate(row.start_date)}</td><td>${esc(row.priority||'—')}</td><td>${esc(row.lead_team||row.lead||'—')}</td><td>${esc(campaignLabel(row)||'—')}</td><td class="issue-cell">${issueCell}</td><td class="action-cell"><div class="row-actions">${duplicateBtn}</div></td></tr>`;}).join('')||`<tr><td colspan="9">${emptyState(EMPTY_ICONS.search, 'No activities match the filters', 'Clear filters or adjust your search to see more results.')}</td></tr>`;
+  }
+
+  // Names the review list the user arrived from. Everything it reports is
+  // computed over the rows actually on screen, so combining the queue with a
+  // search term does not leave a stale headline behind.
+  function renderQueueBar(rows) {
+    const bar=document.getElementById('activity-queue-bar');
+    if(!state.queueFilter){bar.hidden=true;return;}
+    let detail='';
+    if(state.queueFilter==='incomplete'){
+      const counts=new Map();
+      rows.forEach(row=>A.planningCompleteness(row).missing.forEach(field=>counts.set(field,(counts.get(field)||0)+1)));
+      const top=Array.from(counts.entries()).sort((a,b)=>b[1]-a[1])[0];
+      if(top)detail=`Largest gap: ${FIELD_LABELS[top[0]]||top[0]} (${fmtNum(top[1])})`;
+    } else if(state.queueFilter==='short-notice'){
+      detail='Under 7 days lead time';
+    } else if(state.queueFilter==='invalid-date'){
+      detail='End date before start date';
+    }
+    document.getElementById('queue-bar-severity').className=`severity-line ${state.queueFilter==='incomplete'?'high':'critical'}`;
+    document.getElementById('queue-bar-title').textContent=QUEUE_FILTER_LABELS[state.queueFilter]||state.queueFilter;
+    document.getElementById('queue-bar-meta').textContent=`${fmtNum(rows.length)} in view${detail?` · ${detail}`:''}`;
+    bar.hidden=false;
   }
 
   // Adjacent markers within this many percentage points of the scale are
@@ -2207,8 +2232,16 @@
     const runActivityFilters=()=>{applyActivityFilters();bindOpenRows();bindDuplicateButtons();};
     const debouncedActivityFilters=debounce(runActivityFilters,200);
     document.getElementById('activity-search').addEventListener('input',debouncedActivityFilters);
-    ['activity-source','activity-channel','activity-priority','activity-campaign','activity-readiness'].forEach(id=>document.getElementById(id).addEventListener('change',runActivityFilters));
-    document.getElementById('activity-clear').onclick=()=>{state.queueFilter=null;['activity-search','activity-source','activity-channel','activity-priority','activity-campaign','activity-readiness'].forEach(id=>document.getElementById(id).value='');runActivityFilters();};
+    ACTIVITY_FILTER_IDS.filter(id=>id!=='activity-search').forEach(id=>document.getElementById(id).addEventListener('change',runActivityFilters));
+    function clearActivityFilters(){
+      state.queueFilter=null;
+      ACTIVITY_FILTER_IDS.forEach(id=>document.getElementById(id).value='');
+      runActivityFilters();
+    }
+    document.getElementById('activity-clear').onclick=clearActivityFilters;
+    // The bar's own Clear drops just the queue -- a user who narrowed the
+    // review list with a search should not lose that search too.
+    document.getElementById('queue-bar-clear').onclick=()=>{state.queueFilter=null;runActivityFilters();};
     document.getElementById('activity-export').onclick=exportFilteredCsv;
     document.getElementById('activity-new').onclick=event=>openCreateDrawer(event.currentTarget);
     document.getElementById('pack-channels').addEventListener('change',()=>{renderPackRows();state.dirty=true;});

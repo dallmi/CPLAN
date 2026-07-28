@@ -193,6 +193,28 @@ class StudioListTests(unittest.TestCase):
         self.assertNotIn("time-filter').classList.toggle('danger'", app)
         self.assertNotIn("time-presets').classList.toggle('danger'", app)
 
+    def test_queue_bar_is_gated_on_the_queue_filter(self):
+        app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+
+        # The bar exists only while the user is inside a review list; the
+        # ordinary workbench is visually unchanged.
+        self.assertIn("if(!state.queueFilter){bar.hidden=true;return;}", app)
+        self.assertIn("renderQueueBar(rows);", app)
+        # Counts describe what is on screen, not the whole dataset, so they
+        # stay truthful when the queue is combined with a search or filter.
+        self.assertIn("${fmtNum(rows.length)} in view", app)
+        # The old inline suffix on the result count is retired.
+        self.assertNotIn("— Clear to remove", app)
+
+    def test_both_clear_controls_share_one_reset(self):
+        app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+
+        # The filter id list existed twice inline; one constant now, used by
+        # the filter-change binding and by both clear buttons.
+        self.assertIn("const ACTIVITY_FILTER_IDS=[", app)
+        self.assertIn("function clearActivityFilters()", app)
+        self.assertIn("document.getElementById('queue-bar-clear').onclick=", app)
+
 
 if __name__ == "__main__":
     unittest.main()

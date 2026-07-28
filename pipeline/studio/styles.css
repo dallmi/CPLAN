@@ -233,3 +233,9 @@ tr:hover td .copy-btn,td .copy-btn:focus-visible{opacity:1}
 .login-error{color:var(--danger);font-size:12px;margin:0 0 4px}
 .login-error.hidden{display:none}
 .login-card .btn.primary{margin-top:4px}
+
+/* Queue context bar: says which review list the workbench is currently
+   showing. Same three-column shape as .queue-group on the overview card. */
+.queue-bar{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;margin-bottom:14px;padding:11px 14px;background:var(--surface-alt);border:1px solid var(--surface)}
+.queue-bar-title{font-size:13px;font-weight:600}
+.queue-bar-meta{margin-top:2px;font-size:11px;color:var(--grey-4)}

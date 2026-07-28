@@ -145,6 +145,14 @@
           <button class="btn secondary" id="activity-clear">Clear</button>
           <span id="activity-result-count"></span>
         </div>
+        <div class="queue-bar" id="activity-queue-bar" hidden>
+          <span class="severity-line" id="queue-bar-severity"></span>
+          <div>
+            <div class="queue-bar-title" id="queue-bar-title"></div>
+            <div class="queue-bar-meta" id="queue-bar-meta"></div>
+          </div>
+          <button class="btn secondary" type="button" id="queue-bar-clear">Clear</button>
+        </div>
         <article class="card"><div class="table-wrap"><table><thead><tr><th>Activity</th><th><span class="th-help" title="CLUSTER-PACKNUM-YYMMDD-ACTNUM-CHANNEL — links planning to downstream outcome data. Date, sequence and channel are minted on save; pack membership sets the prefix.">Tracking ID ⓘ</span></th><th>Channel</th><th>Start</th><th>Priority</th><th>Lead team</th><th>Campaign / pack</th><th>Issue</th><th class="action-cell" aria-label="Row actions"></th></tr></thead><tbody id="activity-table-body"></tbody></table></div></article>
       </section>
 
