@@ -254,7 +254,19 @@ tr:hover td .copy-btn,td .copy-btn:focus-visible{opacity:1}
 /* One-shot tint on the jumped-to field -- the native focus ring alone is too
    easy to lose in a form this long. Tint alone measured near-invisible
    (rgb(245,240,225) on white is ~1.14:1 contrast, and it is confined to the
-   label sliver beside the opaque input/trigger) -- the left border is what
-   actually carries the signal; the tint is a soft flourish on top of it. */
+   label sliver beside the opaque input/trigger) -- the outline is what
+   actually carries the signal; the tint is a soft flourish on top of it.
+   outline, not border-left: *{box-sizing:border-box} means a transient
+   border resizes the content box, so the field the user is being pointed
+   at would jolt sideways on every jump. outline paints outside the box
+   model with zero layout effect -- same idiom this file already uses for
+   input:focus/.ms-trigger:focus and [data-open-id]:focus-visible, just
+   with a positive offset instead of their negative one: those ring the
+   control itself and pull inward to avoid bleeding into neighbours; this
+   rings the whole label+control container from outside it, so a positive
+   offset is what keeps it clear of the control's own inset focus ring
+   rather than colliding with it. Bronze (the .issue-chip accent) vs the
+   focus ring's --info blue is deliberate: bronze says "this is the issue",
+   blue says "focus is here" -- different statements, fine to both show. */
 @keyframes field-pulse{from{background:var(--surface-alt)}to{background:transparent}}
-.f-label.pulse,.ms-field.pulse,.pack-row.pulse{animation:field-pulse 1.1s ease-out;border-left:3px solid var(--bronze-1);border-radius:var(--radius)}
+.f-label.pulse,.ms-field.pulse,.pack-row.pulse{animation:field-pulse 1.1s ease-out;outline:2px solid var(--bronze-1);outline-offset:2px}

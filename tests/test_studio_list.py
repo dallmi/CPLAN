@@ -353,38 +353,63 @@ class StudioListTests(unittest.TestCase):
         self.assertNotIn("position:", issue_jump_rule.group(0))
         self.assertNotIn("z-index:", issue_jump_rule.group(0))
 
-    def test_field_pulse_carries_a_border_not_just_a_fading_tint(self):
+    def test_field_pulse_carries_an_outline_not_a_layout_shifting_border(self):
         css = (DASHBOARD / "styles.css").read_text(encoding="utf-8")
 
         # Measured empirically (Task 5 browser verification): the bare
         # background-fade version of this rule sampled at rgb(245,240,225)
         # on white -- a ~1.14:1 contrast ratio, confined to the label sliver
         # beside the opaque input/.ms-trigger -- and is effectively
-        # imperceptible for most of its 1.1s run. A solid left border in an
-        # existing palette token (bronze-1, already the default .issue-chip
-        # accent) is the part that actually reads as "look here"; the tint
-        # stays as a secondary flourish. Pinned as the whole declaration so
-        # a future edit cannot quietly drop the border back to tint-only.
+        # imperceptible for most of its 1.1s run. An accent in an existing
+        # palette token (bronze-1, already the default .issue-chip accent)
+        # is the part that actually reads as "look here"; the tint stays as
+        # a secondary flourish.
+        #
+        # A first fix round reached for border-left, which regressed
+        # further: this file sets *{box-sizing:border-box}, so a transient
+        # border-left resizes the content box -- the one field the user is
+        # being pointed at jolted 3px sideways on every jump (measured live:
+        # left/width shifted between the class present and absent). outline
+        # paints outside the box model with zero layout effect and is
+        # already this file's idiom for exactly this kind of ring
+        # (input:focus/.ms-trigger:focus and [data-open-id]:focus-visible).
+        # Confirmed live post-fix: control left/width identical with the
+        # pulse class present vs absent (0px shift, 0px width change).
+        #
+        # Pinned as the whole declaration so a future edit cannot quietly
+        # bring the layout-shifting border back.
         self.assertIn(
+            ".f-label.pulse,.ms-field.pulse,.pack-row.pulse{"
+            "animation:field-pulse 1.1s ease-out;"
+            "outline:2px solid var(--bronze-1);"
+            "outline-offset:2px}",
+            css,
+        )
+        # Retired: tint-only pulse with no accent at all.
+        self.assertNotIn(
+            ".f-label.pulse,.ms-field.pulse,.pack-row.pulse{animation:field-pulse 1.1s ease-out}",
+            css,
+        )
+        # Retired: the layout-shifting border-left version from fix round 1.
+        self.assertNotIn(
             ".f-label.pulse,.ms-field.pulse,.pack-row.pulse{"
             "animation:field-pulse 1.1s ease-out;"
             "border-left:3px solid var(--bronze-1);"
             "border-radius:var(--radius)}",
             css,
         )
-        # Retired: tint-only pulse with no border accent.
-        self.assertNotIn(
-            ".f-label.pulse,.ms-field.pulse,.pack-row.pulse{animation:field-pulse 1.1s ease-out}",
-            css,
-        )
-        # No raw hex -- the border colour must come from the palette token,
-        # same rule as everywhere else in this kit.
-        self.assertNotIn("border-left:3px solid #", css)
-        # Kit rule: no underlines, anywhere, no exceptions -- this rule adds
-        # a border, not text-decoration, but a regression that reached for
-        # the forbidden pattern instead must still fail here.
         pulse_rule = re.search(r"\.f-label\.pulse,\.ms-field\.pulse,\.pack-row\.pulse\{[^}]*\}", css)
         self.assertIsNotNone(pulse_rule)
+        # No border-left on this rule at all, under any value -- that
+        # property is what shifted the layout; it must not come back in
+        # any form, not just the one exact string above.
+        self.assertNotIn("border-left", pulse_rule.group(0))
+        # No raw hex -- the outline colour must come from the palette
+        # token, same rule as everywhere else in this kit.
+        self.assertNotIn("outline:2px solid #", css)
+        # Kit rule: no underlines, anywhere, no exceptions -- this rule adds
+        # an outline, not text-decoration, but a regression that reached for
+        # the forbidden pattern instead must still fail here.
         self.assertNotIn("text-decoration", pulse_rule.group(0))
 
 
