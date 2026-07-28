@@ -239,3 +239,12 @@ tr:hover td .copy-btn,td .copy-btn:focus-visible{opacity:1}
 .queue-bar{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;margin-bottom:14px;padding:11px 14px;background:var(--surface-alt);border:1px solid var(--surface)}
 .queue-bar-title{font-size:13px;font-weight:600}
 .queue-bar-meta{margin-top:2px;font-size:11px;color:var(--grey-4)}
+
+/* Drawer jump bar: every open finding on the record, as jump targets. */
+.issue-jump{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:10px 22px;background:var(--surface-alt);border-bottom:1px solid var(--surface)}
+.issue-jump-label{font-size:10px;font-weight:700;letter-spacing:.02em;color:var(--grey-4)}
+.issue-jump .link-inline.active{color:var(--black);text-decoration:underline}
+/* One-shot tint on the jumped-to field -- the native focus ring alone is too
+   easy to lose in a form this long. */
+@keyframes field-pulse{from{background:var(--surface-alt)}to{background:transparent}}
+.f-label.pulse,.ms-field.pulse,.pack-row.pulse{animation:field-pulse 1.1s ease-out}

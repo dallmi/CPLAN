@@ -269,6 +269,32 @@ class StudioListTests(unittest.TestCase):
         self.assertIn("'invalid-date':'critical'", app)
         self.assertNotIn("severity:'critical'", app)
 
+    def test_focus_field_scrolls_and_highlights(self):
+        app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+
+        # A bare .focus() ring is too quiet in a form this dense -- the target
+        # is centred in the drawer and pulsed once.
+        self.assertIn("function fieldElement(name)", app)
+        self.assertIn("box.scrollIntoView({block:'center'})", app)
+        self.assertIn("box.classList.add('pulse')", app)
+        # Reflow between remove and add, or a second jump to the same field
+        # never restarts the animation.
+        self.assertIn("void box.offsetWidth;", app)
+
+    def test_jump_bar_follows_the_edit_transition_not_just_open(self):
+        app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+
+        # setDrawerEditing is the single funnel for every view<->edit
+        # transition, so a row opened read-only and then edited gets the bar
+        # too. Rendering it from openDrawer alone would miss that path.
+        self.assertIn("renderIssueJump(editing);", app)
+        self.assertIn("function renderIssueJump(editing)", app)
+        self.assertIn("A.rowIssues(state.selected)", app)
+        # Create/duplicate sessions reuse the drawer DOM -- no stale list.
+        self.assertIn("renderIssueJump(false);", app)
+        # Same label vocabulary as the Issue column.
+        self.assertIn("${esc(issueLabel(issue))}</button>", app)
+
 
 if __name__ == "__main__":
     unittest.main()

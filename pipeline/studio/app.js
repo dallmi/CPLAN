@@ -1011,24 +1011,41 @@
     return active?active.dataset.scope:'single';
   }
 
-  function focusField(name) {
-    // T5: pack gap tokens land inside the pack UI -- a row token focuses
-    // that channel row's input, the channel token the first checkbox.
+  // Resolving the target and acting on it are separate so the highlight is
+  // applied once, at the end, for every branch.
+  function fieldElement(name) {
+    // T5: pack gap tokens land inside the pack UI -- a row token targets that
+    // channel row's input, the channel token the first checkbox.
     const token=PACK_ROW_TOKEN_RE.exec(name||'');
     if(token){
       const rowEl=document.querySelector(`#pack-rows .pack-row[data-channel="${CSS.escape(token[1])}"]`);
       const input=rowEl&&rowEl.querySelector(`[data-pack-${token[2]}]`);
-      if(input){input.focus();return;}
+      if(input)return input;
     }
-    if(name==='pack_channels'){
-      const box=document.querySelector('#pack-channels input');
-      if(box)box.focus();
-      return;
-    }
+    if(name==='pack_channels')return document.querySelector('#pack-channels input');
     const container=msContainer(name);
-    if(container){container.querySelector('.ms-trigger').focus();return;}
-    const el=form().elements[name];
-    if(el&&typeof el.focus==='function')el.focus();
+    if(container)return container.querySelector('.ms-trigger');
+    return form().elements[name]||null;
+  }
+
+  // Focus alone is too quiet in a form this dense: the field is centred in the
+  // drawer and pulsed once so the jump is visible even mid-form.
+  function highlightField(el) {
+    const box=el.closest('.f-label,.ms-field,.pack-row')||el;
+    box.scrollIntoView({block:'center'});
+    box.classList.remove('pulse');
+    // Force a reflow, or re-jumping to the same field never restarts the
+    // animation -- the class would be removed and re-added within one frame.
+    void box.offsetWidth;
+    box.classList.add('pulse');
+    box.addEventListener('animationend',()=>box.classList.remove('pulse'),{once:true});
+  }
+
+  function focusField(name) {
+    const el=fieldElement(name);
+    if(!el)return;
+    if(typeof el.focus==='function')el.focus();
+    highlightField(el);
   }
 
   // --- I3/C2/C3: live readiness, draft save, single source of truth ------
@@ -1297,6 +1314,7 @@
     state.showErrors=false;
     clearMissingPaint();
     clearCreateAnotherButton();
+    renderIssueJump(false);
     // Width belongs to pack scope. Duplicate is always single-scope and never
     // touches setScope, so clear the pack-width class here (shared by both
     // create callers) or a prior pack session leaks its 920px into the
@@ -1803,6 +1821,18 @@
     multiselectContainers().forEach(container=>setMultiselectEnabled(container,enabled));
   }
 
+  // Every open finding on the record, as jump targets. Rendered from the
+  // edit transition rather than from openDrawer, so a row opened read-only
+  // and then switched to edit gets the bar too.
+  function renderIssueJump(editing) {
+    const bar=document.getElementById('drawer-issue-jump');
+    const issues=editing&&state.selected ? A.rowIssues(state.selected) : [];
+    if(!issues.length){bar.hidden=true;bar.innerHTML='';return;}
+    bar.innerHTML=`<span class="issue-jump-label">To fix:</span>`
+      +issues.map(issue=>`<button type="button" class="link-inline" data-jump="${esc(issue.field)}">${esc(issueLabel(issue))}</button>`).join('');
+    bar.hidden=false;
+  }
+
   function setDrawerEditing(editing) {
     const wasEditing=state.editing;
     state.editing=editing;state.creating=false;state.dirty=false;
@@ -1813,6 +1843,7 @@
     state.showErrors=false;
     clearMissingPaint();
     clearCreateAnotherButton();
+    renderIssueJump(editing);
     if(!editing)hideConflictBanner();
     setFormEnabled(editing);
     // Read-only shows the plain detail view; the form only exists while editing.
@@ -2338,6 +2369,13 @@
     // read-only" action when there is a saved record to revert to.
     document.querySelectorAll('[data-close-drawer]').forEach(el=>el.onclick=()=>requestClose());
     document.getElementById('drawer-edit').onclick=()=>{if(!state.selected||!state.selected.id){toast('Database ID required for safe editing');return;}setDrawerEditing(true);};
+    document.getElementById('drawer-issue-jump').addEventListener('click',event=>{
+      const btn=event.target.closest('[data-jump]');
+      if(!btn)return;
+      document.querySelectorAll('#drawer-issue-jump [data-jump]').forEach(el=>el.classList.remove('active'));
+      btn.classList.add('active');
+      focusField(btn.dataset.jump);
+    });
     document.getElementById('drawer-duplicate').onclick=()=>{if(state.selected)openDuplicateDrawer(state.selected,state.drawerOpener);};
     document.getElementById('drawer-delete').onclick=async()=>{
       if(!state.selected||!state.selected.id||!canDelete())return;
