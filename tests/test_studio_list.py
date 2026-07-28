@@ -317,6 +317,18 @@ class StudioListTests(unittest.TestCase):
         # never restarts the animation.
         self.assertIn("void box.offsetWidth;", app)
 
+        # All four needles above sit inside fieldElement/highlightField's own
+        # bodies -- none of them pin that focusField actually calls either.
+        # Mutation-tested: deleting `highlightField(el);` from focusField (no
+        # scroll, no pulse -- exactly the regression this test is named for)
+        # left the suite at 97/97 passing. Same class of gap already fixed
+        # for the jump bar (see
+        # test_jump_bar_follows_the_edit_transition_not_just_open below);
+        # the fix was never carried across to this test. Scope it here too.
+        focus_field_body = _slice(app, "function focusField(name) {", "\n  function ")
+        self.assertIn("const el=fieldElement(name);", focus_field_body)
+        self.assertIn("highlightField(el);", focus_field_body)
+
     def test_jump_bar_follows_the_edit_transition_not_just_open(self):
         app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
 
