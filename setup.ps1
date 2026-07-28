@@ -102,7 +102,7 @@ try {
     # database nothing has created the schema in yet. Idempotent on an existing one.
     Write-Host "[3/5] Creating the database schema (first run can take a minute)" -ForegroundColor Cyan
     & $python -m pipeline.api.ensure_db
-    if ($LASTEXITCODE -ne 0) { throw "ensure_db failed (exit $LASTEXITCODE) - is the database reachable?" }
+    if ($LASTEXITCODE -ne 0) { throw "ensure_db failed (exit $LASTEXITCODE) - 'No module named ...' above means the packages are missing (run check.cmd); otherwise the database is unreachable" }
 
     # 4) roles + first admin ------------------------------------------------
     Write-Host "[4/5] Applying roles and row-level security" -ForegroundColor Cyan

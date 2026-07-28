@@ -47,6 +47,7 @@ $manifest = @(
 Write-Host ""
 Write-Host "=== CPLAN file check ===" -ForegroundColor Cyan
 $stale = @()
+$missingPackages = ""
 $checkedPaths = @{}
 foreach ($entry in $manifest) {
     $full = Join-Path $root $entry.Path
@@ -118,9 +119,25 @@ if ($python) {
         else {
             Write-Host ("  WARN     import check failed: {0}" -f "$probe".Trim()) -ForegroundColor Yellow
         }
-        $pg = & $python -c "import importlib.util; print('yes' if importlib.util.find_spec('pgserver') else 'no')" 2>&1
-        if ("$pg".Trim() -eq "yes") { Write-Host "  OK       pgserver package installed" -ForegroundColor Green }
-        else { Write-Host "  WARN     pgserver package not found in this interpreter" -ForegroundColor Yellow }
+        # Every runtime import in pipeline/api/requirements.txt, probed in one
+        # call. A missing package is as blocking as a stale file: setup.cmd's
+        # schema step imports fastapi (via pipeline.api.app) and start.cmd needs
+        # uvicorn, so reporting "all files current" without this check sends the
+        # user straight into "No module named fastapi".
+        $probeDeps = "import importlib.util as u; " +
+            "mods=['fastapi','uvicorn','sqlalchemy','psycopg','pyarrow','pgserver','psutil','itsdangerous']; " +
+            "print(','.join(m for m in mods if u.find_spec(m) is None))"
+        $probeOut = & $python -c $probeDeps 2>&1
+        $missing = "$probeOut".Trim()
+        if ($missing -eq "") {
+            Write-Host "  OK       all required packages installed (fastapi, uvicorn, sqlalchemy, psycopg, pyarrow, pgserver, psutil, itsdangerous)" -ForegroundColor Green
+        }
+        else {
+            Write-Host ("  MISSING  packages: {0}" -f $missing) -ForegroundColor Red
+            Write-Host  "           install them into THIS interpreter, then re-run check.cmd:" -ForegroundColor Yellow
+            Write-Host ('             "{0}" -m pip install -r pipeline\api\requirements.txt' -f $python) -ForegroundColor Yellow
+            $missingPackages = $missing
+        }
     }
     finally { Pop-Location }
 }
@@ -135,13 +152,18 @@ else {
 }
 
 Write-Host ""
-if ($stale.Count -eq 0) {
+if ($stale.Count -eq 0 -and -not $missingPackages) {
     Write-Host "RESULT: all files current. Safe to run fix-db.cmd, then setup.cmd (or start.cmd)." -ForegroundColor Green
 }
 else {
-    Write-Host ("RESULT: {0} file(s) outdated or missing. Download them, then run this check again:" -f $stale.Count) -ForegroundColor Red
-    foreach ($path in ($stale | Select-Object -Unique)) {
-        $url = "$rawBase/" + ($path -replace "\\", "/")
-        Write-Host ("  {0}" -f $url) -ForegroundColor Yellow
+    if ($stale.Count -gt 0) {
+        Write-Host ("RESULT: {0} file(s) outdated or missing. Download them, then run this check again:" -f $stale.Count) -ForegroundColor Red
+        foreach ($path in ($stale | Select-Object -Unique)) {
+            $url = "$rawBase/" + ($path -replace "\\", "/")
+            Write-Host ("  {0}" -f $url) -ForegroundColor Yellow
+        }
+    }
+    if ($missingPackages) {
+        Write-Host ("RESULT: missing Python packages ({0}) - setup.cmd and start.cmd cannot run until they are installed (command above)." -f $missingPackages) -ForegroundColor Red
     }
 }
