@@ -243,7 +243,7 @@ tr:hover td .copy-btn,td .copy-btn:focus-visible{opacity:1}
 /* Drawer jump bar: every open finding on the record, as jump targets. */
 .issue-jump{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:10px 22px;background:var(--surface-alt);border-bottom:1px solid var(--surface)}
 .issue-jump-label{font-size:10px;font-weight:700;letter-spacing:.02em;color:var(--grey-4)}
-.issue-jump .link-inline.active{color:var(--black);text-decoration:underline}
+.issue-jump .link-inline.active{color:var(--black);font-weight:700}
 /* One-shot tint on the jumped-to field -- the native focus ring alone is too
    easy to lose in a form this long. */
 @keyframes field-pulse{from{background:var(--surface-alt)}to{background:transparent}}

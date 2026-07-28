@@ -185,8 +185,11 @@ class StudioPackTests(unittest.TestCase):
         self.assertIn("PACK_ROW_COL_LABELS[token[2]]", label)
         modal = _slice(self.app, "function confirmDraftSave(", "\n  function ")
         self.assertIn("esc(missingFieldLabel(name))", modal)
-        # "Fill it in" jump links land inside the pack UI.
-        focus = _slice(self.app, "function focusField(name)", "\n  function ")
+        # "Fill it in" jump links land inside the pack UI. Token resolution
+        # now lives in fieldElement (focusField just resolves the element via
+        # fieldElement, then focuses/highlights it), so the slice follows the
+        # lookup to where it actually sits rather than where it used to.
+        focus = _slice(self.app, "function fieldElement(name)", "\n  function ")
         self.assertIn("PACK_ROW_TOKEN_RE.exec", focus)
         self.assertIn("pack_channels", focus)
         # Failed submits paint the exact empty pack-table cells.
