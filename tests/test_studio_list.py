@@ -308,23 +308,50 @@ class StudioListTests(unittest.TestCase):
         self.assertIn("${esc(issueLabel(issue))}</button>", app)
 
     def test_issue_jump_bar_stays_sticky_below_the_drawer_head(self):
+        html = (DASHBOARD / "index.html").read_text(encoding="utf-8")
         css = (DASHBOARD / "styles.css").read_text(encoding="utf-8")
 
         # The whole reason the bar exists is working several findings in
         # sequence -- if it scrolls away with the form the first time a jump
         # centres a mid-form field, the user has to scroll back up before
-        # every subsequent jump. Sticks directly under .drawer-head (top:
-        # 120px, the head's measured rendered height while editing -- the
-        # only state this bar ever shows in), z-index above the form but
-        # below the head, same idiom .drawer-actions already uses at the
-        # bottom edge (position:sticky;bottom:0;z-index:3). Pinned as the
-        # exact declaration so a later cleanup cannot silently un-stick it.
+        # every subsequent jump. A fixed pixel offset on .issue-jump alone
+        # (top:120px) broke the moment a long activity_name wrapped
+        # .drawer-head to two lines, growing it past the hardcoded number
+        # and letting the head cover the bar outright -- exactly what the
+        # house rule "header + bar below it stay fixed as one sticky unit"
+        # exists to rule out. So head and bar are wrapped together and only
+        # the wrapper is sticky.
+
+        # (a) .drawer-head is the wrapper's first child, .drawer-issue-jump
+        # its last -- both genuinely inside it, not just declared somewhere
+        # in the same file.
         self.assertIn(
-            ".issue-jump{display:flex;flex-wrap:wrap;align-items:center;gap:10px;"
-            "padding:10px 22px;background:var(--surface-alt);"
-            "border-bottom:1px solid var(--surface);position:sticky;top:120px;z-index:1}",
+            '<div class="drawer-head-wrap">\n'
+            '        <div class="drawer-head">',
+            html,
+        )
+        self.assertIn(
+            '<div class="issue-jump" id="drawer-issue-jump" hidden></div>\n'
+            '      </div>',
+            html,
+        )
+
+        # (b) the wrapper carries the sticky positioning.
+        self.assertIn(
+            ".drawer-head-wrap{position:sticky;top:0;z-index:2;background:var(--white)}",
             css,
         )
+
+        # (c) the one that matters most: .issue-jump itself must declare NO
+        # top of its own -- that is exactly the magic number this refactor
+        # removes, and its return is the regression this guard exists to
+        # catch. Matched narrowly (immediate "{...}" ) so the descendant
+        # rule .issue-jump .link-inline.active{...} is not what gets read.
+        issue_jump_rule = re.search(r"\.issue-jump\{[^}]*\}", css)
+        self.assertIsNotNone(issue_jump_rule)
+        self.assertNotIn("top:", issue_jump_rule.group(0))
+        self.assertNotIn("position:", issue_jump_rule.group(0))
+        self.assertNotIn("z-index:", issue_jump_rule.group(0))
 
 
 if __name__ == "__main__":
