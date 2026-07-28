@@ -50,14 +50,25 @@ All user-facing strings are English. The app has no German UI.
 
 ## 1. `rowIssues(row)` — one rule for "what is wrong here"
 
-New helper in `app.js`, next to `missingLabels`. Returns a normalised issue list
-for a row, independent of which queue is active:
+Lives in **`analytics.js`**, not `app.js`. `app.js` is a browser IIFE with no
+exports and can only be checked by asserting on its source text; `analytics.js`
+is a real module with a node test file and already owns `planningCompleteness`,
+`requiredFor` and `parseDate`. Putting the rule there makes it genuinely
+unit-testable and keeps the completeness logic and the issue logic in one place.
 
-| Kind | Focus target | Label |
+It returns **presentation-free descriptors** — `analytics.js` names no user-facing
+copy today and must not start:
+
+| Kind | `field` (focus target) | Extra |
 |---|---|---|
-| `invalid-date` | `end_date` | `End before start` |
-| `short-notice` | `start_date` | `{n}d lead` |
-| `missing` (one per field) | the missing field | `FIELD_LABELS[field]` |
+| `invalid-date` | `end_date` | — |
+| `short-notice` | `start_date` | `leadDays` |
+| `missing` (one per field) | the missing field | — |
+
+`app.js` maps a descriptor to its label via a thin `issueLabel(issue)` next to
+`missingLabels`: `End before start`, `{leadDays}d lead`, and
+`FIELD_LABELS[issue.field]` respectively. All user-facing strings stay in
+`app.js` alongside the other copy.
 
 Order: hard date error → short notice → missing fields (the latter in
 `REQUIRED_*` order, so the list is stable across renders). Both the Issue column
@@ -70,11 +81,11 @@ first, a row reached from a date queue leads with that queue's finding anyway,
 and the context bar (§3) names the queue's headline regardless.
 
 The two date predicates are currently inlined three times — in `renderOverview`
-(app.js:464-465) and in `matchesQueueFilter` (app.js:645-646). They move to
-module scope in `app.js` as `isShortNotice(row)` and `hasInvalidDates(row)`, and
-all three call sites use them. No refactoring beyond that.
+(app.js:464-465) and in `matchesQueueFilter` (app.js:645-646). They move into
+`analytics.js` as exported `isShortNotice(row)` and `hasInvalidDates(row)`, and
+all three call sites plus `rowIssues` use them. No refactoring beyond that.
 
-`A.planningCompleteness` stays the sole owner of the completeness rule;
+`planningCompleteness` stays the sole owner of the completeness rule;
 `rowIssues` composes it with the two date predicates and never re-implements it.
 
 ## 2. Activities table: `Readiness` → `Issue`
@@ -142,17 +153,30 @@ replaces it.
 
 ## 5. Tests
 
-`tests/test_studio_list.py::test_readiness_badge_uses_the_pastel_dot_contract`
-asserts the current badge markup verbatim, so it moves with the code to the
-Issue-chip contract. The `assertNotIn('class="missing-chip"')` guard stays.
+Three layers, because no single one covers this change:
 
-New static guards in the same file:
+**Behavioural (`tests/analytics.test.js`, node).** `rowIssues`, `isShortNotice`
+and `hasInvalidDates` are real functions in a real module, so they get real
+assertions: ordering (date findings before missing fields), the `leadDays`
+payload, a clean row returning `[]`, the internal/external required-set split,
+and a row that is both short-notice and incomplete.
 
-- issue chips carry both `data-fix-id` and `data-fix-field`
-- the queue bar is rendered only under `state.queueFilter`
-- `rowIssues` is the only source the Issue column and the jump bar read
-- `focusField` scrolls into view and applies the transient highlight
-- the date predicates are called, not re-inlined, at all three call sites
+**Static (`tests/test_studio_list.py`).**
+`test_readiness_badge_uses_the_pastel_dot_contract` asserts the current badge
+markup verbatim, so it moves with the code to the Issue-chip contract. The
+`assertNotIn('class="missing-chip"')` guard stays. New guards: issue chips carry
+`data-fix-id` and `data-fix-field`; the queue bar renders only under
+`state.queueFilter`; the Issue column and the jump bar both read `A.rowIssues`;
+`focusField` scrolls into view and applies the transient highlight; the date
+predicates are called via `A.`, not re-inlined, at all three call sites.
+
+**Click-through (chrome-devtools MCP against a local studio).** The API runs
+against `data/cplan.sqlite3` (40 rows) via
+`start_cplan.py --settings data/cplan-settings.json`. Walk: Overview → each
+Review list → assert the context bar names that queue → click the leading issue
+chip → assert the drawer is in edit mode and `document.activeElement` is the
+field the chip pointed at. Only this layer can catch a chip that renders
+correctly but focuses nothing.
 
 ## 6. Corp handover
 
@@ -162,15 +186,22 @@ preflight. Three studio markers currently match the old files too and move:
 
 | File | Old marker | New marker |
 |---|---|---|
-| `pipeline\studio\app.js` | `updateReady` | `rowIssues` |
+| `pipeline\studio\app.js` | `updateReady` | `issueLabel` |
+| `pipeline\studio\analytics.js` | `requiredFor` | `rowIssues` |
 | `pipeline\studio\index.html` | `scope-toggle` | `activity-queue-bar` |
 | `pipeline\studio\styles.css` | `ready-line` | `issue-chip` |
 
+`analytics.js` matters most here: `app.js` calls `A.rowIssues`, so a stale
+`analytics.js` next to a current `app.js` breaks the Issue column and the drawer
+outright. Its existing marker (`requiredFor`) would still match the old file.
+
 ## Files touched
 
+- `pipeline/studio/analytics.js`
 - `pipeline/studio/app.js`
 - `pipeline/studio/index.html`
 - `pipeline/studio/styles.css`
+- `tests/analytics.test.js`
 - `tests/test_studio_list.py`
 - `check.ps1`
 
