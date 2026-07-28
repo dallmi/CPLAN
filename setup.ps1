@@ -3,8 +3,9 @@ CPLAN one-time setup. Idempotent: safe to re-run, it skips whatever is already
 in place. Does everything the portal needs:
   1. configure the database backend (if not configured yet)
   2. generate and persist CPLAN_AUTH_SECRET (if not set yet)
-  3. apply roles + RLS and create the first admin user
-  4. apply the portal schema and user-management functions
+  3. create the database schema (tables, indexes, analysis views)
+  4. apply roles + RLS and create the first admin user
+  5. apply the portal schema and user-management functions
 
 Reads optional cplan.config (key=value) in the repo root:
   PYTHON=C:\path\to\python.exe      interpreter (else CPLAN_PYTHON / active venv / .venv)
@@ -74,20 +75,20 @@ try {
     $cplanHome = if ($env:CPLAN_HOME) { $env:CPLAN_HOME } else { Join-Path $root "pipeline\data" }
     $settingsFile = Join-Path $cplanHome "cplan-settings.json"
     if (Test-Path $settingsFile) {
-        Write-Host "[1/4] Backend already configured ($backend)." -ForegroundColor Green
+        Write-Host "[1/5] Backend already configured ($backend)." -ForegroundColor Green
     }
     else {
-        Write-Host "[1/4] Configuring backend: $backend" -ForegroundColor Cyan
+        Write-Host "[1/5] Configuring backend: $backend" -ForegroundColor Cyan
         & $python -m pipeline.api.setup_backend --backend $backend
         if ($LASTEXITCODE -ne 0) { throw "setup_backend failed (exit $LASTEXITCODE)" }
     }
 
     # 2) auth secret --------------------------------------------------------
     if (-not [string]::IsNullOrEmpty($env:CPLAN_AUTH_SECRET)) {
-        Write-Host "[2/4] Auth secret already set - keeping it." -ForegroundColor Green
+        Write-Host "[2/5] Auth secret already set - keeping it." -ForegroundColor Green
     }
     else {
-        Write-Host "[2/4] Generating and persisting CPLAN_AUTH_SECRET" -ForegroundColor Cyan
+        Write-Host "[2/5] Generating and persisting CPLAN_AUTH_SECRET" -ForegroundColor Cyan
         $secret = (& $python -c "import secrets; print(secrets.token_urlsafe(48))").Trim()
         if (-not $secret) { throw "secret generation returned empty output" }
         setx CPLAN_AUTH_SECRET "$secret" | Out-Null
@@ -95,8 +96,16 @@ try {
         Write-Host "      Secret set (takes effect in new windows)." -ForegroundColor DarkGray
     }
 
-    # 3) roles + first admin ------------------------------------------------
-    Write-Host "[3/4] Applying roles and row-level security" -ForegroundColor Cyan
+    # 3) schema --------------------------------------------------------------
+    # Must run before setup_roles: apply_roles hardens activities.created_by with
+    # ALTER TABLE, which fails with "relation activities does not exist" on a
+    # database nothing has created the schema in yet. Idempotent on an existing one.
+    Write-Host "[3/5] Creating the database schema (first run can take a minute)" -ForegroundColor Cyan
+    & $python -m pipeline.api.ensure_db
+    if ($LASTEXITCODE -ne 0) { throw "ensure_db failed (exit $LASTEXITCODE) - is the database reachable?" }
+
+    # 4) roles + first admin ------------------------------------------------
+    Write-Host "[4/5] Applying roles and row-level security" -ForegroundColor Cyan
     & $python -m pipeline.api.setup_roles
     if ($LASTEXITCODE -ne 0) { throw "setup_roles (apply) failed (exit $LASTEXITCODE) - is the database reachable?" }
 
@@ -107,8 +116,8 @@ try {
         Write-Host "      (Manage users later in the portal, or set a different ADMIN_USER in cplan.config.)" -ForegroundColor Yellow
     }
 
-    # 4) portal schema ------------------------------------------------------
-    Write-Host "[4/4] Applying portal schema and user-management functions" -ForegroundColor Cyan
+    # 5) portal schema ------------------------------------------------------
+    Write-Host "[5/5] Applying portal schema and user-management functions" -ForegroundColor Cyan
     & $python -m pipeline.api.setup_portal
     if ($LASTEXITCODE -ne 0) { throw "setup_portal failed (exit $LASTEXITCODE)" }
 

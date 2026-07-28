@@ -177,6 +177,14 @@ export CPLAN_AUTH_SECRET=<the generated string>                # set before star
 
 ### Set up roles + first admin
 
+**The schema must exist first.** `apply_roles` opens with `ALTER TABLE activities ADD COLUMN IF NOT EXISTS created_by ...` — `IF NOT EXISTS` guards the column, not the table, so against a database nothing has created the schema in yet it fails with `relation "activities" does not exist`. Anything that starts the API (`start_cplan.py`), seeds it (`import_snapshot`) or syncs it (`sync_snapshot`) creates the schema as a side effect; when none of them has run yet, do it explicitly:
+
+```bash
+PYTHONPATH=. .venv/bin/python -m pipeline.api.ensure_db
+```
+
+`ensure_db` runs exactly what the app lifespan runs — `create_all` + `ensure_schema` + `ensure_analysis_views` — and nothing else: no data, idempotent, safe on a populated database. `setup.ps1` calls it as step 3, before the roles step.
+
 ```bash
 PYTHONPATH=. .venv/bin/python -m pipeline.api.setup_roles --create-user a.admin --role admin
 ```

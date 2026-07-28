@@ -17,6 +17,7 @@ The planning studio (`pipeline/studio/`) sits alongside the original Parquet-fed
 ```bash
 PYTHONPATH= .venv/bin/python -m pip install -r pipeline/api/requirements.txt
 PYTHONPATH=. .venv/bin/python -m pipeline.api.setup_backend --backend postgres-embedded
+PYTHONPATH=. .venv/bin/python -m pipeline.api.ensure_db     # schema only; skip if import_snapshot ran (it creates it too)
 PYTHONPATH=. .venv/bin/python -m pipeline.api.import_snapshot
 PYTHONPATH=. .venv/bin/python -m pipeline.api.setup_roles   # multi-user only: roles + RLS (see pipeline/api/README.md)
 PYTHONPATH=. .venv/bin/python pipeline/scripts/start_cplan.py
