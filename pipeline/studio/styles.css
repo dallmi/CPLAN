@@ -144,8 +144,14 @@ td.action-cell{overflow:visible}
 .board-gap-note{margin-top:12px;padding:9px 12px;border-left:3px solid var(--warning);background:var(--surface);font-size:11px}
 
 /* --- Readiness chip in table --- */
-.missing-chip{display:inline-block;padding:3px 7px;font-size:10px;font-weight:700;background:var(--surface);color:var(--bronze-3);border-radius:var(--radius);cursor:pointer;border:0}
-.missing-chip:hover{background:var(--warning)}
+/* Issue column: one neutral chip surface; a 2px left bar carries the severity,
+   so red stays reserved for the single finding that is a genuine error. */
+.issue-chip{display:inline-block;max-width:150px;margin:0 4px 2px 0;padding:3px 7px;border:0;border-left:2px solid var(--bronze-1);border-radius:var(--radius);background:var(--surface);color:var(--bronze-3);font-size:10px;font-weight:700;vertical-align:middle;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
+.issue-chip:hover{background:var(--grey-1);color:var(--black)}
+.issue-chip.short-notice{border-left-color:var(--warning)}
+.issue-chip.invalid-date{border-left-color:var(--danger);color:var(--danger)}
+/* td is nowrap+ellipsis for every other column; the chips need to wrap. */
+td.issue-cell{white-space:normal}
 .readiness-ok{color:var(--grey-3);font-size:11px}
 
 /* --- Drawer: note banner, mode hint, detail view --- */

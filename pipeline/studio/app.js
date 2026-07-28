@@ -437,6 +437,26 @@
 
   const missingLabels = missing => missing.map(field => FIELD_LABELS[field] || field);
 
+  // analytics.js keeps the issue rule free of copy; the wording for each
+  // descriptor lives here with the rest of the user-facing strings.
+  const issueLabel = issue => {
+    if (issue.kind === 'invalid-date') return 'End before start';
+    if (issue.kind === 'short-notice') return `${issue.leadDays}d lead`;
+    return FIELD_LABELS[issue.field] || issue.field;
+  };
+
+  // Two chips inline, the remainder folded into one overflow chip that still
+  // carries a fix target -- a row with nine gaps must not blow up the column.
+  const ISSUE_CHIPS_SHOWN = 2;
+  function issueChips(id, issues) {
+    const chip = (issue, text, title) =>
+      `<button type="button" class="issue-chip ${esc(issue.kind)}" data-fix-id="${esc(id||'')}" data-fix-field="${esc(issue.field)}"${title?` title="${esc(title)}"`:''}>${esc(text)}</button>`;
+    const shown = issues.slice(0, ISSUE_CHIPS_SHOWN).map(issue => chip(issue, issueLabel(issue)));
+    const rest = issues.slice(ISSUE_CHIPS_SHOWN);
+    if (rest.length) shown.push(chip(rest[0], `+${rest.length}`, rest.map(issueLabel).join(', ')));
+    return shown.join('');
+  }
+
   function renderOverview() {
     const rows = state.rows;
     const now = new Date();
@@ -461,8 +481,8 @@
 
     // Attention queue: aggregated by issue type instead of one row per finding.
     const incompleteRows = rows.filter(row=>A.planningCompleteness(row).score<100);
-    const shortNoticeRows = rows.filter(row=>{const l=Number(row.planning_lead_days);return Number.isFinite(l)&&l>=0&&l<7;});
-    const invalidRows = rows.filter(row=>{const s=A.parseDate(row.start_date),e=A.parseDate(row.end_date);return s&&e&&e<s;});
+    const shortNoticeRows = rows.filter(A.isShortNotice);
+    const invalidRows = rows.filter(A.hasInvalidDates);
     const totalIssues = incompleteRows.length+shortNoticeRows.length+invalidRows.length+collisions.length;
     document.getElementById('attention-count').textContent = totalIssues;
     document.getElementById('attention-subtitle').textContent = `${fmtNum(totalIssues)} findings grouped by issue type`;
@@ -642,8 +662,8 @@
   function matchesQueueFilter(row) {
     if (!state.queueFilter) return true;
     if (state.queueFilter==='incomplete') return A.planningCompleteness(row).score<100;
-    if (state.queueFilter==='short-notice') {const l=Number(row.planning_lead_days);return Number.isFinite(l)&&l>=0&&l<7;}
-    if (state.queueFilter==='invalid-date') {const s=A.parseDate(row.start_date),e=A.parseDate(row.end_date);return Boolean(s&&e&&e<s);}
+    if (state.queueFilter==='short-notice') return A.isShortNotice(row);
+    if (state.queueFilter==='invalid-date') return A.hasInvalidDates(row);
     return true;
   }
 
@@ -659,12 +679,12 @@
     const queueNote=state.queueFilter?` · ${QUEUE_FILTER_LABELS[state.queueFilter]||state.queueFilter} — Clear to remove`:'';
     document.getElementById('activity-result-count').textContent=`${fmtNum(rows.length)} of ${fmtNum(state.rows.length)}${queueNote}`;
     document.getElementById('activity-table-body').innerHTML=rows.map(row=>{
-      const ready=A.planningCompleteness(row);
-      const readiness=ready.score===100
-        ?'<span class="readiness-ok">—</span>'
-        :`<button type="button" class="badge warn" data-fix-id="${esc(row.id||'')}" data-fix-field="${esc(ready.missing[0]||'')}" title="${esc(missingLabels(ready.missing).join(', '))}"><span class="dot"></span>${ready.missing.length} missing</button>`;
+      const issues=A.rowIssues(row);
+      const issueCell=issues.length
+        ? issueChips(row.id,issues)
+        : '<span class="readiness-ok">—</span>';
       const duplicateBtn = canCreate() ? `<button type="button" class="icon-btn duplicate-btn" data-duplicate-id="${esc(row.id||'')}" aria-label="Duplicate ${esc(row.activity_name||'activity')}" title="Duplicate"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>` : '';
-      return `<tr data-open-id="${esc(row.id||'')}"><td><button type="button" class="name-btn" data-open-id="${esc(row.id||'')}" title="${esc(row.activity_name||'')}">${esc(row.activity_name||'Untitled')}</button></td><td>${trackingIdHtml(row.tracking_id,{copy:nonempty(row.tracking_id)})}</td><td>${esc(row.channel||'—')}</td><td>${fmtDate(row.start_date)}</td><td>${esc(row.priority||'—')}</td><td>${esc(row.lead_team||row.lead||'—')}</td><td>${esc(campaignLabel(row)||'—')}</td><td>${readiness}</td><td class="action-cell"><div class="row-actions">${duplicateBtn}</div></td></tr>`;}).join('')||`<tr><td colspan="9">${emptyState(EMPTY_ICONS.search, 'No activities match the filters', 'Clear filters or adjust your search to see more results.')}</td></tr>`;
+      return `<tr data-open-id="${esc(row.id||'')}"><td><button type="button" class="name-btn" data-open-id="${esc(row.id||'')}" title="${esc(row.activity_name||'')}">${esc(row.activity_name||'Untitled')}</button></td><td>${trackingIdHtml(row.tracking_id,{copy:nonempty(row.tracking_id)})}</td><td>${esc(row.channel||'—')}</td><td>${fmtDate(row.start_date)}</td><td>${esc(row.priority||'—')}</td><td>${esc(row.lead_team||row.lead||'—')}</td><td>${esc(campaignLabel(row)||'—')}</td><td class="issue-cell">${issueCell}</td><td class="action-cell"><div class="row-actions">${duplicateBtn}</div></td></tr>`;}).join('')||`<tr><td colspan="9">${emptyState(EMPTY_ICONS.search, 'No activities match the filters', 'Clear filters or adjust your search to see more results.')}</td></tr>`;
   }
 
   // Adjacent markers within this many percentage points of the scale are

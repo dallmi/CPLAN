@@ -58,23 +58,52 @@ class StudioListTests(unittest.TestCase):
         # existing bindDuplicateButtons stopPropagation pattern.
         self.assertIn("if(el.tagName==='BUTTON')event.stopPropagation();", flat)
 
-    def test_readiness_badge_uses_the_pastel_dot_contract(self):
+    def test_issue_column_renders_chips_that_carry_a_fix_target(self):
         app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
 
-        # Markup/classes only -- meaning is unchanged: still a button that
-        # carries the fix-target id/field and the full missing-fields list
-        # as its tooltip.
-        self.assertIn('class="badge warn"', app)
-        self.assertIn(
-            '<span class="dot"></span>${ready.missing.length} missing</button>', app
-        )
-        self.assertIn('data-fix-id="${esc(row.id||\'\')}"', app)
-        self.assertIn('data-fix-field="${esc(ready.missing[0]||\'\')}"', app)
-        self.assertIn(
-            "title=\"${esc(missingLabels(ready.missing).join(', '))}\"", app
-        )
+        # Every chip is a real button carrying the row id and the field it
+        # fixes, so the existing delegated [data-fix-id] handler drives it
+        # with no extra wiring.
+        self.assertIn('class="issue-chip ${esc(issue.kind)}"', app)
+        self.assertIn('data-fix-id="${esc(id||\'\')}"', app)
+        self.assertIn('data-fix-field="${esc(issue.field)}"', app)
+        # Overflow chip still points at a field rather than being inert.
+        self.assertIn("if (rest.length) shown.push(chip(rest[0], `+${rest.length}`", app)
+        # Clean rows keep the quiet em dash.
+        self.assertIn('<span class="readiness-ok">—</span>', app)
+        # The cell opts out of the table's nowrap so two chips plus overflow
+        # are not clipped by the td ellipsis.
+        self.assertIn('<td class="issue-cell">${issueCell}</td>', app)
+
+        # Retired: the count-only badge and its tooltip-as-only-detail.
+        self.assertNotIn("${ready.missing.length} missing</button>", app)
         # Retired class from the pre-kit-pass markup.
         self.assertNotIn('class="missing-chip"', app)
+
+    def test_issue_wording_lives_in_app_js_not_analytics(self):
+        app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+        analytics = (DASHBOARD / "analytics.js").read_text(encoding="utf-8")
+
+        # analytics.js returns descriptors only -- all copy is app.js's.
+        self.assertIn("'End before start'", app)
+        self.assertIn("${issue.leadDays}d lead", app)
+        self.assertNotIn("End before start", analytics)
+        # Match the interpolation, not the bare words: analytics.js:42 already
+        # contains "and lead" in a prose comment, so a plain "d lead" needle
+        # would fire on that.
+        self.assertNotIn("}d lead", analytics)
+
+    def test_date_predicates_are_called_not_reinlined(self):
+        app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+
+        # One rule, three call sites: overview queue groups and the workbench
+        # queue filter both defer to analytics.js.
+        self.assertIn("rows.filter(A.isShortNotice)", app)
+        self.assertIn("rows.filter(A.hasInvalidDates)", app)
+        self.assertIn("if (state.queueFilter==='short-notice') return A.isShortNotice(row);", app)
+        self.assertIn("if (state.queueFilter==='invalid-date') return A.hasInvalidDates(row);", app)
+        # The old inline copies are gone.
+        self.assertNotIn("const l=Number(row.planning_lead_days);return Number.isFinite(l)", app)
 
     def test_duplicate_button_sits_in_a_row_actions_wrapper(self):
         app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
