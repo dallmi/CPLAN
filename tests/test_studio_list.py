@@ -276,6 +276,24 @@ class StudioListTests(unittest.TestCase):
         self.assertIn("'invalid-date':'critical'", app)
         self.assertNotIn("severity:'critical'", app)
 
+        # The "Nearest deadlines" rows in the Attention card render severity
+        # inline rather than through QUEUE_SEVERITY, so the object-literal
+        # needle above is blind to it -- this block never writes the literal
+        # `severity:'critical'`. Scope a second guard to the block itself:
+        # every row here is incomplete or short-notice (deadlineRows' own
+        # filter), so 'critical' may only appear gated on hasInvalidDates --
+        # inferring it from the completeness score (the actual regression,
+        # reachable the moment a row is both incomplete and has 100% of its
+        # OTHER fields present) must fail here even though it never produces
+        # the object-literal form above.
+        deadlines_body = _slice(
+            app,
+            "const deadlines = deadlineRows.map(row=>{",
+            "}).join('');",
+        )
+        self.assertIn("A.hasInvalidDates(row)?'critical':'high'", deadlines_body)
+        self.assertNotIn("completeness.score<100?'high':'critical'", deadlines_body)
+
     def test_focus_field_scrolls_and_highlights(self):
         app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
 

@@ -508,7 +508,12 @@
       const completeness=A.planningCompleteness(row);
       const reason=completeness.score<100?`Missing: ${missingLabels(completeness.missing).slice(0,2).join(', ')}`:`Short notice: ${row.planning_lead_days}d lead`;
       const focus=completeness.missing[0]||'';
-      return `<div class="list-row"><span class="severity-line ${completeness.score<100?'high':'critical'}"></span><div><div class="list-title">${esc(row.activity_name||'Untitled')}</div><div class="list-meta">Starts ${fmtDate(row.start_date)} · ${esc(reason)}</div></div><button type="button" class="fix-link" data-fix-id="${esc(row.id||'')}" data-fix-field="${esc(focus)}">Fix now</button></div>`;
+      // Red is reserved for a genuine date error (the project's colour
+      // ruling); deadlineRows is otherwise incomplete or short-notice rows,
+      // both of which read as amber -- never infer severity from the
+      // completeness score, which says nothing about date validity.
+      const severity=A.hasInvalidDates(row)?'critical':'high';
+      return `<div class="list-row"><span class="severity-line ${severity}"></span><div><div class="list-title">${esc(row.activity_name||'Untitled')}</div><div class="list-meta">Starts ${fmtDate(row.start_date)} · ${esc(reason)}</div></div><button type="button" class="fix-link" data-fix-id="${esc(row.id||'')}" data-fix-field="${esc(focus)}">Fix now</button></div>`;
     }).join('');
     document.getElementById('attention-list').innerHTML = groups.length
       ? groups.map(group=>`<div class="queue-group"><span class="severity-line ${group.severity}"></span><div><div class="list-title">${group.title}</div><div class="list-meta">${group.meta}</div></div><button type="button" class="link-btn" data-queue="${group.queue}">${group.action}</button></div>`).join('')+(deadlines?`<div class="queue-heading">Nearest deadlines</div>${deadlines}`:'')
