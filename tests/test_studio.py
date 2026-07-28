@@ -450,8 +450,12 @@ class StudioTests(unittest.TestCase):
         # I11: no brand-colour tint tokens survive anywhere in the kit --
         # status is carried by the 3px left rule or a badge dot, never a tint.
         self.assertNotIn("-tint", css)
-        # I11: badges carry status via a coloured dot on a flat Pastel I fill.
-        self.assertIn(".badge .dot", css)
+        # I11's badge-dot pattern was the Activities table's Readiness badge.
+        # This feature replaced that badge with the Issue column's chips
+        # (see test_studio_list.py's Issue-column coverage) and the dot
+        # rules were its last consumer -- retired along with it. Pinned as
+        # an absence now so the dead rule cannot quietly come back.
+        self.assertNotIn(".badge .dot", css)
         # P4 / kit: "No underlines. No ALL CAPS. No exceptions."
         self.assertNotIn("text-decoration:underline", css)
         # New class contract (T3-T5): the drawer's live-ready indicator.
