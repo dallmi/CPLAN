@@ -50,6 +50,43 @@
     };
   }
 
+  // A row lands in a review list for reasons that have nothing to do with
+  // completeness: an end date before its start, or under a week of lead time.
+  // Both predicates were inlined at three call sites in app.js; they live here
+  // so the overview queue, the workbench filter and rowIssues cannot drift.
+  const SHORT_NOTICE_DAYS = 7;
+
+  function isShortNotice(row) {
+    // Number(null) and Number('') both coerce to 0, which would otherwise
+    // pass as "0 days notice" -- empty() catches those before the numeric
+    // check so an absent value reads as unknown, not urgent.
+    const value = row && row.planning_lead_days;
+    if (empty(value)) return false;
+    const lead = Number(value);
+    return Number.isFinite(lead) && lead >= 0 && lead < SHORT_NOTICE_DAYS;
+  }
+
+  function hasInvalidDates(row) {
+    const start = parseDate(row && row.start_date);
+    const end = parseDate(row && row.end_date);
+    return Boolean(start && end && end < start);
+  }
+
+  // Every reason this row is flagged, in one fixed order: hard date error,
+  // then short notice, then missing fields in required-set order. The order is
+  // deliberately NOT queue-aware -- a row must read the same wherever it
+  // appears or the Issue column cannot be learned. Descriptors carry no
+  // user-facing copy; app.js owns the wording.
+  function rowIssues(row) {
+    const issues = [];
+    if (hasInvalidDates(row)) issues.push({kind: 'invalid-date', field: 'end_date'});
+    if (isShortNotice(row)) {
+      issues.push({kind: 'short-notice', field: 'start_date', leadDays: Number(row.planning_lead_days)});
+    }
+    planningCompleteness(row).missing.forEach(field => issues.push({kind: 'missing', field}));
+    return issues;
+  }
+
   function quantile(sorted, p) {
     if (!sorted.length) return null;
     if (sorted.length === 1) return sorted[0];
@@ -290,6 +327,9 @@
     parseDate,
     REQUIRED_INTERNAL,
     REQUIRED_EXTERNAL,
-    requiredFor
+    requiredFor,
+    rowIssues,
+    isShortNotice,
+    hasInvalidDates
   };
 });

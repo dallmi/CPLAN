@@ -305,3 +305,78 @@ test('CSV values that could execute as spreadsheet formulas are neutralized', ()
   assert.equal(analytics.safeCsvValue('@SUM(A1:A2)'), "'@SUM(A1:A2)");
   assert.equal(analytics.safeCsvValue('Normal'), 'Normal');
 });
+
+// --- Issue rule (rowIssues + the two date predicates) ---
+
+const complete = {
+  ...base,
+  region: 'EMEA',
+  time_zone: 'Europe/Zurich',
+  audience: '1000',
+  business_division: 'GWM'
+};
+
+test('a fully complete, well-dated, long-notice row has no issues', () => {
+  assert.deepEqual(analytics.rowIssues(complete), []);
+});
+
+test('isShortNotice is true below seven days and false at seven and above', () => {
+  assert.equal(analytics.isShortNotice({...complete, planning_lead_days: 0}), true);
+  assert.equal(analytics.isShortNotice({...complete, planning_lead_days: 6}), true);
+  assert.equal(analytics.isShortNotice({...complete, planning_lead_days: 7}), false);
+  assert.equal(analytics.isShortNotice({...complete, planning_lead_days: 22}), false);
+});
+
+test('isShortNotice ignores absent and negative lead times', () => {
+  assert.equal(analytics.isShortNotice({...complete, planning_lead_days: null}), false);
+  assert.equal(analytics.isShortNotice({...complete, planning_lead_days: ''}), false);
+  assert.equal(analytics.isShortNotice({...complete, planning_lead_days: -3}), false);
+});
+
+test('hasInvalidDates is true only when the end precedes the start', () => {
+  assert.equal(analytics.hasInvalidDates(complete), false);
+  assert.equal(analytics.hasInvalidDates({
+    ...complete,
+    start_date: '2026-08-01T09:00:00+02:00',
+    end_date: '2026-07-31T09:00:00+02:00'
+  }), true);
+  assert.equal(analytics.hasInvalidDates({...complete, end_date: ''}), false);
+});
+
+test('rowIssues puts the date error first, then short notice, then missing fields', () => {
+  const row = {
+    ...base,
+    start_date: '2026-08-01T09:00:00+02:00',
+    end_date: '2026-07-31T09:00:00+02:00',
+    planning_lead_days: 2
+  };
+  const issues = analytics.rowIssues(row);
+
+  assert.deepEqual(issues[0], {kind: 'invalid-date', field: 'end_date'});
+  assert.deepEqual(issues[1], {kind: 'short-notice', field: 'start_date', leadDays: 2});
+  assert.deepEqual(issues.slice(2), [
+    {kind: 'missing', field: 'region'},
+    {kind: 'missing', field: 'time_zone'},
+    {kind: 'missing', field: 'audience'},
+    {kind: 'missing', field: 'business_division'}
+  ]);
+});
+
+test('rowIssues follows the variant split for missing fields', () => {
+  assert.deepEqual(analytics.rowIssues({...base, planning_lead_days: 22}), [
+    {kind: 'missing', field: 'region'},
+    {kind: 'missing', field: 'time_zone'},
+    {kind: 'missing', field: 'audience'},
+    {kind: 'missing', field: 'business_division'}
+  ]);
+  assert.deepEqual(analytics.rowIssues({...base, source_type: 'external', planning_lead_days: 22}), [
+    {kind: 'missing', field: 'region'},
+    {kind: 'missing', field: 'time_zone'}
+  ]);
+});
+
+test('rowIssues reports both a date finding and completeness gaps on the same row', () => {
+  const issues = analytics.rowIssues({...base, planning_lead_days: 3});
+  assert.equal(issues.filter(i => i.kind === 'short-notice').length, 1);
+  assert.equal(issues.filter(i => i.kind === 'missing').length, 4);
+});
