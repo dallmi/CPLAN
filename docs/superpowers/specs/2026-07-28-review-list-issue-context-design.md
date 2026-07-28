@@ -16,10 +16,19 @@ Two concrete failures:
 
 1. **No issue context.** After the jump you face a generic table. Neither the
    page nor any row states the finding that put it in the list.
-2. **Two queues have no fix affordance at all.** `short-notice` and
-   `invalid-date` rows are frequently 100 % complete, so the Readiness column
-   renders `—`. The row is in the list for a reason the UI never shows, and
-   there is nothing to click.
+2. **The Readiness column answers a different question than the one asked.**
+   For a row in the `short-notice` or `invalid-date` queue the column reports
+   completeness, which is unrelated to why the row is in the list. Two
+   variants, both verified against the local snapshot (40 rows,
+   `data/cplan.sqlite3`):
+
+   - Row is 100 % complete → the column renders `—`. No issue shown, nothing
+     to click, no way to fix.
+   - Row is also incomplete → worse. Arriving from *"40 activities on short
+     notice"*, the column shows `3 missing` / *"Description, Time zone,
+     Estimated audience size"*, and the badge jumps to `activity_description`.
+     Not one of those is the short-notice finding. The UI silently substitutes
+     a different issue for the one the user clicked.
 
 The drawer *does* already focus a field: the readiness badge carries
 `data-fix-field="${ready.missing[0]}"` and `openDrawer` calls `focusField`. But
@@ -53,6 +62,12 @@ for a row, independent of which queue is active:
 Order: hard date error → short notice → missing fields (the latter in
 `REQUIRED_*` order, so the list is stable across renders). Both the Issue column
 and the drawer jump bar read only this helper, so the two cannot drift apart.
+
+The order is **fixed, not queue-aware**. A row must read the same everywhere, or
+the column becomes unlearnable — the same activity would lead with a different
+chip depending on which link you arrived through. Because date findings sort
+first, a row reached from a date queue leads with that queue's finding anyway,
+and the context bar (§3) names the queue's headline regardless.
 
 The two date predicates are currently inlined three times — in `renderOverview`
 (app.js:464-465) and in `matchesQueueFilter` (app.js:645-646). They move to
