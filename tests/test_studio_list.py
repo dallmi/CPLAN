@@ -90,6 +90,17 @@ class StudioListTests(unittest.TestCase):
         # (e.g. "Communications pillars") with no other way to read it.
         self.assertIn('title="${esc(title||text)}"', app)
 
+        # Every needle above lives inside issueChips's own body -- none of
+        # them pin that applyActivityFilters actually calls it. Mutation-
+        # tested: replacing the cell computation with a constant
+        # '<span class="readiness-ok">—</span>' (so no chip ever renders)
+        # left the whole suite passing. Scope a guard to the call site
+        # itself so gutting the column cannot hide behind issueChips's own
+        # internal coverage.
+        filters_body = _slice(app, "function applyActivityFilters() {", "\n  function ")
+        self.assertIn("const issues=A.rowIssues(row);", filters_body)
+        self.assertIn("issueChips(row.id,issues)", filters_body)
+
         # Retired: the count-only badge and its tooltip-as-only-detail.
         self.assertNotIn("${ready.missing.length} missing</button>", app)
         # Retired class from the pre-kit-pass markup.
