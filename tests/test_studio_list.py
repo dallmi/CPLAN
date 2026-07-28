@@ -15,9 +15,13 @@ class StudioListTests(unittest.TestCase):
     wiring (bindOpenRows), the priority donut palette, the strategic/
     coverage bar lists, and the "Attention required" card's status-driven
     top border. Mirrors the text-assertion style already used in
-    test_studio.py. Per the T2 file-ownership matrix this file owns only
-    the app.js list region -- it does not assert anything about styles.css
-    or index.html markup owned by other tasks.
+    test_studio.py. Per the T2 file-ownership matrix this file used to own
+    only the app.js list region, leaving styles.css and index.html to other
+    tasks -- but the Issue column's header cell (index.html) and its
+    .issue-chip severity mapping (styles.css) are part of that same list
+    region, so ownership now widens to cover both: a header-text regression
+    or a chip recoloured off the RAG mapping must fail here, not only be
+    caught by hand.
     """
 
     def test_name_btn_is_the_accessible_row_control(self):
@@ -74,11 +78,33 @@ class StudioListTests(unittest.TestCase):
         # The cell opts out of the table's nowrap so two chips plus overflow
         # are not clipped by the td ellipsis.
         self.assertIn('<td class="issue-cell">${issueCell}</td>', app)
+        # A plain chip (not just the overflow one) carries a title, defaulted
+        # to its own label -- max-width:150px can ellipsis a longer label
+        # (e.g. "Communications pillars") with no other way to read it.
+        self.assertIn('title="${esc(title||text)}"', app)
 
         # Retired: the count-only badge and its tooltip-as-only-detail.
         self.assertNotIn("${ready.missing.length} missing</button>", app)
         # Retired class from the pre-kit-pass markup.
         self.assertNotIn('class="missing-chip"', app)
+
+    def test_issue_column_header_and_chip_severity_are_pinned(self):
+        html = (DASHBOARD / "index.html").read_text(encoding="utf-8")
+        css = (DASHBOARD / "styles.css").read_text(encoding="utf-8")
+
+        # The column is named for the finding it shows, not for completeness.
+        self.assertIn("<th>Issue</th>", html)
+        self.assertNotIn("<th>Readiness</th>", html)
+
+        # Severity mapping is the whole point of the chip: red is reserved for
+        # the one finding that is a genuine error, so a chip recoloured to red
+        # for missing fields or short notice must fail here.
+        self.assertIn(".issue-chip{", css)
+        self.assertIn("border-left:2px solid var(--bronze-1)", css)
+        self.assertIn(".issue-chip.short-notice{border-left-color:var(--warning)}", css)
+        self.assertIn(".issue-chip.invalid-date{border-left-color:var(--danger)", css)
+        # The table's td rule is nowrap+ellipsis for every other column.
+        self.assertIn("td.issue-cell{white-space:normal}", css)
 
     def test_issue_wording_lives_in_app_js_not_analytics(self):
         app = (DASHBOARD / "app.js").read_text(encoding="utf-8")

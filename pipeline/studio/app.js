@@ -449,8 +449,12 @@
   // carries a fix target -- a row with nine gaps must not blow up the column.
   const ISSUE_CHIPS_SHOWN = 2;
   function issueChips(id, issues) {
+    // Every chip carries a title, not just the overflow one -- a plain chip
+    // defaults to its own full label, since max-width:150px can ellipsis a
+    // longer one (e.g. FIELD_LABELS.strategic_objectives) with no other way
+    // to read it.
     const chip = (issue, text, title) =>
-      `<button type="button" class="issue-chip ${esc(issue.kind)}" data-fix-id="${esc(id||'')}" data-fix-field="${esc(issue.field)}"${title?` title="${esc(title)}"`:''}>${esc(text)}</button>`;
+      `<button type="button" class="issue-chip ${esc(issue.kind)}" data-fix-id="${esc(id||'')}" data-fix-field="${esc(issue.field)}" title="${esc(title||text)}">${esc(text)}</button>`;
     const shown = issues.slice(0, ISSUE_CHIPS_SHOWN).map(issue => chip(issue, issueLabel(issue)));
     const rest = issues.slice(ISSUE_CHIPS_SHOWN);
     if (rest.length) shown.push(chip(rest[0], `+${rest.length}`, rest.map(issueLabel).join(', ')));

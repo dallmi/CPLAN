@@ -143,7 +143,7 @@ td.action-cell{overflow:visible}
 .legend-swatch.conflict{background:var(--danger)}
 .board-gap-note{margin-top:12px;padding:9px 12px;border-left:3px solid var(--warning);background:var(--surface);font-size:11px}
 
-/* --- Readiness chip in table --- */
+/* --- Issue chips in table --- */
 /* Issue column: one neutral chip surface; a 2px left bar carries the severity,
    so red stays reserved for the single finding that is a genuine error. */
 .issue-chip{display:inline-block;max-width:150px;margin:0 4px 2px 0;padding:3px 7px;border:0;border-left:2px solid var(--bronze-1);border-radius:var(--radius);background:var(--surface);color:var(--bronze-3);font-size:10px;font-weight:700;vertical-align:middle;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
