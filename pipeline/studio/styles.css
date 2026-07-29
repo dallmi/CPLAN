@@ -301,3 +301,10 @@ tr:hover td .copy-btn,td .copy-btn:focus-visible{opacity:1}
 .kpi-group-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:6px}
 .kpi-row .k{font-size:11px;color:var(--grey-5);white-space:nowrap}
 .mix-zero{color:var(--grey-3)}
+.kpi-group-note{font-weight:400;letter-spacing:0;color:var(--grey-5)}
+.kpi-trend{font-size:11px;font-weight:700;white-space:nowrap}
+.kpi-trend.up{color:var(--success)}
+.kpi-trend.down{color:var(--danger)}
+.kpi-trend.flat{color:var(--grey-5)}
+.verdict{margin:0 0 14px;font-size:13px;color:var(--grey-6)}
+.verdict strong{font-weight:600}

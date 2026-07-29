@@ -534,6 +534,20 @@
     if(collisions.length) signals.push(`<p class="notice ${critical.length?'warn':''}">${fmtNum(collisions.length)} activities compete for the same window${critical.length?`, ${fmtNum(critical.length)} critical`:''} \u00b7 <button type="button" class="linklike" data-goto="planning:conflicts">Open conflicts \u2192</button></p>`);
     if(incompleteRows.length) signals.push(`<p class="notice">${fmtNum(incompleteRows.length)} activities are incomplete and ${fmtNum(shortNoticeRows.length)} are on short notice \u00b7 <button type="button" class="linklike" data-goto="planning:board">Open attention required \u2192</button></p>`);
     if(topMissing) signals.push(`<p class="notice">${esc(FIELD_LABELS[topMissing[0]]||topMissing[0])} is missing in ${fmtNum(topMissing[1])} of ${fmtNum(rows.length)} activities \u00b7 <button type="button" class="linklike" data-goto="analytics:data-quality">Open data health \u2192</button></p>`);
+    // Coverage counts the gap, this names it. "3 of 4 audiences" tells a comms
+    // lead that something is unserved without telling them what, and the
+    // cross-tab that would answer it sits two clicks away behind a tab nobody
+    // opens unprompted. Naming the audience turns a table you have to know
+    // about into a finding that announces itself.
+    const idle = field => {
+      const known = new Set(rows.flatMap(row=>split(row[field])));
+      const live = new Set(upcoming.flatMap(row=>split(row[field])));
+      return Array.from(known).filter(value=>!live.has(value));
+    };
+    const idleAudiences = idle('target_audience');
+    const idleChannels = idle('channel');
+    const idleNamed = idleAudiences.map(a=>`audience ${a}`).concat(idleChannels.map(c=>`channel ${c}`));
+    if(idleNamed.length) signals.push(`<p class="notice warn">Nothing planned in the next 30 days for ${idleNamed.map(esc).join(' \u00b7 ')} \u00b7 <button type="button" class="linklike" data-goto="analytics:strategic">Open channel mix \u2192</button></p>`);
     document.getElementById('overview-collisions').innerHTML = signals.join('');
 
     // Steering index: four themed collection cards instead of four flat tiles.
@@ -548,36 +562,86 @@
     // to bring the judgement myself". A share of the portfolio is derivable from
     // the same data and honest, unlike a trend the data cannot support.
     const share = n => rows.length ? `${Math.round(n/rows.length*100)}%` : '';
-    const kpiRow = (value, label, derived, ref) =>
-      `<div class="kpi-row${derived?' derived':''}"><span class="v">${esc(String(value))}</span>${ref?`<span class="k">${esc(ref)}</span>`:''}<span class="l">${esc(label)}</span></div>`;
-    const kpiGroup = (title, cls, rows2, goto) =>
-      `<div class="kpi-group ${cls}"><div class="kpi-group-head"><span class="kpi-group-title">${esc(title)}</span>${goto?`<button type="button" class="linklike" data-goto="${goto}">Open →</button>`:''}</div>${rows2.join('')}</div>`;
-    document.getElementById('overview-kpis').innerHTML = [
+
+    // Comparison against the preceding window of equal length. Only figures
+    // derived from start_date can carry one: they describe what happens in a
+    // period, and the period before it is in the same data.
+    //
+    // Completeness, remediation and pack coverage deliberately carry none. They
+    // describe the state of the portfolio right now, and nothing records what
+    // that state was thirty days ago -- activity_changes tracks edits, not a
+    // nightly snapshot of quality. A delta there would be invented, and an
+    // invented trend is worse than none: it survives exactly one meeting.
+    const previous30 = new Date(now); previous30.setDate(now.getDate()-30);
+    const inWindow = (from, to) => rows.filter(row=>{const d=A.parseDate(row.start_date);return d&&d>=from&&d<to;});
+    const before = inWindow(previous30, now);
+    const isHigh = row => {const p=String(row.priority||'').toLowerCase();return p==='high'||p==='critical';};
+    // The word carries the direction, the colour only reinforces it. A reader
+    // shown "+3" cannot tell whether more is good, and the house rule is
+    // explicit that colour is never the sole carrier of meaning. Polarity is a
+    // property of the measure, so it is stated per row rather than inferred.
+    let improved = 0, worsened = 0;
+    const trend = (current, prior, polarity) => {
+      if (current === null || prior === null || (!current && !prior)) return '';
+      const diff = current - prior;
+      // No chip when nothing moved. Four identical "± 0" rows read as noise;
+      // the group header says the basis, so a missing chip means unchanged.
+      if (!diff) return '';
+      const sign = diff > 0 ? '+' : '−';
+      const size = fmtNum(Math.abs(Math.round(diff*10)/10));
+      if (polarity === 'neutral') return `<span class="kpi-trend flat">${sign}${size} ${diff>0?'more':'fewer'}</span>`;
+      const good = polarity === 'down-good' ? diff < 0 : diff > 0;
+      good ? improved++ : worsened++;
+      return `<span class="kpi-trend ${good?'up':'down'}">${sign}${size} ${good?'better':'worse'}</span>`;
+    };
+    const kpiRow = (value, label, derived, ref, delta) =>
+      `<div class="kpi-row${derived?' derived':''}"><span class="v">${esc(String(value))}</span>${delta||''}${ref?`<span class="k">${esc(ref)}</span>`:''}<span class="l">${esc(label)}</span></div>`;
+    const kpiGroup = (title, cls, rows2, goto, note) =>
+      `<div class="kpi-group ${cls}"><div class="kpi-group-head"><span class="kpi-group-title">${esc(title)}${note?` <span class="kpi-group-note">${esc(note)}</span>`:''}</span>${goto?`<button type="button" class="linklike" data-goto="${goto}">Open →</button>`:''}</div>${rows2.join('')}</div>`;
+
+    const liveCount = (field, set) => new Set(set.flatMap(row=>split(row[field]))).size;
+    const leadNow = A.leadTimeStats(upcoming,7), leadBefore = A.leadTimeStats(before,7);
+    const inNext30 = row => {const d=A.parseDate(row&&row.start_date);return d&&d>=now&&d<future30;};
+    const inPrev30 = row => {const d=A.parseDate(row&&row.start_date);return d&&d>=previous30&&d<now;};
+    const collisionsNow = collisions.filter(item=>inNext30(item.left)||inNext30(item.right)).length;
+    const collisionsBefore = collisions.filter(item=>inPrev30(item.left)||inPrev30(item.right)).length;
+
+    const groupsHtml = [
       kpiGroup('Volume','volume',[
         kpiRow(fmtNum(rows.length),'Activities'),
-        kpiRow(fmtNum(upcoming.length),'Next 30 days',false,share(upcoming.length)),
+        kpiRow(fmtNum(upcoming.length),'Next 30 days',false,share(upcoming.length),trend(upcoming.length,before.length,'neutral')),
         kpiRow(fmtNum(internal),'Internal',true,share(internal)),
         kpiRow(fmtNum(external),'External',true,share(external))
-      ],'planning:board'),
+      ],'planning:board','next 30d vs previous 30d'),
       kpiGroup('Timing','timing',[
-        kpiRow(fmtNum(highPriority.length),'Critical and high',false,share(highPriority.length)),
-        kpiRow(fmtNum(shortNoticeRows.length),'On short notice',false,share(shortNoticeRows.length)),
-        kpiRow(lead.valid?`${fmtNum(lead.median)}d`:'—','Median lead time',true,'target 7d+'),
-        kpiRow(fmtNum(collisions.length),'Competing for a slot',true,share(collisions.length))
-      ],'planning:conflicts'),
+        kpiRow(fmtNum(upcoming.filter(isHigh).length),'Critical and high',false,'',trend(upcoming.filter(isHigh).length,before.filter(isHigh).length,'down-good')),
+        kpiRow(fmtNum(upcoming.filter(A.isShortNotice).length),'On short notice',false,'',trend(upcoming.filter(A.isShortNotice).length,before.filter(A.isShortNotice).length,'down-good')),
+        kpiRow(leadNow.median===null?'—':`${fmtNum(leadNow.median)}d`,'Median lead time',true,'target 7d+',trend(leadNow.median,leadBefore.median,'up-good')),
+        kpiRow(fmtNum(collisionsNow),'Competing for a slot',true,'',trend(collisionsNow,collisionsBefore,'down-good'))
+      ],'planning:conflicts','next 30d vs previous 30d'),
       kpiGroup('Coverage','coverage',[
-        kpiRow(coverage('channel'),'Channels next 30d'),
-        kpiRow(coverage('target_audience'),'Audiences next 30d'),
-        kpiRow(coverage('strategic_objectives'),'Pillars next 30d',true),
-        kpiRow(coverage('region'),'Regions next 30d',true)
-      ],'analytics:strategic'),
+        kpiRow(coverage('channel'),'Channels',false,'',trend(liveCount('channel',upcoming),liveCount('channel',before),'up-good')),
+        kpiRow(coverage('target_audience'),'Audiences',false,'',trend(liveCount('target_audience',upcoming),liveCount('target_audience',before),'up-good')),
+        kpiRow(coverage('strategic_objectives'),'Pillars',true,'',trend(liveCount('strategic_objectives',upcoming),liveCount('strategic_objectives',before),'up-good')),
+        kpiRow(coverage('region'),'Regions',true,'',trend(liveCount('region',upcoming),liveCount('region',before),'up-good'))
+      ],'analytics:strategic','next 30d vs previous 30d'),
       kpiGroup('Quality','quality',[
         kpiRow(`${quality.completenessRate}%`,'Records complete'),
         kpiRow(fmtNum(incompleteRows.length),'Need remediation',false,share(incompleteRows.length)),
         kpiRow(topMissing?fmtNum(topMissing[1]):'0',topMissing?`Missing ${String(FIELD_LABELS[topMissing[0]]||topMissing[0]).toLowerCase()}`:'No gaps',true,topMissing?share(topMissing[1]):''),
         kpiRow(fmtNum(quality.missingPackIds),'Without pack',true,share(quality.missingPackIds))
-      ],'analytics:data-quality')
+      ],'analytics:data-quality','snapshot, no history')
     ].join('');
+    document.getElementById('overview-kpis').innerHTML = groupsHtml;
+
+    // One sentence before the detail. Four deltas that point different ways do
+    // not answer "better or worse" -- a comms lead reading them said so in as
+    // many words. This counts the comparable measures and states the tally; it
+    // is arithmetic over what is on screen, not a verdict the data cannot back.
+    const compared = improved + worsened;
+    document.getElementById('overview-verdict').innerHTML = compared
+      ? `<p class="verdict">Against the previous 30 days: <strong>${fmtNum(improved)} of ${fmtNum(compared)} measures improved</strong>${worsened?`, ${fmtNum(worsened)} worsened`:''}. Completeness and pack coverage carry no comparison — no history is kept.</p>`
+      : '';
 
     const groups = [];
     if (incompleteRows.length) groups.push({severity:QUEUE_SEVERITY.incomplete,title:`${fmtNum(incompleteRows.length)} activities with missing fields`,meta:topMissing?`Largest gap: ${esc(FIELD_LABELS[topMissing[0]]||topMissing[0])} (${fmtNum(topMissing[1])})`:'',action:'Review list',queue:'incomplete'});
