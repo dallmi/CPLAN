@@ -543,35 +543,40 @@
     // SiteOwnerDashboard overview; accents are meaning-aligned rather than
     // decorative (grey neutral, warning for timing risk, info for coverage,
     // bronze for data quality) and titles stay sentence case per the kit.
-    const kpiRow = (value, label, derived) =>
-      `<div class="kpi-row${derived?' derived':''}"><span class="v">${esc(String(value))}</span><span class="l">${esc(label)}</span></div>`;
-    const kpiGroup = (title, cls, rows2) =>
-      `<div class="kpi-group ${cls}"><div class="kpi-group-title">${esc(title)}</div>${rows2.join('')}</div>`;
+    // Every figure carries a reference. "72 on short notice" is unreadable on
+    // its own — a comms lead said as much: "no good or bad, no direction, I have
+    // to bring the judgement myself". A share of the portfolio is derivable from
+    // the same data and honest, unlike a trend the data cannot support.
+    const share = n => rows.length ? `${Math.round(n/rows.length*100)}%` : '';
+    const kpiRow = (value, label, derived, ref) =>
+      `<div class="kpi-row${derived?' derived':''}"><span class="v">${esc(String(value))}</span>${ref?`<span class="k">${esc(ref)}</span>`:''}<span class="l">${esc(label)}</span></div>`;
+    const kpiGroup = (title, cls, rows2, goto) =>
+      `<div class="kpi-group ${cls}"><div class="kpi-group-head"><span class="kpi-group-title">${esc(title)}</span>${goto?`<button type="button" class="linklike" data-goto="${goto}">Open →</button>`:''}</div>${rows2.join('')}</div>`;
     document.getElementById('overview-kpis').innerHTML = [
       kpiGroup('Volume','volume',[
         kpiRow(fmtNum(rows.length),'Activities'),
-        kpiRow(fmtNum(upcoming.length),'Next 30 days'),
-        kpiRow(fmtNum(internal),'Internal',true),
-        kpiRow(fmtNum(external),'External',true)
-      ]),
+        kpiRow(fmtNum(upcoming.length),'Next 30 days',false,share(upcoming.length)),
+        kpiRow(fmtNum(internal),'Internal',true,share(internal)),
+        kpiRow(fmtNum(external),'External',true,share(external))
+      ],'planning:board'),
       kpiGroup('Timing','timing',[
-        kpiRow(fmtNum(highPriority.length),'Critical and high'),
-        kpiRow(fmtNum(shortNoticeRows.length),'On short notice'),
-        kpiRow(lead.valid?`${fmtNum(lead.median)}d`:'—','Median lead time',true),
-        kpiRow(fmtNum(active.length),'Running now',true)
-      ]),
+        kpiRow(fmtNum(highPriority.length),'Critical and high',false,share(highPriority.length)),
+        kpiRow(fmtNum(shortNoticeRows.length),'On short notice',false,share(shortNoticeRows.length)),
+        kpiRow(lead.valid?`${fmtNum(lead.median)}d`:'—','Median lead time',true,'target 7d+'),
+        kpiRow(fmtNum(collisions.length),'Competing for a slot',true,share(collisions.length))
+      ],'planning:conflicts'),
       kpiGroup('Coverage','coverage',[
         kpiRow(coverage('channel'),'Channels next 30d'),
         kpiRow(coverage('target_audience'),'Audiences next 30d'),
         kpiRow(coverage('strategic_objectives'),'Pillars next 30d',true),
         kpiRow(coverage('region'),'Regions next 30d',true)
-      ]),
+      ],'analytics:strategic'),
       kpiGroup('Quality','quality',[
         kpiRow(`${quality.completenessRate}%`,'Records complete'),
-        kpiRow(fmtNum(incompleteRows.length),'Need remediation'),
-        kpiRow(topMissing?fmtNum(topMissing[1]):'0',topMissing?`Missing ${String(FIELD_LABELS[topMissing[0]]||topMissing[0]).toLowerCase()}`:'No gaps',true),
-        kpiRow(fmtNum(quality.missingPackIds),'Without pack',true)
-      ])
+        kpiRow(fmtNum(incompleteRows.length),'Need remediation',false,share(incompleteRows.length)),
+        kpiRow(topMissing?fmtNum(topMissing[1]):'0',topMissing?`Missing ${String(FIELD_LABELS[topMissing[0]]||topMissing[0]).toLowerCase()}`:'No gaps',true,topMissing?share(topMissing[1]):''),
+        kpiRow(fmtNum(quality.missingPackIds),'Without pack',true,share(quality.missingPackIds))
+      ],'analytics:data-quality')
     ].join('');
 
     const groups = [];
@@ -862,8 +867,22 @@
   }
 
   function renderMissingFieldsAndTeams(rows) {
-    const fields=new Map();rows.forEach(row=>A.planningCompleteness(row).missing.forEach(field=>fields.set(field,(fields.get(field)||0)+1)));
-    document.getElementById('missing-fields').innerHTML=barList(Array.from(fields.entries()).map(([field,count])=>[FIELD_LABELS[field]||field,count]).sort((a,b)=>b[1]-a[1]));
+    // Every field the create form collects, not only the required ones that
+    // happen to be missing. Listing just the required gaps made a systematically
+    // empty optional field undiscoverable: a data steward could only ever find
+    // the holes the product already knew about, and the totals never added up
+    // (records-incomplete counted more than the listed fields explained).
+    // Optional fields are marked, so a high blank count on one is a finding
+    // rather than an alarm.
+    const blanks=new Map();
+    CREATE_FIELDS.forEach(field=>blanks.set(field,0));
+    rows.forEach(row=>CREATE_FIELDS.forEach(field=>{ if(!nonempty(row[field])) blanks.set(field,blanks.get(field)+1); }));
+    const requiredAnywhere=new Set([].concat(A.REQUIRED_INTERNAL||[],A.REQUIRED_EXTERNAL||[]));
+    const entries=Array.from(blanks.entries())
+      .filter(([,count])=>count>0)
+      .map(([field,count])=>[`${FIELD_LABELS[field]||field}${requiredAnywhere.has(field)?'':' (optional)'}`,count])
+      .sort((a,b)=>b[1]-a[1]);
+    document.getElementById('missing-fields').innerHTML=barList(entries);
     const teamRows=new Map();rows.forEach(row=>{const key=row.lead_team||row.lead||'Unassigned';if(!teamRows.has(key))teamRows.set(key,[]);teamRows.get(key).push(row);});
     document.getElementById('team-health').innerHTML=`<table><thead><tr><th>Team</th><th class="num">Activities</th><th class="num">Complete</th><th class="num">Short notice</th><th class="num">Median lead</th></tr></thead><tbody>${Array.from(teamRows.entries()).map(([team,items])=>{const q=A.dataQuality(items),l=A.leadTimeStats(items,7);return `<tr><td>${esc(team)}</td><td class="num">${items.length}</td><td class="num">${q.completenessRate}%</td><td class="num">${l.shortNoticeRate}%</td><td class="num">${l.median===null?'—':l.median+'d'}</td></tr>`;}).join('')}</tbody></table>`;
   }
@@ -873,7 +892,47 @@
     document.getElementById('strategic-kpis').innerHTML=[kpi('Aligned',`${rows.length?Math.round(aligned.length/rows.length*100):0}%`,`${aligned.length} activities`,''),kpi('Unaligned',unaligned.length,'No pillar assigned',unaligned.length?'danger':'success'),kpi('Pillars',objectives.length,'Unique values',''),kpi('Divisions',divisions.length,'Represented','')].join('');
     document.getElementById('objective-coverage').innerHTML=barList(objectives);
     document.getElementById('division-coverage').innerHTML=barList(divisions);
+    renderChannelMix();
     document.getElementById('unaligned-list').innerHTML=unaligned.length?unaligned.slice(0,30).map(row=>`<div class="list-row" data-open-id="${esc(row.id||'')}"><span class="severity-line high"></span><div><div class="list-title">${esc(row.activity_name||'Untitled')}</div><div class="list-meta">${fmtDate(row.start_date)} · ${esc(row.lead_team||row.lead||'Unassigned')}</div></div><span class="badge warning">Unaligned</span></div>`).join(''):emptyState(EMPTY_ICONS.checkCircle, 'All activities have a communications pillar', 'Nothing left to align.');
+  }
+
+  // Channel mix: which channel actually carries which audience or pillar.
+  // Everything else in the studio slices one dimension at a time, so the
+  // question "do we reach frontline staff by a channel they can even see"
+  // could only be answered by exporting rows and building the table by hand.
+  //
+  // Deliberately counts only. Effectiveness needs an outcome signal — opens,
+  // attendance, intranet views — and CPLAN records planning data, not results.
+  // A "best mix" recommendation from this data would be a guess wearing the
+  // clothes of an analysis. What the table does show is structural mismatch:
+  // an audience served by a single channel, or a channel carrying everything
+  // and therefore standing for nothing.
+  function renderChannelMix() {
+    const host=document.getElementById('channel-mix');
+    if(!host) return;
+    const dim=(document.querySelector('#mix-dimension .active')||{}).dataset?.dim||'target_audience';
+    const rows=state.rows;
+    const channels=countBy(rows,'channel').map(([label])=>label);
+    const columns=countBy(rows,dim).map(([label])=>label);
+    if(!channels.length||!columns.length){
+      host.innerHTML=emptyState(EMPTY_ICONS.barChart,'Not enough data for a mix','Channels and the selected dimension both need values.');
+      return;
+    }
+    const cell=new Map();
+    rows.forEach(row=>split(row.channel).forEach(ch=>split(row[dim]).forEach(col=>{
+      const key=ch+' '+col; cell.set(key,(cell.get(key)||0)+1);
+    })));
+    const colTotal=col=>channels.reduce((sum,ch)=>sum+(cell.get(ch+' '+col)||0),0);
+    const head=`<tr><th>Channel</th>${columns.map(c=>`<th class="num">${esc(c)}</th>`).join('')}<th class="num">Total</th></tr>`;
+    const body=channels.map(ch=>{
+      const values=columns.map(col=>cell.get(ch+' '+col)||0);
+      const total=values.reduce((a,b)=>a+b,0);
+      return `<tr><td>${esc(ch)}</td>${values.map(v=>`<td class="num">${v?fmtNum(v):'<span class="mix-zero">0</span>'}</td>`).join('')}<td class="num">${fmtNum(total)}</td></tr>`;
+    }).join('');
+    const foot=`<tr><td>Total</td>${columns.map(c=>`<td class="num">${fmtNum(colTotal(c))}</td>`).join('')}<td class="num">${fmtNum(rows.length)}</td></tr>`;
+    const single=columns.filter(c=>channels.filter(ch=>(cell.get(ch+' '+c)||0)>0).length===1);
+    const note=single.length?`<p class="notice warn">Reached through a single channel only: ${single.map(esc).join(' · ')}</p>`:'';
+    host.innerHTML=`${note}<div class="table-wrap"><table>${`<thead>${head}</thead>`}<tbody>${body}${foot}</tbody></table></div>`;
   }
 
   function renderCampaignQuality() {
@@ -2322,6 +2381,12 @@
       document.querySelectorAll('#time-presets button').forEach(x=>x.classList.toggle('active',x.dataset.range==='all'));
       applyDatePreset('all');
       rerenderAfterTimeChange();
+    };
+    document.getElementById('mix-dimension').onclick=event=>{
+      const btn=event.target.closest('button');if(!btn)return;
+      document.querySelectorAll('#mix-dimension button').forEach(x=>x.classList.remove('active'));
+      btn.classList.add('active');
+      renderChannelMix();
     };
     document.getElementById('channel-horizon').onclick=event=>{
       const btn=event.target.closest('button');if(!btn)return;

@@ -288,7 +288,7 @@ tr:hover td .copy-btn,td .copy-btn:focus-visible{opacity:1}
 .kpi-group.timing{border-left-color:var(--warning)}
 .kpi-group.coverage{border-left-color:var(--info)}
 .kpi-group.quality{border-left-color:var(--bronze-1)}
-.kpi-group-title{font-size:10px;letter-spacing:.02em;font-weight:700;color:var(--grey-5);margin-bottom:6px}
+.kpi-group-title{font-size:10px;letter-spacing:.02em;font-weight:700;color:var(--grey-5)}
 .kpi-group.volume .kpi-group-title{color:var(--grey-6)}
 .kpi-group.timing .kpi-group-title{color:var(--bronze-3)}
 .kpi-group.coverage .kpi-group-title{color:var(--info-dark)}
@@ -298,3 +298,6 @@ tr:hover td .copy-btn,td .copy-btn:focus-visible{opacity:1}
 .kpi-row .v{font-size:17px;font-weight:300;color:var(--black);line-height:1.15;white-space:nowrap}
 .kpi-row.derived .v{font-size:13px;font-weight:400;color:var(--grey-5)}
 .kpi-row .l{font-size:11px;color:var(--grey-5);text-align:right;margin-left:auto}
+.kpi-group-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:6px}
+.kpi-row .k{font-size:11px;color:var(--grey-5);white-space:nowrap}
+.mix-zero{color:var(--grey-3)}

@@ -79,7 +79,7 @@
           <article class="card"><div class="card-head"><div><h3>Channel load</h3><p class="card-jump"><button type="button" class="linklike" data-goto="planning:capacity">Open capacity & coverage →</button></p><p>Activities starting in the selected horizon</p></div><div class="segmented" id="channel-horizon"><button data-weeks="2">2 wks</button><button class="active" data-weeks="4">4 wks</button><button data-weeks="0">All</button></div></div><div class="card-body" id="channel-load"></div></article>
         </div>
         <div class="grid two">
-          <article class="card"><div class="card-head"><div><h3>Business division</h3><p class="card-jump"><button type="button" class="linklike" data-goto="analytics:strategic">Open strategic coverage →</button></p><p>Division mentions — multi-division activities count once per division</p></div></div><div class="card-body" id="division-donut"></div></article>
+          <article class="card"><div class="card-head"><div><h3>Business division</h3><p>Division mentions — multi-division activities count once per division</p></div></div><div class="card-body" id="division-donut"></div></article>
           <article class="card"><div class="card-head"><div><h3>Priority distribution</h3><p>Share of activities in the selected range</p></div></div><div class="card-body" id="priority-donut"></div></article>
         </div>
         <article class="card"><div class="card-head"><div><h3>Monthly activity trend</h3><p>Activity starts per month</p></div><div class="segmented" id="trend-toggle"><button class="active" data-mode="">All</button><button data-mode="internal">Internal</button><button data-mode="external">External</button></div></div><div class="card-body" id="monthly-trend"></div></article>
@@ -162,20 +162,21 @@
         <div class="page-heading"><div><p class="eyebrow">Decision intelligence</p><h2>Quality &amp; Coverage</h2><p>Is the portfolio complete, trustworthy and covering what it should?</p></div></div>
         <div class="subnav" data-subnav="analytics">
           <button class="subnav-item active" data-sub="planning-health">Planning Health</button>
-          <button class="subnav-item" data-sub="strategic">Strategic coverage</button>
+          <button class="subnav-item" data-sub="strategic">Coverage &amp; channel mix</button>
           <button class="subnav-item" data-sub="campaign-quality">Campaign Quality</button>
           <button class="subnav-item" data-sub="data-quality">Data Health</button>
         </div>
 
         <div class="subpage active" id="sub-planning-health">
           <div class="kpi-grid" id="health-kpis"></div>
-          <div class="grid two"><article class="card"><div class="card-head"><div><h3>Lead-time distribution</h3><p>P25, median and P75; invalid values excluded</p></div></div><div class="card-body" id="lead-distribution"></div></article><article class="card"><div class="card-head"><div><h3>Missing planning fields</h3><p>Records requiring remediation</p></div></div><div class="card-body" id="missing-fields"></div></article></div>
+          <div class="grid two"><article class="card"><div class="card-head"><div><h3>Lead-time distribution</h3><p>P25, median and P75; invalid values excluded</p></div></div><div class="card-body" id="lead-distribution"></div></article><article class="card"><div class="card-head"><div><h3>Field coverage</h3><p>Blank count per form field across the selected portfolio — optional fields marked</p></div></div><div class="card-body" id="missing-fields"></div></article></div>
           <article class="card"><div class="card-head"><div><h3>Planning health by team</h3><p>Completeness and short-notice rate</p></div></div><div class="card-body flush" id="team-health"></div></article>
         </div>
 
         <div class="subpage" id="sub-strategic">
           <div class="kpi-grid" id="strategic-kpis"></div>
           <div class="grid two"><article class="card"><div class="card-head"><div><h3>Pillar coverage</h3></div></div><div class="card-body" id="objective-coverage"></div></article><article class="card"><div class="card-head"><div><h3>Division coverage</h3></div></div><div class="card-body" id="division-coverage"></div></article></div>
+          <article class="card"><div class="card-head"><div><h3>Channel mix</h3><p>Which channel carries which audience and which pillar — counts, not effectiveness</p></div><div class="segmented" id="mix-dimension"><button class="active" data-dim="target_audience">By audience</button><button data-dim="strategic_objectives">By pillar</button></div></div><div class="card-body flush" id="channel-mix"></div></article>
           <article class="card"><div class="card-head"><div><h3>Unaligned activities</h3><p>No communications pillar assigned</p></div></div><div class="card-body flush" id="unaligned-list"></div></article>
         </div>
 
