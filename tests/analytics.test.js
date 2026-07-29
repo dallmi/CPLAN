@@ -274,6 +274,27 @@ test('missing campaign/pack ignores the derived tracking_pack_id', () => {
   assert.equal(analytics.dataQuality([unpacked, packed, viaCampaign]).missingPackIds, 1);
 });
 
+test('intake cohort selects by source_created_at and falls back to created_at', () => {
+  // The window is half-open: [from, to). Two adjacent 30-day windows must not
+  // both claim the same activity, or every comparison double-counts its edge.
+  const at = (source, local) => ({...base, source_created_at: source, created_at: local});
+  const rows = [
+    at('2026-07-20T00:00:00Z', null),
+    at('2026-06-20T00:00:00Z', null),
+    at(null, '2026-07-22T00:00:00Z'),
+    at('', ''),
+    at('2026-06-30T00:00:00Z', null)
+  ];
+  const from = new Date('2026-06-30T00:00:00Z');
+  const to = new Date('2026-07-30T00:00:00Z');
+  const current = analytics.createdBetween(rows, from, to);
+  assert.equal(current.length, 3);
+
+  const prior = analytics.createdBetween(rows, new Date('2026-05-31T00:00:00Z'), from);
+  assert.equal(prior.length, 1);
+  assert.equal(prior[0].source_created_at, '2026-06-20T00:00:00Z');
+});
+
 test('local changes overlay records without mutating the snapshot', () => {
   const rows = [base];
   const changes = [{tracking_id: base.tracking_id, patch: {priority: 'Low'}}];

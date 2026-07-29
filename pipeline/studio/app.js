@@ -624,6 +624,22 @@
     };
 
     const liveCount = (field, set) => new Set(set.flatMap(row=>split(row[field]))).size;
+
+    // Intake cohorts. The stock figures below cannot move without a nightly
+    // snapshot; the flow can, because source_created_at says when each activity
+    // entered the plan. "Are the records we take in getting better" is both
+    // answerable and the more useful question -- a backlog shrinks only once
+    // intake stops adding to it.
+    const previous60 = new Date(now); previous60.setDate(now.getDate()-60);
+    const intakeNow = A.createdBetween(rows, previous30, now);
+    const intakeBefore = A.createdBetween(rows, previous60, previous30);
+    const pct = (part, whole) => whole ? Math.round(part/whole*100) : null;
+    const completeShare = set => pct(set.filter(row=>A.planningCompleteness(row).score===100).length, set.length);
+    // Stated so that up is always good. A reader shown "−14 worse" next to
+    // "−10 better" has to work out the polarity of each metric before the
+    // numbers mean anything; phrasing every measure positively removes that
+    // step. Packless share becomes packed share, not the other way round.
+    const packedShare = set => pct(set.filter(row=>nonempty(row.campaign)||nonempty(row.communication_pack_cpid)||nonempty(row.communication_pack)).length, set.length);
     const leadNow = A.leadTimeStats(upcoming,7), leadBefore = A.leadTimeStats(before,7);
     const inNext30 = row => {const d=A.parseDate(row&&row.start_date);return d&&d>=now&&d<future30;};
     const inPrev30 = row => {const d=A.parseDate(row&&row.start_date);return d&&d>=previous30&&d<now;};
@@ -634,13 +650,13 @@
       kpiGroup('Volume','volume',[
         kpiRow(fmtNum(rows.length),'Activities'),
         kpiRow(fmtNum(upcoming.length),'Next 30 days',false,share(upcoming.length),trend(upcoming.length,before.length,'neutral')),
-        kpiRow(fmtNum(internal),'Internal',true,share(internal)),
-        kpiRow(fmtNum(external),'External',true,share(external))
+        kpiRow(fmtNum(intakeNow.length),'Created in last 30d',false,'',trend(intakeNow.length,intakeBefore.length,'neutral')),
+        kpiRow(fmtNum(internal),'Internal',true,share(internal))
       ],'planning:board','next 30d vs previous 30d'),
       kpiGroup('Timing','timing',[
         kpiRow(fmtNum(upcoming.filter(isHigh).length),'Critical and high',false,'',trend(upcoming.filter(isHigh).length,before.filter(isHigh).length,'down-good','critical items')),
         kpiRow(fmtNum(upcoming.filter(A.isShortNotice).length),'On short notice',false,'',trend(upcoming.filter(A.isShortNotice).length,before.filter(A.isShortNotice).length,'down-good','short notice')),
-        kpiRow(leadNow.median===null?'—':`${fmtNum(leadNow.median)}d`,'Median lead time',true,'target 7d+',trend(leadNow.median,leadBefore.median,'up-good','lead time')),
+        kpiRow(leadNow.median===null?'—':`${fmtNum(leadNow.median)}d`,'Median lead time',true,'threshold 7d',trend(leadNow.median,leadBefore.median,'up-good','lead time')),
         kpiRow(fmtNum(collisionsNow),'Competing for a slot',true,'',trend(collisionsNow,collisionsBefore,'down-good','slot conflicts'))
       ],'planning:conflicts','next 30d vs previous 30d'),
       kpiGroup('Coverage','coverage',[
@@ -650,11 +666,11 @@
         kpiRow(coverage('region'),'Regions',true,'',trend(liveCount('region',upcoming),liveCount('region',before),'up-good','region coverage'))
       ],'analytics:strategic','next 30d vs previous 30d'),
       kpiGroup('Quality','quality',[
-        kpiRow(`${quality.completenessRate}%`,'Records complete'),
-        kpiRow(fmtNum(incompleteRows.length),'Need remediation',false,share(incompleteRows.length)),
-        kpiRow(topMissing?fmtNum(topMissing[1]):'0',topMissing?`Missing ${String(FIELD_LABELS[topMissing[0]]||topMissing[0]).toLowerCase()}`:'No gaps',true,topMissing?share(topMissing[1]):''),
-        kpiRow(fmtNum(quality.missingPackIds),'Without pack',true,share(quality.missingPackIds))
-      ],'analytics:data-quality','snapshot, no history')
+        kpiRow(`${quality.completenessRate}%`,'Records complete',false,'backlog'),
+        kpiRow(fmtNum(incompleteRows.length),'Need remediation',false,'backlog'),
+        kpiRow(completeShare(intakeNow)===null?'—':`${completeShare(intakeNow)}%`,`Complete on intake (${fmtNum(intakeNow.length)} new)`,true,'',trend(completeShare(intakeNow),completeShare(intakeBefore),'up-good','intake quality')),
+        kpiRow(packedShare(intakeNow)===null?'—':`${packedShare(intakeNow)}%`,'New with a pack',true,'',trend(packedShare(intakeNow),packedShare(intakeBefore),'up-good','pack discipline'))
+      ],'analytics:data-quality','backlog is a stock, intake is a flow')
     ].join('');
     document.getElementById('overview-kpis').innerHTML = groupsHtml;
 
@@ -665,7 +681,7 @@
     const compared = improvedList.length + worsenedList.length;
     const names = list => list.filter(Boolean).join(', ');
     document.getElementById('overview-verdict').innerHTML = compared
-      ? `<p class="verdict">Against the previous 30 days: <strong>${fmtNum(improvedList.length)} of ${fmtNum(compared)} timing and coverage measures improved</strong>${improvedList.length?` (${esc(names(improvedList))})`:''}${worsenedList.length?`, ${fmtNum(worsenedList.length)} worsened (${esc(names(worsenedList))})`:''}. Completeness and pack coverage carry no comparison — no history is kept.</p>`
+      ? `<p class="verdict"><strong>${improvedList.length>worsenedList.length?'Improving':improvedList.length<worsenedList.length?'Declining':'Mixed'}.</strong> Against the previous 30 days: ${fmtNum(improvedList.length)} of ${fmtNum(compared)} measures improved${improvedList.length?` (${esc(names(improvedList))})`:''}${worsenedList.length?`, ${fmtNum(worsenedList.length)} worsened (${esc(names(worsenedList))})`:''}. The backlog figures are a standing total and carry no direction — only what flows in can be compared. Comparisons always use 30-day windows, independent of the range filter.</p>`
       : '';
 
     const groups = [];

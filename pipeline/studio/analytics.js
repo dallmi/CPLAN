@@ -237,6 +237,24 @@
     }).sort((a, b) => b.activities - a.activities);
   }
 
+  // Intake cohort: the activities that entered planning inside a window.
+  //
+  // The studio can only show stocks -- "108 records need remediation" -- and a
+  // stock cannot move without a nightly snapshot nobody keeps. The flow can:
+  // source_created_at records when each activity entered the plan, so the
+  // quality of what arrives in one window is directly comparable with the
+  // window before it. That answers the question a comms lead actually has,
+  // which is not "how much debris is lying around" but "is what we take in
+  // getting better".
+  //
+  // Falls back to created_at for rows that never came from the source system.
+  function createdBetween(rows, from, to) {
+    return rows.filter(row => {
+      const date = parseDate(row.source_created_at) || parseDate(row.created_at);
+      return date && date >= from && date < to;
+    });
+  }
+
   function dataQuality(rows) {
     const counts = new Map();
     let missingTrackingIds = 0;
@@ -327,6 +345,7 @@
     detectCollisions,
     campaignScorecards,
     dataQuality,
+    createdBetween,
     applyChanges,
     attentionItems,
     weeklyCoverage,
