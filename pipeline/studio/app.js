@@ -511,6 +511,46 @@
     const quality = A.dataQuality(rows);
     const lead = A.leadTimeStats(rows,7);
 
+    // The comparison window follows the range filter. Two readers independently
+    // called it out: the filter said "All" while every delta silently used a
+    // fixed 30-day window, so the header and the numbers described different
+    // periods. With a range selected the comparison is that range against the
+    // equal-length span immediately before it; with no range there is nothing
+    // to compare "all time" against, so the forward window stays 30 days and
+    // says so.
+    //
+    // Sourced from snapshotRows, not rows: state.rows is already filtered by
+    // start_date, so the preceding period has been removed from it and any
+    // comparison drawn from it would read zero.
+    const previous30 = new Date(now); previous30.setDate(now.getDate()-30);
+    const win = A.comparisonWindow(state.dateFrom, state.dateTo, now, 30);
+    const rangeActive = win.active;
+    const windowCur = win.current, windowPrev = win.previous, spanDays = win.spanDays;
+    // A window that reaches into the future is still being planned, exactly as
+    // the monthly trend's last bars are. Comparing it against a fully-planned
+    // past window reports a collapse that is an artefact of when activities get
+    // created, not a change in behaviour. The comparison still runs — it is the
+    // best available — but it says outright that it understates the present.
+    const windowIsProvisional = win.provisional;
+    const startedIn = win => state.snapshotRows.filter(row=>{
+      const d = A.parseDate(row.start_date);
+      return d && d >= win.from && d < win.to;
+    });
+    const cmpCur = startedIn(windowCur);
+    const cmpPrev = startedIn(windowPrev);
+    // A prior window that holds no activities at all is not a baseline. YTD and
+    // 12M reach back past the start of the data, where every measure reads zero
+    // and every delta therefore reads "improved" — the longer the range, the
+    // more confident the false verdict. No baseline, no comparison.
+    const hasBaseline = cmpPrev.length > 0;
+    const windowLabel = (rangeActive
+      ? `selected range vs previous ${fmtNum(spanDays)}d`
+      : 'next 30d vs previous 30d') + (windowIsProvisional ? ' · still filling' : '') + (hasBaseline ? '' : ' · no prior data');
+    const windowPhrase = rangeActive
+      ? `the ${fmtNum(spanDays)} days before the selected range`
+      : 'the previous 30 days';
+    const windowNoun = rangeActive ? 'In selected range' : 'Next 30 days';
+
     const highPriority = rows.filter(row=>{const p=String(row.priority||'').toLowerCase();return p==='high'||p==='critical';});
     // Coverage as "used of known", never a bare count. A fresh-eyes reader put
     // it plainly: "4 audiences reached tells me nothing — is that 4 of 5 or 4
@@ -519,8 +559,11 @@
     // numerator only those with something in the next 30 days, so an idle
     // category is visible as the gap between the two.
     const coverage = field => {
-      const known = new Set(rows.flatMap(row=>split(row[field])));
-      const live = new Set(upcoming.flatMap(row=>split(row[field])));
+      // Denominator from the whole portfolio, never the filtered set: a range
+      // filter would otherwise shrink "known" alongside "live" and the ratio
+      // would report full coverage of a shrunken world.
+      const known = new Set(state.snapshotRows.flatMap(row=>split(row[field])));
+      const live = new Set(cmpCur.flatMap(row=>split(row[field])));
       return `${fmtNum(live.size)} of ${fmtNum(known.size)}`;
     };
 
@@ -558,8 +601,8 @@
     // opens unprompted. Naming the audience turns a table you have to know
     // about into a finding that announces itself.
     const idle = field => {
-      const known = new Set(rows.flatMap(row=>split(row[field])));
-      const live = new Set(upcoming.flatMap(row=>split(row[field])));
+      const known = new Set(state.snapshotRows.flatMap(row=>split(row[field])));
+      const live = new Set(cmpCur.flatMap(row=>split(row[field])));
       return Array.from(known).filter(value=>!live.has(value));
     };
     const idleAudiences = idle('target_audience');
@@ -590,16 +633,14 @@
     // that state was thirty days ago -- activity_changes tracks edits, not a
     // nightly snapshot of quality. A delta there would be invented, and an
     // invented trend is worse than none: it survives exactly one meeting.
-    const previous30 = new Date(now); previous30.setDate(now.getDate()-30);
-    const inWindow = (from, to) => rows.filter(row=>{const d=A.parseDate(row.start_date);return d&&d>=from&&d<to;});
-    const before = inWindow(previous30, now);
     const isHigh = row => {const p=String(row.priority||'').toLowerCase();return p==='high'||p==='critical';};
     // The word carries the direction, the colour only reinforces it. A reader
     // shown "+3" cannot tell whether more is good, and the house rule is
     // explicit that colour is never the sole carrier of meaning. Polarity is a
     // property of the measure, so it is stated per row rather than inferred.
     const improvedList = [], worsenedList = [];
-    const trend = (current, prior, polarity, name) => {
+    const trend = (current, prior, polarity, name, baseline) => {
+      if (baseline === false) return '';
       if (current === null || prior === null || (!current && !prior)) return '';
       const diff = current - prior;
       // No chip when nothing moved. Four identical "± 0" rows read as noise;
@@ -619,7 +660,8 @@
     // moved, the header says so instead.
     const kpiGroup = (title, cls, rows2, goto, note) => {
       const shown = rows2.join('');
-      const label2 = note && note.includes('vs') && !shown.includes('kpi-trend') ? `${note} · unchanged` : note;
+      const comparable = note && note.includes('vs') && !note.includes('no prior data');
+      const label2 = comparable && !shown.includes('kpi-trend') ? `${note} · unchanged` : note;
       return `<div class="kpi-group ${cls}"><div class="kpi-group-head"><span class="kpi-group-title">${esc(title)}${label2?` <span class="kpi-group-note">${esc(label2)}</span>`:''}</span>${goto?`<button type="button" class="linklike" data-goto="${goto}">Open →</button>`:''}</div>${shown}</div>`;
     };
 
@@ -630,9 +672,14 @@
     // entered the plan. "Are the records we take in getting better" is both
     // answerable and the more useful question -- a backlog shrinks only once
     // intake stops adding to it.
-    const previous60 = new Date(now); previous60.setDate(now.getDate()-60);
-    const intakeNow = A.createdBetween(rows, previous30, now);
-    const intakeBefore = A.createdBetween(rows, previous60, previous30);
+    // Intake follows the same window. Without a range that means the last 30
+    // days (what arrived recently), not the next 30 — a cohort cannot be
+    // created in the future.
+    const intakeWinCur = rangeActive ? windowCur : {from: previous30, to: now};
+    const intakeSpan = Math.max(1, intakeWinCur.to - intakeWinCur.from);
+    const intakeWinPrev = {from: new Date(intakeWinCur.from.getTime()-intakeSpan), to: intakeWinCur.from};
+    const intakeNow = A.createdBetween(state.snapshotRows, intakeWinCur.from, intakeWinCur.to);
+    const intakeBefore = A.createdBetween(state.snapshotRows, intakeWinPrev.from, intakeWinPrev.to);
     const pct = (part, whole) => whole ? Math.round(part/whole*100) : null;
     const completeShare = set => pct(set.filter(row=>A.planningCompleteness(row).score===100).length, set.length);
     // Stated so that up is always good. A reader shown "−14 worse" next to
@@ -640,36 +687,35 @@
     // numbers mean anything; phrasing every measure positively removes that
     // step. Packless share becomes packed share, not the other way round.
     const packedShare = set => pct(set.filter(row=>nonempty(row.campaign)||nonempty(row.communication_pack_cpid)||nonempty(row.communication_pack)).length, set.length);
-    const leadNow = A.leadTimeStats(upcoming,7), leadBefore = A.leadTimeStats(before,7);
-    const inNext30 = row => {const d=A.parseDate(row&&row.start_date);return d&&d>=now&&d<future30;};
-    const inPrev30 = row => {const d=A.parseDate(row&&row.start_date);return d&&d>=previous30&&d<now;};
-    const collisionsNow = collisions.filter(item=>inNext30(item.left)||inNext30(item.right)).length;
-    const collisionsBefore = collisions.filter(item=>inPrev30(item.left)||inPrev30(item.right)).length;
+    const leadNow = A.leadTimeStats(cmpCur,7), leadBefore = A.leadTimeStats(cmpPrev,7);
+    const inWin = (row,win) => {const d=A.parseDate(row&&row.start_date);return d&&d>=win.from&&d<win.to;};
+    const collisionsNow = collisions.filter(item=>inWin(item.left,windowCur)||inWin(item.right,windowCur)).length;
+    const collisionsBefore = collisions.filter(item=>inWin(item.left,windowPrev)||inWin(item.right,windowPrev)).length;
 
     const groupsHtml = [
       kpiGroup('Volume','volume',[
         kpiRow(fmtNum(rows.length),'Activities'),
-        kpiRow(fmtNum(upcoming.length),'Next 30 days',false,share(upcoming.length),trend(upcoming.length,before.length,'neutral')),
-        kpiRow(fmtNum(intakeNow.length),'Created in last 30d',false,'',trend(intakeNow.length,intakeBefore.length,'neutral')),
+        kpiRow(fmtNum(cmpCur.length),windowNoun,false,share(cmpCur.length),trend(cmpCur.length,cmpPrev.length,'neutral',null,hasBaseline)),
+        kpiRow(fmtNum(intakeNow.length),rangeActive?'Created in range':'Created in last 30d',false,'',trend(intakeNow.length,intakeBefore.length,'neutral',null,intakeBefore.length>0)),
         kpiRow(fmtNum(internal),'Internal',true,share(internal))
-      ],'planning:board','next 30d vs previous 30d'),
+      ],'planning:board',windowLabel),
       kpiGroup('Timing','timing',[
-        kpiRow(fmtNum(upcoming.filter(isHigh).length),'Critical and high',false,'',trend(upcoming.filter(isHigh).length,before.filter(isHigh).length,'down-good','critical items')),
-        kpiRow(fmtNum(upcoming.filter(A.isShortNotice).length),'On short notice',false,'',trend(upcoming.filter(A.isShortNotice).length,before.filter(A.isShortNotice).length,'down-good','short notice')),
-        kpiRow(leadNow.median===null?'—':`${fmtNum(leadNow.median)}d`,'Median lead time',true,'threshold 7d',trend(leadNow.median,leadBefore.median,'up-good','lead time')),
-        kpiRow(fmtNum(collisionsNow),'Competing for a slot',true,'',trend(collisionsNow,collisionsBefore,'down-good','slot conflicts'))
-      ],'planning:conflicts','next 30d vs previous 30d'),
+        kpiRow(fmtNum(cmpCur.filter(isHigh).length),'Critical and high',false,'',trend(cmpCur.filter(isHigh).length,cmpPrev.filter(isHigh).length,'down-good','critical items',hasBaseline)),
+        kpiRow(fmtNum(cmpCur.filter(A.isShortNotice).length),'On short notice',false,'',trend(cmpCur.filter(A.isShortNotice).length,cmpPrev.filter(A.isShortNotice).length,'down-good','short notice',hasBaseline)),
+        kpiRow(leadNow.median===null?'—':`${fmtNum(leadNow.median)}d`,'Median lead time',true,'threshold 7d',trend(leadNow.median,leadBefore.median,'up-good','lead time',hasBaseline)),
+        kpiRow(fmtNum(collisionsNow),'Competing for a slot',true,'',trend(collisionsNow,collisionsBefore,'down-good','slot conflicts',hasBaseline))
+      ],'planning:conflicts',windowLabel),
       kpiGroup('Coverage','coverage',[
-        kpiRow(coverage('channel'),'Channels',false,'',trend(liveCount('channel',upcoming),liveCount('channel',before),'up-good','channel coverage')),
-        kpiRow(coverage('target_audience'),'Audiences',false,'',trend(liveCount('target_audience',upcoming),liveCount('target_audience',before),'up-good','audience coverage')),
-        kpiRow(coverage('strategic_objectives'),'Pillars',true,'',trend(liveCount('strategic_objectives',upcoming),liveCount('strategic_objectives',before),'up-good','pillar coverage')),
-        kpiRow(coverage('region'),'Regions',true,'',trend(liveCount('region',upcoming),liveCount('region',before),'up-good','region coverage'))
-      ],'analytics:strategic','next 30d vs previous 30d'),
+        kpiRow(coverage('channel'),'Channels',false,'',trend(liveCount('channel',cmpCur),liveCount('channel',cmpPrev),'up-good','channel coverage',hasBaseline)),
+        kpiRow(coverage('target_audience'),'Audiences',false,'',trend(liveCount('target_audience',cmpCur),liveCount('target_audience',cmpPrev),'up-good','audience coverage',hasBaseline)),
+        kpiRow(coverage('strategic_objectives'),'Pillars',true,'',trend(liveCount('strategic_objectives',cmpCur),liveCount('strategic_objectives',cmpPrev),'up-good','pillar coverage',hasBaseline)),
+        kpiRow(coverage('region'),'Regions',true,'',trend(liveCount('region',cmpCur),liveCount('region',cmpPrev),'up-good','region coverage',hasBaseline))
+      ],'analytics:strategic',windowLabel),
       kpiGroup('Quality','quality',[
         kpiRow(`${quality.completenessRate}%`,'Records complete',false,'backlog'),
         kpiRow(fmtNum(incompleteRows.length),'Need remediation',false,'backlog'),
-        kpiRow(completeShare(intakeNow)===null?'—':`${completeShare(intakeNow)}%`,`Complete on intake (${fmtNum(intakeNow.length)} new)`,true,'',trend(completeShare(intakeNow),completeShare(intakeBefore),'up-good','intake quality')),
-        kpiRow(packedShare(intakeNow)===null?'—':`${packedShare(intakeNow)}%`,'New with a pack',true,'',trend(packedShare(intakeNow),packedShare(intakeBefore),'up-good','pack discipline'))
+        kpiRow(completeShare(intakeNow)===null?'—':`${completeShare(intakeNow)}%`,`Complete on intake (${fmtNum(intakeNow.length)} new)`,true,'',trend(completeShare(intakeNow),completeShare(intakeBefore),'up-good','intake quality',intakeBefore.length>0)),
+        kpiRow(packedShare(intakeNow)===null?'—':`${packedShare(intakeNow)}%`,'New with a pack',true,'',trend(packedShare(intakeNow),packedShare(intakeBefore),'up-good','pack discipline',intakeBefore.length>0))
       ],'analytics:data-quality','backlog is a stock, intake is a flow')
     ].join('');
     document.getElementById('overview-kpis').innerHTML = groupsHtml;
@@ -680,8 +726,14 @@
     // is arithmetic over what is on screen, not a verdict the data cannot back.
     const compared = improvedList.length + worsenedList.length;
     const names = list => list.filter(Boolean).join(', ');
+    // With nothing to compare against, say that rather than leaving the reader
+    // to wonder why the deltas vanished.
+    if (!compared && !hasBaseline) {
+      document.getElementById('overview-verdict').innerHTML =
+        `<p class="verdict"><strong>No comparison available.</strong> The ${fmtNum(spanDays)} days before this range hold no activities, so there is no baseline to measure against.</p>`;
+    } else
     document.getElementById('overview-verdict').innerHTML = compared
-      ? `<p class="verdict"><strong>${improvedList.length>worsenedList.length?'Improving':improvedList.length<worsenedList.length?'Declining':'Mixed'}.</strong> Against the previous 30 days: ${fmtNum(improvedList.length)} of ${fmtNum(compared)} measures improved${improvedList.length?` (${esc(names(improvedList))})`:''}${worsenedList.length?`, ${fmtNum(worsenedList.length)} worsened (${esc(names(worsenedList))})`:''}. The backlog figures are a standing total and carry no direction — only what flows in can be compared. Comparisons always use 30-day windows, independent of the range filter.</p>`
+      ? `<p class="verdict"><strong>${improvedList.length>worsenedList.length?'Improving':improvedList.length<worsenedList.length?'Declining':'Mixed'}.</strong> Against ${esc(windowPhrase)}: ${fmtNum(improvedList.length)} of ${fmtNum(compared)} measures improved${improvedList.length?` (${esc(names(improvedList))})`:''}${worsenedList.length?`, ${fmtNum(worsenedList.length)} worsened (${esc(names(worsenedList))})`:''}. The backlog figures are a standing total and carry no direction — only what flows in can be compared. ${rangeActive?`Comparisons use the selected range against the ${fmtNum(spanDays)} days before it.`:'With no range selected, comparisons use 30-day windows.'}${windowIsProvisional?` The ${rangeActive?'selected range':'comparison window'} reaches beyond today and is still being planned, so its counts understate the final picture — read a fall with care.`:''}</p>`
       : '';
 
     const groups = [];

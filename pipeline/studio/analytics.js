@@ -255,6 +255,32 @@
     });
   }
 
+  // Which period a comparison runs against. Pure arithmetic, kept out of the
+  // renderer so it can be tested: an earlier version computed the window inline
+  // and referenced a binding before its declaration, which `node --check` waves
+  // through because it is a runtime error, not a syntax one.
+  //
+  // With a range selected the baseline is the equal-length span immediately
+  // before it; without one there is nothing to compare "all time" against, so
+  // the window falls back to the next 30 days. `provisional` marks a window
+  // reaching past today, whose counts are still being planned and therefore
+  // understate the period.
+  function comparisonWindow(rangeFrom, rangeTo, now, forwardDays) {
+    const days = Number.isFinite(forwardDays) ? forwardDays : 30;
+    const active = Boolean(rangeFrom && rangeTo);
+    const from = active ? new Date(rangeFrom) : new Date(now);
+    const to = active ? new Date(rangeTo) : new Date(new Date(now).setDate(now.getDate() + days));
+    const spanMs = Math.max(1, to - from);
+    const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    return {
+      active,
+      current: {from, to},
+      previous: {from: new Date(from.getTime() - spanMs), to: from},
+      spanDays: Math.max(1, Math.floor(spanMs / 86400000)),
+      provisional: to > endOfToday
+    };
+  }
+
   function dataQuality(rows) {
     const counts = new Map();
     let missingTrackingIds = 0;
@@ -346,6 +372,7 @@
     campaignScorecards,
     dataQuality,
     createdBetween,
+    comparisonWindow,
     applyChanges,
     attentionItems,
     weeklyCoverage,

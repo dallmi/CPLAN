@@ -295,6 +295,39 @@ test('intake cohort selects by source_created_at and falls back to created_at', 
   assert.equal(prior[0].source_created_at, '2026-06-20T00:00:00Z');
 });
 
+test('comparison window follows the range filter and flags an unfinished period', () => {
+  // Local time throughout: the range presets build their bounds with the local
+  // Date constructor, so a UTC literal here would compare across zones and the
+  // "ends today" case would read as reaching into the future.
+  const now = new Date(2026, 6, 29, 10, 0, 0);
+
+  // No range: falls back to the next 30 days, which necessarily reaches past
+  // today and is therefore provisional.
+  const open = analytics.comparisonWindow(null, null, now);
+  assert.equal(open.active, false);
+  assert.equal(open.spanDays, 30);
+  assert.equal(open.provisional, true);
+  assert.equal(open.previous.to.getTime(), open.current.from.getTime());
+  assert.equal(open.current.from - open.previous.from, open.current.to - open.current.from);
+
+  // A range ending today is complete, not provisional -- the presets end at
+  // 23:59:59.999, which is in the future by the clock but holds nothing left
+  // to plan.
+  const past = analytics.comparisonWindow(
+    new Date(2026, 5, 29, 0, 0, 0), new Date(2026, 6, 29, 23, 59, 59, 999), now
+  );
+  assert.equal(past.active, true);
+  assert.equal(past.provisional, false);
+  assert.equal(past.spanDays, 30);
+
+  // A range running into the future is provisional.
+  const ahead = analytics.comparisonWindow(
+    new Date(2026, 6, 1, 0, 0, 0), new Date(2026, 8, 30, 23, 59, 59), now
+  );
+  assert.equal(ahead.provisional, true);
+  assert.equal(ahead.previous.from.getTime(), ahead.current.from.getTime() - (ahead.current.to - ahead.current.from));
+});
+
 test('local changes overlay records without mutating the snapshot', () => {
   const rows = [base];
   const changes = [{tracking_id: base.tracking_id, patch: {priority: 'Low'}}];
