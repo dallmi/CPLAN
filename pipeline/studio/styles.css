@@ -316,3 +316,5 @@ tr:hover td .copy-btn,td .copy-btn:focus-visible{opacity:1}
 .trend-label.filling{color:var(--grey-4);font-style:italic}
 .trend-legend i.filling{background:var(--white);border:1px dashed var(--grey-3)}
 .trend-note{margin:8px 6px 0;font-size:11px;color:var(--grey-5);line-height:1.5}
+.verdict{margin:0 0 4px;font-size:15px;color:var(--black)}
+.verdict-note{margin:0 0 14px;font-size:11px;color:var(--grey-5);line-height:1.6}

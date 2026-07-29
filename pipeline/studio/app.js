@@ -638,20 +638,37 @@
     // shown "+3" cannot tell whether more is good, and the house rule is
     // explicit that colour is never the sole carrier of meaning. Polarity is a
     // property of the measure, so it is stated per row rather than inferred.
-    const improvedList = [], worsenedList = [];
+    // Only the movements worth looking at get a chip.
+    //
+    // Every measure carried one for a while, and clarity measurably fell: a
+    // reader with sixty seconds said "I have to add up six separate values
+    // myself" and could not name what to look at first. Twelve deltas do not
+    // tell you where to look — they make you do the ranking the screen should
+    // have done. So the deltas are computed for all comparable measures, the
+    // verdict counts all of them, and only the two largest relative movements
+    // are rendered. The rest stay plain numbers.
+    const movements = [];
     const trend = (current, prior, polarity, name, baseline) => {
       if (baseline === false) return '';
       if (current === null || prior === null || (!current && !prior)) return '';
       const diff = current - prior;
-      // No chip when nothing moved. Four identical "± 0" rows read as noise;
-      // the group header says the basis, so a missing chip means unchanged.
       if (!diff) return '';
-      const sign = diff > 0 ? '+' : '−';
-      const size = fmtNum(Math.abs(Math.round(diff*10)/10));
-      if (polarity === 'neutral') return `<span class="kpi-trend flat">${sign}${size} ${diff>0?'more':'fewer'}</span>`;
-      const good = polarity === 'down-good' ? diff < 0 : diff > 0;
-      (good ? improvedList : worsenedList).push(name || '');
-      return `<span class="kpi-trend ${good?'up':'down'}">${sign}${size} ${good?'better':'worse'}</span>`;
+      const good = polarity === 'neutral' ? null : (polarity === 'down-good' ? diff < 0 : diff > 0);
+      const token = `mv${movements.length}`;
+      movements.push({diff, good, name: name || '', weight: Math.abs(diff) / Math.max(Math.abs(prior), 1), token});
+      return `<!--${token}-->`;
+    };
+    const renderMovements = html => {
+      const ranked = movements.filter(m=>m.good!==null).sort((a,b)=>b.weight-a.weight);
+      const shown = new Set(ranked.slice(0,2).map(m=>m.token));
+      return movements.reduce((acc,m)=>{
+        const sign = m.diff > 0 ? '+' : '−';
+        const size = fmtNum(Math.abs(Math.round(m.diff*10)/10));
+        const chip = shown.has(m.token)
+          ? `<span class="kpi-trend ${m.good?'up':'down'}">${sign}${size} ${m.good?'better':'worse'}</span>`
+          : '';
+        return acc.split(`<!--${m.token}-->`).join(chip);
+      }, html);
     };
     const kpiRow = (value, label, derived, ref, delta) =>
       `<div class="kpi-row${derived?' derived':''}"><span class="v">${esc(String(value))}</span>${delta||''}${ref?`<span class="k">${esc(ref)}</span>`:''}<span class="l">${esc(label)}</span></div>`;
@@ -661,7 +678,7 @@
     const kpiGroup = (title, cls, rows2, goto, note) => {
       const shown = rows2.join('');
       const comparable = note && note.includes('vs') && !note.includes('no prior data');
-      const label2 = comparable && !shown.includes('kpi-trend') ? `${note} · unchanged` : note;
+      const label2 = comparable && !/<!--mv\d+-->/.test(shown) ? `${note} · unchanged` : note;
       return `<div class="kpi-group ${cls}"><div class="kpi-group-head"><span class="kpi-group-title">${esc(title)}${label2?` <span class="kpi-group-note">${esc(label2)}</span>`:''}</span>${goto?`<button type="button" class="linklike" data-goto="${goto}">Open →</button>`:''}</div>${shown}</div>`;
     };
 
@@ -718,14 +735,18 @@
         kpiRow(packedShare(intakeNow)===null?'—':`${packedShare(intakeNow)}%`,'New with a pack',true,'',trend(packedShare(intakeNow),packedShare(intakeBefore),'up-good','pack discipline',intakeBefore.length>0))
       ],'analytics:data-quality','backlog is a stock, intake is a flow')
     ].join('');
-    document.getElementById('overview-kpis').innerHTML = groupsHtml;
+    document.getElementById('overview-kpis').innerHTML = renderMovements(groupsHtml);
 
     // One sentence before the detail. Four deltas that point different ways do
     // not answer "better or worse" -- a comms lead reading them said so in as
     // many words. This counts the comparable measures and states the tally; it
     // is arithmetic over what is on screen, not a verdict the data cannot back.
-    const compared = improvedList.length + worsenedList.length;
+    const judged = movements.filter(m=>m.good!==null);
+    const improvedList = judged.filter(m=>m.good).map(m=>m.name);
+    const worsenedList = judged.filter(m=>!m.good).map(m=>m.name);
+    const compared = judged.length;
     const names = list => list.filter(Boolean).join(', ');
+    const biggest = judged.slice().sort((a,b)=>b.weight-a.weight)[0];
     // With nothing to compare against, say that rather than leaving the reader
     // to wonder why the deltas vanished.
     if (!compared && !hasBaseline) {
@@ -733,7 +754,8 @@
         `<p class="verdict"><strong>No comparison available.</strong> The ${fmtNum(spanDays)} days before this range hold no activities, so there is no baseline to measure against.</p>`;
     } else
     document.getElementById('overview-verdict').innerHTML = compared
-      ? `<p class="verdict"><strong>${improvedList.length>worsenedList.length?'Improving':improvedList.length<worsenedList.length?'Declining':'Mixed'}.</strong> Against ${esc(windowPhrase)}: ${fmtNum(improvedList.length)} of ${fmtNum(compared)} measures improved${improvedList.length?` (${esc(names(improvedList))})`:''}${worsenedList.length?`, ${fmtNum(worsenedList.length)} worsened (${esc(names(worsenedList))})`:''}. The backlog figures are a standing total and carry no direction — only what flows in can be compared. ${rangeActive?`Comparisons use the selected range against the ${fmtNum(spanDays)} days before it.`:'With no range selected, comparisons use 30-day windows.'}${windowIsProvisional?` The ${rangeActive?'selected range':'comparison window'} reaches beyond today and is still being planned, so its counts understate the final picture — read a fall with care.`:''}</p>`
+      ? `<p class="verdict"><strong>${improvedList.length>worsenedList.length?'Improving':improvedList.length<worsenedList.length?'Declining':'Mixed'}.</strong>${biggest?` Biggest move: <strong>${esc(biggest.name)} ${biggest.good?'improved':'worsened'}</strong>.`:''} ${fmtNum(improvedList.length)} of ${fmtNum(compared)} measures improved against ${esc(windowPhrase)}.</p>`
+        + `<p class="verdict-note">Improved: ${esc(names(improvedList))||'none'} · worsened: ${esc(names(worsenedList))||'none'}. Backlog figures are a standing total and carry no direction. ${rangeActive?`Comparisons use the selected range against the ${fmtNum(spanDays)} days before it.`:'With no range selected, comparisons use 30-day windows.'}${windowIsProvisional?` The ${rangeActive?'selected range':'comparison window'} reaches beyond today and is still being planned, so a fall may be planning that has not happened yet.`:''}</p>`
       : '';
 
     const groups = [];
