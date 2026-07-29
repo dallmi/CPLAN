@@ -308,3 +308,11 @@ tr:hover td .copy-btn,td .copy-btn:focus-visible{opacity:1}
 .kpi-trend.flat{color:var(--grey-5)}
 .verdict{margin:0 0 14px;font-size:13px;color:var(--grey-6)}
 .verdict strong{font-weight:600}
+
+/* Months that are still being planned. Marked by a dashed outline rather than a
+   paler fill: colour alone must never carry meaning, and a faded bar reads as
+   "fewer" when it means "not yet counted". */
+.trend-col.filling .trend-stack{outline:1px dashed var(--grey-3);outline-offset:2px}
+.trend-label.filling{color:var(--grey-4);font-style:italic}
+.trend-legend i.filling{background:var(--white);border:1px dashed var(--grey-3)}
+.trend-note{margin:8px 6px 0;font-size:11px;color:var(--grey-5);line-height:1.5}

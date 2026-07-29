@@ -127,15 +127,33 @@
     // Stacked: internal (grey) at the base, external (bronze) on top — same
     // source-type colours as the timeline/calendar, so the split reads at a
     // glance without cross-referencing the toggle.
+    // The falling edge is the single most misread thing on this screen. Every
+    // fresh-eyes run asked the same question and none could answer it: is the
+    // drop after this month a real decline, or simply planning that has not
+    // happened yet? It is the latter, and the chart never said so. Activities
+    // are created a median of N days before they start, so the current month
+    // and everything after it are still filling and their bars will grow.
+    //
+    // Marked with a dashed outline, not a lighter colour: the house rule is
+    // that colour never carries meaning on its own, and a reader comparing a
+    // pale bar to a solid one cannot tell "fewer" from "not yet counted".
+    const today = new Date();
+    const currentKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
     const cols = keys.map(key => {
       const bucket = buckets.get(key), total = totalOf(key);
+      const filling = key >= currentKey;
       const stack = ['external', 'internal'].map(type => bucket[type]
         ? `<div class="trend-seg ${type}" style="height:${bucket[type] / total * 100}%" title="${fmtNum(bucket[type])} ${type}"></div>`
         : '').join('');
-      return `<div class="trend-col"><span class="trend-value">${fmtNum(total)}</span><div class="trend-stack" style="height:${total / max * 100}%">${stack}</div></div>`;
+      return `<div class="trend-col${filling ? ' filling' : ''}"><span class="trend-value">${fmtNum(total)}</span><div class="trend-stack" style="height:${total / max * 100}%" title="${filling ? 'Still filling' : 'Complete month'}">${stack}</div></div>`;
     }).join('');
-    const legend = `<div class="trend-legend"><i class="internal"></i>Internal<i class="external"></i>External</div>`;
-    return `<div class="trend">${cols}</div><div class="trend-labels">${keys.map(key => `<span class="trend-label">${label(key)}</span>`).join('')}</div>${legend}`;
+    const legend = `<div class="trend-legend"><i class="internal"></i><span>Internal</span><i class="external"></i><span>External</span><i class="filling"></i><span>Still filling</span></div>`;
+    const stillFilling = keys.filter(key => key >= currentKey);
+    const median = A.leadTimeStats(rows, 7).median;
+    const caption = stillFilling.length
+      ? `<p class="trend-note">${esc(label(stillFilling[0]))} onward is still being planned — activities are created a median of ${median === null ? 'several' : fmtNum(median)} days before they start, so these ${stillFilling.length === 1 ? 'bars' : `${fmtNum(stillFilling.length)} bars`} will grow. Do not read the fall as a decline.</p>`
+      : '';
+    return `<div class="trend">${cols}</div><div class="trend-labels">${keys.map(key => `<span class="trend-label${key >= currentKey ? ' filling' : ''}">${label(key)}</span>`).join('')}</div>${legend}${caption}`;
   }
 
   const AUDIENCE_BANDS = ['< 1000', '1–10k', '10–50k', '50–100k', '> 100k'];
@@ -580,8 +598,8 @@
     // shown "+3" cannot tell whether more is good, and the house rule is
     // explicit that colour is never the sole carrier of meaning. Polarity is a
     // property of the measure, so it is stated per row rather than inferred.
-    let improved = 0, worsened = 0;
-    const trend = (current, prior, polarity) => {
+    const improvedList = [], worsenedList = [];
+    const trend = (current, prior, polarity, name) => {
       if (current === null || prior === null || (!current && !prior)) return '';
       const diff = current - prior;
       // No chip when nothing moved. Four identical "± 0" rows read as noise;
@@ -591,13 +609,19 @@
       const size = fmtNum(Math.abs(Math.round(diff*10)/10));
       if (polarity === 'neutral') return `<span class="kpi-trend flat">${sign}${size} ${diff>0?'more':'fewer'}</span>`;
       const good = polarity === 'down-good' ? diff < 0 : diff > 0;
-      good ? improved++ : worsened++;
+      (good ? improvedList : worsenedList).push(name || '');
       return `<span class="kpi-trend ${good?'up':'down'}">${sign}${size} ${good?'better':'worse'}</span>`;
     };
     const kpiRow = (value, label, derived, ref, delta) =>
       `<div class="kpi-row${derived?' derived':''}"><span class="v">${esc(String(value))}</span>${delta||''}${ref?`<span class="k">${esc(ref)}</span>`:''}<span class="l">${esc(label)}</span></div>`;
-    const kpiGroup = (title, cls, rows2, goto, note) =>
-      `<div class="kpi-group ${cls}"><div class="kpi-group-head"><span class="kpi-group-title">${esc(title)}${note?` <span class="kpi-group-note">${esc(note)}</span>`:''}</span>${goto?`<button type="button" class="linklike" data-goto="${goto}">Open →</button>`:''}</div>${rows2.join('')}</div>`;
+    // A header promising "vs previous 30d" over rows that show no delta reads
+    // as a broken comparison rather than a stable one. If nothing in the group
+    // moved, the header says so instead.
+    const kpiGroup = (title, cls, rows2, goto, note) => {
+      const shown = rows2.join('');
+      const label2 = note && note.includes('vs') && !shown.includes('kpi-trend') ? `${note} · unchanged` : note;
+      return `<div class="kpi-group ${cls}"><div class="kpi-group-head"><span class="kpi-group-title">${esc(title)}${label2?` <span class="kpi-group-note">${esc(label2)}</span>`:''}</span>${goto?`<button type="button" class="linklike" data-goto="${goto}">Open →</button>`:''}</div>${shown}</div>`;
+    };
 
     const liveCount = (field, set) => new Set(set.flatMap(row=>split(row[field]))).size;
     const leadNow = A.leadTimeStats(upcoming,7), leadBefore = A.leadTimeStats(before,7);
@@ -614,16 +638,16 @@
         kpiRow(fmtNum(external),'External',true,share(external))
       ],'planning:board','next 30d vs previous 30d'),
       kpiGroup('Timing','timing',[
-        kpiRow(fmtNum(upcoming.filter(isHigh).length),'Critical and high',false,'',trend(upcoming.filter(isHigh).length,before.filter(isHigh).length,'down-good')),
-        kpiRow(fmtNum(upcoming.filter(A.isShortNotice).length),'On short notice',false,'',trend(upcoming.filter(A.isShortNotice).length,before.filter(A.isShortNotice).length,'down-good')),
-        kpiRow(leadNow.median===null?'—':`${fmtNum(leadNow.median)}d`,'Median lead time',true,'target 7d+',trend(leadNow.median,leadBefore.median,'up-good')),
-        kpiRow(fmtNum(collisionsNow),'Competing for a slot',true,'',trend(collisionsNow,collisionsBefore,'down-good'))
+        kpiRow(fmtNum(upcoming.filter(isHigh).length),'Critical and high',false,'',trend(upcoming.filter(isHigh).length,before.filter(isHigh).length,'down-good','critical items')),
+        kpiRow(fmtNum(upcoming.filter(A.isShortNotice).length),'On short notice',false,'',trend(upcoming.filter(A.isShortNotice).length,before.filter(A.isShortNotice).length,'down-good','short notice')),
+        kpiRow(leadNow.median===null?'—':`${fmtNum(leadNow.median)}d`,'Median lead time',true,'target 7d+',trend(leadNow.median,leadBefore.median,'up-good','lead time')),
+        kpiRow(fmtNum(collisionsNow),'Competing for a slot',true,'',trend(collisionsNow,collisionsBefore,'down-good','slot conflicts'))
       ],'planning:conflicts','next 30d vs previous 30d'),
       kpiGroup('Coverage','coverage',[
-        kpiRow(coverage('channel'),'Channels',false,'',trend(liveCount('channel',upcoming),liveCount('channel',before),'up-good')),
-        kpiRow(coverage('target_audience'),'Audiences',false,'',trend(liveCount('target_audience',upcoming),liveCount('target_audience',before),'up-good')),
-        kpiRow(coverage('strategic_objectives'),'Pillars',true,'',trend(liveCount('strategic_objectives',upcoming),liveCount('strategic_objectives',before),'up-good')),
-        kpiRow(coverage('region'),'Regions',true,'',trend(liveCount('region',upcoming),liveCount('region',before),'up-good'))
+        kpiRow(coverage('channel'),'Channels',false,'',trend(liveCount('channel',upcoming),liveCount('channel',before),'up-good','channel coverage')),
+        kpiRow(coverage('target_audience'),'Audiences',false,'',trend(liveCount('target_audience',upcoming),liveCount('target_audience',before),'up-good','audience coverage')),
+        kpiRow(coverage('strategic_objectives'),'Pillars',true,'',trend(liveCount('strategic_objectives',upcoming),liveCount('strategic_objectives',before),'up-good','pillar coverage')),
+        kpiRow(coverage('region'),'Regions',true,'',trend(liveCount('region',upcoming),liveCount('region',before),'up-good','region coverage'))
       ],'analytics:strategic','next 30d vs previous 30d'),
       kpiGroup('Quality','quality',[
         kpiRow(`${quality.completenessRate}%`,'Records complete'),
@@ -638,9 +662,10 @@
     // not answer "better or worse" -- a comms lead reading them said so in as
     // many words. This counts the comparable measures and states the tally; it
     // is arithmetic over what is on screen, not a verdict the data cannot back.
-    const compared = improved + worsened;
+    const compared = improvedList.length + worsenedList.length;
+    const names = list => list.filter(Boolean).join(', ');
     document.getElementById('overview-verdict').innerHTML = compared
-      ? `<p class="verdict">Against the previous 30 days: <strong>${fmtNum(improved)} of ${fmtNum(compared)} measures improved</strong>${worsened?`, ${fmtNum(worsened)} worsened`:''}. Completeness and pack coverage carry no comparison — no history is kept.</p>`
+      ? `<p class="verdict">Against the previous 30 days: <strong>${fmtNum(improvedList.length)} of ${fmtNum(compared)} timing and coverage measures improved</strong>${improvedList.length?` (${esc(names(improvedList))})`:''}${worsenedList.length?`, ${fmtNum(worsenedList.length)} worsened (${esc(names(worsenedList))})`:''}. Completeness and pack coverage carry no comparison — no history is kept.</p>`
       : '';
 
     const groups = [];
