@@ -436,8 +436,10 @@ class StudioTests(unittest.TestCase):
         # Kit: "No ALL CAPS. No exceptions." — labels are sentence case via markup.
         self.assertNotIn("text-transform:uppercase", css)
         # Eyebrows and required-field markers are grey, not red (red stays a scarce accent).
-        self.assertIn(".eyebrow{font-size:10px!important;font-weight:600!important;letter-spacing:.02em;color:var(--grey-4)!important", css)
-        self.assertIn(".f-label em,.ms-field em,legend em{font-style:normal;color:var(--grey-4)}", css)
+        # Grey level is --grey-5: --grey-4 only reaches 4.42:1 on white and fails WCAG AA
+        # for body text, so secondary text moved one step darker (2026-07-28).
+        self.assertIn(".eyebrow{font-size:10px!important;font-weight:600!important;letter-spacing:.02em;color:var(--grey-5)!important", css)
+        self.assertIn(".f-label em,.ms-field em,legend em{font-style:normal;color:var(--grey-5)}", css)
         # Form fields get a palette focus ring (never the browser's off-palette blue).
         self.assertIn("input:focus,select:focus,textarea:focus,.ms-trigger:focus{outline:2px solid var(--info)", css)
         # KPI bars: category colouring removed; RAG only where data-driven.

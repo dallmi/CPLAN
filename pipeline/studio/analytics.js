@@ -35,7 +35,13 @@
   }
 
   function hasCampaignOrPack(row) {
-    return !empty(row.tracking_pack_id) || !empty(row.communication_pack) || !empty(row.campaign);
+    // Deliberately NOT tracking_pack_id: the API derives it from the first two
+    // segments of tracking_id, so every activity that has a tracking ID at all
+    // produces one. Including it made the OR always true and pinned
+    // "Missing campaign / pack" to zero regardless of the data — the metric
+    // reported perfection while a third of the portfolio had no pack. Judge
+    // membership by the fields that actually record it.
+    return !empty(row.communication_pack_cpid) || !empty(row.communication_pack) || !empty(row.campaign);
   }
 
   function planningCompleteness(row) {

@@ -910,7 +910,34 @@ def create_app(database_url: str | URL | None = None, auth_settings: AuthSetting
         }
 
     dashboard_dir = Path(__file__).resolve().parents[1] / "studio"
-    app.mount("/", StaticFiles(directory=dashboard_dir, html=True), name="dashboard")
+
+    class NoCacheStaticFiles(StaticFiles):
+        """Serve the studio without HTTP caching.
+
+        Stale assets are this deployment's recurring failure mode -- the whole
+        check.ps1 preflight exists because hand-copied files silently lag behind.
+        The browser's own cache reintroduces the same class of bug from the other
+        side: app.js and analytics.js keep running a previous version while the
+        server already serves the new one, and nothing on screen says so.
+
+        The studio is a local, single-user deployment served from disk, so the
+        bandwidth these headers cost is irrelevant next to the confidence that
+        what renders is what shipped.
+        """
+
+        def is_not_modified(self, response_headers, request_headers):  # noqa: D102
+            return False
+
+        async def get_response(self, path, scope):
+            response = await super().get_response(path, scope)
+            response.headers["Cache-Control"] = "no-store, must-revalidate"
+            # MutableHeaders has no pop(); deleting a missing key raises.
+            for header in ("etag", "last-modified"):
+                if header in response.headers:
+                    del response.headers[header]
+            return response
+
+    app.mount("/", NoCacheStaticFiles(directory=dashboard_dir, html=True), name="dashboard")
     return app
 
 

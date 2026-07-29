@@ -57,7 +57,7 @@
       <button class="nav-item active" data-page="overview">Overview</button>
       <button class="nav-item" data-page="planning">Planning</button>
       <button class="nav-item" data-page="activities">Activities <span class="count-badge" id="activities-count">0</span></button>
-      <button class="nav-item" data-page="analytics">Analytics</button>
+      <button class="nav-item" data-page="analytics">Quality &amp; Coverage</button>
     </nav>
 
     <div class="range-banner" id="range-banner" hidden>
@@ -69,32 +69,34 @@
       <section class="page active" id="page-overview">
         <div class="page-heading">
           <div><p class="eyebrow">Portfolio control</p><h2>Overview</h2><p>What needs attention now and what is coming next.</p></div>
-          <div class="as-of" id="overview-as-of">Operational view: local snapshot</div>
+          <div class="page-actions"><div class="as-of" id="overview-as-of">Operational view: local snapshot</div><button class="btn primary" id="overview-new">New activity</button></div>
         </div>
-        <div class="kpi-grid" id="overview-kpis"></div>
-        <div class="grid two-one">
-          <article class="card priority-card">
-            <div class="card-head"><div><h3>Attention required</h3><p id="attention-subtitle">Grouped by issue type</p></div><span class="badge danger" id="attention-count">0</span></div>
-            <div class="card-body flush" id="attention-list"></div>
-          </article>
-          <article class="card">
-            <div class="card-head"><div><h3>Planning readiness</h3><p>Completeness across the selected portfolio</p></div></div>
-            <div class="card-body" id="readiness-summary"></div>
-          </article>
+        <div class="kpi-groups" id="overview-kpis"></div>
+        <div id="overview-collisions"></div>
+        
+        <div class="grid two">
+          <article class="card"><div class="card-head"><div><h3>Next 30 days</h3><p class="card-jump"><button type="button" class="linklike" data-goto="planning:board">Open planning board →</button></p><p>Upcoming activities grouped by week</p></div></div><div class="card-body flush" id="upcoming-list"></div></article>
+          <article class="card"><div class="card-head"><div><h3>Channel load</h3><p class="card-jump"><button type="button" class="linklike" data-goto="planning:capacity">Open capacity & coverage →</button></p><p>Activities starting in the selected horizon</p></div><div class="segmented" id="channel-horizon"><button data-weeks="2">2 wks</button><button class="active" data-weeks="4">4 wks</button><button data-weeks="0">All</button></div></div><div class="card-body" id="channel-load"></div></article>
         </div>
         <div class="grid two">
-          <article class="card"><div class="card-head"><div><h3>Next 30 days</h3><p>Upcoming activities grouped by week</p></div></div><div class="card-body flush" id="upcoming-list"></div></article>
-          <article class="card"><div class="card-head"><div><h3>Channel load</h3><p>Activities starting in the selected horizon</p></div><div class="segmented" id="channel-horizon"><button data-weeks="2">2 wks</button><button class="active" data-weeks="4">4 wks</button><button data-weeks="0">All</button></div></div><div class="card-body" id="channel-load"></div></article>
-        </div>
-        <div class="grid two">
-          <article class="card"><div class="card-head"><div><h3>Business division</h3><p>Division mentions — multi-division activities count once per division</p></div></div><div class="card-body" id="division-donut"></div></article>
+          <article class="card"><div class="card-head"><div><h3>Business division</h3><p class="card-jump"><button type="button" class="linklike" data-goto="analytics:strategic">Open strategic coverage →</button></p><p>Division mentions — multi-division activities count once per division</p></div></div><div class="card-body" id="division-donut"></div></article>
           <article class="card"><div class="card-head"><div><h3>Priority distribution</h3><p>Share of activities in the selected range</p></div></div><div class="card-body" id="priority-donut"></div></article>
         </div>
         <article class="card"><div class="card-head"><div><h3>Monthly activity trend</h3><p>Activity starts per month</p></div><div class="segmented" id="trend-toggle"><button class="active" data-mode="">All</button><button data-mode="internal">Internal</button><button data-mode="external">External</button></div></div><div class="card-body" id="monthly-trend"></div></article>
       </section>
 
       <section class="page" id="page-planning">
-        <div class="page-heading"><div><p class="eyebrow">Forward view</p><h2>Planning</h2><p>Coordinate timing, conflicts, load and portfolio coverage.</p></div></div>
+        <div class="page-heading"><div><p class="eyebrow">Forward view</p><h2>Planning</h2><p>Plan what is coming: create activities, coordinate timing, conflicts, load and coverage.</p></div><div class="page-actions"><button class="btn primary" id="planning-new">New activity</button></div></div>
+        <div class="grid two-one">
+          <article class="card priority-card">
+            <div class="card-head"><div><h3>Attention required</h3><p class="card-jump"><button type="button" class="linklike" data-goto="analytics:planning-health">Open planning health →</button></p><p id="attention-subtitle">Grouped by issue type</p></div><span class="badge danger" id="attention-count">0</span></div>
+            <div class="card-body flush" id="attention-list"></div>
+          </article>
+          <article class="card">
+            <div class="card-head"><div><h3>Planning readiness</h3><p class="card-jump"><button type="button" class="linklike" data-goto="analytics:data-quality">Open data health →</button></p><p>Completeness across the selected portfolio</p></div></div>
+            <div class="card-body" id="readiness-summary"></div>
+          </article>
+        </div>
         <div class="subnav" data-subnav="planning">
           <button class="subnav-item active" data-sub="board">Board</button>
           <button class="subnav-item" data-sub="calendar">Calendar</button>
@@ -129,19 +131,19 @@
             <article class="card"><div class="card-head"><div><h3>Weekly load forecast</h3><p>Activity starts across the next 12 weeks</p></div></div><div class="card-body" id="weekly-load"></div></article>
             <article class="card"><div class="card-head"><div><h3>Forward coverage</h3><p>Coverage by planning horizon</p></div></div><div class="card-body" id="forward-coverage"></div></article>
           </div>
-          <article class="card"><div class="card-head"><div><h3>Coverage by dimension</h3><p>Future activities by division, pillar and lead team</p></div></div><div class="card-body" id="coverage-dimensions"></div></article>
+          <article class="card"><div class="card-head"><div><h3>Coverage by dimension</h3><p>Upcoming activities by team, pillar, audience, channel and region — categories with nothing planned stay listed at zero</p></div></div><div class="card-body" id="coverage-dimensions"></div></article>
         </div>
       </section>
 
       <section class="page" id="page-activities">
         <div class="page-heading"><div><p class="eyebrow">Operational workspace</p><h2>Activities</h2><p>Find, inspect and update activities across the portfolio.</p></div><div class="page-actions"><button class="btn secondary" id="activity-export">Export filtered CSV</button><button class="btn primary" id="activity-new">New activity</button></div></div>
         <div class="filterbar">
-          <input id="activity-search" type="search" placeholder="Search activity, campaign, lead or tracking ID">
-          <select id="activity-source"><option value="">All types</option><option value="internal">Internal</option><option value="external">External</option></select>
-          <select id="activity-channel"><option value="">All channels</option></select>
-          <select id="activity-priority"><option value="">All priorities</option></select>
-          <select id="activity-campaign"><option value="">All campaigns / packs</option></select>
-          <select id="activity-readiness"><option value="">All readiness</option><option value="complete">Complete</option><option value="incomplete">Draft</option></select>
+          <input id="activity-search" type="search" placeholder="Search activity, campaign, lead or tracking ID" aria-label="Search activities">
+          <select id="activity-source" aria-label="Filter by activity type"><option value="">All types</option><option value="internal">Internal</option><option value="external">External</option></select>
+          <select id="activity-channel" aria-label="Filter by channel"><option value="">All channels</option></select>
+          <select id="activity-priority" aria-label="Filter by priority"><option value="">All priorities</option></select>
+          <select id="activity-campaign" aria-label="Filter by campaign or pack"><option value="">All campaigns / packs</option></select>
+          <select id="activity-readiness" aria-label="Filter by readiness"><option value="">All readiness</option><option value="complete">Complete</option><option value="incomplete">Draft</option></select>
           <button class="btn secondary" id="activity-clear">Clear</button>
           <span id="activity-result-count"></span>
         </div>
@@ -157,10 +159,10 @@
       </section>
 
       <section class="page" id="page-analytics">
-        <div class="page-heading"><div><p class="eyebrow">Decision intelligence</p><h2>Analytics</h2><p>Planning health, strategic alignment and campaign orchestration.</p></div></div>
+        <div class="page-heading"><div><p class="eyebrow">Decision intelligence</p><h2>Quality &amp; Coverage</h2><p>Is the portfolio complete, trustworthy and covering what it should?</p></div></div>
         <div class="subnav" data-subnav="analytics">
           <button class="subnav-item active" data-sub="planning-health">Planning Health</button>
-          <button class="subnav-item" data-sub="strategic">Strategic</button>
+          <button class="subnav-item" data-sub="strategic">Strategic coverage</button>
           <button class="subnav-item" data-sub="campaign-quality">Campaign Quality</button>
           <button class="subnav-item" data-sub="data-quality">Data Health</button>
         </div>

@@ -249,6 +249,31 @@ test('data quality reports invalid dates, missing IDs, and duplicate IDs', () =>
   assert.equal(result.invalidDateRanges, 1);
 });
 
+test('missing campaign/pack ignores the derived tracking_pack_id', () => {
+  // The API derives tracking_pack_id from the first two segments of every
+  // tracking_id, so it is populated for practically every activity. Counting it
+  // as pack membership pinned this metric to zero regardless of the data — the
+  // studio reported "Missing campaign / pack: 0" while a third of the portfolio
+  // belonged to no pack at all, and readers concluded the numbers contradicted
+  // each other. Membership is judged by the fields that record it.
+  const unpacked = {
+    ...base,
+    tracking_id: 'IC-2026-0001-DI',
+    tracking_pack_id: 'IC-2026',
+    tracking_pack_ltid: undefined,
+    campaign: '',
+    communication_pack: '',
+    communication_pack_cpid: ''
+  };
+  const packed = {...unpacked, tracking_id: 'IC-2026-0002-DI', communication_pack_cpid: 'CP-01-004'};
+  const viaCampaign = {...unpacked, tracking_id: 'IC-2026-0003-DI', campaign: 'Summer launch'};
+
+  assert.equal(analytics.dataQuality([unpacked]).missingPackIds, 1);
+  assert.equal(analytics.dataQuality([packed]).missingPackIds, 0);
+  assert.equal(analytics.dataQuality([viaCampaign]).missingPackIds, 0);
+  assert.equal(analytics.dataQuality([unpacked, packed, viaCampaign]).missingPackIds, 1);
+});
+
 test('local changes overlay records without mutating the snapshot', () => {
   const rows = [base];
   const changes = [{tracking_id: base.tracking_id, patch: {priority: 'Low'}}];

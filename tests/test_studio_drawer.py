@@ -1,3 +1,4 @@
+import re
 import unittest
 from pathlib import Path
 
@@ -26,20 +27,25 @@ class StudioDrawerTests(unittest.TestCase):
         html = (DASHBOARD / "index.html").read_text(encoding="utf-8")
         app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
 
-        # I1: one primary CTA -- "New activity" -- plus a secondary export.
+        # I1: at most one primary CTA per page, plus a secondary export.
+        # Planning gained its own "New activity" on 2026-07-29: a fresh-eyes test
+        # showed planners look for creation under Planning, not under Activities.
+        # The rule is one primary CTA per page, not one in the whole studio.
         self.assertIn('<button class="btn secondary" id="activity-export">Export filtered CSV</button>', html)
         self.assertIn('<button class="btn primary" id="activity-new">New activity</button>', html)
+        self.assertIn('<button class="btn primary" id="planning-new">New activity</button>', html)
+        self.assertIn('<button class="btn primary" id="overview-new">New activity</button>', html)
+        for block in re.findall(r'<div class="page-actions">(.*?)</div>', html, re.S):
+            self.assertLessEqual(block.count('btn primary'), 1, block)
         # #pack-new is gone from markup, role gating, and event wiring.
         self.assertNotIn('id="pack-new"', html)
         self.assertNotIn('id="pack-new"', app)
         self.assertNotIn(">New pack<", html)
-        # applyRoleGating only gates the one remaining CTA.
-        self.assertIn(
-            "function applyRoleGating() {\n"
-            "    document.getElementById('activity-new').hidden = !canCreate();\n"
-            "  }",
-            app,
-        )
+        # applyRoleGating gates every create CTA behind the same permission.
+        self.assertIn("const allowed = canCreate();", app)
+        self.assertIn("document.getElementById('activity-new').hidden = !allowed;", app)
+        self.assertIn("document.getElementById('planning-new').hidden = !allowed;", app)
+        self.assertIn("document.getElementById('overview-new').hidden = !allowed;", app)
 
     def test_scope_toggle_markup_and_drives_packing_machinery(self):
         html = (DASHBOARD / "index.html").read_text(encoding="utf-8")
@@ -189,7 +195,8 @@ class StudioDrawerTests(unittest.TestCase):
         self.assertNotIn('class="req"', app)
         self.assertNotIn(".req{", css)
         # New style contract: grey, non-italic, wherever it appears.
-        self.assertIn("font-style:normal;color:var(--grey-4)", css)
+        # --grey-5, not --grey-4: --grey-4 fails WCAG AA for body text (2026-07-28).
+        self.assertIn("font-style:normal;color:var(--grey-5)", css)
 
     def test_variant_help_is_forward_framed_and_toggles(self):
         html = (DASHBOARD / "index.html").read_text(encoding="utf-8")

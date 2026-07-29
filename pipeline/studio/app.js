@@ -222,7 +222,10 @@
   }
 
   function applyRoleGating() {
-    document.getElementById('activity-new').hidden = !canCreate();
+    const allowed = canCreate();
+    document.getElementById('activity-new').hidden = !allowed;
+    document.getElementById('planning-new').hidden = !allowed;
+    document.getElementById('overview-new').hidden = !allowed;
   }
 
   function updateUserChip() {
@@ -429,6 +432,22 @@
     return Array.from(counts.entries()).sort((a,b)=>b[1]-a[1]);
   }
 
+  // Like countBy, but the category list comes from `allRows` while the counts
+  // come from `windowRows`. A category that exists in the portfolio but has
+  // nothing in the forward window is exactly a white spot, and it can only be
+  // reported if it survives into the result with a zero.
+  //
+  // Categories that were never used at all cannot appear here: the entry form
+  // builds its dropdowns from the data too, so the studio has no canonical list
+  // of channels, regions or audiences to compare against. Anything never used
+  // is invisible to this view by construction, not by oversight.
+  function countByAgainst(allRows, windowRows, field) {
+    const counts = new Map();
+    allRows.forEach(row => split(row[field]).forEach(value => counts.set(value, 0)));
+    windowRows.forEach(row => split(row[field]).forEach(value => counts.set(value,(counts.get(value)||0)+1)));
+    return Array.from(counts.entries()).sort((a,b)=>b[1]-a[1]||String(a[0]).localeCompare(String(b[0])));
+  }
+
   function barList(entries, bronze) {
     if (!entries.length) return emptyState(EMPTY_ICONS.barChart, 'No data available', 'Nothing to show for the current selection.');
     const max = Math.max(...entries.map(item=>item[1]),1);
@@ -474,14 +493,19 @@
     const quality = A.dataQuality(rows);
     const lead = A.leadTimeStats(rows,7);
 
-    // KPI row: portfolio counts plus one problem signal — the first scan line
-    // must carry the portfolio's biggest issue, not two near-identical twins.
-    document.getElementById('overview-kpis').innerHTML = [
-      kpi('Total activities',fmtNum(rows.length),`${fmtNum(internal)} internal + ${fmtNum(external)} external`,''),
-      kpi('Active now',fmtNum(active.length),'Currently running',''),
-      kpi('Drafts',fmtNum(quality.incomplete),`${quality.completenessRate}% fully complete`,quality.incomplete?'warning':'success'),
-      kpi('Next 30 days',fmtNum(upcoming.length),'Upcoming activities','')
-    ].join('');
+    const highPriority = rows.filter(row=>{const p=String(row.priority||'').toLowerCase();return p==='high'||p==='critical';});
+    // Coverage as "used of known", never a bare count. A fresh-eyes reader put
+    // it plainly: "4 audiences reached tells me nothing — is that 4 of 5 or 4
+    // of 20, and a channel with nothing planned never shows up in such a count
+    // at all." The denominator is every value the portfolio has ever used, the
+    // numerator only those with something in the next 30 days, so an idle
+    // category is visible as the gap between the two.
+    const coverage = field => {
+      const known = new Set(rows.flatMap(row=>split(row[field])));
+      const live = new Set(upcoming.flatMap(row=>split(row[field])));
+      return `${fmtNum(live.size)} of ${fmtNum(known.size)}`;
+    };
+
 
     // Attention queue: aggregated by issue type instead of one row per finding.
     const incompleteRows = rows.filter(row=>A.planningCompleteness(row).score<100);
@@ -498,6 +522,58 @@
     const missingCounts = new Map();
     incompleteRows.forEach(row=>A.planningCompleteness(row).missing.forEach(field=>missingCounts.set(field,(missingCounts.get(field)||0)+1)));
     const topMissing = Array.from(missingCounts.entries()).sort((a,b)=>b[1]-a[1])[0];
+    // Signposts, not worklists. The remediation queues live under Planning and
+    // the field-level view under Analytics, but a fresh-eyes run showed that
+    // removing them from Overview entirely stranded the planner, the editor and
+    // the data steward: all three lost their only route to completeness, lead
+    // time and field coverage. One line each keeps the route without giving the
+    // steering screen back to them. Rendered here, after topMissing exists, so
+    // the third line can name the field instead of counting records.
+    const critical=collisions.filter(item=>item.severity==='critical');
+    const signals=[];
+    if(collisions.length) signals.push(`<p class="notice ${critical.length?'warn':''}">${fmtNum(collisions.length)} activities compete for the same window${critical.length?`, ${fmtNum(critical.length)} critical`:''} \u00b7 <button type="button" class="linklike" data-goto="planning:conflicts">Open conflicts \u2192</button></p>`);
+    if(incompleteRows.length) signals.push(`<p class="notice">${fmtNum(incompleteRows.length)} activities are incomplete and ${fmtNum(shortNoticeRows.length)} are on short notice \u00b7 <button type="button" class="linklike" data-goto="planning:board">Open attention required \u2192</button></p>`);
+    if(topMissing) signals.push(`<p class="notice">${esc(FIELD_LABELS[topMissing[0]]||topMissing[0])} is missing in ${fmtNum(topMissing[1])} of ${fmtNum(rows.length)} activities \u00b7 <button type="button" class="linklike" data-goto="analytics:data-quality">Open data health \u2192</button></p>`);
+    document.getElementById('overview-collisions').innerHTML = signals.join('');
+
+    // Steering index: four themed collection cards instead of four flat tiles.
+    // A comms lead opens this screen a handful of times a year and needs the
+    // whole portfolio in one scan — volume, timing, coverage, quality — not four
+    // headline numbers with the rest hidden behind tabs. Pattern taken from the
+    // SiteOwnerDashboard overview; accents are meaning-aligned rather than
+    // decorative (grey neutral, warning for timing risk, info for coverage,
+    // bronze for data quality) and titles stay sentence case per the kit.
+    const kpiRow = (value, label, derived) =>
+      `<div class="kpi-row${derived?' derived':''}"><span class="v">${esc(String(value))}</span><span class="l">${esc(label)}</span></div>`;
+    const kpiGroup = (title, cls, rows2) =>
+      `<div class="kpi-group ${cls}"><div class="kpi-group-title">${esc(title)}</div>${rows2.join('')}</div>`;
+    document.getElementById('overview-kpis').innerHTML = [
+      kpiGroup('Volume','volume',[
+        kpiRow(fmtNum(rows.length),'Activities'),
+        kpiRow(fmtNum(upcoming.length),'Next 30 days'),
+        kpiRow(fmtNum(internal),'Internal',true),
+        kpiRow(fmtNum(external),'External',true)
+      ]),
+      kpiGroup('Timing','timing',[
+        kpiRow(fmtNum(highPriority.length),'Critical and high'),
+        kpiRow(fmtNum(shortNoticeRows.length),'On short notice'),
+        kpiRow(lead.valid?`${fmtNum(lead.median)}d`:'—','Median lead time',true),
+        kpiRow(fmtNum(active.length),'Running now',true)
+      ]),
+      kpiGroup('Coverage','coverage',[
+        kpiRow(coverage('channel'),'Channels next 30d'),
+        kpiRow(coverage('target_audience'),'Audiences next 30d'),
+        kpiRow(coverage('strategic_objectives'),'Pillars next 30d',true),
+        kpiRow(coverage('region'),'Regions next 30d',true)
+      ]),
+      kpiGroup('Quality','quality',[
+        kpiRow(`${quality.completenessRate}%`,'Records complete'),
+        kpiRow(fmtNum(incompleteRows.length),'Need remediation'),
+        kpiRow(topMissing?fmtNum(topMissing[1]):'0',topMissing?`Missing ${String(FIELD_LABELS[topMissing[0]]||topMissing[0]).toLowerCase()}`:'No gaps',true),
+        kpiRow(fmtNum(quality.missingPackIds),'Without pack',true)
+      ])
+    ].join('');
+
     const groups = [];
     if (incompleteRows.length) groups.push({severity:QUEUE_SEVERITY.incomplete,title:`${fmtNum(incompleteRows.length)} activities with missing fields`,meta:topMissing?`Largest gap: ${esc(FIELD_LABELS[topMissing[0]]||topMissing[0])} (${fmtNum(topMissing[1])})`:'',action:'Review list',queue:'incomplete'});
     if (shortNoticeRows.length) groups.push({severity:QUEUE_SEVERITY['short-notice'],title:`${fmtNum(shortNoticeRows.length)} activities on short notice`,meta:`Under 7 days lead time · median ${lead.median===null?'—':lead.median+'d'}`,action:'Review list',queue:'short-notice'});
@@ -552,7 +628,10 @@
     // channel" leadership is looking for.
     const scopedCounts = new Map(countBy(scoped,'channel'));
     const entries = countBy(state.rows,'channel').map(([label])=>[label,scopedCounts.get(label)||0]).sort((a,b)=>b[1]-a[1]);
-    const allTime = countBy(state.rows,'channel').slice(0,3).map(([label,count])=>`${label} ${fmtNum(count)}`).join(' · ');
+    // Every channel, not the top three: the bars above show all of them, and a
+    // footer naming only three reads as a contradiction rather than a subset —
+    // a fresh-eyes reader concluded the two figures could not both be right.
+    const allTime = countBy(state.rows,'channel').map(([label,count])=>`${label} ${fmtNum(count)}`).join(' · ');
     const footer = weeks>0&&allTime?`<div class="list-meta" style="margin-top:10px">All-time volume: ${esc(allTime)}</div>`:'';
     document.getElementById('channel-load').innerHTML = (entries.length?barList(entries):emptyState(EMPTY_ICONS.barChart,'No channels in the data yet','Create activities to see channel load.'))+footer;
   }
@@ -654,8 +733,26 @@
       previousCount=item.count;
       return `<div class="metric-line"><span>${label}</span><strong>${detail}</strong></div>`;
     }).join('');
-    const ownershipRows=future.map(row=>Object.assign({},row,{lead_team:row.lead_team||row.lead||'Unassigned'}));
-    document.getElementById('coverage-dimensions').innerHTML=`<div class="grid two"><div><h3>Lead teams</h3>${barList(countBy(ownershipRows,'lead_team'))}</div><div><h3>Communications pillars</h3>${barList(countBy(future,'strategic_objectives'))}</div></div>`;
+    const withOwner=rows=>rows.map(row=>Object.assign({},row,{lead_team:row.lead_team||row.lead||'Unassigned'}));
+    // Categories come from the whole loaded portfolio, counts from the horizon.
+    const allRows=state.snapshotRows.length?state.snapshotRows:state.rows;
+    const dimensions=[
+      ['Lead teams','lead_team',withOwner(allRows),withOwner(future)],
+      ['Communications pillars','strategic_objectives',allRows,future],
+      ['Target audiences','target_audience',allRows,future],
+      ['Channels','channel',allRows,future],
+      ['Regions','region',allRows,future],
+    ];
+    const blank=[];
+    const panels=dimensions.map(([label,field,source,window])=>{
+      const entries=countByAgainst(source,window,field);
+      entries.filter(item=>item[1]===0).forEach(item=>blank.push(`${label.replace(/s$/,'')}: ${item[0]}`));
+      return `<div><h3>${esc(label)}</h3>${barList(entries)}</div>`;
+    }).join('');
+    const note=blank.length
+      ? `<p class="notice warn">Nothing planned in this horizon for ${blank.map(esc).join(' · ')}</p>`
+      : '';
+    document.getElementById('coverage-dimensions').innerHTML=`${note}<div class="grid two">${panels}</div>`;
   }
 
   function populateActivityFilters() {
@@ -2273,6 +2370,23 @@
         navigator.clipboard.writeText(copyBtn.dataset.copyId).then(()=>toast('Tracking ID copied')).catch(()=>toast('Copy failed'));
       }
     },true);
+    // Overview cards name the thing the reader is after ("Largest gap:
+    // Description", "Channel load") but the detail behind them lives on a
+    // subpage nobody can see from here. A fresh-eyes test had six of nine
+    // readers guessing at "Analytics" for answers that were already built.
+    // Delegated, not per-element: some jump links are rendered on every data
+    // refresh (the collision notice), so binding once at start-up would leave
+    // them dead.
+    document.addEventListener('click', event=>{
+      const btn=event.target.closest('[data-goto]');
+      if(!btn) return;
+      const [page,sub]=btn.dataset.goto.split(':');
+      const nav=document.querySelector(`.nav-item[data-page="${page}"]`);
+      if(nav) nav.click();
+      const target=document.querySelector(`[data-subnav="${page}"] .subnav-item[data-sub="${sub}"]`);
+      if(target) target.click();
+      window.scrollTo({top:0});
+    });
     document.querySelectorAll('[data-subnav]').forEach(nav=>nav.querySelectorAll('.subnav-item').forEach(btn=>btn.onclick=()=>{nav.querySelectorAll('.subnav-item').forEach(x=>x.classList.remove('active'));const page=nav.parentElement;page.querySelectorAll(':scope > .subpage').forEach(x=>x.classList.remove('active'));btn.classList.add('active');document.getElementById(`sub-${btn.dataset.sub}`).classList.add('active');}));
     document.getElementById('horizon-toggle').onclick=event=>{const btn=event.target.closest('button');if(!btn)return;document.querySelectorAll('#horizon-toggle button').forEach(x=>x.classList.remove('active'));btn.classList.add('active');state.horizonWeeks=Number(btn.dataset.weeks);renderBoard();bindOpenRows();};
     ['conflict-proximity','conflict-type','conflict-severity'].forEach(id=>document.getElementById(id).onchange=()=>{renderConflicts();bindOpenRows();});
@@ -2294,6 +2408,8 @@
     document.getElementById('queue-bar-clear').onclick=()=>{state.queueFilter=null;runActivityFilters();};
     document.getElementById('activity-export').onclick=exportFilteredCsv;
     document.getElementById('activity-new').onclick=event=>openCreateDrawer(event.currentTarget);
+    document.getElementById('planning-new').onclick=event=>openCreateDrawer(event.currentTarget);
+    document.getElementById('overview-new').onclick=event=>openCreateDrawer(event.currentTarget);
     document.getElementById('pack-channels').addEventListener('change',()=>{renderPackRows();state.dirty=true;});
     // I6: stubs live-update as row dates are typed; the ready-line, CTA
     // count and summary refresh via the form-level input listener below

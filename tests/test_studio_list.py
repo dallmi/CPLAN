@@ -179,13 +179,14 @@ class StudioListTests(unittest.TestCase):
     def test_strategic_and_coverage_bar_lists_drop_the_bronze_flag(self):
         app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
 
-        self.assertIn("barList(countBy(future,'strategic_objectives'))", app)
         self.assertIn("barList(divisions);", app)
-        # No remaining bronze-flagged call in either coverage chart.
-        self.assertNotIn(
-            "barList(countBy(future,'strategic_objectives'),true)", app
-        )
+        # No bronze-flagged bar list anywhere: the coverage charts are grey.
+        # Asserted against every call site rather than two pinned ones, so the
+        # rule survives the charts being rewritten (coverage-by-dimension was,
+        # on 2026-07-29, to keep zero categories visible).
         self.assertNotIn("barList(divisions,true)", app)
+        for call in re.findall(r"barList\((.*?)\)(?=[;,<`])", app):
+            self.assertNotIn("true", call, f"bronze flag still passed: barList({call})")
 
     def test_attention_card_border_is_status_driven(self):
         app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
