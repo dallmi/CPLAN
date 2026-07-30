@@ -26,7 +26,11 @@
 .pack-table th{background:var(--white);font-size:10px}
 .pack-table td{padding:6px 8px;max-width:none;white-space:normal;overflow:visible}
 .pack-table input{margin-top:0;padding:6px 7px;font-size:11px}
-.pack-table .ch-name{font-weight:600;white-space:nowrap}
+/* nowrap made the channel column as wide as its longest value, and one
+   unbroken name pushed the table to 1023px inside a 920px drawer. The channel
+   column is the narrowest thing in the row -- it may wrap. */
+.pack-table{width:100%}
+.pack-table .ch-name{font-weight:600;white-space:normal;overflow-wrap:anywhere;max-width:180px}
 .pack-table .stub{font-size:10px;color:var(--grey-5);white-space:nowrap;font-variant-numeric:tabular-nums}
 .fill-down{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;padding:10px 12px;background:var(--row-alt);margin-bottom:10px}
 .fill-down label{font-size:10px;color:var(--grey-5);flex:1 1 150px}
@@ -58,7 +62,28 @@
 .drawer-history{border-top:1px solid var(--surface);padding:16px 22px 22px}.drawer-history-head{margin-bottom:10px}.drawer-history-head h3{margin:0;font-size:13px;font-weight:600}.history-entry{padding:8px 0;border-bottom:1px solid var(--surface)}.history-entry:last-child{border-bottom:0}.history-meta{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:11px;color:var(--grey-5)}.history-actor{font-weight:600;color:var(--grey-6);white-space:nowrap}.history-detail{margin-top:3px;font-size:12px;color:var(--black)}.history-more{margin-top:8px;font-size:11px;color:var(--grey-5)}.history-loading{font-size:11px;color:var(--grey-5)}
 @media(max-width:1000px){.kpi-grid{grid-template-columns:repeat(2,1fr)}.grid.two,.grid.two-one{grid-template-columns:1fr}.topbar{align-items:flex-start}.top-actions{flex-wrap:wrap;justify-content:flex-end}.main-nav{top:96px}}
 @media(max-width:700px){.topbar{position:static;display:block;padding:13px 16px}.time-filter{flex-wrap:wrap;border-right:0;padding-right:0}.top-actions{margin-top:12px;justify-content:flex-start}.freshness{width:100%;border:0}.main-nav{position:static;padding:0 8px;overflow:auto}.content{padding:16px}.kpi-grid{grid-template-columns:1fr 1fr}.page-heading{align-items:flex-start}.filterbar{align-items:stretch}.filterbar>*{width:100%;margin-left:0!important}.calendar-day{min-height:70px}.form-grid{grid-template-columns:1fr}.conflict-pair{grid-template-columns:1fr}.conflict-vs{text-align:center}}
-.channel-matrix{display:grid;grid-template-columns:repeat(2,1fr);gap:2px 10px;margin-bottom:10px}
+/* auto-fill, not a fixed count: the drawer is wider in pack mode, and the real
+   portfolio carries roughly forty channels where a fixed three columns would
+   run fourteen rows deep. */
+.channel-matrix{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px;margin-bottom:10px}
+.channel-matrix .ms-empty{grid-column:1/-1}
+/* The checkbox stays -- it is the control, it keeps the label association, the
+   keyboard behaviour and the screen-reader role. Only its rendering moves to
+   the card, so the whole card is the target instead of a 13px box. */
+.channel-card{position:relative;display:block;padding:11px 12px;border:1px solid var(--grey-1);background:var(--white);border-radius:var(--radius);cursor:pointer;margin:0}
+.channel-card:hover{border-color:var(--grey-3);background:var(--row-alt)}
+.channel-card.on{border-color:var(--grey-4);background:var(--surface)}
+.channel-card input{position:absolute;opacity:0;width:1px;height:1px;margin:0}
+/* Two routes to the same ring: :has() where it is supported, and a class the
+   focus listener sets everywhere else. The focus ring is not something to make
+   conditional on a selector's browser support. */
+.channel-card:has(input:focus-visible),.channel-card.focus{outline:2px solid var(--info);outline-offset:-2px}
+/* A pasted or mis-imported channel name must not stretch the grid column. */
+.cc-name{display:block;font-size:12px;font-weight:600;color:var(--black);line-height:1.25;overflow-wrap:anywhere}
+.cc-seg{display:block;margin-top:2px;font-size:10px;color:var(--grey-5);letter-spacing:.02em}
+/* Status in a word, not only in the fill. */
+.cc-state{display:block;margin-top:7px;font-size:10px;font-weight:700;letter-spacing:.02em;color:var(--grey-5)}
+.channel-card.on .cc-state{color:var(--grey-6)}
 .pack-add-channel{display:flex;gap:8px;align-items:center}
 .pack-add-channel input{flex:1;margin-top:0}
 .pack-add-channel .btn{flex:none}
@@ -87,8 +112,13 @@ td.action-cell{overflow:visible}
 .tracking-id .tid-channel{font-weight:700}
 .tracking-row{display:flex;align-items:center;gap:8px;margin-top:4px;font-size:12px}
 .tracking-row .tracking-label{font-size:10px;font-weight:700;letter-spacing:.02em;color:var(--grey-5)}
-.copy-btn{border:1px solid var(--grey-1);background:var(--white);padding:5px 7px;font-size:10px;font-weight:600;color:var(--grey-5);border-radius:var(--radius)}
-.copy-btn:hover{background:var(--surface);color:var(--black)}
+/* Icon button: 24px target, breathing room from the identifier it belongs to.
+   The old label sat 6px from the ID and read as part of it. */
+.copy-btn{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;margin-left:10px;border:1px solid transparent;background:none;color:var(--grey-5);border-radius:var(--radius);vertical-align:middle}
+.copy-btn:hover{background:var(--surface);border-color:var(--grey-1);color:var(--black)}
+.copy-btn:focus-visible{outline:2px solid var(--info);outline-offset:1px;color:var(--black)}
+/* Confirmed in place: the toast says it too, but the hand is here. */
+.copy-btn.copied{color:var(--success);border-color:var(--success)}
 .tid-help{cursor:help;border:1px solid var(--grey-1);background:var(--white);width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;font-size:10px;color:var(--grey-5);border-radius:var(--radius)}
 .th-help{cursor:help}
 
@@ -103,7 +133,20 @@ td.action-cell{overflow:visible}
 
 /* --- Upcoming list week groups + chips --- */
 .week-heading{padding:9px 16px 3px;font-size:10px;font-weight:700;letter-spacing:.02em;color:var(--grey-5);border-bottom:1px solid var(--surface)}
-.chip{display:inline-block;padding:2px 7px;font-size:10px;font-weight:600;background:var(--surface);color:var(--grey-6);border-radius:var(--radius);margin-left:5px;white-space:nowrap}
+.chip{display:inline-block;max-width:180px;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom;padding:2px 7px;font-size:10px;font-weight:600;background:var(--surface);color:var(--grey-6);border-radius:var(--radius);margin-left:5px;white-space:nowrap}
+/* Overflow containment for list rows. A single unbroken value -- a pasted
+   identifier, a German compound, a mis-imported field -- pushed the document to
+   2698px at a 1280px viewport and put a horizontal scrollbar under the whole
+   studio. Grid and flex children default to min-width:auto, so they refuse to
+   shrink below their content and the row wins against the card that holds it.
+   The table cells already truncate this way; these rows now match. */
+.list-row{min-width:0}
+.list-row>*{min-width:0}
+.list-title,.list-meta{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Signals name values from the data (an idle audience, a blank field), so the
+   same unbroken-token risk applies -- but a notice is prose and reads better
+   wrapped than clipped. */
+.notice{overflow-wrap:anywhere}
 .chip.conflict{background:var(--surface);color:var(--bronze-3)}
 
 /* --- Donut charts --- */
@@ -181,9 +224,15 @@ td.issue-cell{white-space:normal}
 #activity-form.pack-mode #fs-identity{order:3}
 #activity-form.pack-mode #pack-section{display:contents}
 #activity-form.pack-mode #fs-channels{order:4}
-#activity-form.pack-mode .pack-shared-heading{order:5}
-#activity-form.pack-mode fieldset:not(#fs-identity):not(#fs-channels):not(#fs-pack-rows){order:6}
-#activity-form.pack-mode #fs-pack-rows{order:7}
+/* Timing sits with the channels it belongs to. Measured before the move: the
+   picker rendered at 462px and its own date table at 1740px, seven unrelated
+   fieldsets apart -- tick a channel, then scroll past Classification, Content,
+   Audience, Organisation, Schedule, Ownership and Visibility to say when it
+   goes out. Picking a channel and dating it is one thought; the fields shared
+   by the whole pack are a second one, and now come after it. */
+#activity-form.pack-mode #fs-pack-rows{order:5}
+#activity-form.pack-mode .pack-shared-heading{order:6}
+#activity-form.pack-mode fieldset:not(#fs-identity):not(#fs-channels):not(#fs-pack-rows){order:7}
 #activity-form.pack-mode .pack-summary{order:8}
 #activity-form.pack-mode .validation-message{order:9}
 #activity-form.pack-mode .drawer-actions{order:10}
@@ -207,7 +256,9 @@ legend.f-label.missing,legend.f-label.missing em{color:var(--danger)}
 /* --- Delta re-review fixes --- */
 .tid-rule{display:block;margin-top:3px;font-size:10px;color:var(--grey-5)}
 .variant-help{margin-top:0}
-td .copy-btn{opacity:0;margin-left:6px;transition:opacity .12s}
+/* In the table the button only appears on hover or focus, so it does not
+   compete with eight other columns. Elsewhere it is always visible. */
+td .copy-btn{opacity:0;transition:opacity .12s}
 tr:hover td .copy-btn,td .copy-btn:focus-visible{opacity:1}
 #belongs-new-label{margin-top:-4px}
 
@@ -274,38 +325,56 @@ tr:hover td .copy-btn,td .copy-btn:focus-visible{opacity:1}
 /* Overview cards link into the subpage that holds their detail — the subpages
    are invisible from the landing screen otherwise. */
 .card-jump{margin:2px 0 0!important}
-.linklike{border:0;background:none;padding:0;font-size:11px;font-weight:600;color:var(--info-dark)}
+/* 24px of hit box around an 11px label. These jump links were 14px tall, under
+   the minimum target size; the ones that sit on their own line under a card
+   heading cannot claim the "inline in a sentence" exception, and the ones that
+   do sit in a sentence are no worse for being easier to hit. Vertical padding
+   only, so the text does not move. */
+.linklike{display:inline-block;border:0;background:none;padding:5px 0;font-size:11px;font-weight:600;line-height:14px;color:var(--info-dark)}
 .linklike:hover{color:var(--primary-dark)}
 
-/* Overview steering index: themed collection cards instead of four flat tiles.
-   Ported from the SiteOwnerDashboard pattern onto house tokens — sentence-case
-   titles (the kit forbids ALL CAPS), 2px radius, accents meaning-aligned:
-   grey for neutral counts, warning for timing risk, info for coverage, bronze
-   for data quality. */
-.kpi-groups{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:14px;margin-bottom:16px}
-.kpi-group{background:var(--white);border:1px solid var(--surface);border-left:3px solid var(--grey-3);border-radius:0;padding:14px 16px}
-.kpi-group.volume{border-left-color:var(--grey-6)}
-.kpi-group.timing{border-left-color:var(--warning)}
-.kpi-group.coverage{border-left-color:var(--info)}
-.kpi-group.quality{border-left-color:var(--bronze-1)}
-.kpi-group-title{font-size:10px;letter-spacing:.02em;font-weight:700;color:var(--grey-5)}
-.kpi-group.volume .kpi-group-title{color:var(--grey-6)}
-.kpi-group.timing .kpi-group-title{color:var(--bronze-3)}
-.kpi-group.coverage .kpi-group-title{color:var(--info-dark)}
-.kpi-group.quality .kpi-group-title{color:var(--bronze-3)}
-.kpi-row{display:flex;align-items:baseline;gap:7px;padding:5px 0;border-bottom:1px solid var(--surface)}
-.kpi-row:last-child{border-bottom:0}
-.kpi-row .v{font-size:17px;font-weight:300;color:var(--black);line-height:1.15;white-space:nowrap}
-.kpi-row.derived .v{font-size:13px;font-weight:400;color:var(--grey-5)}
-.kpi-row .l{font-size:11px;color:var(--grey-5);text-align:right;margin-left:auto}
-.kpi-group-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:6px}
-.kpi-row .k{font-size:11px;color:var(--grey-5);white-space:nowrap}
+/* Overview measures: six figures in one row, replacing four collection cards of
+   four rows each. Sixteen figures cannot rank themselves; six can be read in
+   one pass. The row keeps the house .kpi tile rather than inventing a variant,
+   so the Overview, Planning and Quality & Coverage all read as one screen. */
+.kpi-grid.six{grid-template-columns:repeat(6,minmax(130px,1fr))}
+/* Column layout rather than three inline children: as inline boxes the label's
+   line box varied with what sat below it, and the six labels landed on two
+   different baselines 9px apart. A column makes the top edge deterministic. */
+.kpi{display:flex;flex-direction:column;align-items:flex-start}
+.kpi-label,.kpi-sub{display:block}
+/* A measure that is also a route. The figure carries its own way to the detail,
+   which is what let the four "Open →" links under the old collection cards go.
+   Left-aligned and reset because .kpi is otherwise a div: a button brings
+   centred text and a system border with it. */
+.kpi.nav{width:100%;text-align:left;font:inherit;position:relative}
+.kpi.nav:hover{background:var(--row-alt);border-left-color:var(--grey-6)}
+.kpi.nav:hover.warning{border-left-color:var(--warning)}
+.kpi.nav:hover.danger{border-left-color:var(--danger)}
+.kpi.nav:focus-visible{outline:2px solid var(--info);outline-offset:-2px}
+/* The chevron is the affordance, not the colour: "Critical and high" is a plain
+   tile because no list filters on both values at once, and a reader has to be
+   able to see which tiles lead somewhere without hovering all six. */
+.kpi.nav:after{content:"→";position:absolute;right:14px;top:12px;font-size:12px;color:var(--grey-5)}
+.kpi.nav:hover:after{color:var(--grey-6)}
 .mix-zero{color:var(--grey-3)}
-.kpi-group-note{font-weight:400;letter-spacing:0;color:var(--grey-5)}
-.kpi-trend{font-size:11px;font-weight:700;white-space:nowrap}
+.kpi-trend{display:inline-block;margin-left:7px;font-size:11px;font-weight:700;white-space:nowrap;vertical-align:middle}
 .kpi-trend.up{color:var(--success)}
 .kpi-trend.down{color:var(--danger)}
 .kpi-trend.flat{color:var(--grey-5)}
+/* What the two-signal cap held back. A cap that stays silent reads as "nothing
+   else to see"; this says how much was set aside and where it went. Quieter
+   than a .notice on purpose — it is a pointer, not a finding. */
+.signal-rest{margin:-6px 0 16px;font-size:11px;color:var(--grey-5)}
+.signal-rest .linklike{font-size:11px}
+.kpi-footnote{margin:10px 0 0;font-size:11px;color:var(--grey-5)}
+/* A capped list has to say it is capped, or the last row reads as the last
+   activity. */
+.list-more{padding:11px 16px;border-top:1px solid var(--surface);font-size:11px;color:var(--grey-5)}
+/* Cards in a two-up row size to their own content. Stretching a 172px chart to
+   match a list beside it produced 893px of empty card — measured, and the single
+   largest source of the "overloaded" impression on this page. */
+#page-overview .grid.two{align-items:start}
 .verdict{margin:0 0 14px;font-size:13px;color:var(--grey-6)}
 .verdict strong{font-weight:600}
 
@@ -318,3 +387,72 @@ tr:hover td .copy-btn,td .copy-btn:focus-visible{opacity:1}
 .trend-note{margin:8px 6px 0;font-size:11px;color:var(--grey-5);line-height:1.5}
 .verdict{margin:0 0 4px;font-size:15px;color:var(--black)}
 .verdict-note{margin:0 0 14px;font-size:11px;color:var(--grey-5);line-height:1.6}
+
+/* --- IA rebuild 2026-07-29: 12 destinations to 4, no subnavs ------------- */
+/* Three layouts of one forward window. The switcher replaced Planning's Board
+   and Calendar subpages, which showed the same horizon in a different shape. */
+.view-switch{display:flex;align-items:center;gap:9px;margin:0 0 14px}
+.view-switch-label{font-size:10px;font-weight:700;letter-spacing:.02em;color:var(--grey-5)}
+.overview-view{display:none}
+.overview-view.active{display:block}
+/* Anchors, not a second navigation bar. The Health page is one scroll; these
+   are a table of contents for it, which is why they are links and not tabs. */
+.anchor-nav{display:flex;gap:18px;padding:0 0 12px;margin-bottom:18px;border-bottom:1px solid var(--grey-1)}
+.anchor-nav a{font-size:12px;font-weight:600;color:var(--info-dark);text-decoration:none}
+.anchor-nav a:hover{color:var(--primary-dark)}
+.anchor-nav a:focus-visible{outline:2px solid var(--info);outline-offset:2px}
+.health-section{scroll-margin-top:120px;margin-bottom:34px}
+.section-heading{font-size:16px;font-weight:600;margin:0 0 12px}
+
+/* --- Channel colour, adopted from the Campaign Studio prototype ---------- */
+/* A small solid square before the channel name so a column of channels can be
+   scanned by shape rather than read line by line. The name is always present:
+   the production portfolio carries far more channels than the palette has
+   entries, so colours repeat and the square is an aid to scanning, never an
+   identifier. Nothing is decodable from colour alone. */
+.channel-tag{display:inline-flex;align-items:center;gap:7px;min-width:0}
+.channel-dot{display:inline-block;width:9px;height:9px;flex:none;border-radius:1px}
+.chip .channel-dot{width:7px;height:7px;margin-right:5px;vertical-align:baseline}
+td .channel-tag{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.muted{color:var(--grey-5)}
+/* The drawer head carries the accent rule the prototype uses: it separates a
+   sticky header from a scrolling body far more clearly than a hairline, and
+   red is already the studio's one accent. */
+.drawer-head{border-bottom:2px solid var(--primary)}
+
+/* --- Pack drawer: one card per channel ---------------------------------- */
+/* The channel's colour runs down the card's left edge, so the spread of a pack
+   is legible before a single row is read. The swatch and the name are repeated
+   inside the head: the edge alone would make colour the sole carrier. */
+.pack-channels-block{padding:18px 22px 32px}
+.pack-channels-heading{font-size:13px;font-weight:600;margin:0 0 2px}
+.pack-channels-note{font-size:11px;color:var(--grey-5);margin:0 0 12px}
+.pack-channel-card{border:1px solid var(--surface);border-left:3px solid var(--grey-1);background:var(--white);padding:12px 14px;margin-bottom:10px;border-radius:var(--radius)}
+.pack-channel-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:7px}
+.pack-channel-name{display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--black);min-width:0;overflow-wrap:anywhere}
+.pack-channel-id{margin-bottom:10px}
+/* Three facts a planner checks per send: when, to whom, by whom. */
+.pack-channel-facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding-top:10px;border-top:1px solid var(--surface)}
+.pack-fact-label{display:block;font-size:10px;font-weight:700;letter-spacing:.02em;color:var(--grey-5);margin-bottom:2px}
+.pack-fact-value{display:block;font-size:12px;color:var(--black);overflow-wrap:anywhere}
+.pack-channel-card .linklike{margin-top:10px}
+@media(max-width:700px){.pack-channel-facts{grid-template-columns:1fr}}
+
+/* --- Packs table: channels get their own column -------------------------- */
+/* Channel names trailing off a meta line read as clutter; in a column they
+   align down the page and the portfolio's channel spread is scannable in one
+   vertical pass. */
+.pack-list-table{width:100%}
+.pack-list-table td{white-space:normal;max-width:none;vertical-align:top;padding:11px}
+.pack-list-table tbody tr{cursor:pointer}
+.pack-name-cell{min-width:190px}
+.pack-name-cell .list-meta{margin-top:2px}
+.pack-window-cell{white-space:nowrap}
+.pack-channel-cell{min-width:230px;line-height:1.9}
+/* A chip, not bare text: the swatch needs something to sit inside so the pairs
+   stay together when the cell wraps. */
+.channel-chip{display:inline-flex;align-items:center;gap:6px;padding:2px 7px;margin:0 4px 3px 0;background:var(--surface);border-radius:var(--radius);font-size:10px;font-weight:600;color:var(--grey-6);white-space:nowrap}
+.channel-chip-count{color:var(--grey-5);font-weight:400}
+.pack-list-table .badge{white-space:nowrap}
+/* Issue chips in a channel card wrap instead of stretching the head row. */
+.pack-channel-issues{display:flex;flex-wrap:wrap;gap:4px;justify-content:flex-end;flex:none;max-width:60%}

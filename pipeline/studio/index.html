@@ -55,9 +55,9 @@
 
     <nav class="main-nav" aria-label="Main navigation">
       <button class="nav-item active" data-page="overview">Overview</button>
-      <button class="nav-item" data-page="planning">Planning</button>
       <button class="nav-item" data-page="activities">Activities <span class="count-badge" id="activities-count">0</span></button>
-      <button class="nav-item" data-page="analytics">Quality &amp; Coverage</button>
+      <button class="nav-item" data-page="packs">Packs <span class="count-badge" id="packs-count">0</span></button>
+      <button class="nav-item" data-page="health">Health</button>
     </nav>
 
     <div class="range-banner" id="range-banner" hidden>
@@ -68,71 +68,52 @@
     <main class="content">
       <section class="page active" id="page-overview">
         <div class="page-heading">
-          <div><p class="eyebrow">Portfolio control</p><h2>Overview</h2><p>What needs attention now and what is coming next.</p></div>
+          <div><p class="eyebrow">Forward view</p><h2>Overview</h2></div>
           <div class="page-actions"><div class="as-of" id="overview-as-of">Operational view: local snapshot</div><button class="btn primary" id="overview-new">New activity</button></div>
         </div>
         <div id="overview-verdict"></div>
-        <div class="kpi-groups" id="overview-kpis"></div>
+        <div class="kpi-grid six" id="overview-kpis"></div>
         <div id="overview-collisions"></div>
-        
-        <div class="grid two">
-          <article class="card"><div class="card-head"><div><h3>Next 30 days</h3><p class="card-jump"><button type="button" class="linklike" data-goto="planning:board">Open planning board →</button></p><p>Upcoming activities grouped by week</p></div></div><div class="card-body flush" id="upcoming-list"></div></article>
-          <article class="card"><div class="card-head"><div><h3>Channel load</h3><p class="card-jump"><button type="button" class="linklike" data-goto="planning:capacity">Open capacity & coverage →</button></p><p>Activities starting in the selected horizon</p></div><div class="segmented" id="channel-horizon"><button data-weeks="2">2 wks</button><button class="active" data-weeks="4">4 wks</button><button data-weeks="0">All</button></div></div><div class="card-body" id="channel-load"></div></article>
-        </div>
-        <div class="grid two">
-          <article class="card"><div class="card-head"><div><h3>Business division</h3><p>Division mentions — multi-division activities count once per division</p></div></div><div class="card-body" id="division-donut"></div></article>
-          <article class="card"><div class="card-head"><div><h3>Priority distribution</h3><p>Share of activities in the selected range</p></div></div><div class="card-body" id="priority-donut"></div></article>
-        </div>
-        <article class="card"><div class="card-head"><div><h3>Monthly activity trend</h3><p>Activity starts per month</p></div><div class="segmented" id="trend-toggle"><button class="active" data-mode="">All</button><button data-mode="internal">Internal</button><button data-mode="external">External</button></div></div><div class="card-body" id="monthly-trend"></div></article>
-      </section>
-
-      <section class="page" id="page-planning">
-        <div class="page-heading"><div><p class="eyebrow">Forward view</p><h2>Planning</h2><p>Plan what is coming: create activities, coordinate timing, conflicts, load and coverage.</p></div><div class="page-actions"><button class="btn primary" id="planning-new">New activity</button></div></div>
-        <div class="grid two-one">
-          <article class="card priority-card">
-            <div class="card-head"><div><h3>Attention required</h3><p class="card-jump"><button type="button" class="linklike" data-goto="analytics:planning-health">Open planning health →</button></p><p id="attention-subtitle">Grouped by issue type</p></div><span class="badge danger" id="attention-count">0</span></div>
-            <div class="card-body flush" id="attention-list"></div>
-          </article>
-          <article class="card">
-            <div class="card-head"><div><h3>Planning readiness</h3><p class="card-jump"><button type="button" class="linklike" data-goto="analytics:data-quality">Open data health →</button></p><p>Completeness across the selected portfolio</p></div></div>
-            <div class="card-body" id="readiness-summary"></div>
-          </article>
-        </div>
-        <div class="subnav" data-subnav="planning">
-          <button class="subnav-item active" data-sub="board">Board</button>
-          <button class="subnav-item" data-sub="calendar">Calendar</button>
-          <button class="subnav-item" data-sub="conflicts">Conflicts</button>
-          <button class="subnav-item" data-sub="capacity">Capacity &amp; Coverage</button>
+        <!-- One question, three ways of looking at the same answer. The board
+             and the calendar used to be two of Planning's four subpages; they
+             show the identical forward window as the list does, only laid out
+             by lane and by date. A view switcher is what they always were. -->
+        <div class="view-switch" role="group" aria-label="Overview layout">
+          <span class="view-switch-label">View</span>
+          <div class="segmented" id="overview-view">
+            <button class="active" type="button" data-view="list">List</button>
+            <button type="button" data-view="timeline">Timeline</button>
+            <button type="button" data-view="calendar">Calendar</button>
+          </div>
         </div>
 
-        <div class="subpage active" id="sub-board">
+        <div class="overview-view active" id="view-list">
+          <div class="grid two">
+            <!-- The attention queue, brought over from Planning. It and the
+                 signal bands above were two renderings of one set of findings
+                 on two different pages; the queue wins because it groups by
+                 issue type, carries an action per group and lists the nearest
+                 deadlines. What stays in the bands is the coverage signal,
+                 which is about what is NOT planned and so appears in no
+                 activity queue. -->
+            <article class="card priority-card">
+              <div class="card-head"><div><h3>Needs you first</h3></div><span class="badge danger" id="attention-count">0</span></div>
+              <div class="card-body flush" id="attention-list"></div>
+            </article>
+            <article class="card"><div class="card-head"><div><h3>Coming up</h3></div></div><div class="card-body flush" id="upcoming-list"></div></article>
+          </div>
+          <article class="card"><div class="card-head"><div><h3>Activity volume</h3></div><div class="segmented" id="trend-toggle"><button class="active" data-mode="">All</button><button data-mode="internal">Internal</button><button data-mode="external">External</button></div></div><div class="card-body" id="monthly-trend"></div></article>
+        </div>
+
+        <div class="overview-view" id="view-timeline">
           <div class="toolbar spread"><div class="segmented" id="board-group-toggle"><button class="active" data-group="channel">By channel</button><button data-group="campaign">By campaign</button><button data-group="division">By division</button></div><div class="segmented" id="horizon-toggle"><button class="active" data-weeks="8">8 weeks</button><button data-weeks="12">12 weeks</button><button data-weeks="26">6 months</button></div></div>
           <div class="kpi-grid" id="planning-kpis"></div>
           <article class="card"><div class="card-head"><div><h3>Activity timeline</h3><p id="board-subtitle">Swimlanes per channel · bars span start to end</p></div><div class="timeline-legend"><span class="legend-swatch internal"></span>Internal<span class="legend-swatch external"></span>External<span class="legend-swatch conflict"></span>Conflict</div></div><div class="card-body" id="planning-board"></div></article>
         </div>
 
-        <div class="subpage" id="sub-calendar">
+        <div class="overview-view" id="view-calendar">
           <div class="toolbar"><div class="timeline-legend"><span class="legend-swatch"></span>Internal<span class="legend-swatch external"></span>External</div><button class="btn secondary" id="cal-prev">←</button><strong id="calendar-title"></strong><button class="btn secondary" id="cal-next">→</button><button class="btn secondary" id="cal-today">Today</button></div>
           <article class="card"><div class="card-body" id="planning-calendar"></div></article>
-        </div>
-
-        <div class="subpage" id="sub-conflicts">
-          <div class="toolbar wrap">
-            <label>Proximity <select id="conflict-proximity"><option value="0">Same day</option><option value="1">Within 1 day</option><option value="3">Within 3 days</option><option value="7">Within 7 days</option></select></label>
-            <label>Type <select id="conflict-type"><option value="conflict">Conflicts only</option><option value="">All including orchestration</option><option value="orchestration">Orchestration only</option></select></label>
-            <label>Severity <select id="conflict-severity"><option value="">All severities</option><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option></select></label>
-          </div>
-          <div class="kpi-grid" id="conflict-kpis"></div>
-          <article class="card"><div class="card-head"><div><h3>Conflict workbench</h3><p>Shared audience and channel within the selected proximity window</p></div></div><div class="card-body flush" id="conflict-list"></div></article>
-        </div>
-
-        <div class="subpage" id="sub-capacity">
-          <div class="notice"><strong>Load, not capacity.</strong> The current model shows activity volume. Capacity status will only be enabled after effort points and maintained channel/team limits exist.</div>
-          <div class="grid two">
-            <article class="card"><div class="card-head"><div><h3>Weekly load forecast</h3><p>Activity starts across the next 12 weeks</p></div></div><div class="card-body" id="weekly-load"></div></article>
-            <article class="card"><div class="card-head"><div><h3>Forward coverage</h3><p>Coverage by planning horizon</p></div></div><div class="card-body" id="forward-coverage"></div></article>
-          </div>
-          <article class="card"><div class="card-head"><div><h3>Coverage by dimension</h3><p>Upcoming activities by team, pillar, audience, channel and region — categories with nothing planned stay listed at zero</p></div></div><div class="card-body" id="coverage-dimensions"></div></article>
         </div>
       </section>
 
@@ -157,42 +138,112 @@
           <button class="btn secondary" type="button" id="queue-bar-clear">Clear</button>
         </div>
         <article class="card"><div class="table-wrap"><table><thead><tr><th>Activity</th><th><span class="th-help" title="CLUSTER-PACKNUM-YYMMDD-ACTNUM-CHANNEL — links planning to downstream outcome data. Date, sequence and channel are minted on save; pack membership sets the prefix.">Tracking ID ⓘ</span></th><th>Channel</th><th>Start</th><th>Priority</th><th>Lead team</th><th>Campaign / pack</th><th>Issue</th><th class="action-cell" aria-label="Row actions"></th></tr></thead><tbody id="activity-table-body"></tbody></table></div></article>
+
+        <!-- Conflicts, folded in from Planning. A clash is a property of two
+             activities, so it belongs where the activities are; it was a whole
+             subpage of its own only because there was nowhere else to put it.
+             The pairwise workbench survives intact -- a table row can say "this
+             one clashes", it cannot show what it clashes WITH, and that pairing
+             is the entire point. Shown only while the conflict queue is the
+             active filter, so it costs nothing on a normal visit. -->
+        <div id="conflict-panel" hidden>
+          <div class="toolbar wrap">
+            <label>Proximity <select id="conflict-proximity"><option value="0">Same day</option><option value="1">Within 1 day</option><option value="3">Within 3 days</option><option value="7">Within 7 days</option></select></label>
+            <label>Type <select id="conflict-type"><option value="conflict">Conflicts only</option><option value="">All including orchestration</option><option value="orchestration">Orchestration only</option></select></label>
+            <label>Severity <select id="conflict-severity"><option value="">All severities</option><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option></select></label>
+          </div>
+          <div class="kpi-grid" id="conflict-kpis"></div>
+          <article class="card"><div class="card-head"><div><h3>Conflict workbench</h3><p>Shared audience and channel within the selected proximity window</p></div></div><div class="card-body flush" id="conflict-list"></div></article>
+        </div>
       </section>
 
-      <section class="page" id="page-analytics">
-        <div class="page-heading"><div><p class="eyebrow">Decision intelligence</p><h2>Quality &amp; Coverage</h2><p>Is the portfolio complete, trustworthy and covering what it should?</p></div></div>
-        <div class="subnav" data-subnav="analytics">
-          <button class="subnav-item active" data-sub="planning-health">Planning Health</button>
-          <button class="subnav-item" data-sub="strategic">Coverage &amp; channel mix</button>
-          <button class="subnav-item" data-sub="campaign-quality">Campaign Quality</button>
-          <button class="subnav-item" data-sub="data-quality">Data Health</button>
+      <section class="page" id="page-packs">
+        <div class="page-heading"><div><p class="eyebrow">Multi-channel work</p><h2>Packs</h2><p>What is going out together, and whether the set holds up.</p></div><div class="page-actions"><button class="btn primary" id="packs-new">New pack</button></div></div>
+        <div class="filterbar">
+          <input id="pack-search" type="search" placeholder="Search pack, campaign or tracking ID" aria-label="Search packs">
+          <select id="pack-campaign-filter" aria-label="Filter by campaign"><option value="">All campaigns</option></select>
+          <button class="btn secondary" id="pack-clear">Clear</button>
+          <span id="pack-result-count"></span>
         </div>
+        <div class="kpi-grid" id="packs-kpis"></div>
+        <article class="card"><div class="card-head"><div><h3>Packs</h3><p>Grouped by communication pack ID — channel breadth, window and readiness</p></div></div><div class="card-body flush" id="packs-list"></div></article>
+        <article class="card"><div class="card-head"><div><h3>Not in a pack</h3><p id="packless-subtitle">Activities carrying no pack or campaign</p></div></div><div class="card-body flush" id="packless-list"></div></article>
+      </section>
 
-        <div class="subpage active" id="sub-planning-health">
+      <section class="page" id="page-health">
+        <div class="page-heading"><div><p class="eyebrow">Decision intelligence</p><h2>Health</h2><p>Is the portfolio complete, trustworthy and covering what it should?</p></div></div>
+        <!-- One scrolling page with anchors, not four subpages. The four tabs
+             split questions a reader asks in one sitting: how far ahead we plan,
+             what we are not covering, and whether the records can be trusted.
+             Pillar coverage and Division coverage were dropped outright -- they
+             said what "Coverage by dimension" below already says, and it also
+             covers team, audience and region and keeps empty categories at zero,
+             which is the whole point of a coverage view. -->
+        <nav class="anchor-nav" aria-label="Health sections">
+          <a href="#sec-planning-health">Planning health</a>
+          <a href="#sec-coverage">Coverage</a>
+          <a href="#sec-data-health">Data health</a>
+        </nav>
+
+        <section class="health-section" id="sec-planning-health">
+          <h3 class="section-heading">Planning health</h3>
           <div class="kpi-grid" id="health-kpis"></div>
+          <article class="card"><div class="card-head"><div><h3>Planning readiness</h3><p>Completeness across the selected portfolio</p></div></div><div class="card-body" id="readiness-summary"></div></article>
           <div class="grid two"><article class="card"><div class="card-head"><div><h3>Lead-time distribution</h3><p>P25, median and P75; invalid values excluded</p></div></div><div class="card-body" id="lead-distribution"></div></article><article class="card"><div class="card-head"><div><h3>Field coverage</h3><p>Blank count per form field across the selected portfolio — optional fields marked</p></div></div><div class="card-body" id="missing-fields"></div></article></div>
           <article class="card"><div class="card-head"><div><h3>Planning health by team</h3><p>Completeness and short-notice rate</p></div></div><div class="card-body flush" id="team-health"></div></article>
-        </div>
+        </section>
 
-        <div class="subpage" id="sub-strategic">
-          <div class="kpi-grid" id="strategic-kpis"></div>
-          <div class="grid two"><article class="card"><div class="card-head"><div><h3>Pillar coverage</h3></div></div><div class="card-body" id="objective-coverage"></div></article><article class="card"><div class="card-head"><div><h3>Division coverage</h3></div></div><div class="card-body" id="division-coverage"></div></article></div>
+        <section class="health-section" id="sec-coverage">
+          <h3 class="section-heading">Coverage</h3>
+          <div class="notice"><strong>Load, not capacity.</strong> The current model shows activity volume. Capacity status will only be enabled after effort points and maintained channel/team limits exist.</div>
+          <div class="grid two">
+            <article class="card"><div class="card-head"><div><h3>Weekly load forecast</h3><p>Activity starts across the next 12 weeks</p></div></div><div class="card-body" id="weekly-load"></div></article>
+            <article class="card"><div class="card-head"><div><h3>Forward coverage</h3><p>Coverage by planning horizon</p></div></div><div class="card-body" id="forward-coverage"></div></article>
+          </div>
+          <article class="card"><div class="card-head"><div><h3>Coverage by dimension</h3><p>Upcoming activities by team, pillar, audience, channel and region — categories with nothing planned stay listed at zero</p></div></div><div class="card-body" id="coverage-dimensions"></div></article>
           <article class="card"><div class="card-head"><div><h3>Channel mix</h3><p>Which channel carries which audience and which pillar — counts, not effectiveness</p></div><div class="segmented" id="mix-dimension"><button class="active" data-dim="target_audience">By audience</button><button data-dim="strategic_objectives">By pillar</button></div></div><div class="card-body flush" id="channel-mix"></div></article>
           <article class="card"><div class="card-head"><div><h3>Unaligned activities</h3><p>No communications pillar assigned</p></div></div><div class="card-body flush" id="unaligned-list"></div></article>
-        </div>
+        </section>
 
-        <div class="subpage" id="sub-campaign-quality">
-          <div class="kpi-grid" id="campaign-kpis"></div>
-          <article class="card"><div class="card-head"><div><h3>Campaign &amp; pack orchestration</h3><p>Channel breadth, sequencing and activity window</p></div></div><div class="card-body flush" id="campaign-scorecard"></div></article>
-        </div>
-
-        <div class="subpage" id="sub-data-quality">
+        <section class="health-section" id="sec-data-health">
+          <h3 class="section-heading">Data health</h3>
           <div class="kpi-grid" id="quality-kpis"></div>
+          <article class="card"><div class="card-head"><div><h3>Intake quality</h3><p>Records created in the selected window, against the window before it — a backlog only shrinks once intake stops adding to it</p></div></div><div class="card-body" id="intake-quality"></div></article>
           <div class="grid two"><article class="card"><div class="card-head"><div><h3>Trust diagnostics</h3></div></div><div class="card-body" id="quality-diagnostics"></div></article><article class="card"><div class="card-head"><div><h3>Refresh &amp; reconciliation</h3></div></div><div class="card-body" id="reconciliation"></div></article></div>
-        </div>
+        </section>
       </section>
     </main>
   </div>
+
+  <!-- Pack drawer. Opening a pack used to jump to the activity list filtered by
+       its ID, which answered "which activities" but lost the pack itself: its
+       window, its channel spread, and the fact that the rows belong together.
+       One card per channel, carrying the colour of that channel down its left
+       edge, so the spread of a pack is legible before a single row is read. -->
+  <aside class="drawer" id="pack-drawer" aria-hidden="true">
+    <div class="drawer-backdrop" data-close-pack></div>
+    <div class="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="pack-drawer-title">
+      <div class="drawer-head-wrap">
+        <div class="drawer-head">
+          <div>
+            <p class="eyebrow" id="pack-drawer-eyebrow">Communication pack</p>
+            <h2 id="pack-drawer-title">Pack</h2>
+            <div class="tracking-row" id="pack-drawer-meta"></div>
+          </div>
+          <button class="icon-btn" id="pack-drawer-close" data-close-pack aria-label="Close">×</button>
+        </div>
+      </div>
+      <div class="detail-view" id="pack-drawer-details"></div>
+      <div class="pack-channels-block">
+        <h4 class="pack-channels-heading">Channels in this pack</h4>
+        <!-- Not "one tracking ID per channel": that holds in the prototype's
+             model, not in ours, where a pack routinely sends twice down the
+             same channel. One card per activity, in send order. -->
+        <p class="pack-channels-note" id="pack-channels-note">One card per activity, in send order</p>
+        <div id="pack-drawer-channels"></div>
+      </div>
+    </div>
+  </aside>
 
   <aside class="drawer" id="activity-drawer" aria-hidden="true">
     <div class="drawer-backdrop" data-close-drawer></div>
@@ -314,10 +365,10 @@
           </fieldset>
           <fieldset id="fs-pack-rows"><legend>Activities in this pack</legend>
             <div class="fill-down" id="pack-fill-down" hidden>
-              <label>Start date (local time)<input type="datetime-local" id="fill-start"></label>
-              <label>End date (local time)<input type="datetime-local" id="fill-end"></label>
-              <button type="button" class="btn secondary" id="fill-apply">Fill down</button>
-              <span class="field-help">Applied to every channel row — each row stays editable</span>
+              <label>Pack start (local time)<input type="datetime-local" id="fill-start"></label>
+              <label>Pack end (local time)<input type="datetime-local" id="fill-end"></label>
+              <button type="button" class="btn secondary" id="fill-apply">Use for all channels</button>
+              <span class="field-help">Every channel starts from these dates — change a row below where it differs</span>
             </div>
             <div id="pack-rows"></div>
           </fieldset>

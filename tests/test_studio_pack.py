@@ -43,11 +43,18 @@ class StudioPackTests(unittest.TestCase):
         self.assertIn('class="pack-row" data-channel=', rows)
         self.assertIn('<td class="ch-name">', rows)
         self.assertIn('data-pack-name value="${esc(name)}" aria-label="Activity name for ${esc(channel)}"', rows)
-        self.assertIn('data-pack-start value="${esc(prev?prev.start:\'\')}" aria-label="Start for ${esc(channel)}"', rows)
-        self.assertIn('data-pack-end value="${esc(prev?prev.end:\'\')}" aria-label="End for ${esc(channel)}"', rows)
+        self.assertIn('data-pack-start value="${esc(start)}" aria-label="Start for ${esc(channel)}"', rows)
+        self.assertIn('data-pack-end value="${esc(end)}" aria-label="End for ${esc(channel)}"', rows)
         self.assertIn('<td class="stub" data-pack-stub>', rows)
         # Re-renders (channel ticks) must never wipe what was already typed.
         self.assertIn("new Map(packRowValues().map(row=>[row.channel,row]))", rows)
+        # An existing row keeps its own dates; only a channel ticked for the
+        # first time inherits the pack dates. Both halves matter -- inheriting
+        # unconditionally would silently overwrite a per-row exception on every
+        # re-render, which is exactly what the previous-values Map exists to
+        # prevent.
+        self.assertIn("const start=prev?prev.start:packDefault('fill-start');", rows)
+        self.assertIn("const end=prev?prev.end:packDefault('fill-end');", rows)
 
     def test_ticking_a_channel_seeds_row_name_from_pack_name(self):
         rows = _slice(self.app, "function renderPackRows()", "\n  function ")
@@ -73,17 +80,26 @@ class StudioPackTests(unittest.TestCase):
         # Markup: the fill-down block lives inside the per-channel fieldset,
         # above the rows container.
         self.assertIn('class="fill-down" id="pack-fill-down"', self.html)
-        for marker in ('id="fill-start"', 'id="fill-end"', 'id="fill-apply"', ">Fill down<"):
+        for marker in ('id="fill-start"', 'id="fill-end"', 'id="fill-apply"', ">Use for all channels<"):
             self.assertIn(marker, self.html)
         self.assertLess(self.html.index('id="pack-fill-down"'), self.html.index('<div id="pack-rows">'))
         # Behaviour: apply start/end to every channel row, rows stay editable.
         self.assertIn("document.getElementById('fill-apply').onclick=", self.app)
-        self.assertIn("if(!start&&!end){toast('Set a start or end date first');return;}", self.app)
+        self.assertIn("if(!start&&!end){toast('Set a pack start or end date first');return;}", self.app)
         self.assertIn("if(start)rowEl.querySelector('[data-pack-start]').value=start;", self.app)
         self.assertIn("if(end)rowEl.querySelector('[data-pack-end]').value=end;", self.app)
-        self.assertIn("Dates applied to every channel — still editable per row", self.app)
-        # No rows, nothing to fill: the block hides until a channel is ticked.
-        self.assertIn("document.getElementById('pack-fill-down').hidden=!selected.length;", self.app)
+        self.assertIn("each row stays editable", self.app)
+        # Reversed on 2026-07-29, deliberately. The block used to hide until a
+        # channel was ticked ("no rows, nothing to fill"). But the dates belong
+        # to the pack, not to the rows, and setting them before picking channels
+        # is the faster order -- every channel then arrives already dated. The
+        # old rule forced the slow order and made the button read as a
+        # correction tool rather than the default. Pinned in the new direction
+        # so it cannot drift back unnoticed.
+        self.assertIn("document.getElementById('pack-fill-down').hidden=false;", self.app)
+        self.assertNotIn("document.getElementById('pack-fill-down').hidden=!selected.length;", self.app)
+        # Pressing it with no channel ticked is a dead end unless it says so.
+        self.assertIn("Tick a channel first", self.app)
         # A fresh create session never inherits the previous session's fill dates.
         create = _slice(self.app, "function openCreateDrawer(opener)", "\n  const PACK_ROW_FIELDS")
         self.assertIn("document.getElementById('fill-start').value='';", create)
@@ -136,16 +152,25 @@ class StudioPackTests(unittest.TestCase):
         self.assertIn('<fieldset id="fs-channels">', self.html)
         self.assertIn('<fieldset id="fs-pack-rows">', self.html)
         self.assertIn("#activity-form.pack-mode #pack-section{display:contents}", self.css)
-        # Order chain: Type/Scope → Identity → Channels → shared heading →
-        # shared fieldsets → per-channel rows → summary.
+        # Order chain: Type/Scope → Identity → Channels → per-channel rows →
+        # shared heading → shared fieldsets → summary.
+        #
+        # Rows moved ahead of the shared block on 2026-07-29. Measured before
+        # the move: the channel picker rendered at 462px and its own date table
+        # at 1740px, seven unrelated fieldsets apart, so ticking a channel and
+        # saying when it goes out could not be done without scrolling past
+        # Classification, Content, Audience, Organisation, Schedule, Ownership
+        # and Visibility. Picking a channel and dating it is one thought. The
+        # pinned order is the point of the rule, so it is restated rather than
+        # loosened.
         rules = [
             "#activity-form.pack-mode .form-variant{order:1}",
             "#activity-form.pack-mode .prefill-note{order:2}",
             "#activity-form.pack-mode #fs-identity{order:3}",
             "#activity-form.pack-mode #fs-channels{order:4}",
-            "#activity-form.pack-mode .pack-shared-heading{order:5}",
-            "#activity-form.pack-mode fieldset:not(#fs-identity):not(#fs-channels):not(#fs-pack-rows){order:6}",
-            "#activity-form.pack-mode #fs-pack-rows{order:7}",
+            "#activity-form.pack-mode #fs-pack-rows{order:5}",
+            "#activity-form.pack-mode .pack-shared-heading{order:6}",
+            "#activity-form.pack-mode fieldset:not(#fs-identity):not(#fs-channels):not(#fs-pack-rows){order:7}",
             "#activity-form.pack-mode .pack-summary{order:8}",
         ]
         for rule in rules:

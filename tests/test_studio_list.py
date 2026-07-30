@@ -156,30 +156,31 @@ class StudioListTests(unittest.TestCase):
         # Role gating is unchanged: Duplicate only renders for canCreate().
         self.assertIn("const duplicateBtn = canCreate() ?", app)
 
-    def test_priority_donut_colors_updated_and_five_way_distinct(self):
+    def test_priority_is_a_count_not_a_ring(self):
+        """The priority donut was retired on 2026-07-29 with the Overview rebuild.
+
+        Its predecessor pinned five distinct hex values so four adjacent
+        priority levels could not blur into one beige on a thin ring. There is
+        no ring: priority reaches the Overview as a single "Critical and high"
+        count, which needs no palette to stay legible, and the full split is one
+        click away in the Activities filter. The old test cannot be weakened
+        into passing -- its subject is gone -- so what is pinned instead is the
+        absence, keeping the ring from returning unnoticed and taking the
+        colour-distinctness problem with it.
+        """
         app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
 
-        self.assertIn(
-            "const PRIORITY_DONUT_COLORS = "
-            "{critical: '#620004', high: '#B98E2C', medium: '#5A5D5C', "
-            "normal: '#B8B3A2', low: '#8E8D83'};",
-            app,
-        )
-        # Old Low value (too close to Normal's Gray family) is fully retired.
-        self.assertNotIn("low: '#CCCABC'", app)
-
-        match = re.search(r"const PRIORITY_DONUT_COLORS = \{(.*?)\};", app)
-        self.assertIsNotNone(match)
-        values = re.findall(r"#[0-9A-Fa-f]{6}", match.group(1))
-        self.assertEqual(len(values), 5)
-        self.assertEqual(
-            len(values), len(set(values)), "priority colours must stay distinct"
-        )
+        self.assertNotIn("PRIORITY_DONUT_COLORS", app)
+        self.assertNotIn("priority-donut", app)
+        self.assertIn("kpi('Critical and high'", app)
 
     def test_strategic_and_coverage_bar_lists_drop_the_bronze_flag(self):
         app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
 
-        self.assertIn("barList(divisions);", app)
+        # The pinned Division-coverage call site went with the Health rebuild --
+        # "Coverage by dimension" says the same thing and adds team, audience and
+        # region. The rule this test exists for is the loop below, which holds
+        # over every remaining call site rather than two named ones.
         # No bronze-flagged bar list anywhere: the coverage charts are grey.
         # Asserted against every call site rather than two pinned ones, so the
         # rule survives the charts being rewritten (coverage-by-dimension was,
@@ -272,8 +273,14 @@ class StudioListTests(unittest.TestCase):
         # instead (the exact regression this test exists to catch), this
         # exact literal stops matching and the test fails.
         self.assertIn(
+            # Hiding the conflict workbench came with the tab merge: the panel
+            # is bound to the conflict queue, so clearing the queue must close
+            # it. Still no ACTIVITY_FILTER_IDS loop and no .value='' -- the two
+            # Clear scopes stay separate, which is what this test guards.
             "document.getElementById('queue-bar-clear').onclick="
-            "()=>{state.queueFilter=null;runActivityFilters();};",
+            "()=>{state.queueFilter=null;"
+            "document.getElementById('conflict-panel').hidden=true;"
+            "runActivityFilters();};",
             app,
         )
 

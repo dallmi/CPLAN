@@ -3,10 +3,16 @@
 
   const A = window.CplanAnalytics;
   const COLORS = {grey:'#404040', bronze:'#B98E2C'};
-  const state = {snapshotRows:[], rows:[], meta:null, syncRun:null, horizonWeeks:8, boardGroup:'channel', channelHorizonWeeks:4, trendMode:'', calendarDate:new Date(), selected:null, editing:false, creating:false, packing:false, customChannels:[], dirty:false, showErrors:false, filteredRows:[], collisionsCache:new Map(), drawerOpener:null, discardModalOpen:false, draftModalOpen:false, deleteModalOpen:false, queueFilter:null, dateFrom:null, dateTo:null};
+
+  const state = {snapshotRows:[], rows:[], meta:null, syncRun:null, horizonWeeks:8, boardGroup:'channel', trendMode:'', calendarDate:new Date(), selected:null, editing:false, creating:false, packing:false, customChannels:[], dirty:false, showErrors:false, filteredRows:[], collisionsCache:new Map(), drawerOpener:null, discardModalOpen:false, draftModalOpen:false, deleteModalOpen:false, queueFilter:null, dateFrom:null, dateTo:null, packDrawerOpener:null};
 
   const esc = A.escapeHtml;
   const fmtNum = value => Number(value || 0).toLocaleString('en-GB');
+  // "1 activities", "the 1 days before" -- a portfolio of one is a real state
+  // (a new deployment, a narrow filter) and it read as a bug in three places at
+  // once. Formats the count and agrees the noun in one call; the plural form
+  // defaults to singular + "s".
+  const plural = (count, one, many) => `${fmtNum(count)} ${Number(count)===1?one:(many||one+'s')}`;
   const fmtDate = value => {
     const date = A.parseDate(value);
     return date ? date.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) : '—';
@@ -36,6 +42,11 @@
   const TRACKING_ID_RE = /^([A-Z0-9]+-[0-9]+)-(\d{6})-(\d+)-([A-Z]+)$/;
   const TRACKING_ID_TITLE = 'CLUSTER-PACKNUM-YYMMDD-ACTNUM-CHANNEL — pack prefix · start date · global sequence · channel code';
 
+  // Two offset sheets -- the one glyph everybody reads as "copy". Drawn at 13px
+  // on a 24px button so the target clears the minimum while the mark stays
+  // quiet next to an 10px identifier.
+  const COPY_ICON = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="1"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>';
+
   function trackingIdHtml(id, options) {
     const opts = options || {};
     if (!nonempty(id)) return '<span class="tracking-id">—</span>';
@@ -43,7 +54,13 @@
     const inner = match
       ? `<span class="tid-prefix">${esc(match[1])}-</span><span class="tid-date">${esc(match[2])}</span>-<span class="tid-seq">${esc(match[3])}</span>-<span class="tid-channel">${esc(match[4])}</span>`
       : esc(String(id));
-    const copy = opts.copy ? `<button type="button" class="copy-btn" data-copy-id="${esc(String(id))}" title="Copy tracking ID">Copy</button>` : '';
+    // Icon, not the word. "Copy" set beside a tracking ID reads as part of the
+    // identifier -- in the pack drawer, where a card shows one ID and nothing
+    // else on that line, the label sat closer to the last character of the ID
+    // than to its own border. The glyph is universally understood for this one
+    // action, and dropping the word buys the spacing the control needed.
+    // aria-label carries the name the visible text no longer does.
+    const copy = opts.copy ? `<button type="button" class="copy-btn" data-copy-id="${esc(String(id))}" aria-label="Copy tracking ID" title="Copy tracking ID">${COPY_ICON}</button>` : '';
     return `<span class="tracking-id" title="${esc(TRACKING_ID_TITLE)}">${inner}</span>${copy}`;
   }
 
@@ -72,39 +89,6 @@
     const date = A.parseDate(value);
     return date ? `${String(date.getFullYear()).slice(2)}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}` : '……';
   };
-
-  // --- SVG donut (thin ring, white dividers, large white centre) ---
-  const DONUT_SEQUENCE = ['#404040', '#B98E2C', '#8E8D83', '#CCCABC', '#5A5D5C', '#946F29', '#B8B3A2', '#6C5312'];
-  // Priority is a neutral portfolio mix, not a status judgement: Bordeaux
-  // anchors Critical, then bronze + spaced warm greys carry the rest so four
-  // adjacent levels stay distinct on the thin ring instead of blurring into one
-  // beige. RAG stays reserved for data-driven exceptions (short notice,
-  // conflicts, incomplete). Unknown vocabularies fall back to distinct colours
-  // by position rather than one flat bronze.
-  const PRIORITY_RANKS = {critical: 4, high: 3, medium: 2, normal: 1, low: 0};
-  const PRIORITY_DONUT_COLORS = {critical: '#620004', high: '#B98E2C', medium: '#5A5D5C', normal: '#B8B3A2', low: '#8E8D83'};
-  const PRIORITY_FALLBACK = ['#404040', '#B98E2C', '#8E8D83', '#CCCABC', '#946F29', '#5A5D5C'];
-  const priorityColor = (label, i) => PRIORITY_DONUT_COLORS[String(label).toLowerCase()] || PRIORITY_FALLBACK[i % PRIORITY_FALLBACK.length];
-
-  function donutHtml(entries, colorOf, centerText, centerSub) {
-    if (!entries.length) return emptyState(EMPTY_ICONS.barChart, 'No data available', 'Nothing to show for the current selection.');
-    const total = entries.reduce((sum, [, count]) => sum + count, 0);
-    const shown = entries.slice(0, 8);
-    const r = 56, cx = 70, cy = 70, circ = 2 * Math.PI * r, gap = shown.length > 1 ? 2.5 : 0;
-    let offset = -circ / 4;
-    const segments = shown.map(([label, count], i) => {
-      const len = count / total * circ;
-      const seg = `<circle r="${r}" cx="${cx}" cy="${cy}" fill="none" stroke="${colorOf(label, i)}" stroke-width="16" stroke-dasharray="${Math.max(len - gap, 0.5)} ${circ - Math.max(len - gap, 0.5)}" stroke-dashoffset="${-offset}"><title>${esc(label)} — ${fmtNum(count)}</title></circle>`;
-      offset += len;
-      return seg;
-    }).join('');
-    const legend = shown.map(([label, count], i) => `<div class="legend-row"><span class="swatch" style="background:${colorOf(label, i)}"></span>${esc(label)} — ${fmtNum(count)} (${Math.round(count / total * 100)}%)</div>`).join('');
-    const rest = entries.length > shown.length ? `<div class="legend-row"><span class="swatch" style="background:var(--grey-1)"></span>+${entries.length - shown.length} more</div>` : '';
-    const center = (centerText === undefined || centerText === null) ? fmtNum(total) : centerText;
-    const subSvg = centerSub ? `<text x="${cx}" y="${cy + 20}" text-anchor="middle" font-size="9" fill="var(--grey-4)">${esc(centerSub)}</text>` : '';
-    const centerSvg = center === '' ? '' : `<text x="${cx}" y="${cy + (centerSub ? 2 : 8)}" text-anchor="middle" class="donut-center" font-size="26" font-weight="300">${center}</text>` + subSvg;
-    return `<div class="donut-wrap"><svg class="donut-svg" width="140" height="140" viewBox="0 0 140 140" role="img">${segments}${centerSvg}</svg><div class="donut-legend">${legend}${rest}</div></div>`;
-  }
 
   function monthlyTrendHtml(rows) {
     const buckets = new Map();
@@ -150,8 +134,13 @@
     const legend = `<div class="trend-legend"><i class="internal"></i><span>Internal</span><i class="external"></i><span>External</span><i class="filling"></i><span>Still filling</span></div>`;
     const stillFilling = keys.filter(key => key >= currentKey);
     const median = A.leadTimeStats(rows, 7).median;
+    // 155 characters of prose reduced to a clause. The dashed outline and the
+    // "Still filling" legend entry already carry the warning visually; the note
+    // only has to supply the one fact they cannot -- how much growth is still
+    // to come. The old wording spent most of its length telling the reader what
+    // not to conclude, which the marking had already told them.
     const caption = stillFilling.length
-      ? `<p class="trend-note">${esc(label(stillFilling[0]))} onward is still being planned — activities are created a median of ${median === null ? 'several' : fmtNum(median)} days before they start, so these ${stillFilling.length === 1 ? 'bars' : `${fmtNum(stillFilling.length)} bars`} will grow. Do not read the fall as a decline.</p>`
+      ? `<p class="trend-note">Dashed bars still fill — activities arrive a median of ${median === null ? 'several' : fmtNum(median)} days before they start.</p>`
       : '';
     return `<div class="trend">${cols}</div><div class="trend-labels">${keys.map(key => `<span class="trend-label${key >= currentKey ? ' filling' : ''}">${label(key)}</span>`).join('')}</div>${legend}${caption}`;
   }
@@ -242,7 +231,7 @@
   function applyRoleGating() {
     const allowed = canCreate();
     document.getElementById('activity-new').hidden = !allowed;
-    document.getElementById('planning-new').hidden = !allowed;
+    document.getElementById('packs-new').hidden = !allowed;
     document.getElementById('overview-new').hidden = !allowed;
   }
 
@@ -440,8 +429,56 @@
     return `<div class="empty"><svg class="empty-icon" viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${svgPath}</svg><strong class="empty-title">${esc(title)}</strong>${subtext?`<p class="empty-subtext">${esc(subtext)}</p>`:''}</div>`;
   }
 
-  function kpi(label, value, sub, tone) {
-    return `<div class="kpi ${tone||''}"><span class="kpi-label">${esc(label)}</span><strong class="kpi-value">${esc(value)}</strong><span class="kpi-sub">${esc(sub||'')}</span></div>`;
+  // `goto` turns the tile into the route to its own detail. The Overview used to
+  // carry four separate jump links under four collection cards; a planner asked
+  // for the number and the way to it in one place, so the figure itself is the
+  // control. Without a goto the tile stays a plain div -- the analytics pages
+  // read as a readout, not a menu, and a button there would promise navigation
+  // that does not exist.
+  function kpi(label, value, sub, tone, goto, delta) {
+    const body = `<span class="kpi-label">${esc(label)}</span><strong class="kpi-value">${esc(value)}${delta||''}</strong><span class="kpi-sub">${esc(sub||'')}</span>`;
+    return goto
+      ? `<button type="button" class="kpi nav ${tone||''}" data-goto="${esc(goto)}">${body}</button>`
+      : `<div class="kpi ${tone||''}">${body}</div>`;
+  }
+
+  // Channel colour. Taken from the Campaign Studio prototype, which pairs a
+  // small solid square with the channel name so a column of channels can be
+  // scanned by shape instead of read line by line.
+  //
+  // Two constraints the prototype did not have to meet. Its palette covers six
+  // channels; the production portfolio carries roughly forty, so colours must
+  // repeat -- which is why the name is always rendered beside the square and
+  // never replaced by it. The square is an aid to scanning, not an identifier,
+  // and nothing on any screen is decodable from colour alone. Second, the
+  // palette is house tokens only: bordeaux, bronze and the greys, the same
+  // values the prototype drew from.
+  //
+  // Assignment is by position in the sorted list of channels the portfolio
+  // actually uses, so a channel keeps its colour across every screen and across
+  // reloads, and adding a channel never reshuffles the others' colours -- it
+  // appends. A hash would have been shorter and would have re-coloured the
+  // whole table the day someone renamed a channel.
+  // Ordered so that consecutive entries are far apart, not so that the palette
+  // reads tidily. Sorted alphabetically the local portfolio put Intranet on
+  // bronze-1 and Town Hall on bronze-2, two neighbouring browns that a 9px
+  // square cannot tell apart. The sequence now alternates family (bordeaux,
+  // bronze, grey) and weight (dark, light) so that channels landing next to
+  // each other in the list also land far apart in colour.
+  const CHANNEL_COLORS = ['#8A000A','#B98E2C','#404040','#8E8D83','#620004','#946F29','#7A7870','#B8B3A2'];
+  let channelOrder = [];
+  function refreshChannelOrder() {
+    channelOrder = Array.from(new Set(state.snapshotRows.flatMap(row=>split(row.channel)))).sort();
+  }
+  function channelColor(channel) {
+    const index = channelOrder.indexOf(String(channel||''));
+    return index < 0 ? 'var(--grey-1)' : CHANNEL_COLORS[index % CHANNEL_COLORS.length];
+  }
+  // aria-hidden: the name sits right next to it, so a screen reader announcing
+  // the swatch would only repeat what follows.
+  function channelTag(channel) {
+    if (!nonempty(channel)) return '<span class="muted">—</span>';
+    return `<span class="channel-tag"><i class="channel-dot" style="background:${channelColor(channel)}" aria-hidden="true"></i>${esc(channel)}</span>`;
   }
 
   function countBy(rows, field) {
@@ -543,30 +580,21 @@
     // and every delta therefore reads "improved" — the longer the range, the
     // more confident the false verdict. No baseline, no comparison.
     const hasBaseline = cmpPrev.length > 0;
-    const windowLabel = (rangeActive
-      ? `selected range vs previous ${fmtNum(spanDays)}d`
-      : 'next 30d vs previous 30d') + (windowIsProvisional ? ' · still filling' : '') + (hasBaseline ? '' : ' · no prior data');
+    // A delta is shown only where it can be trusted. The window used to carry
+    // chips and then a sentence explaining why a fall in them might not be a
+    // fall at all -- printing a comparison and disowning it in the same breath.
+    // A window that reaches past today is still filling, so the measures in it
+    // are incomplete by construction; the honest move is to withhold the
+    // comparison rather than caption it. Six variants of delta presentation
+    // were measured before this and none moved clarity, which is the other half
+    // of the argument: the chips were never carrying their weight.
+    const comparable = hasBaseline && !windowIsProvisional;
     const windowPhrase = rangeActive
-      ? `the ${fmtNum(spanDays)} days before the selected range`
+      ? `the ${plural(spanDays,'day')} before the selected range`
       : 'the previous 30 days';
     const windowNoun = rangeActive ? 'In selected range' : 'Next 30 days';
 
     const highPriority = rows.filter(row=>{const p=String(row.priority||'').toLowerCase();return p==='high'||p==='critical';});
-    // Coverage as "used of known", never a bare count. A fresh-eyes reader put
-    // it plainly: "4 audiences reached tells me nothing — is that 4 of 5 or 4
-    // of 20, and a channel with nothing planned never shows up in such a count
-    // at all." The denominator is every value the portfolio has ever used, the
-    // numerator only those with something in the next 30 days, so an idle
-    // category is visible as the gap between the two.
-    const coverage = field => {
-      // Denominator from the whole portfolio, never the filtered set: a range
-      // filter would otherwise shrink "known" alongside "live" and the ratio
-      // would report full coverage of a shrunken world.
-      const known = new Set(state.snapshotRows.flatMap(row=>split(row[field])));
-      const live = new Set(cmpCur.flatMap(row=>split(row[field])));
-      return `${fmtNum(live.size)} of ${fmtNum(known.size)}`;
-    };
-
 
     // Attention queue: aggregated by issue type instead of one row per finding.
     const incompleteRows = rows.filter(row=>A.planningCompleteness(row).score<100);
@@ -574,7 +602,6 @@
     const invalidRows = rows.filter(A.hasInvalidDates);
     const totalIssues = incompleteRows.length+shortNoticeRows.length+invalidRows.length+collisions.length;
     document.getElementById('attention-count').textContent = totalIssues;
-    document.getElementById('attention-subtitle').textContent = `${fmtNum(totalIssues)} findings grouped by issue type`;
     // P10: the card's top border is a status signal, not decoration — red
     // only while findings are outstanding, neutral the moment the queue
     // clears (class consumed by styles.css: .priority-card.danger).
@@ -591,10 +618,21 @@
     // steering screen back to them. Rendered here, after topMissing exists, so
     // the third line can name the field instead of counting records.
     const critical=collisions.filter(item=>item.severity==='critical');
+    // Ranked, then capped at two. Four bands of identical weight made the reader
+    // do the ranking the screen should have done -- asked which one mattered
+    // before a meeting, a comms lead could not say. Rank is by how soon somebody
+    // has to act: a clash needs a date moved this week, an unserved audience is a
+    // gap worth filling, incomplete records and blank fields are steady-state
+    // hygiene. The two that lose out are not orphaned -- every measure below
+    // carries its own route, which is why the tiles became buttons.
     const signals=[];
-    if(collisions.length) signals.push(`<p class="notice ${critical.length?'warn':''}">${fmtNum(collisions.length)} activities compete for the same window${critical.length?`, ${fmtNum(critical.length)} critical`:''} \u00b7 <button type="button" class="linklike" data-goto="planning:conflicts">Open conflicts \u2192</button></p>`);
-    if(incompleteRows.length) signals.push(`<p class="notice">${fmtNum(incompleteRows.length)} activities are incomplete and ${fmtNum(shortNoticeRows.length)} are on short notice \u00b7 <button type="button" class="linklike" data-goto="planning:board">Open attention required \u2192</button></p>`);
-    if(topMissing) signals.push(`<p class="notice">${esc(FIELD_LABELS[topMissing[0]]||topMissing[0])} is missing in ${fmtNum(topMissing[1])} of ${fmtNum(rows.length)} activities \u00b7 <button type="button" class="linklike" data-goto="analytics:data-quality">Open data health \u2192</button></p>`);
+    // Conflicts, incompleteness and short notice used to have a band each. They
+    // now sit in the "Needs you first" queue directly below, grouped by type
+    // with an action per group -- saying them twice on one screen was the
+    // duplication that made this page feel crowded. What is left in the bands
+    // is the blank-field finding and the coverage gap: neither is an activity
+    // in a queue, so neither has anywhere else to appear.
+    if(topMissing) signals.push({rank:3,html:`${esc(FIELD_LABELS[topMissing[0]]||topMissing[0])} is missing in ${fmtNum(topMissing[1])} of ${plural(rows.length,'activity','activities')}`,goto:'health:data-health',label:'Open data health',warn:false});
     // Coverage counts the gap, this names it. "3 of 4 audiences" tells a comms
     // lead that something is unserved without telling them what, and the
     // cross-tab that would answer it sits two clicks away behind a tab nobody
@@ -608,8 +646,33 @@
     const idleAudiences = idle('target_audience');
     const idleChannels = idle('channel');
     const idleNamed = idleAudiences.map(a=>`audience ${a}`).concat(idleChannels.map(c=>`channel ${c}`));
-    if(idleNamed.length) signals.push(`<p class="notice warn">Nothing planned in the next 30 days for ${idleNamed.map(esc).join(' \u00b7 ')} \u00b7 <button type="button" class="linklike" data-goto="analytics:strategic">Open channel mix \u2192</button></p>`);
-    document.getElementById('overview-collisions').innerHTML = signals.join('');
+    // Two guards, both found by running the screen against an empty selection.
+    // With nothing planned at all, every category is idle and the signal listed
+    // nine of them in one line -- true, useless, and the only signal on the
+    // page, while the headline zero beside it already said it. And even with a
+    // healthy plan the list has no natural bound, so it is capped: a signal is
+    // meant to name what to look at, not enumerate a dimension.
+    const IDLE_NAMED = 3;
+    if(idleNamed.length && cmpCur.length) {
+      const rest = idleNamed.length - IDLE_NAMED;
+      signals.push({rank:2,html:`Nothing planned in the next 30 days for ${idleNamed.slice(0,IDLE_NAMED).map(esc).join(' \u00b7 ')}${rest>0?` and ${fmtNum(rest)} more`:''}`,goto:'health:coverage',label:'Open channel mix',warn:true});
+    }
+    const ranked = signals.sort((a,b)=>a.rank-b.rank);
+    const shownSignals = ranked.slice(0,2);
+    const hidden = ranked.slice(2);
+    // A cap that stays quiet reads as "nothing else to see". Say what was held
+    // back and where it lives, or the screen is lying by omission.
+    //
+    // The route is the next hidden signal's own route, not a fixed one. A
+    // re-check of the previously-green tasks caught this: with a clash and an
+    // idle audience taking both slots, the held-back finding was the blank-field
+    // one, and a hard-coded "Open attention required" sent the data steward to
+    // the planning queue instead of data health -- the exact stranding the
+    // project's own lesson warns about, that moving a block moves the paths
+    // that ran through it.
+    document.getElementById('overview-collisions').innerHTML =
+      shownSignals.map(s=>`<p class="notice ${s.warn?'warn':''}">${s.html} \u00b7 <button type="button" class="linklike" data-goto="${esc(s.goto)}">${esc(s.label)} \u2192</button></p>`).join('')
+      + (hidden.length?`<p class="signal-rest">${plural(hidden.length,'further finding','further findings')} of lower urgency \u00b7 <button type="button" class="linklike" data-goto="${esc(hidden[0].goto)}">${esc(hidden[0].label)} \u2192</button></p>`:'');
 
     // Steering index: four themed collection cards instead of four flat tiles.
     // A comms lead opens this screen a handful of times a year and needs the
@@ -670,93 +733,66 @@
         return acc.split(`<!--${m.token}-->`).join(chip);
       }, html);
     };
-    const kpiRow = (value, label, derived, ref, delta) =>
-      `<div class="kpi-row${derived?' derived':''}"><span class="v">${esc(String(value))}</span>${delta||''}${ref?`<span class="k">${esc(ref)}</span>`:''}<span class="l">${esc(label)}</span></div>`;
-    // A header promising "vs previous 30d" over rows that show no delta reads
-    // as a broken comparison rather than a stable one. If nothing in the group
-    // moved, the header says so instead.
-    const kpiGroup = (title, cls, rows2, goto, note) => {
-      const shown = rows2.join('');
-      const comparable = note && note.includes('vs') && !note.includes('no prior data');
-      const label2 = comparable && !/<!--mv\d+-->/.test(shown) ? `${note} · unchanged` : note;
-      return `<div class="kpi-group ${cls}"><div class="kpi-group-head"><span class="kpi-group-title">${esc(title)}${label2?` <span class="kpi-group-note">${esc(label2)}</span>`:''}</span>${goto?`<button type="button" class="linklike" data-goto="${goto}">Open →</button>`:''}</div>${shown}</div>`;
-    };
-
-    const liveCount = (field, set) => new Set(set.flatMap(row=>split(row[field]))).size;
-
-    // Intake cohorts. The stock figures below cannot move without a nightly
-    // snapshot; the flow can, because source_created_at says when each activity
-    // entered the plan. "Are the records we take in getting better" is both
-    // answerable and the more useful question -- a backlog shrinks only once
-    // intake stops adding to it.
-    // Intake follows the same window. Without a range that means the last 30
-    // days (what arrived recently), not the next 30 — a cohort cannot be
-    // created in the future.
-    const intakeWinCur = rangeActive ? windowCur : {from: previous30, to: now};
-    const intakeSpan = Math.max(1, intakeWinCur.to - intakeWinCur.from);
-    const intakeWinPrev = {from: new Date(intakeWinCur.from.getTime()-intakeSpan), to: intakeWinCur.from};
-    const intakeNow = A.createdBetween(state.snapshotRows, intakeWinCur.from, intakeWinCur.to);
-    const intakeBefore = A.createdBetween(state.snapshotRows, intakeWinPrev.from, intakeWinPrev.to);
-    const pct = (part, whole) => whole ? Math.round(part/whole*100) : null;
-    const completeShare = set => pct(set.filter(row=>A.planningCompleteness(row).score===100).length, set.length);
-    // Stated so that up is always good. A reader shown "−14 worse" next to
-    // "−10 better" has to work out the polarity of each metric before the
-    // numbers mean anything; phrasing every measure positively removes that
-    // step. Packless share becomes packed share, not the other way round.
-    const packedShare = set => pct(set.filter(row=>nonempty(row.campaign)||nonempty(row.communication_pack_cpid)||nonempty(row.communication_pack)).length, set.length);
     const leadNow = A.leadTimeStats(cmpCur,7), leadBefore = A.leadTimeStats(cmpPrev,7);
     const inWin = (row,win) => {const d=A.parseDate(row&&row.start_date);return d&&d>=win.from&&d<win.to;};
     const collisionsNow = collisions.filter(item=>inWin(item.left,windowCur)||inWin(item.right,windowCur)).length;
     const collisionsBefore = collisions.filter(item=>inWin(item.left,windowPrev)||inWin(item.right,windowPrev)).length;
 
-    const groupsHtml = [
-      kpiGroup('Volume','volume',[
-        kpiRow(fmtNum(rows.length),'Activities'),
-        kpiRow(fmtNum(cmpCur.length),windowNoun,false,share(cmpCur.length),trend(cmpCur.length,cmpPrev.length,'neutral',null,hasBaseline)),
-        kpiRow(fmtNum(intakeNow.length),rangeActive?'Created in range':'Created in last 30d',false,'',trend(intakeNow.length,intakeBefore.length,'neutral',null,intakeBefore.length>0)),
-        kpiRow(fmtNum(internal),'Internal',true,share(internal))
-      ],'planning:board',windowLabel),
-      kpiGroup('Timing','timing',[
-        kpiRow(fmtNum(cmpCur.filter(isHigh).length),'Critical and high',false,'',trend(cmpCur.filter(isHigh).length,cmpPrev.filter(isHigh).length,'down-good','critical items',hasBaseline)),
-        kpiRow(fmtNum(cmpCur.filter(A.isShortNotice).length),'On short notice',false,'',trend(cmpCur.filter(A.isShortNotice).length,cmpPrev.filter(A.isShortNotice).length,'down-good','short notice',hasBaseline)),
-        kpiRow(leadNow.median===null?'—':`${fmtNum(leadNow.median)}d`,'Median lead time',true,'threshold 7d',trend(leadNow.median,leadBefore.median,'up-good','lead time',hasBaseline)),
-        kpiRow(fmtNum(collisionsNow),'Competing for a slot',true,'',trend(collisionsNow,collisionsBefore,'down-good','slot conflicts',hasBaseline))
-      ],'planning:conflicts',windowLabel),
-      kpiGroup('Coverage','coverage',[
-        kpiRow(coverage('channel'),'Channels',false,'',trend(liveCount('channel',cmpCur),liveCount('channel',cmpPrev),'up-good','channel coverage',hasBaseline)),
-        kpiRow(coverage('target_audience'),'Audiences',false,'',trend(liveCount('target_audience',cmpCur),liveCount('target_audience',cmpPrev),'up-good','audience coverage',hasBaseline)),
-        kpiRow(coverage('strategic_objectives'),'Pillars',true,'',trend(liveCount('strategic_objectives',cmpCur),liveCount('strategic_objectives',cmpPrev),'up-good','pillar coverage',hasBaseline)),
-        kpiRow(coverage('region'),'Regions',true,'',trend(liveCount('region',cmpCur),liveCount('region',cmpPrev),'up-good','region coverage',hasBaseline))
-      ],'analytics:strategic',windowLabel),
-      kpiGroup('Quality','quality',[
-        kpiRow(`${quality.completenessRate}%`,'Records complete',false,'backlog'),
-        kpiRow(fmtNum(incompleteRows.length),'Need remediation',false,'backlog'),
-        kpiRow(completeShare(intakeNow)===null?'—':`${completeShare(intakeNow)}%`,`Complete on intake (${fmtNum(intakeNow.length)} new)`,true,'',trend(completeShare(intakeNow),completeShare(intakeBefore),'up-good','intake quality',intakeBefore.length>0)),
-        kpiRow(packedShare(intakeNow)===null?'—':`${packedShare(intakeNow)}%`,'New with a pack',true,'',trend(packedShare(intakeNow),packedShare(intakeBefore),'up-good','pack discipline',intakeBefore.length>0))
-      ],'analytics:data-quality','backlog is a stock, intake is a flow')
+    // Six figures, in the order the leading question asks them: how much is
+    // coming, how much of it is heavy, then the three ways it goes wrong, then
+    // whether there is room to act at all.
+    //
+    // This replaced four themed collection cards holding sixteen rows. Those
+    // were built for a comms lead who opens the screen a handful of times a year
+    // and wants the whole portfolio in one scan; the screen's owner is the
+    // planner, who is in it daily and needs to know what to do next. Sixteen
+    // figures cannot rank themselves, and a reader with sixty seconds said as
+    // much. Portfolio composition -- division split, priority split, monthly
+    // intake, coverage counts -- answers a different question and now sits on
+    // the page that asks it.
+    const highNow = cmpCur.filter(isHigh).length, highBefore = cmpPrev.filter(isHigh).length;
+    const shortNow = cmpCur.filter(A.isShortNotice).length, shortBefore = cmpPrev.filter(A.isShortNotice).length;
+    const tone = (n, level) => n ? (level||'warning') : '';
+    const cardsHtml = [
+      // Every reference figure is conditional on there being a portfolio to
+      // refer to. An empty selection used to render " of 0 activities" and
+      // "0% of the portfolio is complete" -- a dangling fragment and a false
+      // statement, since nothing is incomplete when nothing exists.
+      kpi(windowNoun, fmtNum(cmpCur.length), rows.length?`${share(cmpCur.length)} of ${plural(rows.length,'activity','activities')}`:'Nothing in this range', '', 'activities:incomplete',
+        trend(cmpCur.length,cmpPrev.length,'neutral',null,comparable)),
+      // Deliberately not a route. "Critical and high" sizes the load rather than
+      // naming work to do, and no list in the studio filters on both values at
+      // once -- a tile that navigates somewhere approximate is worse than one
+      // that stays put. Static tiles carry no chevron, so the difference shows.
+      // Neutral on purpose, and not a route. "Critical and high" sizes the load
+      // rather than naming a fault -- twelve high-priority items is what a busy
+      // month looks like, not a defect -- and no list in the studio filters on
+      // both values at once, so a tile that navigated somewhere approximate
+      // would be worse than one that stays put. Accenting it too would put
+      // amber on four of six tiles, which is the flat ranking this page was
+      // rebuilt to get rid of. Amber is reserved for the three measures that
+      // are genuinely out of bounds.
+      kpi('Critical and high', fmtNum(highNow), windowNoun.toLowerCase(), '', '',
+        trend(highNow,highBefore,'down-good','critical items',comparable)),
+      kpi('Competing for a slot', fmtNum(collisionsNow), 'Shared audience and channel', tone(collisionsNow, critical.length?'danger':'warning'), 'activities:conflicts',
+        trend(collisionsNow,collisionsBefore,'down-good','slot conflicts',comparable)),
+      kpi('On short notice', fmtNum(shortNow), 'Under 7 days lead time', tone(shortNow), 'activities:incomplete',
+        trend(shortNow,shortBefore,'down-good','short notice',comparable)),
+      kpi('Incomplete', fmtNum(incompleteRows.length), rows.length?`${quality.completenessRate}% of the portfolio is complete`:'Nothing in this range', tone(incompleteRows.length), 'activities:incomplete'),
+      kpi('Median lead time', leadNow.median===null?'—':`${fmtNum(leadNow.median)}d`, 'Threshold 7 days', leadNow.median!==null&&leadNow.median<7?'warning':'', 'health:planning-health',
+        trend(leadNow.median,leadBefore.median,'up-good','lead time',comparable))
     ].join('');
-    document.getElementById('overview-kpis').innerHTML = renderMovements(groupsHtml);
+    document.getElementById('overview-kpis').innerHTML = renderMovements(cardsHtml);
 
-    // One sentence before the detail. Four deltas that point different ways do
-    // not answer "better or worse" -- a comms lead reading them said so in as
-    // many words. This counts the comparable measures and states the tally; it
-    // is arithmetic over what is on screen, not a verdict the data cannot back.
-    const judged = movements.filter(m=>m.good!==null);
-    const improvedList = judged.filter(m=>m.good).map(m=>m.name);
-    const worsenedList = judged.filter(m=>!m.good).map(m=>m.name);
-    const compared = judged.length;
-    const names = list => list.filter(Boolean).join(', ');
-    const biggest = judged.slice().sort((a,b)=>b.weight-a.weight)[0];
-    // With nothing to compare against, say that rather than leaving the reader
-    // to wonder why the deltas vanished.
-    if (!compared && !hasBaseline) {
-      document.getElementById('overview-verdict').innerHTML =
-        `<p class="verdict"><strong>No comparison available.</strong> The ${fmtNum(spanDays)} days before this range hold no activities, so there is no baseline to measure against.</p>`;
-    } else
-    document.getElementById('overview-verdict').innerHTML = compared
-      ? `<p class="verdict"><strong>${improvedList.length>worsenedList.length?'Improving':improvedList.length<worsenedList.length?'Declining':'Mixed'}.</strong>${biggest?` Biggest move: <strong>${esc(biggest.name)} ${biggest.good?'improved':'worsened'}</strong>.`:''} ${fmtNum(improvedList.length)} of ${fmtNum(compared)} measures improved against ${esc(windowPhrase)}.</p>`
-        + `<p class="verdict-note">Improved: ${esc(names(improvedList))||'none'} · worsened: ${esc(names(worsenedList))||'none'}. Backlog figures are a standing total and carry no direction. ${rangeActive?`Comparisons use the selected range against the ${fmtNum(spanDays)} days before it.`:'With no range selected, comparisons use 30-day windows.'}${windowIsProvisional?` The ${rangeActive?'selected range':'comparison window'} reaches beyond today and is still being planned, so a fall may be planning that has not happened yet.`:''}</p>`
-      : '';
+    // The verdict paragraph is gone. It counted the deltas -- "2 of 3 measures
+    // improved" -- which is arithmetic over chips the reader can already see,
+    // and it carried a footnote explaining why those chips might mislead. Both
+    // disappear with the rule above: a delta now appears only where the
+    // comparison holds, so there is nothing left to caption and nothing left to
+    // tally. Measured before removal: verdict and footnote were 206 of the
+    // page's 868 characters of chrome, the single largest block of prose on a
+    // screen whose owner opens it to find out what to do today.
+    document.getElementById('overview-verdict').innerHTML='';
 
     const groups = [];
     if (incompleteRows.length) groups.push({severity:QUEUE_SEVERITY.incomplete,title:`${fmtNum(incompleteRows.length)} activities with missing fields`,meta:topMissing?`Largest gap: ${esc(FIELD_LABELS[topMissing[0]]||topMissing[0])} (${fmtNum(topMissing[1])})`:'',action:'Review list',queue:'incomplete'});
@@ -782,42 +818,33 @@
     document.getElementById('readiness-summary').innerHTML = `<div class="metric-line"><span>Fully complete</span><strong>${fmtNum(rows.length-quality.incomplete)}</strong></div><div class="progress"><span style="width:${quality.completenessRate}%"></span></div><div class="metric-line"><span>Missing pack/campaign</span><strong>${fmtNum(quality.missingPackIds)}</strong></div><div class="metric-line"><span>Invalid date range</span><strong>${fmtNum(quality.invalidDateRanges)}</strong></div><div class="metric-line"><span>Total activities</span><strong>${fmtNum(rows.length)}</strong></div>`;
 
     // Upcoming: grouped by week, channel chip per row, conflict marker.
+    //
+    // Capped at eight. Sixteen rows made this card 988px of content beside a
+    // 172px chart, and the grid stretched the chart's card to match -- 893px of
+    // empty card, measured, which is what "the page feels overloaded" looked
+    // like from the other side. Eight covers roughly the first fortnight, which
+    // is the horizon a planner acts on; the rest is one click away and the
+    // footer says how many there are rather than trailing off silently.
+    const UPCOMING_SHOWN = 8;
     const weekKey = date => {const d=new Date(date);const day=(d.getDay()+6)%7;d.setDate(d.getDate()-day);d.setHours(0,0,0,0);return d;};
     const weekGroups = new Map();
-    upcoming.slice(0,16).forEach(row=>{const key=weekKey(A.parseDate(row.start_date)).getTime();if(!weekGroups.has(key))weekGroups.set(key,[]);weekGroups.get(key).push(row);});
+    upcoming.slice(0,UPCOMING_SHOWN).forEach(row=>{const key=weekKey(A.parseDate(row.start_date)).getTime();if(!weekGroups.has(key))weekGroups.set(key,[]);weekGroups.get(key).push(row);});
+    const upcomingRest = Math.max(0, upcoming.length - UPCOMING_SHOWN);
     document.getElementById('upcoming-list').innerHTML = upcoming.length
-      ? Array.from(weekGroups.entries()).map(([key,items])=>`<div class="week-heading">Week of ${fmtDate(new Date(Number(key)))}</div>`+items.map(row=>`<div class="list-row" data-open-id="${esc(row.id||'')}"><span class="severity-line medium"></span><div><div class="list-title">${esc(row.activity_name||'Untitled')}</div><div class="list-meta">${fmtDate(row.start_date)} · ${esc(row.lead_team||row.lead||'Unassigned')}</div></div><span>${row.channel?`<span class="chip">${esc(row.channel)}</span>`:''}${conflictIds.has(String(row.id))?'<span class="chip conflict">Conflict</span>':''}</span></div>`).join('')).join('')
+      ? Array.from(weekGroups.entries()).map(([key,items])=>`<div class="week-heading">Week of ${fmtDate(new Date(Number(key)))}</div>`+items.map(row=>`<div class="list-row" data-open-id="${esc(row.id||'')}"><span class="severity-line medium"></span><div><div class="list-title">${esc(row.activity_name||'Untitled')}</div><div class="list-meta">${fmtDate(row.start_date)} · ${esc(row.lead_team||row.lead||'Unassigned')}</div></div><span>${row.channel?`<span class="chip"><i class="channel-dot" style="background:${channelColor(row.channel)}" aria-hidden="true"></i>${esc(row.channel)}</span>`:''}${conflictIds.has(String(row.id))?'<span class="chip conflict">Conflict</span>':''}</span></div>`).join('')).join('')
+        + (upcomingRest?`<div class="list-more">${fmtNum(upcomingRest)} more in the next 30 days · <button type="button" class="linklike" data-goto="overview:timeline">See them on the timeline →</button></div>`:'')
       : emptyState(EMPTY_ICONS.calendar, 'No activities in the next 30 days', 'Check back later or widen the planning horizon.');
 
-    renderChannelLoad();
-    // Both donuts carry a centre number with a small unit label so the two
-    // cannot be misread against each other: divisions count MENTIONS
-    // (multi-division activities count once per division), priorities count
-    // activities.
-    document.getElementById('division-donut').innerHTML = donutHtml(countBy(rows,'business_division'),(label,i)=>DONUT_SEQUENCE[i%DONUT_SEQUENCE.length],null,'mentions');
-    const priorityEntries = countBy(rows,'priority').sort((a,b)=>(PRIORITY_RANKS[String(b[0]).toLowerCase()]??1)-(PRIORITY_RANKS[String(a[0]).toLowerCase()]??1));
-    document.getElementById('priority-donut').innerHTML = donutHtml(priorityEntries,priorityColor,null,'activities');
-    renderTrend();
-  }
-
-  function renderChannelLoad() {
-    const weeks = state.channelHorizonWeeks;
-    let scoped = state.rows;
-    if (weeks > 0) {
-      const now = new Date(); const end = new Date(now); end.setDate(end.getDate()+weeks*7);
-      scoped = state.rows.filter(row=>{const d=A.parseDate(row.start_date);return d&&d>=now&&d<=end;});
-    }
-    // Zeros are the answer, not noise: every known channel renders even when
-    // nothing starts in the horizon — an idle channel is the "underused
-    // channel" leadership is looking for.
-    const scopedCounts = new Map(countBy(scoped,'channel'));
-    const entries = countBy(state.rows,'channel').map(([label])=>[label,scopedCounts.get(label)||0]).sort((a,b)=>b[1]-a[1]);
-    // Every channel, not the top three: the bars above show all of them, and a
-    // footer naming only three reads as a contradiction rather than a subset —
-    // a fresh-eyes reader concluded the two figures could not both be right.
-    const allTime = countBy(state.rows,'channel').map(([label,count])=>`${label} ${fmtNum(count)}`).join(' · ');
-    const footer = weeks>0&&allTime?`<div class="list-meta" style="margin-top:10px">All-time volume: ${esc(allTime)}</div>`:'';
-    document.getElementById('channel-load').innerHTML = (entries.length?barList(entries):emptyState(EMPTY_ICONS.barChart,'No channels in the data yet','Create activities to see channel load.'))+footer;
+    // The division donut, the priority donut and the monthly trend used to close
+    // this page. All three answer "what does the portfolio look like", not "what
+    // do I do next", and between them they filled a screen and a half below the
+    // fold. The division split duplicated Division coverage on Coverage & channel
+    // mix outright. The priority split repeated, as three near-equal shares, what
+    // the Critical and high tile now states as a count. The monthly trend was the
+    // largest element on the page and its own footnote had to tell the reader not
+    // to read its last four bars as a decline -- it belongs with the other
+    // portfolio-shape questions, where "how many arrive per month" is the actual
+    // question being asked, and it now lives on Planning Health.
   }
 
   function renderTrend() {
@@ -954,10 +981,19 @@
     if (state.queueFilter==='incomplete') return A.planningCompleteness(row).score<100;
     if (state.queueFilter==='short-notice') return A.isShortNotice(row);
     if (state.queueFilter==='invalid-date') return A.hasInvalidDates(row);
+    // Conflicts came over from Planning with the tab merge. Membership is
+    // "appears on either side of a detected collision", computed from the same
+    // detector the workbench below the table draws from, so the row list and
+    // the pairs can never disagree about who is in conflict.
+    if (state.queueFilter==='conflicts') {
+      const ids=new Set();
+      collisionsFor(1).filter(item=>item.kind==='conflict').forEach(item=>{ids.add(String(item.left.id));ids.add(String(item.right.id));});
+      return ids.has(String(row.id));
+    }
     return true;
   }
 
-  const QUEUE_FILTER_LABELS = {incomplete:'Missing fields', 'short-notice':'Short notice', 'invalid-date':'Invalid dates'};
+  const QUEUE_FILTER_LABELS = {incomplete:'Missing fields', 'short-notice':'Short notice', 'invalid-date':'Invalid dates', conflicts:'Scheduling conflicts'};
 
   // One severity per queue, shared by the overview attention card and the
   // workbench context bar -- they describe the same finding, so they must not
@@ -981,7 +1017,7 @@
         ? issueChips(row.id,issues)
         : '<span class="readiness-ok">—</span>';
       const duplicateBtn = canCreate() ? `<button type="button" class="icon-btn duplicate-btn" data-duplicate-id="${esc(row.id||'')}" aria-label="Duplicate ${esc(row.activity_name||'activity')}" title="Duplicate"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>` : '';
-      return `<tr data-open-id="${esc(row.id||'')}"><td><button type="button" class="name-btn" data-open-id="${esc(row.id||'')}" title="${esc(row.activity_name||'')}">${esc(row.activity_name||'Untitled')}</button></td><td>${trackingIdHtml(row.tracking_id,{copy:nonempty(row.tracking_id)})}</td><td>${esc(row.channel||'—')}</td><td>${fmtDate(row.start_date)}</td><td>${esc(row.priority||'—')}</td><td>${esc(row.lead_team||row.lead||'—')}</td><td>${esc(campaignLabel(row)||'—')}</td><td class="issue-cell">${issueCell}</td><td class="action-cell"><div class="row-actions">${duplicateBtn}</div></td></tr>`;}).join('')||`<tr><td colspan="9">${emptyState(EMPTY_ICONS.search, 'No activities match the filters', 'Clear filters or adjust your search to see more results.')}</td></tr>`;
+      return `<tr data-open-id="${esc(row.id||'')}"><td><button type="button" class="name-btn" data-open-id="${esc(row.id||'')}" title="${esc(row.activity_name||'')}">${esc(row.activity_name||'Untitled')}</button></td><td>${trackingIdHtml(row.tracking_id,{copy:nonempty(row.tracking_id)})}</td><td>${channelTag(row.channel)}</td><td>${fmtDate(row.start_date)}</td><td>${esc(row.priority||'—')}</td><td>${esc(row.lead_team||row.lead||'—')}</td><td>${esc(campaignLabel(row)||'—')}</td><td class="issue-cell">${issueCell}</td><td class="action-cell"><div class="row-actions">${duplicateBtn}</div></td></tr>`;}).join('')||`<tr><td colspan="9">${emptyState(EMPTY_ICONS.search, 'No activities match the filters', 'Clear filters or adjust your search to see more results.')}</td></tr>`;
   }
 
   // Names the review list the user arrived from. Everything it reports is
@@ -1023,6 +1059,7 @@
   }
 
   function renderPlanningHealth() {
+    renderTrend();
     const rows=state.rows,quality=A.dataQuality(rows),lead=A.leadTimeStats(rows,7),complete=rows.length-quality.incomplete;
     document.getElementById('health-kpis').innerHTML=[kpi('Complete',`${quality.completenessRate}%`,`${complete} of ${rows.length}`,quality.incomplete?'warning':'success'),kpi('Short notice',`${lead.shortNoticeRate}%`,`Threshold <7 days`,lead.shortNotice?'warning':'success'),kpi('Median lead',lead.median===null?'—':`${lead.median}d`,`P25 ${lead.p25??'—'} · P75 ${lead.p75??'—'}`,''),kpi('Excluded',lead.excluded,'Missing or negative lead time','')].join('');
     const max=Math.max(lead.p75||0,lead.median||0,lead.p25||0,1),xOf=v=>v/max*90+5;
@@ -1067,10 +1104,14 @@
   }
 
   function renderStrategic() {
-    const rows=state.rows,aligned=rows.filter(r=>nonempty(r.strategic_objectives)),objectives=countBy(rows,'strategic_objectives'),divisions=countBy(rows,'business_division'),unaligned=rows.filter(r=>!nonempty(r.strategic_objectives));
-    document.getElementById('strategic-kpis').innerHTML=[kpi('Aligned',`${rows.length?Math.round(aligned.length/rows.length*100):0}%`,`${aligned.length} activities`,''),kpi('Unaligned',unaligned.length,'No pillar assigned',unaligned.length?'danger':'success'),kpi('Pillars',objectives.length,'Unique values',''),kpi('Divisions',divisions.length,'Represented','')].join('');
-    document.getElementById('objective-coverage').innerHTML=barList(objectives);
-    document.getElementById('division-coverage').innerHTML=barList(divisions);
+    // Pillar coverage, Division coverage and the four strategic KPI tiles were
+    // dropped with the Health rebuild: "Coverage by dimension" on the same page
+    // already lists pillar and division, adds team, audience and region, and
+    // keeps categories with nothing planned visible at zero -- which is the
+    // question a coverage view exists to answer. What is left here is the
+    // channel-mix cross-tab and the unaligned worklist, neither of which is
+    // said anywhere else.
+    const rows=state.rows,unaligned=rows.filter(r=>!nonempty(r.strategic_objectives));
     renderChannelMix();
     document.getElementById('unaligned-list').innerHTML=unaligned.length?unaligned.slice(0,30).map(row=>`<div class="list-row" data-open-id="${esc(row.id||'')}"><span class="severity-line high"></span><div><div class="list-title">${esc(row.activity_name||'Untitled')}</div><div class="list-meta">${fmtDate(row.start_date)} · ${esc(row.lead_team||row.lead||'Unassigned')}</div></div><span class="badge warning">Unaligned</span></div>`).join(''):emptyState(EMPTY_ICONS.checkCircle, 'All activities have a communications pillar', 'Nothing left to align.');
   }
@@ -1099,25 +1140,214 @@
     }
     const cell=new Map();
     rows.forEach(row=>split(row.channel).forEach(ch=>split(row[dim]).forEach(col=>{
-      const key=ch+' '+col; cell.set(key,(cell.get(key)||0)+1);
+      const key=ch+'\u0000'+col; cell.set(key,(cell.get(key)||0)+1);
     })));
-    const colTotal=col=>channels.reduce((sum,ch)=>sum+(cell.get(ch+' '+col)||0),0);
+    const colTotal=col=>channels.reduce((sum,ch)=>sum+(cell.get(ch+'\u0000'+col)||0),0);
     const head=`<tr><th>Channel</th>${columns.map(c=>`<th class="num">${esc(c)}</th>`).join('')}<th class="num">Total</th></tr>`;
     const body=channels.map(ch=>{
-      const values=columns.map(col=>cell.get(ch+' '+col)||0);
+      const values=columns.map(col=>cell.get(ch+'\u0000'+col)||0);
       const total=values.reduce((a,b)=>a+b,0);
       return `<tr><td>${esc(ch)}</td>${values.map(v=>`<td class="num">${v?fmtNum(v):'<span class="mix-zero">0</span>'}</td>`).join('')}<td class="num">${fmtNum(total)}</td></tr>`;
     }).join('');
     const foot=`<tr><td>Total</td>${columns.map(c=>`<td class="num">${fmtNum(colTotal(c))}</td>`).join('')}<td class="num">${fmtNum(rows.length)}</td></tr>`;
-    const single=columns.filter(c=>channels.filter(ch=>(cell.get(ch+' '+c)||0)>0).length===1);
+    const single=columns.filter(c=>channels.filter(ch=>(cell.get(ch+'\u0000'+c)||0)>0).length===1);
     const note=single.length?`<p class="notice warn">Reached through a single channel only: ${single.map(esc).join(' · ')}</p>`:'';
     host.innerHTML=`${note}<div class="table-wrap"><table>${`<thead>${head}</thead>`}<tbody>${body}${foot}</tbody></table></div>`;
   }
 
-  function renderCampaignQuality() {
-    const cards=A.campaignScorecards(state.rows),multi=cards.filter(c=>c.channels>1),single=cards.filter(c=>c.channels===1),avg=cards.length?Math.round(cards.reduce((s,c)=>s+c.activities,0)/cards.length*10)/10:0;
-    document.getElementById('campaign-kpis').innerHTML=[kpi('Packs / campaigns',cards.length,'Identified planning units',''),kpi('Multi-channel',multi.length,`${cards.length?Math.round(multi.length/cards.length*100):0}% of units`,''),kpi('Single-channel',single.length,'Review orchestration',single.length?'warning':''),kpi('Avg activities',avg,'Per planning unit','')].join('');
-    document.getElementById('campaign-scorecard').innerHTML=cards.length?`<table><thead><tr><th>Campaign / pack</th><th class="num">Activities</th><th class="num">Channels</th><th>Channel mix</th><th class="num">Objectives</th><th class="num">Audiences</th><th>Activity window</th><th class="num"><span class="th-help" title="Longest quiet period between the first and last activity of this pack or campaign">Quiet period ⓘ</span></th></tr></thead><tbody>${cards.slice(0,50).map(card=>`<tr><td>${esc(card.campaign)}</td><td class="num">${card.activities}</td><td class="num"><span class="badge ${card.channels>1?'success':'warning'}">${card.channels}</span></td><td title="${esc(card.channelNames.join(', '))}">${esc(card.channelNames.join(', ')||'—')}</td><td class="num">${card.objectives}</td><td class="num">${card.audiences}</td><td>${fmtDate(card.firstDate)} – ${fmtDate(card.lastDate)}</td><td class="num">${card.channelGapDays===null?'—':card.channelGapDays+'d'}</td></tr>`).join('')}</tbody></table>`:emptyState(EMPTY_ICONS.layers, 'No campaign or pack identifiers available', 'Add a campaign, pack ID, or tracking pack to group activities.');
+  // Packs. The tab the prototype has and the studio did not: a pack is what a
+  // planner actually ships -- one message across several channels -- and until
+  // now it existed only as a string on each activity and a segment in the
+  // tracking ID, described by a card buried two clicks deep under "Campaign
+  // Quality". Grouping happens client-side rather than through v_pack_overview,
+  // which is defined for PostgreSQL only (split_part) and absent on the SQLite
+  // backend this deployment actually runs.
+  function packUnits() {
+    const inPack=state.rows.filter(row=>nonempty(row.communication_pack_cpid));
+    const loose=state.rows.filter(row=>!nonempty(row.communication_pack_cpid));
+    return {cards:A.campaignScorecards(inPack), loose};
+  }
+
+  function filteredPackCards(cards) {
+    const term=(document.getElementById('pack-search').value||'').trim().toLowerCase();
+    const campaign=document.getElementById('pack-campaign-filter').value;
+    return cards.filter(card=>{
+      if(campaign&&card.campaign!==campaign) return false;
+      if(!term) return true;
+      const hay=[card.id,card.campaign,...card.channelNames,...card.rows.map(r=>r.tracking_id||'')].join(' ').toLowerCase();
+      return hay.includes(term);
+    });
+  }
+
+  // Named openPackDetail on purpose. T6 retired a create-flow wrapper whose
+  // name two guardian tests still pin as absent, because it was a SECOND way
+  // into pack CREATION. This is a read view of a pack that already exists --
+  // opposite concern -- and creation still runs only through openCreateDrawer
+  // plus the scope toggle. Renaming was the right fix; loosening two tests
+  // that guard a different rule was not. The retired name is deliberately not
+  // spelled out anywhere in this file: the assertion is a substring match, so
+  // even a comment mentioning it turns the guard red. It did, once.
+  //
+  // Pack detail, modelled on the prototype's drawer: a card per channel with that
+  // channel's colour down its left edge, the tracking ID with a copy control,
+  // and the three facts a planner checks per send -- when, to whom, by whom.
+  // The prototype's per-channel status dropdown has no counterpart here: the
+  // studio holds no status field, and inventing one in the UI would promise a
+  // state nothing persists. Readiness stands in its place, computed from the
+  // same completeness rule as everywhere else.
+  function openPackDetail(packId, opener) {
+    const {cards}=packUnits();
+    const card=cards.find(item=>item.id===packId);
+    if(!card) return;
+    state.packDrawerOpener=opener||document.activeElement;
+    const gaps=card.rows.filter(row=>A.planningCompleteness(row).score<100).length;
+
+    document.getElementById('pack-drawer-eyebrow').textContent=`${card.id} · Communication pack`;
+    document.getElementById('pack-drawer-title').textContent=card.campaign&&card.campaign!==card.id?card.campaign:card.id;
+    document.getElementById('pack-drawer-meta').innerHTML=
+      `<span class="badge ${gaps?'warning':'success'}">${gaps?plural(gaps,'activity','activities')+' incomplete':'Complete'}</span>`
+      +`<span class="tracking-label">${plural(card.activities,'tracking ID')} · ${plural(card.channels,'channel')}</span>`;
+
+    const detail=(label,value)=>`<div class="detail-row"><dt>${esc(label)}</dt><dd>${value}</dd></div>`;
+    const audiences=Array.from(new Set(card.rows.flatMap(row=>split(row.target_audience))));
+    const pillars=Array.from(new Set(card.rows.flatMap(row=>split(row.strategic_objectives))));
+    const teams=Array.from(new Set(card.rows.map(row=>row.lead_team||row.lead).filter(nonempty)));
+    document.getElementById('pack-drawer-details').innerHTML=
+      `<div class="detail-section"><h4>Pack details</h4><dl>`
+      + detail('Campaign', esc(card.campaign||'—'))
+      + detail('Window', `${fmtDate(card.firstDate)} – ${fmtDate(card.lastDate)}`)
+      + detail('Channels', card.channelNames.map(channelTag).join(' '))
+      + detail('Audiences', esc(audiences.join(', ')||'—'))
+      + detail('Communications pillars', esc(pillars.join(', ')||'—'))
+      + detail('Lead teams', esc(teams.join(', ')||'—'))
+      + `</dl></div>`;
+
+    const ordered=card.rows.slice().sort((a,b)=>(A.parseDate(a.start_date)||0)-(A.parseDate(b.start_date)||0));
+    document.getElementById('pack-drawer-channels').innerHTML=ordered.map(row=>{
+      // The same issue chips the activity table carries, not a badge that only
+      // states a number. A badge tells the planner something is missing and
+      // then makes them find it; the chip names the field and opens the record
+      // on it. Identical markup, so the delegated [data-fix-id] handler drives
+      // it with no wiring of its own, and the finding cannot drift between the
+      // two surfaces -- both read A.rowIssues.
+      const issues=A.rowIssues(row);
+      const meta=(label,value)=>`<div class="pack-channel-fact"><span class="pack-fact-label">${esc(label)}</span><span class="pack-fact-value">${value}</span></div>`;
+      return `<article class="pack-channel-card" style="border-left-color:${channelColor(row.channel)}">
+        <div class="pack-channel-head">
+          <span class="pack-channel-name"><i class="channel-dot" style="background:${channelColor(row.channel)}" aria-hidden="true"></i>${esc(row.channel||'No channel')}</span>
+          <span class="pack-channel-issues">${issues.length?issueChips(row.id,issues):'<span class="badge success">Complete</span>'}</span>
+        </div>
+        <div class="pack-channel-id">${trackingIdHtml(row.tracking_id,{copy:true})}</div>
+        <div class="pack-channel-facts">
+          ${meta('Send date & time', esc(fmtDateTime(row.start_date)))}
+          ${meta('Distribution list', esc(row.target_audience||'—'))}
+          ${meta('Responsible', esc(row.lead_team||row.lead||'Unassigned'))}
+        </div>
+        <button type="button" class="linklike" data-open-id="${esc(row.id||'')}">Open activity →</button>
+      </article>`;
+    }).join('');
+
+    const drawer=document.getElementById('pack-drawer');
+    drawer.classList.add('open');
+    drawer.setAttribute('aria-hidden','false');
+    document.getElementById('pack-drawer-close').focus();
+    bindOpenRows();
+  }
+
+  function closePackDetail() {
+    const drawer=document.getElementById('pack-drawer');
+    drawer.classList.remove('open');
+    drawer.setAttribute('aria-hidden','true');
+    // Focus goes back to the row that opened it, or the reader is dropped at
+    // the top of the document with no idea where they were.
+    if(state.packDrawerOpener&&document.contains(state.packDrawerOpener))state.packDrawerOpener.focus();
+    state.packDrawerOpener=null;
+  }
+
+  function renderPacks() {
+    const {cards,loose}=packUnits();
+    const shown=filteredPackCards(cards);
+    document.getElementById('packs-count').textContent=fmtNum(cards.length);
+
+    const campaigns=Array.from(new Set(cards.map(c=>c.campaign).filter(nonempty))).sort();
+    const select=document.getElementById('pack-campaign-filter');
+    const keep=select.value;
+    select.innerHTML='<option value="">All campaigns</option>'+campaigns.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('');
+    select.value=campaigns.includes(keep)?keep:'';
+
+    // Single-channel is the measure worth surfacing: a "pack" that reaches one
+    // channel is a pack in name only, and that is orchestration feedback the
+    // planner can act on.
+    const single=cards.filter(c=>c.channels===1).length;
+    const incomplete=cards.filter(c=>c.rows.some(row=>A.planningCompleteness(row).score<100)).length;
+    document.getElementById('packs-kpis').innerHTML=[
+      kpi('Packs',fmtNum(cards.length),`${plural(cards.length?Math.round(cards.reduce((s,c)=>s+c.activities,0)/cards.length*10)/10:0,'activity','activities')} on average`,''),
+      kpi('Single-channel',fmtNum(single),single?'A pack in name only':'Every pack spans channels',single?'warning':'success'),
+      kpi('With gaps',fmtNum(incomplete),'At least one incomplete activity',incomplete?'warning':'success'),
+      kpi('Not in a pack',fmtNum(loose.length),`${cards.length?Math.round(loose.length/state.rows.length*100):0}% of the portfolio`,loose.length?'warning':'')
+    ].join('');
+
+    document.getElementById('pack-result-count').textContent=
+      shown.length===cards.length?plural(cards.length,'pack'):`${fmtNum(shown.length)} of ${plural(cards.length,'pack')}`;
+
+    // A table with a column for channels, not a meta line with the channels
+    // trailing off the end of it. Run together with the counts and the window,
+    // four channel names read as clutter; in their own column they align down
+    // the page and the channel spread of the whole portfolio becomes scannable
+    // in one vertical pass. Pattern from the prototype's Packs table.
+    //
+    // One chip per CHANNEL, not per tracking ID. The prototype can print an ID
+    // per chip because its packs hold one send per channel; ours average 7.9
+    // activities over four or five channels, so per-ID chips would put eleven
+    // of them in a cell and rebuild exactly the crowding this replaces. The
+    // count rides along instead, and the IDs are one click away in the drawer.
+    const packRow = card => {
+      const gaps=card.rows.filter(row=>A.planningCompleteness(row).score<100).length;
+      const perChannel=new Map();
+      card.rows.forEach(row=>split(row.channel).forEach(ch=>perChannel.set(ch,(perChannel.get(ch)||0)+1)));
+      const channelCell=perChannel.size
+        ? Array.from(perChannel.entries()).sort((a,b)=>b[1]-a[1]).map(([ch,count])=>
+            `<span class="channel-chip"><i class="channel-dot" style="background:${channelColor(ch)}" aria-hidden="true"></i>${esc(ch)}${count>1?`<span class="channel-chip-count">${fmtNum(count)}</span>`:''}</span>`).join('')
+        : '<span class="muted">no channel</span>';
+      // Sorted, then capped at two. Measured before: 27 of 32 packs carry a
+      // distinct audience set, so the column does hold information -- but the
+      // sets arrive in row order, so two packs reaching the same four groups
+      // printed them in different orders and could not be compared at a
+      // glance. Sorting makes identical sets look identical; the cap stops the
+      // cell from becoming the wall of text it was. Full lists live in the
+      // drawer, which is one click away and has the room.
+      const brief=values=>{
+        const sorted=Array.from(new Set(values)).filter(nonempty).sort();
+        if(!sorted.length) return '—';
+        const head=sorted.slice(0,2).map(esc).join(', ');
+        return sorted.length>2?`${head} <span class="muted">+${fmtNum(sorted.length-2)}</span>`:head;
+      };
+      const audiences=brief(card.rows.flatMap(row=>split(row.target_audience)));
+      const teams=brief(card.rows.map(row=>row.lead_team||row.lead));
+      const title=card.campaign&&card.campaign!==card.id?card.campaign:card.id;
+      // The name cell is a real button, the row is mouse convenience -- the
+      // same split C4 established for the activity table. Making the whole <tr>
+      // the only target left this table unreachable by keyboard entirely, and
+      // focus could not return to it on close because a <tr> takes no focus.
+      return `<tr data-pack-open="${esc(card.id)}">
+        <td class="pack-name-cell"><button type="button" class="name-btn" data-pack-open="${esc(card.id)}">${esc(title)}</button><div class="list-meta">${esc(card.id)} · ${plural(card.activities,'activity','activities')}</div></td>
+        <td class="pack-channel-cell">${channelCell}</td>
+        <td class="pack-window-cell">${fmtDate(card.firstDate)} – ${fmtDate(card.lastDate)}</td>
+        <td>${audiences}</td>
+        <td>${teams}</td>
+        <td><span class="badge ${gaps?'warning':'success'}">${gaps?fmtNum(gaps)+' incomplete':'Complete'}</span></td>
+      </tr>`;
+    };
+    document.getElementById('packs-list').innerHTML=shown.length
+      ? `<div class="table-wrap"><table class="pack-list-table"><thead><tr><th>Pack</th><th>Channels</th><th>Window</th><th>Audiences</th><th>Lead teams</th><th>Readiness</th></tr></thead><tbody>${shown.map(packRow).join('')}</tbody></table></div>`
+      : emptyState(EMPTY_ICONS.layers,'No packs match that','Clear the search or pick another campaign.');
+
+    document.getElementById('packless-subtitle').textContent=
+      `${plural(loose.length,'activity','activities')} carrying no communication pack ID`;
+    document.getElementById('packless-list').innerHTML=loose.length
+      ? loose.slice(0,30).map(row=>`<div class="list-row" data-open-id="${esc(row.id||'')}"><span class="severity-line medium"></span><div><div class="list-title">${esc(row.activity_name||'Untitled')}</div><div class="list-meta">${fmtDate(row.start_date)} · ${nonempty(row.channel)?channelTag(row.channel):'no channel'} · ${esc(row.lead_team||'Unassigned')}</div></div><span class="chip">${esc(row.campaign||'no campaign')}</span></div>`).join('')
+        + (loose.length>30?`<div class="list-more">${plural(loose.length-30,'more activity','more activities')} without a pack · <button type="button" class="linklike" data-goto="activities">Open the activity list →</button></div>`:'')
+      : emptyState(EMPTY_ICONS.checkCircle,'Every activity belongs to a pack','Nothing is orphaned right now.');
   }
 
   // Renders the sync-runs portion of the "Refresh & reconciliation" card from
@@ -1141,7 +1371,53 @@
     return lines.join('');
   }
 
+  // Intake cohorts, moved here from the Overview. The stock figures in this page
+  // cannot move without a nightly snapshot; the flow can, because
+  // source_created_at says when each activity entered the plan. "Are the records
+  // we take in getting better" is both answerable and the more useful question
+  // -- a backlog shrinks only once intake stops adding to it. It belongs beside
+  // the other trust measures, not on the planner's screen: a planner acts on the
+  // records in front of them, a data steward asks whether the inflow is healthy.
+  //
+  // Intake follows the range filter, but a cohort cannot be created in the
+  // future -- with no range that means the last 30 days, not the next 30.
+  function renderIntakeQuality() {
+    const host = document.getElementById('intake-quality');
+    if (!host) return;
+    const now = new Date();
+    const win = A.comparisonWindow(state.dateFrom, state.dateTo, now, 30);
+    const cur = win.active
+      ? win.current
+      : {from: new Date(new Date(now).setDate(now.getDate()-30)), to: now};
+    const span = Math.max(1, cur.to - cur.from);
+    const prev = {from: new Date(cur.from.getTime()-span), to: cur.from};
+    const nowSet = A.createdBetween(state.snapshotRows, cur.from, cur.to);
+    const prevSet = A.createdBetween(state.snapshotRows, prev.from, prev.to);
+    const pct = (part, whole) => whole ? Math.round(part/whole*100) : null;
+    const completeShare = set => pct(set.filter(row=>A.planningCompleteness(row).score===100).length, set.length);
+    // Stated so that up is always good. A reader shown "−14 worse" next to
+    // "−10 better" has to work out the polarity of each measure before the
+    // numbers mean anything. Packless share becomes packed share, not the
+    // other way round.
+    const packedShare = set => pct(set.filter(row=>nonempty(row.campaign)||nonempty(row.communication_pack_cpid)||nonempty(row.communication_pack)).length, set.length);
+    const delta = (current, prior) => {
+      if (!prevSet.length || current===null || prior===null || current===prior) return '';
+      const diff = current - prior;
+      return `<span class="kpi-trend ${diff>0?'up':'down'}">${diff>0?'+':'−'}${fmtNum(Math.abs(diff))} ${diff>0?'better':'worse'}</span>`;
+    };
+    if (!nowSet.length) {
+      host.innerHTML = emptyState(EMPTY_ICONS.barChart,'No activities arrived in this window','Intake quality compares the records created in the selected period against the period before it.');
+      return;
+    }
+    const cs = completeShare(nowSet), ps = packedShare(nowSet);
+    host.innerHTML = `<div class="kpi-grid">`
+      + kpi('Complete on intake', cs===null?'—':`${cs}%`, `${fmtNum(nowSet.length)} new records`, cs!==null&&cs<100?'warning':'success', '', delta(cs, completeShare(prevSet)))
+      + kpi('New with a pack', ps===null?'—':`${ps}%`, `${fmtNum(nowSet.length)} new records`, ps!==null&&ps<100?'warning':'success', '', delta(ps, packedShare(prevSet)))
+      + `</div><p class="kpi-footnote">Compared against the ${plural(win.spanDays,'day')} before this window${prevSet.length?'':' — which hold no records, so no comparison is shown'}.</p>`;
+  }
+
   function renderDataQuality() {
+    renderIntakeQuality();
     const q=A.dataQuality(state.rows),generated=state.meta&&(state.meta.generated_at_iso||state.meta.generated_at)||'Unknown';
     document.getElementById('quality-kpis').innerHTML=[kpi('Complete records',`${q.completenessRate}%`,`${q.incomplete} incomplete`,q.incomplete?'warning':'success'),kpi('Duplicate IDs',q.duplicateTrackingIds,'Unique duplicated identifiers',q.duplicateTrackingIds?'danger':'success'),kpi('Missing IDs',q.missingTrackingIds,'Cannot safely edit',q.missingTrackingIds?'danger':'success'),kpi('Invalid dates',q.invalidDateRanges,'End before start',q.invalidDateRanges?'danger':'success')].join('');
     document.getElementById('quality-diagnostics').innerHTML=[['Missing campaign / pack',q.missingPackIds],['Incomplete planning records',q.incomplete],['Duplicate tracking IDs',q.duplicateTrackingIds],['Missing tracking IDs',q.missingTrackingIds],['Invalid date ranges',q.invalidDateRanges]].map(([label,value])=>`<div class="metric-line"><span>${esc(label)}</span><strong>${fmtNum(value)}</strong></div>`).join('');
@@ -1152,8 +1428,22 @@
     document.getElementById('activities-count').textContent = fmtNum(state.rows.length);
   }
 
+  // Every queue lands on Activities now, conflicts included. The workbench
+  // panel rides along with the conflict queue rather than living on a page of
+  // its own: a table row can say "this one clashes", it cannot show what it
+  // clashes with, and that pairing is the reason the workbench exists.
+  function setQueueFilter(queue) {
+    state.queueFilter=queue;
+    document.getElementById('activity-readiness').value='';
+    showPage('activities');
+    const panel=document.getElementById('conflict-panel');
+    if(panel)panel.hidden=queue!=='conflicts';
+    if(queue==='conflicts'){renderConflicts();}
+    applyActivityFilters();bindOpenRows();bindDuplicateButtons();
+  }
+
   function renderAll() {
-    refreshRows(); renderOverview(); renderBoard(); renderCalendar(); renderConflicts(); renderCapacity(); populateActivityFilters(); applyActivityFilters(); renderPlanningHealth(); renderStrategic(); renderCampaignQuality(); renderDataQuality(); updateActivitiesCount(); bindOpenRows(); bindDuplicateButtons();
+    refreshRows(); refreshChannelOrder(); renderOverview(); renderBoard(); renderCalendar(); renderConflicts(); renderCapacity(); populateActivityFilters(); applyActivityFilters(); renderPacks(); renderPlanningHealth(); renderStrategic(); renderDataQuality(); updateActivitiesCount(); bindOpenRows(); bindDuplicateButtons();
   }
 
   function bindOpenRows() {
@@ -1483,8 +1773,19 @@
     const missing=missingRequiredFields();
     const line=document.getElementById('ready-line'),text=document.getElementById('ready-text');
     line.classList.toggle('ready',missing.length===0);
+    // Shared gaps and per-row gaps are different work and are counted apart.
+    // Merged, a four-channel pack with every shared field filled still read
+    // "12 required fields left" -- true, and useless: it cannot tell the one
+    // field the whole pack is waiting on from a date missing on a single row.
+    // The shared half gates everything; the row half is per-line work the
+    // table itself marks.
+    const rowMissing=state.packing?missing.filter(name=>String(name).startsWith('pack_row:')):[];
+    const sharedMissing=missing.length-rowMissing.length;
+    const rowChannels=new Set(rowMissing.map(name=>String(name).split(':')[1])).size;
     text.textContent=missing.length
-      ?`${missing.length} required field${missing.length===1?'':'s'} left`
+      ?(state.packing&&rowMissing.length
+        ? `Shared: ${sharedMissing?plural(sharedMissing,'field')+' left':'complete'} · Rows: ${plural(rowMissing.length,'field')} across ${plural(rowChannels,'channel')}`
+        : `${plural(missing.length,'required field')} left`)
       :(state.creating?'Ready to create':'Ready to save');
     if (state.showErrors) paintMissing(missing);
     // C1: pack scope's CTA count and pre-save summary ride the same funnel
@@ -1570,8 +1871,18 @@
     // keyed to it keep working. Stated here because this is the one question
     // that decides whether an edit is safe.
     const rule=editing?'<span class="tid-rule">Fixed at creation — changing channel or dates does not re-issue this ID; downstream reports keep working</span>':'';
+    // State beside the identifier, the way the prototype puts its status badge
+    // next to the tracking ID. The studio has no status field, so the honest
+    // equivalent is readiness -- the same completeness rule the table's Issue
+    // column and the Overview queue already use, never a second judgement. It
+    // is dropped while creating, where "0 of N fields" is noise and the footer
+    // ready-line already counts.
+    const missing=row&&row.id?missingRequiredForRow(row):[];
+    const badge=row&&row.id
+      ?`<span class="badge ${missing.length?'warning':'success'}">${missing.length?plural(missing.length,'field')+' missing':'Complete'}</span>`
+      :'';
     if (row&&nonempty(row.tracking_id)) {
-      el.innerHTML=`<div class="tracking-row"><span class="tracking-label">Tracking ID</span>${trackingIdHtml(row.tracking_id,{copy:true})}<span class="tid-help" title="${esc(TRACKING_ID_TITLE)}">i</span></div>${rule}`;
+      el.innerHTML=`<div class="tracking-row"><span class="tracking-label">Tracking ID</span>${trackingIdHtml(row.tracking_id,{copy:true})}<span class="tid-help" title="${esc(TRACKING_ID_TITLE)}">i</span>${badge}</div>${rule}`;
     } else {
       el.innerHTML=`<div class="tracking-row"><span class="tracking-label">Tracking ID</span><span class="tracking-id">${esc(row?'No tracking ID':'Generated on save')}</span></div>`;
     }
@@ -1606,8 +1917,12 @@
         // same data-edit-field mechanism (extends the former data-add-field-
         // only wiring) and gate on the same canEditActivity() check, so
         // viewers/foreign-row contributors get neither affordance.
+        // The channel reads as a swatch here too. A value that is colour-coded
+        // in the table and plain text in the drawer teaches the reader that the
+        // colour means nothing.
+        const shown=field==='channel'&&has?channelTag(value):esc(String(value));
         const display=has
-          ?`${esc(String(value))}${editable?`<button type="button" class="row-edit" data-edit-field="${esc(field)}">Edit</button>`:''}`
+          ?`${shown}${editable?`<button type="button" class="row-edit" data-edit-field="${esc(field)}">Edit</button>`:''}`
           :(editable?`<button type="button" class="detail-add" data-edit-field="${esc(field)}">— Add</button>`:'—');
         return `<div class="detail-row"><dt>${esc(label)}</dt><dd>${display}</dd></div>`;
       }).join('');
@@ -1797,8 +2112,22 @@
     const all=distinctChannels(sourceType).slice();
     state.customChannels.forEach(channel=>{if(!all.includes(channel))all.push(channel);});
     const selected=packSelectedChannels();
+    // Cards, not a checkbox list. Picking channels is the act that builds the
+    // pack -- it decides how many activities exist -- and it was carrying the
+    // smallest targets in the drawer: a 13px box in a two-column list, the same
+    // weight as a "consider for news digest" tick. The card states its status
+    // in words as well as in fill, because the house rule is that colour never
+    // carries meaning alone, and it shows the tracking-ID segment the channel
+    // will contribute, which is the thing the planner is really choosing.
     document.getElementById('pack-channels').innerHTML=all.length
-      ?all.map(channel=>`<label class="ms-option"><input type="checkbox" value="${esc(channel)}"${selected.includes(channel)?' checked':''}><span>${esc(channel)}</span></label>`).join('')
+      ?all.map(channel=>{
+        const on=selected.includes(channel);
+        // cc-state is hidden from assistive tech: the checkbox already
+        // announces checked/unchecked, and repeating it in the label would read
+        // as "Digital Signage DIG Selected, checked". It exists for the eye,
+        // so that selection is not carried by fill alone.
+        return `<label class="channel-card${on?' on':''}"><input type="checkbox" value="${esc(channel)}"${on?' checked':''}><span class="cc-name">${esc(channel)}</span><span class="cc-seg" aria-hidden="true">${esc(channelAbbr(channel))}</span><span class="cc-state" aria-hidden="true">${on?'Selected':'Add'}</span></label>`;
+      }).join('')
       :'<div class="ms-empty">No channels in the data yet — add one below</div>';
   }
 
@@ -1816,6 +2145,14 @@
   // re-renders (channel ticks) via packRowValues(); ticking a channel seeds
   // the row name "<pack name> — <channel>" when a pack name exists,
   // otherwise the name stays open and the ready-line/draft rule chase it.
+  // The pack-level date a newly ticked channel starts from. Empty is a valid
+  // answer -- the planner may not have decided yet -- and then the row is blank
+  // exactly as before.
+  function packDefault(id) {
+    const el=document.getElementById(id);
+    return el&&el.value?el.value:'';
+  }
+
   function renderPackRows() {
     const previous=new Map(packRowValues().map(row=>[row.channel,row]));
     const packName=formValue('pack_name');
@@ -1825,11 +2162,24 @@
       ?`<table class="pack-table"><thead><tr><th>Channel</th><th>Activity name ${required}</th><th>Start ${required}</th><th>End ${required}</th><th title="Sequence number assigned on save">Tracking ID</th></tr></thead><tbody>${selected.map(channel=>{
           const prev=previous.get(channel);
           const name=prev?prev.name:(packName?`${packName} — ${channel}`:'');
-          return `<tr class="pack-row" data-channel="${esc(channel)}"><td class="ch-name">${esc(channel)}</td><td><input data-pack-name value="${esc(name)}" aria-label="Activity name for ${esc(channel)}"></td><td><input type="datetime-local" data-pack-start value="${esc(prev?prev.start:'')}" aria-label="Start for ${esc(channel)}"></td><td><input type="datetime-local" data-pack-end value="${esc(prev?prev.end:'')}" aria-label="End for ${esc(channel)}"></td><td class="stub" data-pack-stub></td></tr>`;
+          // A channel ticked after the pack dates were set inherits them. Most
+          // packs go out on one date and the exceptions are the minority, so
+          // the dates are the default and per-row editing is the correction --
+          // not the other way round. Without this, "Use for all channels" only
+          // ever applied to the rows that happened to exist when it was
+          // pressed, and a channel added afterwards came up blank with no hint
+          // that it had missed the fill.
+          const start=prev?prev.start:packDefault('fill-start');
+          const end=prev?prev.end:packDefault('fill-end');
+          return `<tr class="pack-row" data-channel="${esc(channel)}"><td class="ch-name">${esc(channel)}</td><td><input data-pack-name value="${esc(name)}" aria-label="Activity name for ${esc(channel)}"></td><td><input type="datetime-local" data-pack-start value="${esc(start)}" aria-label="Start for ${esc(channel)}"></td><td><input type="datetime-local" data-pack-end value="${esc(end)}" aria-label="End for ${esc(channel)}"></td><td class="stub" data-pack-stub></td></tr>`;
         }).join('')}</tbody></table>`
       :'<div class="ms-empty">Tick a channel above and its row appears here.</div>';
-    // Fill down only makes sense once there are rows to fill.
-    document.getElementById('pack-fill-down').hidden=!selected.length;
+    // Visible from the start, not only once rows exist. The dates belong to the
+    // pack, not to the rows, and setting them before ticking channels is the
+    // faster order: every channel then arrives already dated. Hiding them until
+    // a row existed forced the slow order and made "use for all" look like a
+    // correction tool rather than the default.
+    document.getElementById('pack-fill-down').hidden=false;
     updatePackStubs();
   }
 
@@ -2512,18 +2862,6 @@
     document.getElementById(`page-${name}`).classList.add('active');
   }
 
-  function showSubpage(navName, subName) {
-    const nav=document.querySelector(`[data-subnav="${navName}"]`);
-    nav.querySelectorAll('.subnav-item').forEach(x=>x.classList.toggle('active',x.dataset.sub===subName));
-    nav.parentElement.querySelectorAll(':scope > .subpage').forEach(x=>x.classList.remove('active'));
-    document.getElementById(`sub-${subName}`).classList.add('active');
-  }
-
-  const RANGE_LABELS = {'30d':'last 30 days', quarter:'this quarter', ytd:'year to date', '12m':'last 12 months'};
-
-  // The range banner is the per-page answer to "which data am I looking at":
-  // visible on every tab whenever the range is narrower than All, naming the
-  // range and the nesting rule (page horizons count within it).
   function updateRangeUI() {
     const filtering=Boolean(state.dateFrom||state.dateTo);
     document.getElementById('time-filter').classList.toggle('filtering',filtering);
@@ -2567,13 +2905,6 @@
       btn.classList.add('active');
       renderChannelMix();
     };
-    document.getElementById('channel-horizon').onclick=event=>{
-      const btn=event.target.closest('button');if(!btn)return;
-      document.querySelectorAll('#channel-horizon button').forEach(x=>x.classList.remove('active'));
-      btn.classList.add('active');
-      state.channelHorizonWeeks=Number(btn.dataset.weeks);
-      renderChannelLoad();
-    };
     document.getElementById('trend-toggle').onclick=event=>{
       const btn=event.target.closest('button');if(!btn)return;
       document.querySelectorAll('#trend-toggle button').forEach(x=>x.classList.remove('active'));
@@ -2593,15 +2924,7 @@
     // the first missing field.
     document.addEventListener('click',event=>{
       const queueBtn=event.target.closest('[data-queue]');
-      if(queueBtn){
-        const queue=queueBtn.dataset.queue;
-        if(queue==='conflicts'){showPage('planning');showSubpage('planning','conflicts');renderConflicts();bindOpenRows();return;}
-        state.queueFilter=queue;
-        document.getElementById('activity-readiness').value='';
-        showPage('activities');
-        applyActivityFilters();bindOpenRows();bindDuplicateButtons();
-        return;
-      }
+      if(queueBtn){setQueueFilter(queueBtn.dataset.queue);return;}
       const fixBtn=event.target.closest('[data-fix-id]');
       if(fixBtn){
         event.stopPropagation();
@@ -2611,7 +2934,15 @@
       const copyBtn=event.target.closest('[data-copy-id]');
       if(copyBtn){
         event.stopPropagation();
-        navigator.clipboard.writeText(copyBtn.dataset.copyId).then(()=>toast('Tracking ID copied')).catch(()=>toast('Copy failed'));
+        // Confirmation where the hand already is, not only in the corner. The
+        // toast still fires -- it is the accessible announcement and the undo
+        // surface -- but a button that changes nothing when pressed reads as
+        // broken, and in the pack drawer there are eleven of them.
+        navigator.clipboard.writeText(copyBtn.dataset.copyId).then(()=>{
+          toast('Tracking ID copied');
+          copyBtn.classList.add('copied');
+          setTimeout(()=>copyBtn.classList.remove('copied'),1200);
+        }).catch(()=>toast('Copy failed'));
       }
     },true);
     // Overview cards name the thing the reader is after ("Largest gap:
@@ -2627,11 +2958,64 @@
       const [page,sub]=btn.dataset.goto.split(':');
       const nav=document.querySelector(`.nav-item[data-page="${page}"]`);
       if(nav) nav.click();
-      const target=document.querySelector(`[data-subnav="${page}"] .subnav-item[data-sub="${sub}"]`);
-      if(target) target.click();
       window.scrollTo({top:0});
+      if(!sub) return;
+      // Three shapes of destination now that the subnavs are gone: a view of
+      // the Overview (list/timeline/calendar), a queue filter on Activities,
+      // and a section of the Health page. The jump-link contract stays
+      // "page:target" at every call site -- what changed is where a target can
+      // land, not how a caller writes it.
+      const view=document.querySelector(`#overview-view button[data-view="${sub}"]`);
+      if(page==='overview'&&view){view.click();return;}
+      if(page==='activities'){setQueueFilter(sub);return;}
+      const section=document.getElementById(`sec-${sub}`);
+      if(section)section.scrollIntoView({block:'start'});
     });
-    document.querySelectorAll('[data-subnav]').forEach(nav=>nav.querySelectorAll('.subnav-item').forEach(btn=>btn.onclick=()=>{nav.querySelectorAll('.subnav-item').forEach(x=>x.classList.remove('active'));const page=nav.parentElement;page.querySelectorAll(':scope > .subpage').forEach(x=>x.classList.remove('active'));btn.classList.add('active');document.getElementById(`sub-${btn.dataset.sub}`).classList.add('active');}));
+    // Backdrop, the × and Escape all close it -- three routes, same as the
+    // activity drawer, because a panel that only closes by one is a trap.
+    document.addEventListener('click',event=>{
+      if(event.target.closest('[data-close-pack]'))closePackDetail();
+    });
+    document.addEventListener('keydown',event=>{
+      if(event.key!=='Escape')return;
+      // Only the topmost layer answers Escape. A fix chip inside a channel card
+      // opens the activity drawer ON TOP of this one, and without the guard the
+      // key would close the pack underneath and leave the activity floating on
+      // a page the reader never chose.
+      if(document.getElementById('activity-drawer').classList.contains('open'))return;
+      if(document.getElementById('pack-drawer').classList.contains('open'))closePackDetail();
+    });
+    // View switcher: the list, the timeline and the calendar are three
+    // layouts of one forward window, so switching is a local act -- no data
+    // reload, no scroll reset, no page change.
+    document.getElementById('overview-view').onclick=event=>{
+      const btn=event.target.closest('button');if(!btn)return;
+      document.querySelectorAll('#overview-view button').forEach(x=>x.classList.toggle('active',x===btn));
+      document.querySelectorAll('#page-overview .overview-view').forEach(x=>x.classList.toggle('active',x.id===`view-${btn.dataset.view}`));
+      if(btn.dataset.view==='timeline'){renderBoard();bindOpenRows();}
+      if(btn.dataset.view==='calendar'){renderCalendar();bindOpenRows();}
+    };
+    const runPackFilters=()=>{renderPacks();bindOpenRows();};
+    document.getElementById('pack-search').addEventListener('input',debounce(runPackFilters,200));
+    document.getElementById('pack-campaign-filter').onchange=runPackFilters;
+    document.getElementById('pack-clear').onclick=()=>{
+      document.getElementById('pack-search').value='';
+      document.getElementById('pack-campaign-filter').value='';
+      runPackFilters();
+    };
+    document.getElementById('packs-new').onclick=event=>{openCreateDrawer(event.currentTarget);setScope('pack');};
+    // Opening a pack means seeing its activities: the pack is a grouping, not a
+    // record of its own, so it hands over to the list filtered to that pack
+    // rather than pretending to be an object with a detail view.
+    document.addEventListener('click',event=>{
+      const packBtn=event.target.closest('[data-pack-open]');
+      if(!packBtn)return;
+      // A click on the name button bubbles to its own <tr>, which carries the
+      // same attribute -- take the innermost and stop there, mirroring the
+      // activity table's guard against opening the same record twice.
+      if(packBtn.tagName==='BUTTON')event.stopPropagation();
+      openPackDetail(packBtn.dataset.packOpen, packBtn);
+    });
     document.getElementById('horizon-toggle').onclick=event=>{const btn=event.target.closest('button');if(!btn)return;document.querySelectorAll('#horizon-toggle button').forEach(x=>x.classList.remove('active'));btn.classList.add('active');state.horizonWeeks=Number(btn.dataset.weeks);renderBoard();bindOpenRows();};
     ['conflict-proximity','conflict-type','conflict-severity'].forEach(id=>document.getElementById(id).onchange=()=>{renderConflicts();bindOpenRows();});
     document.getElementById('cal-prev').onclick=()=>{state.calendarDate=new Date(state.calendarDate.getFullYear(),state.calendarDate.getMonth()-1,1);renderCalendar();bindOpenRows();};
@@ -2649,12 +3033,31 @@
     document.getElementById('activity-clear').onclick=clearActivityFilters;
     // The bar's own Clear drops just the queue -- a user who narrowed the
     // review list with a search should not lose that search too.
-    document.getElementById('queue-bar-clear').onclick=()=>{state.queueFilter=null;runActivityFilters();};
+    document.getElementById('queue-bar-clear').onclick=()=>{state.queueFilter=null;document.getElementById('conflict-panel').hidden=true;runActivityFilters();};
     document.getElementById('activity-export').onclick=exportFilteredCsv;
     document.getElementById('activity-new').onclick=event=>openCreateDrawer(event.currentTarget);
-    document.getElementById('planning-new').onclick=event=>openCreateDrawer(event.currentTarget);
     document.getElementById('overview-new').onclick=event=>openCreateDrawer(event.currentTarget);
-    document.getElementById('pack-channels').addEventListener('change',()=>{renderPackRows();state.dirty=true;});
+    // The card's selected styling and its "Selected"/"Add" word are driven from
+    // the checkbox that is still the real control, so a keyboard toggle updates
+    // the card exactly like a click does.
+    document.getElementById('pack-channels').addEventListener('change',event=>{
+      const box=event.target.closest('input[type=checkbox]');
+      if(box){
+        const card=box.closest('.channel-card');
+        if(card){
+          card.classList.toggle('on',box.checked);
+          const state2=card.querySelector('.cc-state');
+          if(state2)state2.textContent=box.checked?'Selected':'Add';
+        }
+      }
+      renderPackRows();state.dirty=true;
+    });
+    ['focusin','focusout'].forEach(type=>{
+      document.getElementById('pack-channels').addEventListener(type,event=>{
+        const card=event.target.closest&&event.target.closest('.channel-card');
+        if(card)card.classList.toggle('focus',type==='focusin');
+      });
+    });
     // I6: stubs live-update as row dates are typed; the ready-line, CTA
     // count and summary refresh via the form-level input listener below
     // (updateReady is the single funnel for those).
@@ -2663,15 +3066,19 @@
     // stays individually editable afterwards.
     document.getElementById('fill-apply').onclick=()=>{
       const start=document.getElementById('fill-start').value,end=document.getElementById('fill-end').value;
-      if(!start&&!end){toast('Set a start or end date first');return;}
-      document.querySelectorAll('#pack-rows .pack-row').forEach(rowEl=>{
+      if(!start&&!end){toast('Set a pack start or end date first');return;}
+      const rows=document.querySelectorAll('#pack-rows .pack-row');
+      if(!rows.length){toast('Tick a channel first — the dates carry over to it');return;}
+      rows.forEach(rowEl=>{
         if(start)rowEl.querySelector('[data-pack-start]').value=start;
         if(end)rowEl.querySelector('[data-pack-end]').value=end;
       });
       state.dirty=true;
       updatePackStubs();
       updateReady();
-      toast('Dates applied to every channel — still editable per row');
+      // Says what it did AND that it is reversible per row, because the button
+      // overwrites dates the planner may have set by hand.
+      toast(`Pack dates applied to ${plural(rows.length,'channel')} — each row stays editable`);
     };
     document.getElementById('belongs-to').addEventListener('change',()=>{
       const value=document.getElementById('belongs-to').value;

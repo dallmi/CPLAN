@@ -33,18 +33,25 @@ class StudioDrawerTests(unittest.TestCase):
         # The rule is one primary CTA per page, not one in the whole studio.
         self.assertIn('<button class="btn secondary" id="activity-export">Export filtered CSV</button>', html)
         self.assertIn('<button class="btn primary" id="activity-new">New activity</button>', html)
-        self.assertIn('<button class="btn primary" id="planning-new">New activity</button>', html)
+        # Planning was dissolved on 2026-07-29 (12 destinations to 4); its page
+        # CTA moved to the new Packs tab, where "New pack" is that page's single
+        # primary action. The rule under test is unchanged: one primary CTA per
+        # page-actions block, every create CTA role-gated.
+        self.assertIn('<button class="btn primary" id="packs-new">New pack</button>', html)
         self.assertIn('<button class="btn primary" id="overview-new">New activity</button>', html)
         for block in re.findall(r'<div class="page-actions">(.*?)</div>', html, re.S):
             self.assertLessEqual(block.count('btn primary'), 1, block)
         # #pack-new is gone from markup, role gating, and event wiring.
+        # #pack-new was a SECOND primary inside the create drawer, retired by I1
+        # in favour of one primary plus a scope toggle. Still gone -- pinned by
+        # id, not by label: the Packs page's own "New pack" CTA is a different
+        # control on a different surface and must not be caught by this rule.
         self.assertNotIn('id="pack-new"', html)
         self.assertNotIn('id="pack-new"', app)
-        self.assertNotIn(">New pack<", html)
         # applyRoleGating gates every create CTA behind the same permission.
         self.assertIn("const allowed = canCreate();", app)
         self.assertIn("document.getElementById('activity-new').hidden = !allowed;", app)
-        self.assertIn("document.getElementById('planning-new').hidden = !allowed;", app)
+        self.assertIn("document.getElementById('packs-new').hidden = !allowed;", app)
         self.assertIn("document.getElementById('overview-new').hidden = !allowed;", app)
 
     def test_scope_toggle_markup_and_drives_packing_machinery(self):
