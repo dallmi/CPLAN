@@ -103,12 +103,14 @@
             <article class="card"><div class="card-head"><div><h3>Coming up</h3></div></div><div class="card-body flush" id="upcoming-list"></div></article>
           </div>
           <!-- Volume leads: it is the chart with a time axis to read along,
-               so it takes the wide column. The ring is a single proportion
-               and needs only enough room for its legend. Below 1000px the
-               .grid.two-one rule already stacks them, volume first. -->
-          <div class="grid two-one">
+               so it takes the wide column. A ring is a single proportion and
+               needs only enough room for its legend, so the two of them share
+               what is left in equal narrow columns. Below 1000px the
+               .grid.two-one-one rule stacks all three, volume first. -->
+          <div class="grid two-one-one">
             <article class="card"><div class="card-head"><div><h3>Activity volume</h3></div><div class="segmented" id="trend-toggle"><button class="active" data-mode="">All</button><button data-mode="internal">Internal</button><button data-mode="external">External</button></div></div><div class="card-body" id="monthly-trend"></div></article>
             <article class="card"><div class="card-head"><div><h3>Priority distribution</h3></div></div><div class="card-body" id="priority-donut"></div></article>
+            <article class="card"><div class="card-head"><div><h3>Business division</h3><p>An activity counts once per division it names</p></div></div><div class="card-body" id="division-donut"></div></article>
           </div>
         </div>
 

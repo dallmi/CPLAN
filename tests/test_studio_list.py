@@ -185,6 +185,42 @@ class StudioListTests(unittest.TestCase):
         # An unrecognised value must not borrow the top colour.
         self.assertIn("Math.min(PRIORITY_RAMP.length - 1, Math.max(0, 4 - rank))", app)
 
+    def test_division_donut_counts_mentions_and_names_the_unassigned(self):
+        """The division ring, restored 2026-07-30 beside the priority ring.
+
+        Two things have to hold or it misleads. First, business_division is
+        multi-valued, so the ring counts mentions and its total is not the
+        activity count -- the centre has to say so, because the priority ring
+        next to it counts activities and an unlabelled pair invites a
+        comparison that does not hold. Second, normalizeMulti drops empty
+        values, so rows naming no division fall out of the count silently and
+        every percentage then describes only the assigned part of the
+        portfolio. Division is required for internal activities but not for
+        external ones, so those rows are real and get their own slice.
+        """
+        app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("const DONUT_SEQUENCE =", app)
+        sequence = re.search(r"const DONUT_SEQUENCE = \[(.*?)\];", app)
+        self.assertIsNotNone(sequence)
+        values = re.findall(r"#[0-9A-Fa-f]{6}", sequence.group(1))
+        self.assertEqual(len(values), len(set(values)), "divisions must stay distinct")
+        # A division is a category, not a severity: the studio's bordeaux is
+        # reserved for the priority ramp and for genuine faults.
+        self.assertNotIn("#8A000A", values)
+        # grey-1 belongs to the unassigned slice alone. While it also sat in
+        # this sequence the four-division portfolio drew its last division and
+        # "No division" in one shade, side by side on the same ring.
+        self.assertNotIn("#CCCABC", values)
+
+        # Mentions, and the centre says it.
+        self.assertIn("donutHtml(divisionEntries(rows),divisionColor,null,'mentions')", app)
+        # Rows with no division are a slice, not a silent omission.
+        self.assertIn("const NO_DIVISION = 'No division';", app)
+        self.assertIn("rows.filter(row => !split(row.business_division).length)", app)
+        # And that slice never borrows a division's colour.
+        self.assertIn("label === NO_DIVISION ? 'var(--grey-1)'", app)
+
     def test_strategic_and_coverage_bar_lists_drop_the_bronze_flag(self):
         app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
 

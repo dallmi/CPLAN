@@ -150,6 +150,40 @@ function donutHtml(entries, colorOf, centerText, centerSub) {
     return PRIORITY_RAMP[Math.min(PRIORITY_RAMP.length - 1, Math.max(0, 4 - rank))];
   }
 
+  // --- Division donut -----------------------------------------------------
+  // Greys and bronzes, deliberately no bordeaux: a division is a category, not
+  // a severity, and the studio's red is spoken for. Ordered by distance rather
+  // than by family, alternating light and dark, so two divisions landing next
+  // to each other in the ring never land on two shades of the same brown.
+  //
+  // grey-1 (#CCCABC) is missing from the sequence on purpose -- it is the
+  // unassigned slice's colour below. It used to sit fourth here, which on the
+  // four-division portfolio painted the last division and "No division" the
+  // same shade, as two adjacent segments of one ring.
+  const DONUT_SEQUENCE = ['#404040', '#B98E2C', '#8E8D83', '#6C5312', '#B8B3A2', '#5A5D5C', '#946F29'];
+  const NO_DIVISION = 'No division';
+  // business_division is multi-valued, so this counts MENTIONS: an activity
+  // naming two divisions is one mention of each, and the ring's total is
+  // therefore not the activity count. The centre says "mentions" and the card
+  // head says why -- without that, two rings on one page invite a comparison
+  // that does not hold.
+  //
+  // Rows carrying no division get their own slice rather than vanishing.
+  // normalizeMulti drops empties, so the old chart quietly excluded them and
+  // its percentages described only the assigned part of the portfolio.
+  // business_division is required for internal activities but not external
+  // ones, so the slice is a real answer -- "this much of the portfolio does not
+  // name one" -- and it sits last on a flat grey, out of the sequence, because
+  // it is the absence of a division rather than one more division.
+  function divisionEntries(rows) {
+    const named = countBy(rows, 'business_division');
+    const none = rows.filter(row => !split(row.business_division).length).length;
+    return none ? named.concat([[NO_DIVISION, none]]) : named;
+  }
+  function divisionColor(label, index) {
+    return label === NO_DIVISION ? 'var(--grey-1)' : DONUT_SEQUENCE[index % DONUT_SEQUENCE.length];
+  }
+
   function monthlyTrendHtml(rows) {
     const buckets = new Map();
     rows.forEach(row => {
@@ -889,16 +923,20 @@ function donutHtml(entries, colorOf, centerText, centerSub) {
     // Centre carries the pool the shares are read against -- "17% urgent" is
     // meaningless without knowing 17% of what.
     document.getElementById('priority-donut').innerHTML=donutHtml(priorityEntries(rows),priorityColor,null,'activities');
-    // The division donut, the priority donut and the monthly trend used to close
-    // this page. All three answer "what does the portfolio look like", not "what
-    // do I do next", and between them they filled a screen and a half below the
-    // fold. The division split duplicated Division coverage on Coverage & channel
-    // mix outright. The priority split repeated, as three near-equal shares, what
-    // the Critical and high tile now states as a count. The monthly trend was the
-    // largest element on the page and its own footnote had to tell the reader not
-    // to read its last four bars as a decline -- it belongs with the other
-    // portfolio-shape questions, where "how many arrive per month" is the actual
-    // question being asked, and it now lives on Planning Health.
+    // Two rings side by side, and the centres are what keeps them apart: one
+    // counts activities, the other counts division mentions, so the totals
+    // differ on any portfolio where an activity names two divisions or none.
+    // Never let a ring render its centre bare here.
+    document.getElementById('division-donut').innerHTML=donutHtml(divisionEntries(rows),divisionColor,null,'mentions');
+    // Both rings and the monthly trend closed this page before the rebuild, and
+    // all three were dropped on 2026-07-29 as portfolio shape rather than "what
+    // do I do next". The trend came back first, then the priority ring, and the
+    // division split now with it: on the real portfolio it answers who the
+    // quarter is actually for, which the planner reads before deciding what to
+    // move. It overlaps Coverage by dimension on Health, which counts the same
+    // divisions as bars beside team, audience and region -- that page asks which
+    // categories are thin, this ring asks how the whole splits, and the answer
+    // is wanted here without a second navigation.
   }
 
   function renderTrend() {
