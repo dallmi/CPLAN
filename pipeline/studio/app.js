@@ -643,25 +643,14 @@
     // cross-tab that would answer it sits two clicks away behind a tab nobody
     // opens unprompted. Naming the audience turns a table you have to know
     // about into a finding that announces itself.
-    const idle = field => {
-      const known = new Set(state.snapshotRows.flatMap(row=>split(row[field])));
-      const live = new Set(cmpCur.flatMap(row=>split(row[field])));
-      return Array.from(known).filter(value=>!live.has(value));
-    };
-    const idleAudiences = idle('target_audience');
-    const idleChannels = idle('channel');
-    const idleNamed = idleAudiences.map(a=>`audience ${a}`).concat(idleChannels.map(c=>`channel ${c}`));
-    // Two guards, both found by running the screen against an empty selection.
-    // With nothing planned at all, every category is idle and the signal listed
-    // nine of them in one line -- true, useless, and the only signal on the
-    // page, while the headline zero beside it already said it. And even with a
-    // healthy plan the list has no natural bound, so it is capped: a signal is
-    // meant to name what to look at, not enumerate a dimension.
-    const IDLE_NAMED = 3;
-    if(idleNamed.length && cmpCur.length) {
-      const rest = idleNamed.length - IDLE_NAMED;
-      signals.push({rank:2,html:`Nothing planned in the next 30 days for ${idleNamed.slice(0,IDLE_NAMED).map(esc).join(' \u00b7 ')}${rest>0?` and ${fmtNum(rest)} more`:''}`,goto:'health:coverage',label:'Open channel mix',warn:true});
-    }
+    // The "nothing planned for audience X · channel Y" band is gone from this
+    // screen. It named categories with nothing in the next thirty days, which
+    // at portfolio scale meant a paragraph of names directly under the tiles --
+    // and the same absence is already visible as a zero-length bar in the
+    // dimension it belongs to, on Health under Coverage by dimension. Losing
+    // it also loses the only jump link into that section; it stays reachable
+    // through the Health tab and its section anchors, which is a navigation
+    // step rather than a dead end.
     const ranked = signals.sort((a,b)=>a.rank-b.rank);
     const shownSignals = ranked.slice(0,2);
     const hidden = ranked.slice(2);
@@ -959,16 +948,17 @@
       ['Channels','channel',allRows,future],
       ['Regions','region',allRows,future],
     ];
-    const blank=[];
     const panels=dimensions.map(([label,field,source,window])=>{
       const entries=countByAgainst(source,window,field);
-      entries.filter(item=>item[1]===0).forEach(item=>blank.push(`${label.replace(/s$/,'')}: ${item[0]}`));
       return `<div><h3>${esc(label)}</h3>${barList(entries)}</div>`;
     }).join('');
-    const note=blank.length
-      ? `<p class="notice warn">Nothing planned in this horizon for ${blank.map(esc).join(' · ')}</p>`
-      : '';
-    document.getElementById('coverage-dimensions').innerHTML=`${note}<div class="grid two">${panels}</div>`;
+    // The banner that used to head this block listed every empty category by
+    // name. Over five dimensions and a real portfolio that is a paragraph
+    // before the reader reaches a single chart -- and the charts say it better:
+    // countByAgainst keeps categories with nothing planned in the list at zero,
+    // so an empty category is a visible bar of length nothing, in the dimension
+    // it belongs to, rather than a name in a run-on sentence.
+    document.getElementById('coverage-dimensions').innerHTML=`<div class="grid two">${panels}</div>`;
   }
 
   function populateActivityFilters() {
@@ -1117,17 +1107,16 @@
     document.getElementById('team-health').innerHTML=`<table><thead><tr><th>Team</th><th class="num">Activities</th><th class="num">Complete</th><th class="num">Short notice</th><th class="num">Median lead</th></tr></thead><tbody>${Array.from(teamRows.entries()).map(([team,items])=>{const q=A.dataQuality(items),l=A.leadTimeStats(items,7);return `<tr><td>${esc(team)}</td><td class="num">${items.length}</td><td class="num">${q.completenessRate}%</td><td class="num">${l.shortNoticeRate}%</td><td class="num">${l.median===null?'—':l.median+'d'}</td></tr>`;}).join('')}</tbody></table>`;
   }
 
+  // What is left of the strategic view after the Health rebuild: the
+  // channel-mix cross-tab, and nothing else. Pillar and Division coverage went
+  // to "Coverage by dimension", which says both and adds three more. The
+  // unaligned worklist went with them -- an activity without a pillar is an
+  // incomplete record, and incomplete records already have a home in the
+  // attention queue and in the Issue column, each of which names the missing
+  // field and opens the record on it. A second list of the same rows under a
+  // different heading was a third place to find them, not a new finding.
   function renderStrategic() {
-    // Pillar coverage, Division coverage and the four strategic KPI tiles were
-    // dropped with the Health rebuild: "Coverage by dimension" on the same page
-    // already lists pillar and division, adds team, audience and region, and
-    // keeps categories with nothing planned visible at zero -- which is the
-    // question a coverage view exists to answer. What is left here is the
-    // channel-mix cross-tab and the unaligned worklist, neither of which is
-    // said anywhere else.
-    const rows=state.rows,unaligned=rows.filter(r=>!nonempty(r.strategic_objectives));
     renderChannelMix();
-    document.getElementById('unaligned-list').innerHTML=unaligned.length?unaligned.slice(0,30).map(row=>`<div class="list-row" data-open-id="${esc(row.id||'')}"><span class="severity-line high"></span><div><div class="list-title">${esc(row.activity_name||'Untitled')}</div><div class="list-meta">${fmtDate(row.start_date)} · ${esc(row.lead_team||row.lead||'Unassigned')}</div></div><span class="badge warning">Unaligned</span></div>`).join(''):emptyState(EMPTY_ICONS.checkCircle, 'All activities have a communications pillar', 'Nothing left to align.');
   }
 
   // Channel mix: which channel actually carries which audience or pillar.
