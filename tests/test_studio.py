@@ -444,14 +444,20 @@ class StudioTests(unittest.TestCase):
         self.assertIn("input:focus,select:focus,textarea:focus,.ms-trigger:focus{outline:2px solid var(--info)", css)
         # KPI bars: category colouring removed; RAG only where data-driven.
         self.assertNotIn("'highlight'", app)
-        # The "donut centres unified" checks (centerSub / 'mentions' /
-        # 'activities') were retired on 2026-07-29 together with their subject:
-        # the Overview's division and priority donuts are gone, so there is no
-        # donut centre left to unify. Their intent -- two figures on one screen
-        # must never be silently comparable -- is not weakened, it has no
-        # instance any more. Pinned as an absence so the ring cannot creep back
-        # without a deliberate decision.
-        self.assertNotIn("donutHtml", app)
+        # The priority ring came back on 2026-07-30. Its removal a day earlier
+        # was reasoned from the demo portfolio, where the levels sat at
+        # 35/34/31% and a ring of three equal thirds genuinely says nothing;
+        # production runs about 65/18/16/1 across four levels, where the same
+        # ring shows that the urgent work is a small identifiable slice of a
+        # large pool. The absence assertion was mine and it did not survive the
+        # real data, so it is withdrawn rather than worked around.
+        #
+        # What that assertion protected is still protected: a donut centre must
+        # carry its unit, so two rings on one screen can never be silently
+        # compared. That is the rule -- pinned directly instead of by proxy.
+        self.assertIn("function donutHtml", app)
+        self.assertIn("centerSub", app)
+        self.assertIn("'activities')", app)
 
         # I11: no brand-colour tint tokens survive anywhere in the kit --
         # status is carried by the 3px left rule or a badge dot, never a tint.

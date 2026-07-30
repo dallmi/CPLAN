@@ -95,6 +95,61 @@
     return date ? `${String(date.getFullYear()).slice(2)}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}` : '……';
   };
 
+  // --- Priority donut -----------------------------------------------------
+  // Restored after being removed on 2026-07-29. That removal was reasoned from
+  // the demo portfolio, where the three priority levels sat at 35/34/31% -- as
+  // near to equal as makes no difference, and a ring of three equal thirds says
+  // nothing. Production is not shaped like that at all: roughly 65/18/16/1
+  // across four levels, so the ring shows at a glance that the genuinely urgent
+  // work is a small, identifiable slice of a very large pool. Same chart, and
+  // the argument for dropping it simply did not survive the real data.
+
+function donutHtml(entries, colorOf, centerText, centerSub) {
+    if (!entries.length) return emptyState(EMPTY_ICONS.barChart, 'No data available', 'Nothing to show for the current selection.');
+    const total = entries.reduce((sum, [, count]) => sum + count, 0);
+    const shown = entries.slice(0, 8);
+    const r = 56, cx = 70, cy = 70, circ = 2 * Math.PI * r, gap = shown.length > 1 ? 2.5 : 0;
+    let offset = -circ / 4;
+    const segments = shown.map(([label, count], i) => {
+      const len = count / total * circ;
+      const seg = `<circle r="${r}" cx="${cx}" cy="${cy}" fill="none" stroke="${colorOf(label, i)}" stroke-width="16" stroke-dasharray="${Math.max(len - gap, 0.5)} ${circ - Math.max(len - gap, 0.5)}" stroke-dashoffset="${-offset}"><title>${esc(label)} — ${fmtNum(count)}</title></circle>`;
+      offset += len;
+      return seg;
+    }).join('');
+    const legend = shown.map(([label, count], i) => `<div class="legend-row"><span class="swatch" style="background:${colorOf(label, i)}"></span>${esc(label)} — ${fmtNum(count)} (${Math.round(count / total * 100)}%)</div>`).join('');
+    const rest = entries.length > shown.length ? `<div class="legend-row"><span class="swatch" style="background:var(--grey-1)"></span>+${entries.length - shown.length} more</div>` : '';
+    const center = (centerText === undefined || centerText === null) ? fmtNum(total) : centerText;
+    const subSvg = centerSub ? `<text x="${cx}" y="${cy + 20}" text-anchor="middle" font-size="9" fill="var(--grey-4)">${esc(centerSub)}</text>` : '';
+    const centerSvg = center === '' ? '' : `<text x="${cx}" y="${cy + (centerSub ? 2 : 8)}" text-anchor="middle" class="donut-center" font-size="26" font-weight="300">${center}</text>` + subSvg;
+    return `<div class="donut-wrap"><svg class="donut-svg" width="140" height="140" viewBox="0 0 140 140" role="img">${segments}${centerSvg}</svg><div class="donut-legend">${legend}${rest}</div></div>`;
+  }
+
+  // Ordered and coloured by rank, never alphabetically and never by size. The
+  // source system's labels sort "1 - ..." before "4 - ..." by luck, the
+  // studio's own words do not sort meaningfully at all, and either way the
+  // reader is looking for the urgent slice -- so the most urgent level leads
+  // the legend and carries the strongest colour. Bordeaux for the top level,
+  // then bronze, then greys: the ramp is the studio's own, and weight falls
+  // with urgency rather than with share.
+  const PRIORITY_RAMP = ['#8A000A', '#B98E2C', '#7A7870', '#CCCABC'];
+  function priorityEntries(rows) {
+    const counts = new Map();
+    rows.forEach(row => {
+      const value = nonempty(row.priority) ? String(row.priority).trim() : 'No priority';
+      counts.set(value, (counts.get(value) || 0) + 1);
+    });
+    return Array.from(counts.entries()).sort((a, b) => {
+      const rank = A.priorityRank(b[0]) - A.priorityRank(a[0]);
+      return rank || b[1] - a[1];
+    });
+  }
+  function priorityColor(label) {
+    const rank = A.priorityRank(label);
+    // rank 4 (most urgent) -> index 0. Anything unrecognised lands mid-ramp
+    // rather than borrowing the top colour.
+    return PRIORITY_RAMP[Math.min(PRIORITY_RAMP.length - 1, Math.max(0, 4 - rank))];
+  }
+
   function monthlyTrendHtml(rows) {
     const buckets = new Map();
     rows.forEach(row => {
@@ -844,6 +899,9 @@
         + (upcomingRest?`<div class="list-more">${fmtNum(upcomingRest)} more in the next 30 days · <button type="button" class="linklike" data-goto="overview:timeline">See them on the timeline →</button></div>`:'')
       : emptyState(EMPTY_ICONS.calendar, 'No activities in the next 30 days', 'Check back later or widen the planning horizon.');
 
+    // Centre carries the pool the shares are read against -- "17% urgent" is
+    // meaningless without knowing 17% of what.
+    document.getElementById('priority-donut').innerHTML=donutHtml(priorityEntries(rows),priorityColor,null,'activities');
     // The division donut, the priority donut and the monthly trend used to close
     // this page. All three answer "what does the portfolio look like", not "what
     // do I do next", and between them they filled a screen and a half below the

@@ -156,23 +156,34 @@ class StudioListTests(unittest.TestCase):
         # Role gating is unchanged: Duplicate only renders for canCreate().
         self.assertIn("const duplicateBtn = canCreate() ?", app)
 
-    def test_priority_is_a_count_not_a_ring(self):
-        """The priority donut was retired on 2026-07-29 with the Overview rebuild.
+    def test_priority_ring_orders_and_colours_by_rank(self):
+        """The priority ring, restored 2026-07-30 after a day away.
 
-        Its predecessor pinned five distinct hex values so four adjacent
-        priority levels could not blur into one beige on a thin ring. There is
-        no ring: priority reaches the Overview as a single "Critical and high"
-        count, which needs no palette to stay legible, and the full split is one
-        click away in the Activities filter. The old test cannot be weakened
-        into passing -- its subject is gone -- so what is pinned instead is the
-        absence, keeping the ring from returning unnoticed and taking the
-        colour-distinctness problem with it.
+        Its predecessor pinned five distinct hex values so adjacent levels could
+        not blur on a thin ring. That test was retired with the chart; this one
+        replaces it and guards something stronger, because the ring now has to
+        survive two vocabularies at once. The source system numbers its four
+        levels, the studio's own form spells them out, and neither sorts into
+        urgency order by itself -- alphabetically or by share, the urgent slice
+        lands wherever it happens to land. So order and colour both come from
+        priorityRank, most urgent first and strongest, and the ramp is walked by
+        rank rather than by position in the data.
         """
         app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
 
-        self.assertNotIn("PRIORITY_DONUT_COLORS", app)
-        self.assertNotIn("priority-donut", app)
-        self.assertIn("kpi('Critical and high'", app)
+        self.assertIn("const PRIORITY_RAMP =", app)
+        ramp = re.search(r"const PRIORITY_RAMP = \[(.*?)\];", app)
+        self.assertIsNotNone(ramp)
+        values = re.findall(r"#[0-9A-Fa-f]{6}", ramp.group(1))
+        self.assertEqual(len(values), 4, "one colour per priority level")
+        self.assertEqual(len(values), len(set(values)), "levels must stay distinct")
+
+        # Order by rank, not by label and not by count.
+        self.assertIn("const rank = A.priorityRank(b[0]) - A.priorityRank(a[0]);", app)
+        # Colour by rank too, so the two can never disagree.
+        self.assertIn("const rank = A.priorityRank(label);", app)
+        # An unrecognised value must not borrow the top colour.
+        self.assertIn("Math.min(PRIORITY_RAMP.length - 1, Math.max(0, 4 - rank))", app)
 
     def test_strategic_and_coverage_bar_lists_drop_the_bronze_flag(self):
         app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
