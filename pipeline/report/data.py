@@ -7,7 +7,6 @@ partition of what was read, not overlapping tallies.
 """
 
 from dataclasses import dataclass, field
-from datetime import date
 
 import pandas as pd
 
@@ -47,6 +46,24 @@ class Scope:
 
 def _is_blank(series):
     return series.isna() | (series.astype(str).str.strip().isin(["", "nan", "NaT"]))
+
+
+def _column(frame, name, default=""):
+    """The named column, or a full-length column of `default` if it is absent.
+
+    A source export missing a column is a real shape, not a hypothetical one:
+    `transform()` narrows the frame to the columns the CSV actually carried, so
+    anything optional here may simply not exist. `frame.get(name, "")` looks
+    like it defaults but returns the bare scalar `""`, which then silently
+    misbehaves downstream -- `zip("", series)` yields nothing and the
+    assignment raises on the length mismatch, `"" == "internal"` is a plain
+    bool with no `.any()`. Always hand the callers a Series of the right
+    length instead.
+    """
+    column = frame.get(name)
+    if column is None:
+        return pd.Series([default] * len(frame), index=frame.index)
+    return column
 
 
 def _completeness(frame, fields):
@@ -103,17 +120,13 @@ def build_scope(load, config):
     if not config.include_archived and "is_archived" in frame.columns:
         drop(frame["is_archived"].fillna(False).astype(bool), "archived")
 
-    frame["has_executives"] = frame.get(
-        "bod_geb", pd.Series([""] * len(frame), index=frame.index)
-    ).apply(derive.has_executives)
+    frame["has_executives"] = _column(frame, "bod_geb").apply(derive.has_executives)
     if config.executives == "with":
         drop(~frame["has_executives"], "senior executives")
     elif config.executives == "without":
         drop(frame["has_executives"], "senior executives")
 
-    frame["audience_band"] = frame.get(
-        "audience", pd.Series([""] * len(frame), index=frame.index)
-    ).apply(derive.audience_band)
+    frame["audience_band"] = _column(frame, "audience").apply(derive.audience_band)
     if config.audience_bands is not None:
         allowed = set(config.audience_bands)
         if config.include_unknown_audience:
@@ -122,18 +135,19 @@ def build_scope(load, config):
 
     frame["reach"] = [
         derive.classify_reach(division, region)
-        for division, region in zip(frame.get("business_division", ""), frame.get("region", ""))
+        for division, region in zip(_column(frame, "business_division"),
+                                    _column(frame, "region"))
     ]
     frame["week_index"] = frame["start_day"].apply(grid.week_index)
     frame["_quarter"] = [
         grid.quarter_of(grid.weeks[int(i)]) if i is not None and i == i else None
         for i in frame["week_index"]
     ]
-    frame["priority_rank_value"] = frame.get(
-        "priority", pd.Series([""] * len(frame), index=frame.index)
-    ).apply(derive.priority_rank)
-
-    created = pd.to_datetime(frame.get("created"), errors="coerce")
+    # No `priority_rank` column here: the one place the ranking is needed is the
+    # Mix sheet's PRIORITY BY QUARTER block, which groups by the priority label
+    # and so ranks the *label*, not the row (`table_sheets._priority_sort_key`).
+    # A per-row column would be computed on every run and read by nothing.
+    created = pd.to_datetime(_column(frame, "created", default=None), errors="coerce")
     start = pd.to_datetime(frame["start_date"], errors="coerce")
     frame["lead_time_days"] = (start - created).dt.days
 
@@ -142,7 +156,7 @@ def build_scope(load, config):
     external_fields = [f for f in COMPLETENESS_FIELDS_COMMON if f in present]
     skipped = sorted(set(COMPLETENESS_FIELDS_INTERNAL) - present)
 
-    is_internal = frame.get("source_type", "") == "internal"
+    is_internal = _column(frame, "source_type") == "internal"
     completeness = pd.Series(0, index=frame.index, dtype=int)
     if is_internal.any():
         completeness[is_internal] = _completeness(frame[is_internal], internal_fields)

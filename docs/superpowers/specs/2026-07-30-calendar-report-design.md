@@ -261,11 +261,17 @@ with like instead of being flattened by the ALL ACTIVITIES row.
 
 ### 3. Data Quality
 
-Three blocks. This sheet is the one that turns the pack problem into a number.
+Four blocks. This sheet is the one that turns the pack problem into a number.
 
 - **Field completeness** — one row per field (the eight planning-completeness
   fields, plus division, region, audience, `bod_geb`, pack link): filled,
   missing, `% missing` as a formula.
+- **Planning completeness** — the median planning-completeness score, and the
+  fields it is computed over. This is a *different* denominator from the block
+  above: internal activities are scored against a longer list than external
+  ones, and fields the export does not carry are excluded entirely. The two
+  blocks stay separate for that reason — adjacent, they read as a
+  contradiction (`bod_geb` 93% missing, median completeness 100%).
 - **Pack coverage** — activities with and without a pack link and their shares;
   distinct packs; packs holding exactly one activity; 2–10; 11–50; more than 50;
   the largest pack's size. The oversized buckets are the measurable form of the
@@ -288,8 +294,18 @@ Three blocks. This sheet is the one that turns the pack problem into a number.
 ### 5. Mix & Lead Time
 
 - Channel × quarter, priority × quarter, and internal/external × quarter, each
-  with a Total column and a `Δ Q4−Q1` column (an absolute difference of counts,
-  labelled as such).
+  with a Total column and a `Δ` column (an absolute difference of counts,
+  labelled as such). The Δ compares the first quarter in scope against the last
+  one carrying at least four grid weeks — **not** simply the last quarter
+  present. The Thursday rule below means a full-year window spans five
+  quarters, the last holding a single week (29 Dec – 4 Jan); measuring a full
+  quarter against that stub makes every row read strongly negative and a
+  planner reads it as the mix collapsing. Where no quarter qualifies the last
+  one present is used, and the header names whichever two it actually
+  compared, so the figure stays self-describing either way.
+- The priority block is ordered by rank, not alphabetically. Two vocabularies
+  are live at once (see below), so alphabetical order interleaves them and puts
+  `Low` above `Medium`.
 - Lead time by division: activities with both dates, median days, share planned
   at under seven days' notice, minimum and maximum.
 
@@ -409,8 +425,10 @@ not read.
 - Counting by start-date week ignores activity duration. If long-running
   activities turn out to matter, that is a change to the counting rule, not to
   the sheet layout.
-- `Δ Q4−Q1` assumes the window spans four quarters. For a shorter window it
-  compares the first and last quarter present, which the column header states.
+- The Δ column's four-week threshold for "not a stub quarter" is a judgement,
+  not a measurement. It is what separates a genuine quarter from the one-week
+  tail the Thursday rule leaves on a full-year window; a window shorter than
+  two quarters falls back to comparing the two ends, which the header states.
 
 ## Deferred
 

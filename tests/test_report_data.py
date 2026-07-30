@@ -8,7 +8,7 @@ pytest.importorskip("pandas")
 import pandas as pd
 
 from pipeline.report.config import BAND_10_50K, BAND_OVER_100K, ReportConfig
-from pipeline.report.data import build_scope
+from pipeline.report.data import EXCLUSION_ORDER, build_scope
 from pipeline.report.derive import REACH_SINGLE_DIVISION
 from pipeline.scripts.process_cplan import ActivityLoad
 
@@ -138,6 +138,82 @@ def test_a_missing_required_field_lowers_completeness_below_100():
     scope = build_scope(_load(_row(channel="")), _config())
 
     assert scope.frame.iloc[0]["completeness"] < 100
+
+
+def test_a_source_export_missing_optional_columns_still_produces_a_scope():
+    """`transform()` narrows the frame to the columns the CSV actually had, so
+    a source export missing one is a real shape. It must produce a workbook
+    with one honest gap, not a traceback: `frame.get(name, "")` returns the
+    bare scalar, and `zip("", series)` yields nothing, which used to raise
+    "Length of values (0) does not match length of index".
+    """
+    frame = pd.DataFrame([{
+        "tracking_id": "IC-0001", "activity_name": "A",
+        "start_date": pd.Timestamp("2025-03-05"), "end_date": pd.Timestamp("2025-03-06"),
+    }])
+    assert "business_division" not in frame.columns
+    assert "region" not in frame.columns
+    assert "source_type" not in frame.columns
+
+    scope = build_scope(ActivityLoad(frame, {}, {}), _config())
+
+    assert len(scope.frame) == 1
+    row = scope.frame.iloc[0]
+    assert row["reach"] == "Unclassified"      # no division, no region
+    assert row["audience_band"] == "Unknown"
+    assert row["has_executives"] is False or row["has_executives"] == False  # noqa: E712
+    assert row["completeness"] >= 0            # scored against the external field list
+
+
+def test_the_exclusion_counts_partition_the_rows_that_were_read():
+    """`EXCLUSION_ORDER` and the sequence of `drop()` calls have to stay in
+    lockstep. The Executive Summary's REPORT section prints these figures as a
+    partition of what was read -- rows read, then one line per criterion, then
+    rows in scope -- so a row failing two criteria must be counted once, by
+    whichever filter reached it first. If the two ever drift apart, the section
+    prints overlapping tallies that quietly do not add up.
+    """
+    load = _load(
+        _row(tracking_id="A"),                                     # survives all of it
+        _row(tracking_id="B", start_date=None, is_archived=True),  # undated AND archived
+        _row(tracking_id="C", start_date="2024-06-01",             # out of window AND
+             is_archived=True, audience=""),                       #   archived AND unbanded
+        _row(tracking_id="D", is_archived=True, audience=""),      # archived AND unbanded
+        _row(tracking_id="E", audience="250000"),                  # wrong band only
+    )
+
+    scope = build_scope(load, _config(include_archived=False,
+                                      audience_bands=(BAND_10_50K,),
+                                      include_unknown_audience=False))
+
+    assert scope.rows_read == 5
+    assert list(scope.frame["tracking_id"]) == ["A"]
+    assert sum(scope.excluded.values()) + len(scope.frame) == scope.rows_read
+    assert set(scope.excluded) == set(EXCLUSION_ORDER)
+    # Each multi-failure row lands under the first criterion that removed it,
+    # never under both.
+    assert scope.excluded["no start date"] == 1     # B, not also "archived"
+    assert scope.excluded["date window"] == 1       # C, not also "archived"
+    assert scope.excluded["archived"] == 1          # D, not also "audience band"
+    assert scope.excluded["audience band"] == 1     # E
+    assert scope.excluded["senior executives"] == 0
+
+
+def test_the_exclusion_counts_partition_the_rows_read_under_every_criterion():
+    """The same identity with the executive filter live as well, so no drop()
+    call is left unexercised by this partition check.
+    """
+    load = _load(
+        _row(tracking_id="A", bod_geb="An executive"),
+        _row(tracking_id="B", bod_geb=""),
+        _row(tracking_id="C", bod_geb="", start_date=None),
+    )
+
+    scope = build_scope(load, _config(executives="with"))
+
+    assert sum(scope.excluded.values()) + len(scope.frame) == scope.rows_read
+    assert scope.excluded["senior executives"] == 1
+    assert scope.excluded["no start date"] == 1
 
 
 def test_an_empty_load_produces_an_empty_scope_rather_than_an_error():

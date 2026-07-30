@@ -1,16 +1,19 @@
 """The calendar matrix: outline levels, formulas, and the double-count trap."""
 
+import re
 from datetime import date
 
 import pytest
 
 pytest.importorskip("openpyxl")
 from openpyxl import Workbook
+from openpyxl.utils import get_column_letter
 
 from pipeline.report.calendar_sheet import (
     FIRST_GRID_COL,
     LABEL_COL,
     TOTAL_COL,
+    _children,
     build_calendar,
 )
 from pipeline.report.config import ReportConfig
@@ -104,14 +107,120 @@ def test_the_reach_block_header_sums_its_children(tmp_path):
 
 
 def test_the_division_block_header_is_a_distinct_count_not_a_sum(tmp_path):
-    ws, scope = _sheet(tmp_path)
+    """The literal is derived from the header row's own week counts, not from
+    `len(scope.frame)` -- that is the property the implementation establishes,
+    and asserting the frame length instead would still pass if the header ever
+    stopped agreeing with the cells printed beside it.
+    """
+    ws, _ = _sheet(tmp_path)
     labels = _labels(ws)
     header = next(label for label in labels if label.startswith("BY BUSINESS DIVISION"))
     row = labels[header]
 
+    week_columns = [c for c in range(FIRST_GRID_COL, ws.max_column + 1)
+                    if ws.column_dimensions[
+                        ws.cell(row=1, column=c).column_letter].outline_level == 2]
+    own_weeks = sum(v for v in (ws.cell(row=row, column=c).value for c in week_columns)
+                    if isinstance(v, int))
+
     assert "multiple values possible" in header
     assert isinstance(ws.cell(row=row, column=TOTAL_COL).value, str) is False
-    assert ws.cell(row=row, column=TOTAL_COL).value == len(scope.frame)
+    assert ws.cell(row=row, column=TOTAL_COL).value == own_weeks
+
+
+def _refs(formula):
+    """The cell references a formula names, as (column letter, row) pairs."""
+    return [(letter, int(number))
+            for letter, number in re.findall(r"([A-Z]+)(\d+)", str(formula))]
+
+
+def _expected_children(columns):
+    """Which weeks belong to which month, and which months to which quarter.
+
+    Derived from ISO 8601 directly -- a week belongs to the month containing
+    its Thursday -- rather than from `_children`, which is the thing under
+    test. An expectation computed by calling the implementation would agree
+    with any off-by-one the implementation happened to have.
+    """
+    month_weeks = {}
+    quarter_months = {}
+    for column in columns:
+        if column.kind != "week":
+            continue
+        iso_year, iso_week = column.key
+        thursday = date.fromisocalendar(iso_year, iso_week, 4)
+        month = (thursday.year, thursday.month)
+        quarter = (thursday.year, (thursday.month - 1) // 3 + 1)
+        month_weeks.setdefault(month, []).append(column.key)
+        months = quarter_months.setdefault(quarter, [])
+        if month not in months:
+            months.append(month)
+    return month_weeks, quarter_months
+
+
+def test_children_maps_weeks_to_months_by_the_thursday_rule(tmp_path):
+    """`_children` is what every month and quarter formula is built from. An
+    off-by-one there -- January summing February's weeks -- changes only which
+    cells the formulas name, so the sheet still looks entirely well-formed.
+    """
+    _, scope = _sheet(tmp_path)
+    columns = scope.grid.columns()
+
+    assert _children(columns, scope.grid) == _expected_children(columns)
+
+
+def test_each_aggregate_formula_sums_exactly_the_cells_it_should(tmp_path):
+    """A `_children()` off-by-one would pass every other test on this sheet:
+    the cells would still hold SUM formulas and the horizontal totals would
+    still add up to something. The design's Testing section asks for the real
+    property -- each quarter cell is the sum of its months and each month the
+    sum of its weeks -- so check the actual references, not the shape.
+    """
+    ws, scope = _sheet(tmp_path)
+    columns = scope.grid.columns()
+    # Positions are the grid's own column order, recomputed here rather than
+    # taken from `_column_positions`, for the same reason as above.
+    positions = {(column.kind, column.key): FIRST_GRID_COL + offset
+                 for offset, column in enumerate(columns)}
+    month_weeks, quarter_months = _expected_children(columns)
+
+    expected_children = {}
+    for column in columns:
+        col = positions[(column.kind, column.key)]
+        if column.kind == "month":
+            keys = [("week", key) for key in month_weeks[column.key]]
+        elif column.kind == "quarter":
+            keys = [("month", key) for key in quarter_months[column.key]]
+        else:
+            continue
+        expected_children[col] = [get_column_letter(positions[key]) for key in keys]
+    quarter_letters = [get_column_letter(positions[("quarter", column.key)])
+                       for column in columns if column.kind == "quarter"]
+
+    # Every quarter is genuinely made of months, and every month of weeks --
+    # otherwise the loop below could pass vacuously.
+    assert len(expected_children) >= 13 + 4
+    assert all(children for children in expected_children.values())
+
+    checked = 0
+    for row in range(3, ws.max_row + 1):
+        if not ws.cell(row=row, column=LABEL_COL).value:
+            continue
+        for col, children in expected_children.items():
+            formula = ws.cell(row=row, column=col).value
+            assert _refs(formula) == [(letter, row) for letter in children], (
+                f"R{row}C{col} sums the wrong cells: {formula!r}")
+            checked += 1
+
+        total = ws.cell(row=row, column=TOTAL_COL).value
+        if isinstance(total, int):
+            continue  # a distinct-count block header: a literal by design
+        refs = _refs(total)
+        if all(letter == "B" for letter, _ in refs):
+            continue  # the reach header's vertical audit SUM down its members
+        assert refs == [(letter, row) for letter in quarter_letters], (
+            f"the Total cell on row {row} sums the wrong cells: {total!r}")
+    assert checked > 0
 
 
 def test_every_row_keeps_week_cells_literal_and_aggregates_as_formulas(tmp_path):

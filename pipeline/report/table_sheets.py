@@ -15,11 +15,16 @@ from pipeline.report.config import (
     LARGE_AUDIENCE_BANDS,
     SHORT_NOTICE_DAYS,
 )
-from pipeline.report.data import EXCLUSION_ORDER
+from pipeline.report.data import (
+    COMPLETENESS_FIELDS_COMMON,
+    COMPLETENESS_FIELDS_INTERNAL,
+    EXCLUSION_ORDER,
+)
 from pipeline.report.derive import (
     GLOBAL_REGION_TOKENS,
     GROUP_WIDE_MIN_DIVISIONS,
     REACH_ORDER,
+    priority_rank,
     split_multi,
 )
 
@@ -128,8 +133,31 @@ def build_data_quality(wb, scope, config):
         style.write_formula(ws, row, 4, f"=IF(B{row}+C{row}=0,0,C{row}/(B{row}+C{row}))",
                             fmt=style.NUM_FMT_PCT)
         row += 1
-    row = style.write_data_rows(ws, row, [["Median completeness (%)",
-                                           int(frame["completeness"].median())]])
+    row += 1
+
+    # Its own block, deliberately: the rates above are one per *reported* field
+    # (metrics.REPORTED_FIELDS -- a wider list chosen for what a planner wants
+    # to see missing), while this median is computed over the fields the entry
+    # form requires, split by source type. Two correct numbers over two
+    # different denominators sitting in one block read as a contradiction --
+    # on the test fixture the block shows bod_geb 93% missing and then 100%
+    # median completeness. Naming the denominator here is what makes them
+    # reconcilable.
+    row = style.write_section_header(ws, row, "PLANNING COMPLETENESS", 4)
+    row = style.write_header_row(ws, row, ["Measure", "Value", "", ""])
+    row = style.write_data_rows(ws, row, [
+        ["Median planning completeness (%)", int(frame["completeness"].median())]])
+    common = [name for name in COMPLETENESS_FIELDS_COMMON
+              if name in scope.completeness_fields]
+    internal_only = [name for name in COMPLETENESS_FIELDS_INTERNAL
+                     if name in scope.completeness_fields
+                     and name not in COMPLETENESS_FIELDS_COMMON]
+    row = style.write_data_rows(ws, row, [
+        ["Counted for every activity", ", ".join(common) or "—"],
+        ["Counted for internal activities in addition", ", ".join(internal_only) or "—"],
+        ["Excluded: not carried by this export",
+         ", ".join(scope.skipped_completeness_fields) or "—"],
+    ])
     row += 1
 
     packs = metrics.pack_stats(frame)
@@ -302,7 +330,9 @@ GLOSSARY_SECTIONS = (
                          "folded into a neighbouring bucket."),
         ("Overlap", "The reach buckets partition the portfolio and sum to the total. The "
                     "division and region blocks do not: an activity naming two divisions "
-                    "appears in both rows, so those block totals are distinct counts."),
+                    "appears in both rows, so those block totals are distinct counts. "
+                    "Multi-value fields are split on commas and semicolons, so a single "
+                    "value that legitimately contains one reads as two dimension values."),
     )),
     ("MEASURES", (
         ("Audience band", "Mapped from the source audience field, which carries raw counts in "
@@ -314,8 +344,28 @@ GLOSSARY_SECTIONS = (
         ("Lead time", "Days between the record's creation date and its start date. Rows "
                       "missing either date are not counted."),
         ("Planning completeness", "Share of the fields the entry form requires that carry a "
-                                  "value. Fields the CSV export does not carry are excluded "
-                                  "from the denominator and listed on the Data Quality sheet."),
+                                  "value. Internal activities are measured against a longer "
+                                  "list than external ones; the Data Quality sheet's PLANNING "
+                                  "COMPLETENESS block names both. Fields the CSV export does "
+                                  "not carry are excluded from the denominator and listed "
+                                  "under FIELDS NOT IN THIS EXPORT at the foot of this sheet. "
+                                  "This is a different field set from the per-field rates in "
+                                  "that sheet's FIELD COMPLETENESS block, which is why the "
+                                  "two can look inconsistent."),
+        ("Load figures", "Median activities per week, the peak week and its count, weeks with "
+                         "no activity, the longest run of empty weeks and the share falling in "
+                         "the five busiest weeks are all computed over the one series of weekly "
+                         "counts behind the Calendar sheet: each activity counted once, in the "
+                         "ISO week of its start date, across every week column in the window. "
+                         "They are written as literals rather than formulas because that series "
+                         "is not itself on the Executive Summary sheet. The five-busiest-weeks "
+                         "share is those five weeks' counts over the total in scope."),
+        ("Quarter delta", "The Δ column on the Mix sheet is an absolute difference of counts "
+                          "between two quarters, and its header names which two. It is not "
+                          "always the last quarter present: the Thursday rule can leave a "
+                          "one-week quarter at the end of the window, and measuring a full "
+                          "quarter against that would read as a collapse. The last quarter "
+                          "carrying at least four weeks is used instead."),
         ("Packs", "Never a grouping dimension in this report. Source pack identifiers collapse "
                   "large parts of the portfolio into oversized buckets, so a pack-based "
                   "roll-up describes the portfolio rather than a planning unit. Pack coverage "
@@ -324,8 +374,48 @@ GLOSSARY_SECTIONS = (
 )
 
 
-def _crosstab_block(ws, row, quarters, frame, title, field):
-    """One label x quarter table with a Total and a first-to-last-quarter delta.
+# A quarter carrying fewer grid weeks than this is a stub, not a quarter the Δ
+# column can honestly be measured against. Four weeks is roughly a month --
+# short, but enough that a difference against it means something.
+MIN_DELTA_QUARTER_WEEKS = 4
+
+
+def delta_quarters(quarters, grid):
+    """The two quarters the Δ column compares: the first, and the last full one.
+
+    The naive choice -- first versus last quarter present -- is wrong for the
+    report's own default window. A week belongs to the month containing its
+    Thursday (ISO 8601, see the Glossary's "Week to month"), so a full-year
+    window spans FIVE quarters, not four: 29 Dec - 4 Jan has its Thursday in
+    January, which puts one single week into the following year's Q1. Measuring
+    a full quarter against that one-week stub makes every row of every crosstab
+    read strongly negative -- roughly 2% of a year against 25% of it -- and a
+    planner reads that as the mix having collapsed.
+
+    So: the last quarter carrying a reasonably full complement of weeks. If
+    none qualifies, or the only qualifying one is the quarter we are comparing
+    *from*, fall back to the last quarter present -- for a genuinely short
+    window comparing the two ends is still the most informative thing there
+    is, and the header names whichever two quarters it used either way.
+    """
+    weeks_per_quarter = {}
+    for week in grid.weeks:
+        quarter = grid.quarter_of(week)
+        weeks_per_quarter[quarter] = weeks_per_quarter.get(quarter, 0) + 1
+
+    first = quarters[0]
+    full = [q for q in quarters[1:]
+            if weeks_per_quarter.get(q, 0) >= MIN_DELTA_QUARTER_WEEKS]
+    return first, (full[-1] if full else quarters[-1])
+
+
+def _crosstab_block(ws, row, quarters, frame, title, field, delta=None, sort_key=None):
+    """One label x quarter table with a Total and a quarter-to-quarter delta.
+
+    `delta` names the two quarters the Δ column compares (see
+    `delta_quarters`); without it the block compares the first and last
+    quarter present. `sort_key` orders the label rows -- plain alphabetical
+    by default, which is wrong for priority and right for everything else.
 
     Rows overlap for multi-valued fields (channel, division): an activity
     naming two channels counts in both of that field's rows. No TOTAL row is
@@ -337,7 +427,8 @@ def _crosstab_block(ws, row, quarters, frame, title, field):
         style.write_section_header(ws, row, f"{title} — no data", 3)
         return row + 2
 
-    delta_header = f"Δ {_quarter_label(quarters[-1])} − {_quarter_label(quarters[0])}"
+    delta_from, delta_to = delta if delta else (quarters[0], quarters[-1])
+    delta_header = f"Δ {_quarter_label(delta_to)} − {_quarter_label(delta_from)}"
     headers = ["Value"] + [_quarter_label(q) for q in quarters] + ["Total", delta_header]
     total_col = len(headers) - 1
 
@@ -351,16 +442,32 @@ def _crosstab_block(ws, row, quarters, frame, title, field):
 
     first_letter = get_column_letter(2)
     last_letter = get_column_letter(total_col - 1)
-    for name in sorted(values):
+    from_letter = get_column_letter(2 + quarters.index(delta_from))
+    to_letter = get_column_letter(2 + quarters.index(delta_to))
+    for name in sorted(values, key=sort_key):
         subset = frame.loc[values[name]]
         counts = [int((subset["_quarter"] == q).sum()) for q in quarters]
         style.write_data_rows(ws, row, [[name] + counts])
         span = f"{first_letter}{row}:{last_letter}{row}"
         style.write_formula(ws, row, total_col, f"=SUM({span})", fmt=style.NUM_FMT_INT)
-        style.write_formula(ws, row, total_col + 1, f"={last_letter}{row}-{first_letter}{row}",
+        style.write_formula(ws, row, total_col + 1, f"={to_letter}{row}-{from_letter}{row}",
                             fmt=style.NUM_FMT_INT)
         row += 1
     return row + 1
+
+
+def _priority_sort_key(name):
+    """Most urgent first. Alphabetical order is actively misleading here.
+
+    Two priority vocabularies are live at once -- the source system's numbered
+    labels ("1 - ...", where 1 is most urgent) and the studio's words -- so an
+    alphabetical sort interleaves them and puts Low above Medium. Matching only
+    the words has already produced a metric reading zero against thousands of
+    records (see the Mix sheet's note in the design document), which is why
+    this goes through the same rank function the studio uses. The name is the
+    tiebreaker so the order is stable within a rank.
+    """
+    return (-priority_rank(name), name)
 
 
 def build_mix(wb, scope, config):
@@ -375,11 +482,15 @@ def build_mix(wb, scope, config):
         return
 
     quarters = sorted({q for q in frame["_quarter"] if q is not None})
+    delta = delta_quarters(quarters, scope.grid) if quarters else None
 
-    row = _crosstab_block(ws, 1, quarters, frame, "CHANNEL BY QUARTER", "channel")
-    row = _crosstab_block(ws, row, quarters, frame, "PRIORITY BY QUARTER", "priority")
+    row = _crosstab_block(ws, 1, quarters, frame, "CHANNEL BY QUARTER", "channel",
+                          delta=delta)
+    row = _crosstab_block(ws, row, quarters, frame, "PRIORITY BY QUARTER", "priority",
+                          delta=delta, sort_key=_priority_sort_key)
     row = _crosstab_block(ws, row, quarters, frame,
-                          "INTERNAL VS EXTERNAL BY QUARTER", "source_type")
+                          "INTERNAL VS EXTERNAL BY QUARTER", "source_type",
+                          delta=delta)
 
     row = style.write_section_header(ws, row, "LEAD TIME BY DIVISION", 6)
     row = style.write_header_row(ws, row, [

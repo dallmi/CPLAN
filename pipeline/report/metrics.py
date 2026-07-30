@@ -128,8 +128,22 @@ def anomalies(frame, duplicates_removed=0):
     """
     import pandas as pd
 
-    start = pd.to_datetime(frame.get("start_date"), errors="coerce")
-    end = pd.to_datetime(frame.get("end_date"), errors="coerce")
+    def _dates(name):
+        """Parsed dates for `name`, or an all-NaT column if the export lacks it.
+
+        `pd.to_datetime(frame.get(name))` on an absent column parses `None` and
+        returns the *scalar* `pd.NaT`, not a Series -- `end.isna()` on that
+        raises AttributeError and takes the whole workbook build down, not just
+        this block. A source export missing a column has to produce one honest
+        gap instead.
+        """
+        column = frame.get(name)
+        if column is None:
+            return pd.Series(pd.NaT, index=frame.index, dtype="datetime64[ns]")
+        return pd.to_datetime(column, errors="coerce")
+
+    start = _dates("start_date")
+    end = _dates("end_date")
     tracking = frame.get("tracking_id")
     archived = frame.get("is_archived")
     return [

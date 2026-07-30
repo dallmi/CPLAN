@@ -123,3 +123,50 @@ def test_the_glossary_records_the_counting_rule_and_the_pack_caveat(tmp_path):
     assert "pack" in text.lower()
     assert "studio" in text.lower()
     assert ws.sheet_view.showGridLines is False
+
+
+def test_the_glossary_names_the_derivation_of_every_literal_figure(tmp_path):
+    """Where a literal sits next to formulas, the design requires the Glossary
+    to say how it was derived. The Executive Summary's LOAD section is five
+    such literals -- median per week, peak week, zero weeks, longest zero run,
+    top-5 share -- and had no entry at all.
+    """
+    ws, _ = _build(tmp_path, build_glossary)
+    text = "\n".join(
+        f"{ws.cell(row=r, column=1).value} {ws.cell(row=r, column=2).value}"
+        for r in range(1, ws.max_row + 1)
+    ).lower()
+
+    assert "load figures" in text
+    for phrase in ("median", "peak week", "no activity", "longest run", "busiest weeks"):
+        assert phrase in text, f"the Glossary does not account for {phrase!r}"
+
+
+def test_the_glossary_records_the_multi_value_splitting_rule(tmp_path):
+    """A division or channel value that legitimately contains a comma reads as
+    two dimension values. That is a real reading hazard on the Calendar and Mix
+    sheets, so it belongs next to the overlap caveat.
+    """
+    ws, _ = _build(tmp_path, build_glossary)
+    text = "\n".join(str(ws.cell(row=r, column=2).value)
+                     for r in range(1, ws.max_row + 1)).lower()
+
+    assert "semicolon" in text
+    assert "comma" in text
+
+
+def test_the_glossary_points_at_where_the_skipped_fields_are_listed(tmp_path):
+    """The Planning completeness entry used to send the reader to the Data
+    Quality sheet for fields the export does not carry. They are listed on the
+    Glossary itself, under FIELDS NOT IN THIS EXPORT.
+    """
+    ws, scope = _build(tmp_path, build_glossary)
+    column_a = [str(ws.cell(row=r, column=1).value) for r in range(1, ws.max_row + 1)]
+    text = "\n".join(str(ws.cell(row=r, column=2).value)
+                     for r in range(1, ws.max_row + 1))
+
+    assert scope.skipped_completeness_fields  # sanity: the fixture skips time_zone
+    assert "FIELDS NOT IN THIS EXPORT" in column_a
+    entry = next(t for t in text.split("\n") if t.startswith("Share of the fields"))
+    assert "FIELDS NOT IN THIS EXPORT" in entry
+    assert "this sheet" in entry

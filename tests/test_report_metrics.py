@@ -140,6 +140,28 @@ def test_anomalies_counts_end_before_start_pairs():
     assert names["Archived"] == 1
 
 
+def test_anomalies_survive_a_source_export_without_an_end_date_column():
+    """`pd.to_datetime(frame.get("end_date"))` on an absent column parses None
+    and returns the *scalar* pd.NaT, not a Series -- `end.isna()` on that
+    raises AttributeError and takes down the whole workbook build, not just
+    this block. Every sheet has to degrade to one honest gap instead.
+    """
+    frame = pd.DataFrame([{"tracking_id": "A-1", "start_date": "2025-01-10"}])
+    assert "end_date" not in frame.columns
+
+    names = dict(metrics.anomalies(frame))
+
+    assert names["Missing end date"] == 1
+    assert names["End date before start date"] == 0
+
+
+def test_anomalies_survive_a_frame_with_neither_date_column():
+    names = dict(metrics.anomalies(pd.DataFrame([{"tracking_id": "A-1"}])))
+
+    assert names["Missing end date"] == 1
+    assert names["End date before start date"] == 0
+
+
 def test_anomalies_report_the_real_duplicate_count_not_a_post_dedup_zero():
     rows = metrics.anomalies(_small_frame(), duplicates_removed=3)
 

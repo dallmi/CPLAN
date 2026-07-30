@@ -87,6 +87,55 @@ def test_duplicate_count_reads_the_real_figure_not_a_post_dedup_zero(tmp_path):
     assert ws.cell(row=dup_row, column=2).value == 1
 
 
+def test_median_completeness_has_its_own_block_that_names_its_denominator(tmp_path):
+    """The per-field rates above are one row per *reported* field; the median
+    is computed over the fields the entry form requires, split by source type.
+    Both are correct and they are not the same denominator -- on the fixture
+    the block shows bod_geb heavily missing and then a 100% median, which
+    reads as a contradiction when the two sit in one block. The median gets
+    its own labelled block, and this sheet names the fields it counts.
+    """
+    ws, scope = _sheet(tmp_path)
+    labels = [str(v) for v in _column_a(ws)]
+
+    assert "PLANNING COMPLETENESS" in labels
+    assert "Median completeness (%)" not in labels  # the old, unqualified label
+    assert labels.index("Median planning completeness (%)") > labels.index(
+        "PLANNING COMPLETENESS")
+    assert labels.index("PLANNING COMPLETENESS") > labels.index("FIELD COMPLETENESS")
+
+    text = "\n".join(str(ws.cell(row=r, column=c).value)
+                     for r in range(1, ws.max_row + 1) for c in (1, 2))
+    assert scope.completeness_fields  # sanity: the fixture carries some
+    for name in scope.completeness_fields:
+        assert name in text, f"{name} is counted but not named on the sheet"
+    for name in scope.skipped_completeness_fields:
+        assert name in text, f"{name} is excluded but not named on the sheet"
+
+
+def test_the_sheet_builds_when_the_export_carries_no_end_date_column(tmp_path):
+    """A missing column has to cost one honest gap, not the whole workbook:
+    the RECORD ANOMALIES block used to raise AttributeError here and take
+    every other sheet down with it.
+    """
+    config = ReportConfig(date_from=date(2025, 1, 1), date_to=date(2025, 12, 31))
+    frame = pd.DataFrame([{
+        "tracking_id": "IC-0001", "activity_name": "A", "source_type": "internal",
+        "start_date": pd.Timestamp("2025-03-05"), "channel": "Email",
+    }])
+    assert "end_date" not in frame.columns
+    scope = build_scope(ActivityLoad(frame, {}, {}), config)
+
+    wb = Workbook()
+    wb.remove(wb.active)
+    build_data_quality(wb, scope, config)
+    ws = wb["Data Quality"]
+    labels = [str(v) for v in _column_a(ws)]
+
+    assert "RECORD ANOMALIES" in labels
+    assert ws.cell(row=labels.index("Missing end date") + 1, column=2).value == 1
+
+
 def test_an_empty_scope_does_not_crash(tmp_path):
     """Task 10 shipped a Critical bug on exactly this shape: a builder that
     raised on the frame `build_scope` produces when nothing was read at all

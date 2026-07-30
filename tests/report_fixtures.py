@@ -61,6 +61,17 @@ INTERNAL_ROWS = [
     _row(12, "IC-0012", "Incomplete record", "2025-09-24",
          **{"Channel": "", "Lead Team": "", "Communication pack:C": ""}),
     _row(13, "IC-0013", "Last week of the year", "2025-12-31"),
+    # Priority: the source system's numbered labels and the studio's words are
+    # live at the same time. Every other row here carries "2 - label", which
+    # collapses the Mix sheet's priority block to a single row and hides how it
+    # is ordered. These three make the ordering observable -- and are chosen so
+    # that rank order and alphabetical order genuinely disagree: by rank it is
+    # "2 - label", "Medium", "4 - deprioritised", "Low"; alphabetically it is
+    # "2 - label", "4 - deprioritised", "Low", "Medium", with Low above Medium.
+    _row(14, "IC-0014", "Priority as a word", "2025-04-15", **{"Priority": "Medium"}),
+    _row(15, "IC-0015", "Lowest word priority", "2025-07-08", **{"Priority": "Low"}),
+    _row(16, "IC-0016", "Low numbered priority", "2025-10-14",
+         **{"Priority": "4 - deprioritised"}),
 ]
 
 # Same tracking ID as IC-0001 with an older Modified: must lose the de-dup.
@@ -79,8 +90,8 @@ EXTERNAL_ROWS = [
 
 EXTERNAL_ARCHIVE_ROWS = []
 
-# 13 internal + 1 surviving archive + 2 external, minus the losing duplicate.
-FIXTURE_ROW_COUNT = 16
+# 16 internal + 1 surviving archive + 2 external, minus the losing duplicate.
+FIXTURE_ROW_COUNT = 19
 
 
 def _write_csv(path, rows):
