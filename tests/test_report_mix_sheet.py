@@ -10,7 +10,12 @@ from openpyxl import Workbook
 
 from pipeline.report.config import ReportConfig
 from pipeline.report.data import build_scope
-from pipeline.report.table_sheets import ACTIVITY_COLUMNS, build_activities, build_mix
+from pipeline.report.table_sheets import (
+    ACTIVITY_COLUMNS,
+    _quarter_label,
+    build_activities,
+    build_mix,
+)
 from pipeline.scripts.process_cplan import ActivityLoad
 from tests.report_fixtures import load_fixture_scope
 
@@ -44,6 +49,23 @@ def test_the_delta_column_names_the_two_quarters_it_compares(tmp_path):
                for r in range(1, ws.max_row + 1) for c in range(1, ws.max_column + 1)]
 
     assert any(h.startswith("Δ ") and "−" in h for h in headers)
+
+
+def test_the_delta_header_names_the_first_and_last_quarter_present(tmp_path):
+    """The weak `startswith("Δ ") and "−" in h` check above would pass even
+    with the two quarter labels swapped, wrong, or naming quarters that are
+    not actually the first and last present. Pin the exact text, derived
+    from the scope rather than hardcoded, so this catches a wrong header.
+    """
+    ws, scope = _build(tmp_path, build_mix, "Mix & Lead Time")
+    quarters = sorted({q for q in scope.frame["_quarter"] if q is not None})
+    expected = f"Δ {_quarter_label(quarters[-1])} − {_quarter_label(quarters[0])}"
+
+    headers = [str(ws.cell(row=r, column=c).value)
+               for r in range(1, ws.max_row + 1)
+               for c in range(1, ws.max_column + 1)]
+
+    assert expected in headers
 
 
 def test_the_activities_sheet_lists_every_in_scope_row(tmp_path):

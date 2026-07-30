@@ -334,7 +334,8 @@ def _crosstab_block(ws, row, quarters, frame, title, field):
     than the portfolio, as if it were a true total.
     """
     if not quarters:
-        return style.write_section_header(ws, row, f"{title} — no data", 3)
+        style.write_section_header(ws, row, f"{title} — no data", 3)
+        return row + 2
 
     delta_header = f"Δ {_quarter_label(quarters[-1])} − {_quarter_label(quarters[0])}"
     headers = ["Value"] + [_quarter_label(q) for q in quarters] + ["Total", delta_header]
