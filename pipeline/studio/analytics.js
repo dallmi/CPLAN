@@ -206,7 +206,15 @@
   function campaignScorecards(rows) {
     const groups = new Map();
     rows.forEach(row => {
-      const key = row.tracking_pack_id || row.communication_pack || row.campaign;
+      // The explicit pack field wins over the identifier prefix. Both describe
+      // the same thing in a healthy record, but tracking_pack_id is only as
+      // fine-grained as the minting scheme in use: measured against the current
+      // 400-row portfolio it collapsed everything into four buckets of 273 and
+      // 125 activities, while communication_pack_cpid resolved 32 packs of two
+      // to eleven. A pack of 273 is not a pack, and every roll-up built on it --
+      // channel breadth, quiet period, orchestration -- was describing the
+      // whole portfolio rather than a planning unit.
+      const key = row.communication_pack_cpid || row.tracking_pack_id || row.communication_pack || row.campaign;
       if (empty(key)) return;
       if (!groups.has(key)) groups.set(key, {id: key, campaign: row.campaign || row.communication_pack || key, rows: [], channels: new Set(), objectives: new Set(), audiences: new Set(), dates: []});
       const group = groups.get(key);
