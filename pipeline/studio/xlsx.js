@@ -239,9 +239,13 @@
       ? ' outlineLevelRow="1"'
       : '';
 
+    // The header row AND the first column are frozen. These sheets are fifteen
+    // columns wide; with only the header pinned, scrolling right to reach the
+    // pillars or the pack ID loses the activity name, and every row becomes a
+    // line of values belonging to nothing.
     const sheet = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-${sheetPr}<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
+${sheetPr}<sheetViews><sheetView workbookViewId="0"><pane xSplit="1" ySplit="1" topLeftCell="B2" activePane="bottomRight" state="frozen"/></sheetView></sheetViews>
 <sheetFormatPr defaultRowHeight="15"${outlineState}/>
 ${cols}<sheetData>${header}${body}</sheetData>
 <autoFilter ref="A1:${columnName(Math.max(0, columns.length - 1))}${rows.length + 1}"/>
