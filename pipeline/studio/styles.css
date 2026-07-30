@@ -463,3 +463,20 @@ td .channel-tag{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .trend-seg-value{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;line-height:1}
 .trend-seg.internal .trend-seg-value{color:var(--white)}
 .trend-seg.external .trend-seg-value{color:var(--black)}
+
+/* --- Conflict workbench: grouped, not a capped flat list ----------------- */
+/* <details> rather than a JS accordion: keyboard behaviour, the disclosure
+   triangle and the open/closed state come with the element. */
+.conflict-group{border-bottom:1px solid var(--surface)}
+.conflict-group:last-child{border-bottom:0}
+.conflict-group>summary{display:flex;align-items:baseline;justify-content:space-between;gap:14px;padding:11px 16px;cursor:pointer;list-style:none}
+.conflict-group>summary::-webkit-details-marker{display:none}
+/* The marker is drawn rather than inherited so it can rotate and so its colour
+   is ours; ::before keeps it out of the accessible name. */
+.conflict-group>summary::before{content:"›";display:inline-block;margin-right:9px;color:var(--grey-5);transition:transform .12s}
+.conflict-group[open]>summary::before{transform:rotate(90deg)}
+.conflict-group>summary:hover{background:var(--row-alt)}
+.conflict-group>summary:focus-visible{outline:2px solid var(--info);outline-offset:-2px}
+.conflict-group-name{font-size:13px;font-weight:600;color:var(--black);flex:1}
+.conflict-group-count{font-size:11px;color:var(--grey-5);white-space:nowrap}
+.conflict-group .conflict-row{border-top:1px solid var(--surface)}

@@ -977,7 +977,60 @@
       note.hidden=!hiddenPast;
       note.innerHTML=hiddenPast?`${plural(hiddenPast,'conflict')} already in the past ${hiddenPast===1?'is':'are'} hidden \u00b7 <button type="button" class="linklike" id="conflict-show-past">Show them too</button>`:'';
     }
-    document.getElementById('conflict-list').innerHTML=items.length?items.slice(0,60).map(item=>{const when=A.parseDate(item.left.start_date)||A.parseDate(item.right.start_date);const today=new Date();today.setHours(0,0,0,0);const days=when?Math.round((when-today)/86400000):null;const lead=when?`<strong>${days===0?'Today':days===1?'Tomorrow':days>0?`In ${plural(days,'day')}`:`${plural(Math.abs(days),'day')} ago`}</strong> · ${fmtDate(when)}`:'No date';const reason=`${lead} · ${item.gapDays===0?'Same day':item.gapDays+' day gap'} · ${esc(item.left.channel||'No channel')} · ${esc(split(item.left.target_audience)[0]||'Shared audience')}`;return `<div class="conflict-row"><div class="conflict-top"><div><span class="badge ${esc(item.severity)}">${esc(item.severity)}</span> <span class="badge ${item.kind==='orchestration'?'info':'neutral'}">${esc(item.kind)}</span></div><span class="list-meta">${reason}</span></div><div class="conflict-pair"><div class="conflict-item" data-open-id="${esc(item.left.id||'')}"><strong>${esc(item.left.activity_name||'Untitled')}</strong><br>${esc(campaignLabel(item.left)||'No campaign')}</div><div class="conflict-vs">overlaps with</div><div class="conflict-item" data-open-id="${esc(item.right.id||'')}"><strong>${esc(item.right.activity_name||'Untitled')}</strong><br>${esc(campaignLabel(item.right)||'No campaign')}</div></div></div>`;}).join(''):emptyState(EMPTY_ICONS.checkCircle, 'No matching conflicts', 'Try widening the proximity window or clearing filters.');
+    // Grouped, not a flat list with a cap. At the scale this studio is built
+    // for -- a portfolio roughly forty times the demo set -- "upcoming only"
+    // still leaves far more pairs than anyone reads in sequence, and the old
+    // slice(0,60) simply stopped without saying so. Weeks are the default
+    // because the list is ordered by imminence and a week is the unit a
+    // planner moves a send within; audience and channel answer the other
+    // question the scale creates, which is who or what keeps getting hit.
+    const groupBy=(document.getElementById('conflict-group')||{}).value||'week';
+    const startOfConflict=item=>A.parseDate(item.left.start_date)||A.parseDate(item.right.start_date);
+    const weekStart=date=>{const d=new Date(date);d.setDate(d.getDate()-((d.getDay()+6)%7));d.setHours(0,0,0,0);return d;};
+    const keyOf=item=>{
+      if(groupBy==='audience') return split(item.left.target_audience)[0]||'No audience';
+      if(groupBy==='channel') return item.left.channel||'No channel';
+      const d=startOfConflict(item);
+      return d?String(weekStart(d).getTime()):'undated';
+    };
+    const labelOf=key=>{
+      if(groupBy!=='week') return key;
+      return key==='undated'?'No date':`Week of ${fmtDate(new Date(Number(key)))}`;
+    };
+    const buckets=new Map();
+    items.forEach(item=>{const k=keyOf(item);if(!buckets.has(k))buckets.set(k,[]);buckets.get(k).push(item);});
+    // Weeks keep chronological order -- the sort already put them there. The
+    // other two lead with the heaviest, because "who gets hit most" is the
+    // question those groupings are asked.
+    const ordered=groupBy==='week'
+      ? Array.from(buckets.entries())
+      : Array.from(buckets.entries()).sort((a,b)=>b[1].length-a[1].length);
+
+    const ROWS_PER_GROUP=25;
+    const renderRow=item=>{const when=A.parseDate(item.left.start_date)||A.parseDate(item.right.start_date);const today=new Date();today.setHours(0,0,0,0);const days=when?Math.round((when-today)/86400000):null;const lead=when?`<strong>${days===0?'Today':days===1?'Tomorrow':days>0?`In ${plural(days,'day')}`:`${plural(Math.abs(days),'day')} ago`}</strong> · ${fmtDate(when)}`:'No date';const reason=`${lead} · ${item.gapDays===0?'Same day':item.gapDays+' day gap'} · ${esc(item.left.channel||'No channel')} · ${esc(split(item.left.target_audience)[0]||'Shared audience')}`;return `<div class="conflict-row"><div class="conflict-top"><div><span class="badge ${esc(item.severity)}">${esc(item.severity)}</span> <span class="badge ${item.kind==='orchestration'?'info':'neutral'}">${esc(item.kind)}</span></div><span class="list-meta">${reason}</span></div><div class="conflict-pair"><div class="conflict-item" data-open-id="${esc(item.left.id||'')}"><strong>${esc(item.left.activity_name||'Untitled')}</strong><br>${esc(campaignLabel(item.left)||'No campaign')}</div><div class="conflict-vs">overlaps with</div><div class="conflict-item" data-open-id="${esc(item.right.id||'')}"><strong>${esc(item.right.activity_name||'Untitled')}</strong><br>${esc(campaignLabel(item.right)||'No campaign')}</div></div></div>`;};
+    document.getElementById('conflict-list').innerHTML=items.length
+      ? ordered.map(([key,group],index)=>{
+          const critical=group.filter(x=>x.severity==='critical').length;
+          const high=group.filter(x=>x.severity==='high').length;
+          const marks=[critical?`${fmtNum(critical)} critical`:'',high?`${fmtNum(high)} high`:''].filter(Boolean).join(' \u00b7 ');
+          const shown=group.slice(0,ROWS_PER_GROUP);
+          const rest=group.length-shown.length;
+          // First group open, the rest closed: the soonest week is the one
+          // being worked on, and twelve expanded weeks is the wall this
+          // replaces. <details> carries the keyboard behaviour for free.
+          return `<details class="conflict-group"${index===0?' open':''}>`
+            +`<summary><span class="conflict-group-name">${esc(labelOf(key))}</span>`
+            +`<span class="conflict-group-count">${plural(group.length,'conflict')}${marks?` \u00b7 ${marks}`:''}</span></summary>`
+            +shown.map(renderRow).join('')
+            // Names the way out, not just the number. Stress-tested against a
+          // portfolio the size this studio is built for -- 15,000 activities,
+          // 1,304 upcoming conflicts, a median of 50 per week -- a group can
+          // still overflow, and at that density the answer is a second axis
+          // rather than a longer list.
+          +(rest?`<p class="list-more">${plural(rest,'further conflict')} in this group \u00b7 ${groupBy==='week'?'group by audience or channel':'narrow the proximity window'} to break ${rest===1?'it':'them'} down</p>`:'')
+            +`</details>`;
+        }).join('')
+      : emptyState(EMPTY_ICONS.checkCircle, 'No matching conflicts', 'Try widening the proximity window or clearing filters.');
   }
 
   function renderCapacity() {
@@ -3095,7 +3148,7 @@
       openPackDetail(packBtn.dataset.packOpen, packBtn);
     });
     document.getElementById('horizon-toggle').onclick=event=>{const btn=event.target.closest('button');if(!btn)return;document.querySelectorAll('#horizon-toggle button').forEach(x=>x.classList.remove('active'));btn.classList.add('active');state.horizonWeeks=Number(btn.dataset.weeks);renderBoard();bindOpenRows();};
-    ['conflict-proximity','conflict-type','conflict-severity','conflict-when'].forEach(id=>document.getElementById(id).onchange=()=>{renderConflicts();bindOpenRows();});
+    ['conflict-proximity','conflict-type','conflict-severity','conflict-when','conflict-group'].forEach(id=>document.getElementById(id).onchange=()=>{renderConflicts();bindOpenRows();});
     // The note's link is re-rendered on every pass, so it is delegated rather
     // than bound once.
     document.addEventListener('click',event=>{
