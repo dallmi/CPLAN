@@ -491,12 +491,33 @@ td .channel-tag{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
    queue sets it and grows with its content; Coming up scrolls inside whatever
    it is given. That is what retired the eight-row cap: the height is bounded
    here now, not by hiding rows. */
+/* #page-overview .grid.two{align-items:start} (styles.css:400) turns off the
+   grid's default stretch for every two-column row on the Overview, including
+   this one -- so without an override scoped back to #view-list, the cards
+   size to their own content instead of the row height and never come out
+   equal. Restoring stretch here, and only here, is what lets the queue's
+   height reach the "Coming up" card at all; a bare #view-list .grid.two
+   selector loses that specificity fight against line 400 unless it names
+   #page-overview too. */
+#page-overview #view-list .grid.two{align-items:stretch}
 #view-list .grid.two>.card{display:flex;flex-direction:column;min-height:360px;margin-bottom:0}
 #view-list .grid.two>.card>.card-body{flex:1}
 /* min-height:0 is load-bearing. A flex child defaults to min-height:auto and
    grows to its content, so without this line the card does not scroll — it
-   just gets tall, which is the exact bug the row cap was invented for. */
-#view-list .grid.two>.card>.card-body.scroll-y{min-height:0;overflow-y:auto}
+   just gets tall, which is the exact bug the row cap was invented for.
+   max-height is the other half: a grid row's auto track sizes to its tallest
+   natural content, so even with stretch restored above, a shorter neighbour
+   cannot hand this card a definite height to scroll within -- something has
+   to give the card body a hard ceiling, and only the viewport can, because
+   the neighbour might not. 500px is measured, not guessed: rendered headless
+   with the four KPI-group cards, the queue and a populated list, the top of
+   #upcoming-list sat 497px below the viewport top at 1280, 1440 and 1600px
+   wide (topbar + main nav + content padding + page heading + KPI-groups row +
+   view switcher + grid gap), rounded up to 500. Re-measure if the header
+   above the grid grows or shrinks. Scoped to .scroll-y so this cap lands on
+   "Coming up" only -- "Needs you first" has no scroll container and must be
+   free to overflow if its own content ever needs more than the cap allows. */
+#view-list .grid.two>.card>.card-body.scroll-y{min-height:0;max-height:calc(100vh - 500px);overflow-y:auto}
 /* The scroll boundary. The local layer scrolls with the content and covers the
    fixed shadow at the end of the list, so the hint disappears once there is
    nothing more to reach. */

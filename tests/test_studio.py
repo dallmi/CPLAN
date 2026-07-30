@@ -726,6 +726,16 @@ class ComingUpCardTests(unittest.TestCase):
         self.assertIn("min-height:360px", rule)
         # Only Coming up scrolls; the queue keeps its own height.
         self.assertIn(".scroll-y", rule)
+        # A grid row's auto track sizes to its tallest content, so a shorter
+        # neighbour can never hand this card a definite height to scroll
+        # within. Only the viewport can put a ceiling on it.
+        self.assertIn("max-height:calc(100vh", rule)
+        # #page-overview .grid.two{align-items:start} (styles.css:400) turns
+        # off stretch for every two-column row on the Overview. Without a more
+        # specific override scoped back to #view-list, the two cards never
+        # come out equal height and the whole fix is inert -- measured
+        # headless: 1479px vs 360px, not equal, and no scrollbar.
+        self.assertIn("#page-overview #view-list .grid.two{align-items:stretch}", self.css)
 
     def test_empty_state_names_the_seven_day_window(self):
         block = self._upcoming_block()
