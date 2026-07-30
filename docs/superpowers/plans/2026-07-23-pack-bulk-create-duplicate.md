@@ -130,7 +130,7 @@ def test_batch_create_writes_one_created_change_row_per_activity(client):
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd /Users/micha/Documents/Arbeit/CPLAN && python3 -m pytest tests/test_api.py -k batch_create -v`
+Run: `python3 -m pytest tests/test_api.py -k batch_create -v`
 Expected: 4 FAILs — `404 Not Found` (route does not exist; note: a 404 also fails the 422 assertions).
 
 - [ ] **Step 3: Implement model and endpoint**
