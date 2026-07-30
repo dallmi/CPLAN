@@ -9,6 +9,8 @@ pytest.importorskip("pandas")
 
 from pipeline.report import metrics
 from pipeline.report.config import ReportConfig
+from pipeline.report.data import build_scope
+from pipeline.scripts.process_cplan import ActivityLoad
 from tests.report_fixtures import load_fixture_scope
 
 
@@ -63,6 +65,26 @@ def test_load_stats_on_an_empty_scope_does_not_divide_by_zero(tmp_path):
     assert stats["peak_week_count"] == 0
     assert stats["top5_share"] == 0
     assert stats["median_per_week"] == 0
+
+
+def test_load_stats_on_a_scope_with_no_rows_read_at_all_does_not_raise():
+    """`build_scope`'s early return for a truly empty load never attaches the
+    derived columns (`week_index` included) -- that is the shape a
+    header-only export produces, and it is a supported, tested shape of
+    `Scope` (see test_report_data.py), not a hypothetical one.
+    """
+    config = ReportConfig(date_from=date(2025, 1, 1), date_to=date(2025, 12, 31))
+    load = ActivityLoad(pd.DataFrame(), {}, {})
+    scope = build_scope(load, config)
+    assert "week_index" not in scope.frame.columns
+
+    stats = metrics.load_stats(scope)
+
+    assert stats == {
+        "median_per_week": 0, "peak_week_label": "—", "peak_week_count": 0,
+        "zero_weeks": len(scope.grid.weeks), "longest_zero_run": len(scope.grid.weeks),
+        "top5_share": 0,
+    }
 
 
 def test_lead_time_counts_only_rows_with_both_dates(tmp_path):

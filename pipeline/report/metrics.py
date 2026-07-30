@@ -14,6 +14,13 @@ from pipeline.report.data import _is_blank
 
 def _week_counts(scope):
     counts = [0] * len(scope.grid.weeks)
+    # An empty scope (nothing survived the filters, or nothing was read at
+    # all) never gets the derived columns attached -- `data.py`'s early
+    # return skips them entirely, so "week_index" may not exist. The
+    # zero-filled counts are the correct answer for that shape: no activity
+    # index below.
+    if scope.frame.empty or "week_index" not in scope.frame.columns:
+        return counts
     for index in scope.frame["week_index"]:
         if index is None or (isinstance(index, float) and index != index):
             continue

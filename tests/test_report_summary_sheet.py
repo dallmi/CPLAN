@@ -2,13 +2,16 @@
 
 from datetime import date
 
+import pandas as pd
 import pytest
 
 pytest.importorskip("openpyxl")
 from openpyxl import Workbook
 
 from pipeline.report.config import ReportConfig
+from pipeline.report.data import build_scope
 from pipeline.report.table_sheets import build_executive_summary, build_glossary
+from pipeline.scripts.process_cplan import ActivityLoad
 from tests.report_fixtures import load_fixture_scope
 
 
@@ -55,6 +58,48 @@ def test_shares_are_formulas_not_baked_numbers(tmp_path):
     labels = [str(ws.cell(row=r, column=1).value) for r in range(1, ws.max_row + 1)]
 
     assert any(label.startswith("=TEXT(IF(") for label in labels)
+
+
+def test_the_summary_still_renders_the_report_section_on_an_empty_scope():
+    """Nothing in scope is exactly when the REPORT section -- the criteria,
+    the source files, which filter removed what -- matters most. It must
+    render rather than raise, even though the empty-load path never attaches
+    the derived columns (week_index included) that the other sections read.
+    """
+    config = ReportConfig(date_from=date(2025, 1, 1), date_to=date(2025, 12, 31))
+    scope = build_scope(ActivityLoad(pd.DataFrame(), {}, {}), config)
+    wb = Workbook()
+    wb.remove(wb.active)
+
+    build_executive_summary(wb, scope, config)
+
+    ws = wb.worksheets[0]
+    pairs = _pairs(ws)
+    assert pairs["Period"] == "2025-01-01 to 2025-12-31"
+    assert pairs["Senior executives"] == "any"
+    assert pairs["Excluded: no start date"] == 0
+    assert pairs["Excluded: date window"] == 0
+    assert pairs["Rows read"] == 0
+
+
+def test_every_share_formula_divides_by_its_own_section_total(tmp_path):
+    """A formula that names the wrong denominator row still renders a
+    plausible-looking percentage -- startswith("=TEXT(IF(") alone cannot
+    catch that. Check the actual cell references instead.
+    """
+    ws, _ = _build(tmp_path, build_executive_summary)
+    rows = {ws.cell(row=r, column=1).value: r for r in range(1, ws.max_row + 1)}
+    total_row = rows["Activities in scope"]
+
+    checked = 0
+    for r in range(1, ws.max_row + 1):
+        label = ws.cell(row=r, column=1).value
+        if not isinstance(label, str) or not label.startswith("=TEXT(IF("):
+            continue
+        assert f"B${total_row}=0" in label, f"row {r} guards the wrong total"
+        assert f"B{r}/B${total_row}" in label, f"row {r} divides the wrong cells"
+        checked += 1
+    assert checked >= 7  # internal/external plus the five reach buckets
 
 
 def test_the_summary_reports_load_and_discipline(tmp_path):
