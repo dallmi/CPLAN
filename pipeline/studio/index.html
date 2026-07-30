@@ -72,7 +72,7 @@
           <div class="page-actions"><div class="as-of" id="overview-as-of">Operational view: local snapshot</div><button class="btn primary" id="overview-new">New activity</button></div>
         </div>
         <div id="overview-verdict"></div>
-        <div class="kpi-grid six" id="overview-kpis"></div>
+        <div class="kpi-grid five" id="overview-kpis"></div>
         <div id="overview-collisions"></div>
         <!-- One question, three ways of looking at the same answer. The board
              and the calendar used to be two of Planning's four subpages; they
@@ -115,7 +115,7 @@
         <div class="overview-view" id="view-timeline">
           <div class="toolbar spread"><div class="segmented" id="board-group-toggle"><button class="active" data-group="channel">By channel</button><button data-group="campaign">By campaign</button><button data-group="division">By division</button></div><div class="segmented" id="horizon-toggle"><button class="active" data-weeks="8">8 weeks</button><button data-weeks="12">12 weeks</button><button data-weeks="26">6 months</button></div></div>
           <div class="kpi-grid" id="planning-kpis"></div>
-          <article class="card"><div class="card-head"><div><h3>Activity timeline</h3><p id="board-subtitle">Swimlanes per channel · bars span start to end</p></div><div class="timeline-legend"><span class="legend-swatch internal"></span>Internal<span class="legend-swatch external"></span>External<span class="legend-swatch conflict"></span>Conflict</div></div><div class="card-body" id="planning-board"></div></article>
+          <article class="card"><div class="card-head"><div><h3>Activity timeline</h3><p id="board-subtitle">Swimlanes per channel · bars span start to end</p></div><div class="timeline-legend"><span class="legend-swatch internal"></span>Internal<span class="legend-swatch external"></span>External</div></div><div class="card-body" id="planning-board"></div></article>
         </div>
 
         <div class="overview-view" id="view-calendar">
@@ -145,26 +145,6 @@
           <button class="btn secondary" type="button" id="queue-bar-clear">Clear</button>
         </div>
         <article class="card"><div class="table-wrap"><table><thead><tr><th>Activity</th><th><span class="th-help" title="CLUSTER-PACKNUM-YYMMDD-ACTNUM-CHANNEL — links planning to downstream outcome data. Date, sequence and channel are minted on save; pack membership sets the prefix.">Tracking ID ⓘ</span></th><th>Channel</th><th>Start</th><th>Priority</th><th>Lead team</th><th>Campaign / pack</th><th>Issue</th><th class="action-cell" aria-label="Row actions"></th></tr></thead><tbody id="activity-table-body"></tbody></table></div></article>
-
-        <!-- Conflicts, folded in from Planning. A clash is a property of two
-             activities, so it belongs where the activities are; it was a whole
-             subpage of its own only because there was nowhere else to put it.
-             The pairwise workbench survives intact -- a table row can say "this
-             one clashes", it cannot show what it clashes WITH, and that pairing
-             is the entire point. Shown only while the conflict queue is the
-             active filter, so it costs nothing on a normal visit. -->
-        <div id="conflict-panel" hidden>
-          <div class="toolbar wrap">
-            <label>Proximity <select id="conflict-proximity"><option value="0">Same day</option><option value="1" selected>Within 1 day</option><option value="3">Within 3 days</option><option value="7">Within 7 days</option></select></label>
-            <label>Type <select id="conflict-type"><option value="conflict">Conflicts only</option><option value="">All including orchestration</option><option value="orchestration">Orchestration only</option></select></label>
-            <label>Group by <select id="conflict-group"><option value="week">Week</option><option value="audience">Audience</option><option value="channel">Channel</option></select></label>
-            <label>Timeframe <select id="conflict-when"><option value="upcoming">Upcoming only</option><option value="">All, including past</option></select></label>
-            <label>Severity <select id="conflict-severity"><option value="">All severities</option><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option></select></label>
-          </div>
-          <div class="kpi-grid" id="conflict-kpis"></div>
-          <p class="signal-rest" id="conflict-scope-note" hidden></p>
-          <article class="card"><div class="card-head"><div><h3>Conflict workbench</h3><p>Shared audience and channel within the selected proximity window</p></div></div><div class="card-body flush" id="conflict-list"></div></article>
-        </div>
       </section>
 
       <section class="page" id="page-packs">

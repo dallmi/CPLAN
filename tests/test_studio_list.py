@@ -284,14 +284,12 @@ class StudioListTests(unittest.TestCase):
         # instead (the exact regression this test exists to catch), this
         # exact literal stops matching and the test fails.
         self.assertIn(
-            # Hiding the conflict workbench came with the tab merge: the panel
-            # is bound to the conflict queue, so clearing the queue must close
-            # it. Still no ACTIVITY_FILTER_IDS loop and no .value='' -- the two
-            # Clear scopes stay separate, which is what this test guards.
+            # The conflict-panel line is gone with the workbench (2026-07-30).
+            # The scope rule this test exists for is untouched: bar Clear drops
+            # the queue and nothing else -- no ACTIVITY_FILTER_IDS loop, no
+            # .value='' anywhere in it.
             "document.getElementById('queue-bar-clear').onclick="
-            "()=>{state.queueFilter=null;"
-            "document.getElementById('conflict-panel').hidden=true;"
-            "runActivityFilters();};",
+            "()=>{state.queueFilter=null;runActivityFilters();};",
             app,
         )
 

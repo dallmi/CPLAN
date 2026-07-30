@@ -65,13 +65,25 @@ class StudioTests(unittest.TestCase):
         for tz in TIME_ZONE_OPTIONS:
             self.assertIn(f'<option value="{tz}">{tz}</option>', html)
 
-    def test_collision_cache_and_search_debounce_markers(self):
+    def test_search_debounce_marker_and_collisions_left_on_ice(self):
         app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+        analytics = (DASHBOARD / "analytics.js").read_text(encoding="utf-8")
 
-        self.assertIn("function collisionsFor(", app)
-        self.assertIn("state.collisionsCache", app)
         self.assertIn("function debounce(", app)
         self.assertIn("debounce(runActivityFilters,200)", app.replace(" ", ""))
+
+        # Scheduling conflicts were withdrawn from the dashboard on 2026-07-30:
+        # at the real portfolio's density the detector fires constantly and
+        # nobody could say what to act on. The cache it fed went with it, so
+        # the two assertions that pinned it have no subject any more.
+        #
+        # On ice, not deleted -- the detector and its own tests stay in
+        # analytics.js so bringing the concept back is a wiring job rather than
+        # a rebuild. Pinned in both directions so neither half drifts: no
+        # caller in the dashboard, and the engine still present.
+        self.assertNotIn("collisionsFor(", app)
+        self.assertNotIn("collisionsCache", app)
+        self.assertIn("function detectCollisions(", analytics)
 
     def test_empty_state_helper_present(self):
         app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
@@ -200,8 +212,11 @@ class StudioTests(unittest.TestCase):
         self.assertNotIn("item.left.campaign||item.left.tracking_pack_id", app)
         self.assertNotIn("item.right.campaign||item.right.tracking_pack_id", app)
         self.assertIn("campaignLabel(row)", app)
-        self.assertIn("campaignLabel(item.left)", app)
-        self.assertIn("campaignLabel(item.right)", app)
+        # The item.left / item.right call sites lived in the conflict workbench,
+        # retired 2026-07-30. The rule they enforced is unchanged and still
+        # pinned by the three assertNotIn above: no surface may fall back to the
+        # raw campaign||tracking_pack_id pair, because that leaks the generic
+        # standalone prefix as if it were a campaign name.
 
     def test_multiselect_trigger_labels_are_field_specific(self):
         app = (DASHBOARD / "app.js").read_text(encoding="utf-8")

@@ -4,7 +4,7 @@
   const A = window.CplanAnalytics;
   const COLORS = {grey:'#404040', bronze:'#B98E2C'};
 
-  const state = {snapshotRows:[], rows:[], meta:null, syncRun:null, horizonWeeks:8, boardGroup:'channel', trendMode:'', calendarDate:new Date(), selected:null, editing:false, creating:false, packing:false, customChannels:[], dirty:false, showErrors:false, filteredRows:[], collisionsCache:new Map(), drawerOpener:null, discardModalOpen:false, draftModalOpen:false, deleteModalOpen:false, queueFilter:null, dateFrom:null, dateTo:null, packDrawerOpener:null};
+  const state = {snapshotRows:[], rows:[], meta:null, syncRun:null, horizonWeeks:8, boardGroup:'channel', trendMode:'', calendarDate:new Date(), selected:null, editing:false, creating:false, packing:false, customChannels:[], dirty:false, showErrors:false, filteredRows:[], drawerOpener:null, discardModalOpen:false, draftModalOpen:false, deleteModalOpen:false, queueFilter:null, dateFrom:null, dateTo:null, packDrawerOpener:null};
 
   // Sentinel for the campaign filter -- the empty value already means "all",
   // so the absence needs a value of its own. Plain text, not a control
@@ -433,7 +433,6 @@ function donutHtml(entries, colorOf, centerText, centerSub) {
 
   function refreshRows() {
     state.rows = state.snapshotRows.filter(inTimeRange);
-    state.collisionsCache = new Map();
     updateDraftCount();
   }
 
@@ -470,12 +469,6 @@ function donutHtml(entries, colorOf, centerText, centerSub) {
     return copy;
   }
 
-  function collisionsFor(proximityDays) {
-    if (!state.collisionsCache.has(proximityDays)) {
-      state.collisionsCache.set(proximityDays, A.detectCollisions(state.rows, {proximityDays}));
-    }
-    return state.collisionsCache.get(proximityDays);
-  }
 
   function debounce(fn, wait) {
     let timer;
@@ -612,8 +605,10 @@ function donutHtml(entries, colorOf, centerText, centerSub) {
     const upcoming = rows.filter(row => {const d=A.parseDate(row.start_date);return d&&d>=now&&d<=future30;}).sort((a,b)=>A.parseDate(a.start_date)-A.parseDate(b.start_date));
     const internal = rows.filter(row=>row.source_type==='internal').length;
     const external = rows.filter(row=>row.source_type==='external').length;
-    const collisions = collisionsFor(1).filter(item=>item.kind==='conflict');
-    const conflictIds = new Set(); collisions.forEach(item=>{conflictIds.add(String(item.left.id));conflictIds.add(String(item.right.id));});
+    // Scheduling conflicts are on ice (2026-07-30, user decision): at the real
+    // portfolio's density the detector fires constantly, and nobody could say
+    // what to do with the result. detectCollisions and its tests stay in
+    // analytics.js so bringing the concept back is a wiring job, not a rebuild.
     const quality = A.dataQuality(rows);
     const lead = A.leadTimeStats(rows,7);
 
@@ -669,7 +664,7 @@ function donutHtml(entries, colorOf, centerText, centerSub) {
     const incompleteRows = rows.filter(row=>A.planningCompleteness(row).score<100);
     const shortNoticeRows = rows.filter(A.isShortNotice);
     const invalidRows = rows.filter(A.hasInvalidDates);
-    const totalIssues = incompleteRows.length+shortNoticeRows.length+invalidRows.length+collisions.length;
+    const totalIssues = incompleteRows.length+shortNoticeRows.length+invalidRows.length;
     document.getElementById('attention-count').textContent = totalIssues;
     // P10: the card's top border is a status signal, not decoration — red
     // only while findings are outstanding, neutral the moment the queue
@@ -686,7 +681,6 @@ function donutHtml(entries, colorOf, centerText, centerSub) {
     // time and field coverage. One line each keeps the route without giving the
     // steering screen back to them. Rendered here, after topMissing exists, so
     // the third line can name the field instead of counting records.
-    const critical=collisions.filter(item=>item.severity==='critical');
     // Ranked, then capped at two. Four bands of identical weight made the reader
     // do the ranking the screen should have done -- asked which one mattered
     // before a meeting, a comms lead could not say. Rank is by how soon somebody
@@ -794,9 +788,6 @@ function donutHtml(entries, colorOf, centerText, centerSub) {
       }, html);
     };
     const leadNow = A.leadTimeStats(cmpCur,7), leadBefore = A.leadTimeStats(cmpPrev,7);
-    const inWin = (row,win) => {const d=A.parseDate(row&&row.start_date);return d&&d>=win.from&&d<win.to;};
-    const collisionsNow = collisions.filter(item=>inWin(item.left,windowCur)||inWin(item.right,windowCur)).length;
-    const collisionsBefore = collisions.filter(item=>inWin(item.left,windowPrev)||inWin(item.right,windowPrev)).length;
 
     // Six figures, in the order the leading question asks them: how much is
     // coming, how much of it is heavy, then the three ways it goes wrong, then
@@ -834,8 +825,6 @@ function donutHtml(entries, colorOf, centerText, centerSub) {
       // are genuinely out of bounds.
       kpi('Critical and high', fmtNum(highNow), windowNoun.toLowerCase(), '', '',
         trend(highNow,highBefore,'down-good','critical items',comparable)),
-      kpi('Competing for a slot', fmtNum(collisionsNow), 'Shared audience and channel', tone(collisionsNow, critical.length?'danger':'warning'), 'activities:conflicts',
-        trend(collisionsNow,collisionsBefore,'down-good','slot conflicts',comparable)),
       kpi('On short notice', fmtNum(shortNow), 'Under 7 days lead time', tone(shortNow), 'activities:incomplete',
         trend(shortNow,shortBefore,'down-good','short notice',comparable)),
       kpi('Incomplete', fmtNum(incompleteRows.length), rows.length?`${quality.completenessRate}% of the portfolio is complete`:'Nothing in this range', tone(incompleteRows.length), 'activities:incomplete'),
@@ -858,11 +847,6 @@ function donutHtml(entries, colorOf, centerText, centerSub) {
     if (incompleteRows.length) groups.push({severity:QUEUE_SEVERITY.incomplete,title:`${fmtNum(incompleteRows.length)} activities with missing fields`,meta:topMissing?`Largest gap: ${esc(FIELD_LABELS[topMissing[0]]||topMissing[0])} (${fmtNum(topMissing[1])})`:'',action:'Review list',queue:'incomplete'});
     if (shortNoticeRows.length) groups.push({severity:QUEUE_SEVERITY['short-notice'],title:`${fmtNum(shortNoticeRows.length)} activities on short notice`,meta:`Under 7 days lead time · median ${lead.median===null?'—':lead.median+'d'}`,action:'Review list',queue:'short-notice'});
     if (invalidRows.length) groups.push({severity:QUEUE_SEVERITY['invalid-date'],title:`${fmtNum(invalidRows.length)} invalid date ranges`,meta:'End date before start date',action:'Review list',queue:'invalid-date'});
-    // Counts what the workbench opens on: its upcoming scope. A queue promising
-    // 26 that opens on 6 makes the reader distrust both numbers, and the 20 in
-    // the past are not work anyone can do.
-    const upcomingCollisions=upcomingOnly(collisions);
-    if (upcomingCollisions.length) groups.push({severity:QUEUE_SEVERITY.conflicts,title:`${plural(upcomingCollisions.length,'scheduling conflict')} ahead`,meta:'Shared audience and channel',action:'Open conflicts',queue:'conflicts'});
     const deadlineRows = upcoming.filter(row=>A.planningCompleteness(row).score<100||shortNoticeRows.includes(row)).slice(0,5);
     const deadlines = deadlineRows.map(row=>{
       const completeness=A.planningCompleteness(row);
@@ -881,7 +865,7 @@ function donutHtml(entries, colorOf, centerText, centerSub) {
 
     document.getElementById('readiness-summary').innerHTML = `<div class="metric-line"><span>Fully complete</span><strong>${fmtNum(rows.length-quality.incomplete)}</strong></div><div class="progress"><span style="width:${quality.completenessRate}%"></span></div><div class="metric-line"><span>Missing pack/campaign</span><strong>${fmtNum(quality.missingPackIds)}</strong></div><div class="metric-line"><span>Invalid date range</span><strong>${fmtNum(quality.invalidDateRanges)}</strong></div><div class="metric-line"><span>Total activities</span><strong>${fmtNum(rows.length)}</strong></div>`;
 
-    // Upcoming: grouped by week, channel chip per row, conflict marker.
+    // Upcoming: grouped by week, channel chip per row.
     //
     // Capped at eight. Sixteen rows made this card 988px of content beside a
     // 172px chart, and the grid stretched the chart's card to match -- 893px of
@@ -895,7 +879,7 @@ function donutHtml(entries, colorOf, centerText, centerSub) {
     upcoming.slice(0,UPCOMING_SHOWN).forEach(row=>{const key=weekKey(A.parseDate(row.start_date)).getTime();if(!weekGroups.has(key))weekGroups.set(key,[]);weekGroups.get(key).push(row);});
     const upcomingRest = Math.max(0, upcoming.length - UPCOMING_SHOWN);
     document.getElementById('upcoming-list').innerHTML = upcoming.length
-      ? Array.from(weekGroups.entries()).map(([key,items])=>`<div class="week-heading">Week of ${fmtDate(new Date(Number(key)))}</div>`+items.map(row=>`<div class="list-row" data-open-id="${esc(row.id||'')}"><span class="severity-line medium"></span><div><div class="list-title">${esc(row.activity_name||'Untitled')}</div><div class="list-meta">${fmtDate(row.start_date)} · ${esc(row.lead_team||row.lead||'Unassigned')}</div></div><span>${row.channel?`<span class="chip"><i class="channel-dot" style="background:${channelColor(row.channel)}" aria-hidden="true"></i>${esc(row.channel)}</span>`:''}${conflictIds.has(String(row.id))?'<span class="chip conflict">Conflict</span>':''}</span></div>`).join('')).join('')
+      ? Array.from(weekGroups.entries()).map(([key,items])=>`<div class="week-heading">Week of ${fmtDate(new Date(Number(key)))}</div>`+items.map(row=>`<div class="list-row" data-open-id="${esc(row.id||'')}"><span class="severity-line medium"></span><div><div class="list-title">${esc(row.activity_name||'Untitled')}</div><div class="list-meta">${fmtDate(row.start_date)} · ${esc(row.lead_team||row.lead||'Unassigned')}</div></div><span>${row.channel?`<span class="chip"><i class="channel-dot" style="background:${channelColor(row.channel)}" aria-hidden="true"></i>${esc(row.channel)}</span>`:''}</span></div>`).join('')).join('')
         + (upcomingRest?`<div class="list-more">${fmtNum(upcomingRest)} more in the next 30 days · <button type="button" class="linklike" data-goto="overview:timeline">See them on the timeline →</button></div>`:'')
       : emptyState(EMPTY_ICONS.calendar, 'No activities in the next 30 days', 'Check back later or widen the planning horizon.');
 
@@ -940,8 +924,6 @@ function donutHtml(entries, colorOf, centerText, centerSub) {
 
     const grouping = BOARD_GROUPS[state.boardGroup]||BOARD_GROUPS.channel;
     document.getElementById('board-subtitle').textContent = `Swimlanes per ${grouping.label} · bars span start to end`;
-    const conflictIds = new Set();
-    collisionsFor(1).filter(item=>item.kind==='conflict').forEach(item=>{conflictIds.add(String(item.left.id));conflictIds.add(String(item.right.id));});
 
     const lanes = new Map();
     rows.forEach(row=>{const key=grouping.of(row);if(!lanes.has(key))lanes.set(key,[]);lanes.get(key).push(row);});
@@ -951,14 +933,13 @@ function donutHtml(entries, colorOf, centerText, centerSub) {
       html+=`<div class="timeline-group">${esc(lane)} (${laneRows.length})</div>`;
       laneRows.slice(0,BOARD_LANE_LIMIT).forEach(row=>{
         const start=A.parseDate(row.start_date),end=A.parseDate(row.end_date)||start;
-        const conflict=conflictIds.has(String(row.id));
-        html+=`<div class="timeline-label" data-open-id="${esc(row.id||'')}" title="${esc(row.activity_name||'')}">${esc(row.activity_name||'Untitled')}</div>`;
+                html+=`<div class="timeline-label" data-open-id="${esc(row.id||'')}" title="${esc(row.activity_name||'')}">${esc(row.activity_name||'Untitled')}</div>`;
         weeks.forEach((w,i)=>{
           const overlaps=start&&start<w.to&&end>=w.from;
           const isFirst=overlaps&&!(start<w.from);
           const isLast=overlaps&&!(end>=w.to);
-          const cls=`timeline-bar${row.source_type==='external'?' external':''}${conflict?' conflict':''}${isFirst?' start':''}${isLast?' end':''}`;
-          html+=`<div class="timeline-cell">${overlaps?`<span class="${cls}" title="${esc(row.channel||'')}${conflict?' · overlaps with another activity':''}"></span>`:''}</div>`;
+          const cls=`timeline-bar${row.source_type==='external'?' external':''}${isFirst?' start':''}${isLast?' end':''}`;
+          html+=`<div class="timeline-cell">${overlaps?`<span class="${cls}" title="${esc(row.channel||'')}"></span>`:''}</div>`;
         });
       });
       if(laneRows.length>BOARD_LANE_LIMIT)html+=`<div class="timeline-more">+${laneRows.length-BOARD_LANE_LIMIT} more in ${esc(lane)}</div>`;
@@ -984,114 +965,10 @@ function donutHtml(entries, colorOf, centerText, centerSub) {
     document.getElementById('planning-calendar').innerHTML=`<div class="calendar">${html}</div>`;
   }
 
-  // A clash that has already happened cannot be resolved -- the send went out.
-  // Measured on the current portfolio: of 26 detected conflicts 20 sat in the
-  // past, and nine of the first ten rows on screen were among them, because
-  // detectCollisions orders by severity and gap with no date term at all. The
-  // six a planner could still act on were below the fold. Upcoming is
-  // therefore the default scope, not a filter someone has to discover.
-  function upcomingOnly(items) {
-    const today=new Date(); today.setHours(0,0,0,0);
-    const startOf=item=>A.parseDate(item.left.start_date)||A.parseDate(item.right.start_date);
-    return items.filter(item=>{const d=startOf(item);return d&&d>=today;});
-  }
 
-  // Soonest first inside the scope. Severity still decides ties and still shows
-  // as a badge, but between two conflicts a planner can act on, the one landing
-  // next week outranks the one landing in four months whatever its badge says.
-  function byImminence(items) {
-    const order={critical:4, high:3, medium:2, info:1};
-    const startOf=item=>A.parseDate(item.left.start_date)||A.parseDate(item.right.start_date);
-    return items.slice().sort((a,b)=>{
-      const da=startOf(a), db=startOf(b);
-      if(da&&db&&da-db) return da-db;
-      return (order[b.severity]||0)-(order[a.severity]||0)||a.gapDays-b.gapDays;
-    });
-  }
 
-  function conflictScope() {
-    const el=document.getElementById('conflict-when');
-    return el?el.value:'upcoming';
-  }
 
-  function filteredConflicts() {
-    const proximity=Number(document.getElementById('conflict-proximity').value),type=document.getElementById('conflict-type').value,severity=document.getElementById('conflict-severity').value;
-    let items=collisionsFor(proximity).filter(item=>(!type||item.kind===type)&&(!severity||item.severity===severity));
-    if(conflictScope()==='upcoming') items=upcomingOnly(items);
-    return byImminence(items);
-  }
 
-  function renderConflicts() {
-    const everything=collisionsFor(Number(document.getElementById('conflict-proximity').value));
-    const items=filteredConflicts();
-    // The KPIs count what the scope actually holds, not the whole detection.
-    // Reporting 26 above a list of 6 would make the list look broken.
-    const inScope=conflictScope()==='upcoming'?upcomingOnly(everything):everything;
-    const conflicts=inScope.filter(i=>i.kind==='conflict'),orchestration=inScope.filter(i=>i.kind==='orchestration');
-    const hiddenPast=everything.length-inScope.length;
-    document.getElementById('conflict-kpis').innerHTML=[kpi('Matching pairs',items.length,'Current filters',''),kpi('Critical',conflicts.filter(i=>i.severity==='critical').length,'Requires review',conflicts.some(i=>i.severity==='critical')?'danger':''),kpi('Other conflicts',conflicts.filter(i=>i.severity!=='critical').length,'Potential competition',conflicts.some(i=>i.severity!=='critical')?'warning':''),kpi('Orchestration',orchestration.length,'Same-pack coordination','')].join('');
-    // What the scope holds back, said out loud. A cap that stays quiet reads as
-    // "that is all there is".
-    const note=document.getElementById('conflict-scope-note');
-    if(note){
-      note.hidden=!hiddenPast;
-      note.innerHTML=hiddenPast?`${plural(hiddenPast,'conflict')} already in the past ${hiddenPast===1?'is':'are'} hidden \u00b7 <button type="button" class="linklike" id="conflict-show-past">Show them too</button>`:'';
-    }
-    // Grouped, not a flat list with a cap. At the scale this studio is built
-    // for -- a portfolio roughly forty times the demo set -- "upcoming only"
-    // still leaves far more pairs than anyone reads in sequence, and the old
-    // slice(0,60) simply stopped without saying so. Weeks are the default
-    // because the list is ordered by imminence and a week is the unit a
-    // planner moves a send within; audience and channel answer the other
-    // question the scale creates, which is who or what keeps getting hit.
-    const groupBy=(document.getElementById('conflict-group')||{}).value||'week';
-    const startOfConflict=item=>A.parseDate(item.left.start_date)||A.parseDate(item.right.start_date);
-    const weekStart=date=>{const d=new Date(date);d.setDate(d.getDate()-((d.getDay()+6)%7));d.setHours(0,0,0,0);return d;};
-    const keyOf=item=>{
-      if(groupBy==='audience') return split(item.left.target_audience)[0]||'No audience';
-      if(groupBy==='channel') return item.left.channel||'No channel';
-      const d=startOfConflict(item);
-      return d?String(weekStart(d).getTime()):'undated';
-    };
-    const labelOf=key=>{
-      if(groupBy!=='week') return key;
-      return key==='undated'?'No date':`Week of ${fmtDate(new Date(Number(key)))}`;
-    };
-    const buckets=new Map();
-    items.forEach(item=>{const k=keyOf(item);if(!buckets.has(k))buckets.set(k,[]);buckets.get(k).push(item);});
-    // Weeks keep chronological order -- the sort already put them there. The
-    // other two lead with the heaviest, because "who gets hit most" is the
-    // question those groupings are asked.
-    const ordered=groupBy==='week'
-      ? Array.from(buckets.entries())
-      : Array.from(buckets.entries()).sort((a,b)=>b[1].length-a[1].length);
-
-    const ROWS_PER_GROUP=25;
-    const renderRow=item=>{const when=A.parseDate(item.left.start_date)||A.parseDate(item.right.start_date);const today=new Date();today.setHours(0,0,0,0);const days=when?Math.round((when-today)/86400000):null;const lead=when?`<strong>${days===0?'Today':days===1?'Tomorrow':days>0?`In ${plural(days,'day')}`:`${plural(Math.abs(days),'day')} ago`}</strong> · ${fmtDate(when)}`:'No date';const reason=`${lead} · ${item.gapDays===0?'Same day':item.gapDays+' day gap'} · ${esc(item.left.channel||'No channel')} · ${esc(split(item.left.target_audience)[0]||'Shared audience')}`;return `<div class="conflict-row"><div class="conflict-top"><div><span class="badge ${esc(item.severity)}">${esc(item.severity)}</span> <span class="badge ${item.kind==='orchestration'?'info':'neutral'}">${esc(item.kind)}</span></div><span class="list-meta">${reason}</span></div><div class="conflict-pair"><div class="conflict-item" data-open-id="${esc(item.left.id||'')}"><strong>${esc(item.left.activity_name||'Untitled')}</strong><br>${esc(campaignLabel(item.left)||'No campaign')}</div><div class="conflict-vs">overlaps with</div><div class="conflict-item" data-open-id="${esc(item.right.id||'')}"><strong>${esc(item.right.activity_name||'Untitled')}</strong><br>${esc(campaignLabel(item.right)||'No campaign')}</div></div></div>`;};
-    document.getElementById('conflict-list').innerHTML=items.length
-      ? ordered.map(([key,group],index)=>{
-          const critical=group.filter(x=>x.severity==='critical').length;
-          const high=group.filter(x=>x.severity==='high').length;
-          const marks=[critical?`${fmtNum(critical)} critical`:'',high?`${fmtNum(high)} high`:''].filter(Boolean).join(' \u00b7 ');
-          const shown=group.slice(0,ROWS_PER_GROUP);
-          const rest=group.length-shown.length;
-          // First group open, the rest closed: the soonest week is the one
-          // being worked on, and twelve expanded weeks is the wall this
-          // replaces. <details> carries the keyboard behaviour for free.
-          return `<details class="conflict-group"${index===0?' open':''}>`
-            +`<summary><span class="conflict-group-name">${esc(labelOf(key))}</span>`
-            +`<span class="conflict-group-count">${plural(group.length,'conflict')}${marks?` \u00b7 ${marks}`:''}</span></summary>`
-            +shown.map(renderRow).join('')
-            // Names the way out, not just the number. Stress-tested against a
-          // portfolio the size this studio is built for -- 15,000 activities,
-          // 1,304 upcoming conflicts, a median of 50 per week -- a group can
-          // still overflow, and at that density the answer is a second axis
-          // rather than a longer list.
-          +(rest?`<p class="list-more">${plural(rest,'further conflict')} in this group \u00b7 ${groupBy==='week'?'group by audience or channel':'narrow the proximity window'} to break ${rest===1?'it':'them'} down</p>`:'')
-            +`</details>`;
-        }).join('')
-      : emptyState(EMPTY_ICONS.checkCircle, 'No matching conflicts', 'Try widening the proximity window or clearing filters.');
-  }
 
   function renderCapacity() {
     const future=futureRows(26),weekly=A.weeklyCoverage(future,12,new Date()),max=Math.max(...weekly.map(w=>w.count),1);
@@ -1155,24 +1032,10 @@ function donutHtml(entries, colorOf, centerText, centerSub) {
     if (state.queueFilter==='incomplete') return A.planningCompleteness(row).score<100;
     if (state.queueFilter==='short-notice') return A.isShortNotice(row);
     if (state.queueFilter==='invalid-date') return A.hasInvalidDates(row);
-    // Conflicts came over from Planning with the tab merge. Membership is
-    // "appears on either side of a detected collision", computed from the same
-    // detector the workbench below the table draws from, so the row list and
-    // the pairs can never disagree about who is in conflict.
-    if (state.queueFilter==='conflicts') {
-      // Scoped exactly like the workbench below it. Unscoped, the table listed
-      // 48 activities under a panel showing 6 pairs, most of them from clashes
-      // that already happened -- the row list and the pairs must never disagree
-      // about who is in conflict.
-      const ids=new Set();
-      upcomingOnly(collisionsFor(1).filter(item=>item.kind==='conflict'))
-        .forEach(item=>{ids.add(String(item.left.id));ids.add(String(item.right.id));});
-      return ids.has(String(row.id));
-    }
     return true;
   }
 
-  const QUEUE_FILTER_LABELS = {incomplete:'Missing fields', 'short-notice':'Short notice', 'invalid-date':'Invalid dates', conflicts:'Scheduling conflicts'};
+  const QUEUE_FILTER_LABELS = {incomplete:'Missing fields', 'short-notice':'Short notice', 'invalid-date':'Invalid dates'};
 
   // One severity per queue, shared by the overview attention card and the
   // workbench context bar -- they describe the same finding, so they must not
@@ -1605,22 +1468,17 @@ function donutHtml(entries, colorOf, centerText, centerSub) {
     document.getElementById('activities-count').textContent = fmtNum(state.rows.length);
   }
 
-  // Every queue lands on Activities now, conflicts included. The workbench
-  // panel rides along with the conflict queue rather than living on a page of
-  // its own: a table row can say "this one clashes", it cannot show what it
-  // clashes with, and that pairing is the reason the workbench exists.
+  // Every queue lands on Activities. Scheduling conflicts are no longer among
+  // them -- see renderOverview for why they are on ice.
   function setQueueFilter(queue) {
     state.queueFilter=queue;
     document.getElementById('activity-readiness').value='';
     showPage('activities');
-    const panel=document.getElementById('conflict-panel');
-    if(panel)panel.hidden=queue!=='conflicts';
-    if(queue==='conflicts'){renderConflicts();}
     applyActivityFilters();bindOpenRows();bindDuplicateButtons();
   }
 
   function renderAll() {
-    refreshRows(); refreshChannelOrder(); renderOverview(); renderBoard(); renderCalendar(); renderConflicts(); renderCapacity(); populateActivityFilters(); applyActivityFilters(); renderPacks(); renderPlanningHealth(); renderStrategic(); renderDataQuality(); updateActivitiesCount(); bindOpenRows(); bindDuplicateButtons();
+    refreshRows(); refreshChannelOrder(); renderOverview(); renderBoard(); renderCalendar(); renderCapacity(); populateActivityFilters(); applyActivityFilters(); renderPacks(); renderPlanningHealth(); renderStrategic(); renderDataQuality(); updateActivitiesCount(); bindOpenRows(); bindDuplicateButtons();
   }
 
   function bindOpenRows() {
@@ -3208,14 +3066,6 @@ function donutHtml(entries, colorOf, centerText, centerSub) {
       openPackDetail(packBtn.dataset.packOpen, packBtn);
     });
     document.getElementById('horizon-toggle').onclick=event=>{const btn=event.target.closest('button');if(!btn)return;document.querySelectorAll('#horizon-toggle button').forEach(x=>x.classList.remove('active'));btn.classList.add('active');state.horizonWeeks=Number(btn.dataset.weeks);renderBoard();bindOpenRows();};
-    ['conflict-proximity','conflict-type','conflict-severity','conflict-when','conflict-group'].forEach(id=>document.getElementById(id).onchange=()=>{renderConflicts();bindOpenRows();});
-    // The note's link is re-rendered on every pass, so it is delegated rather
-    // than bound once.
-    document.addEventListener('click',event=>{
-      if(!event.target.closest('#conflict-show-past'))return;
-      document.getElementById('conflict-when').value='';
-      renderConflicts();bindOpenRows();
-    });
     document.getElementById('cal-prev').onclick=()=>{state.calendarDate=new Date(state.calendarDate.getFullYear(),state.calendarDate.getMonth()-1,1);renderCalendar();bindOpenRows();};
     document.getElementById('cal-next').onclick=()=>{state.calendarDate=new Date(state.calendarDate.getFullYear(),state.calendarDate.getMonth()+1,1);renderCalendar();bindOpenRows();};
     document.getElementById('cal-today').onclick=()=>{state.calendarDate=new Date();renderCalendar();bindOpenRows();};
@@ -3231,7 +3081,7 @@ function donutHtml(entries, colorOf, centerText, centerSub) {
     document.getElementById('activity-clear').onclick=clearActivityFilters;
     // The bar's own Clear drops just the queue -- a user who narrowed the
     // review list with a search should not lose that search too.
-    document.getElementById('queue-bar-clear').onclick=()=>{state.queueFilter=null;document.getElementById('conflict-panel').hidden=true;runActivityFilters();};
+    document.getElementById('queue-bar-clear').onclick=()=>{state.queueFilter=null;runActivityFilters();};
     document.getElementById('activity-export').onclick=exportFilteredCsv;
     document.getElementById('activity-new').onclick=event=>openCreateDrawer(event.currentTarget);
     document.getElementById('overview-new').onclick=event=>openCreateDrawer(event.currentTarget);
