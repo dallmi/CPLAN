@@ -70,3 +70,18 @@ def test_a_single_week_window_produces_one_of_each_column():
     kinds = [c.kind for c in grid.columns()]
 
     assert kinds == ["quarter", "month", "week"]
+
+
+def test_a_week_whose_thursday_falls_in_the_next_quarter_groups_there():
+    grid = build_grid(date(2025, 1, 1), date(2025, 3, 31))
+    columns = grid.columns()
+
+    # The last week starts Mon 31 Mar 2025; its Thursday is 3 Apr, so the week
+    # belongs to April and Q2 even though the window stops on 31 March.
+    quarters = [c.label for c in columns if c.kind == "quarter"]
+    months = [c.label for c in columns if c.kind == "month"]
+
+    assert quarters == ["Q1 2025", "Q2 2025"]
+    assert months == ["Jan 2025", "Feb 2025", "Mar 2025", "Apr 2025"]
+    assert columns[-1].kind == "week"
+    assert grid.quarter_of(grid.weeks[-1]) == (2025, 2)
