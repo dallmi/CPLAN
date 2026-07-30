@@ -125,7 +125,7 @@
       </section>
 
       <section class="page" id="page-activities">
-        <div class="page-heading"><div><p class="eyebrow">Operational workspace</p><h2>Activities</h2><p>Find, inspect and update activities across the portfolio.</p></div><div class="page-actions"><button class="btn secondary" id="activity-export">Export filtered CSV</button><button class="btn primary" id="activity-new">New activity</button></div></div>
+        <div class="page-heading"><div><p class="eyebrow">Operational workspace</p><h2>Activities</h2><p>Find, inspect and update activities across the portfolio.</p></div><div class="page-actions"><button class="btn secondary" id="activity-export">Export to Excel</button><button class="btn primary" id="activity-new">New activity</button></div></div>
         <div class="filterbar">
           <input id="activity-search" type="search" placeholder="Search activity, campaign, lead or tracking ID" aria-label="Search activities">
           <select id="activity-source" aria-label="Filter by activity type"><option value="">All types</option><option value="internal">Internal</option><option value="external">External</option></select>
@@ -148,7 +148,7 @@
       </section>
 
       <section class="page" id="page-packs">
-        <div class="page-heading"><div><p class="eyebrow">Multi-channel work</p><h2>Packs</h2><p>What is going out together, and whether the set holds up.</p></div><div class="page-actions"><button class="btn primary" id="packs-new">New pack</button></div></div>
+        <div class="page-heading"><div><p class="eyebrow">Multi-channel work</p><h2>Packs</h2><p>What is going out together, and whether the set holds up.</p></div><div class="page-actions"><button class="btn secondary" id="packs-export">Export to Excel</button><button class="btn primary" id="packs-new">New pack</button></div></div>
         <div class="filterbar">
           <input id="pack-search" type="search" placeholder="Search pack, campaign or tracking ID" aria-label="Search packs">
           <select id="pack-campaign-filter" aria-label="Filter by campaign"><option value="">All campaigns</option></select>
@@ -424,6 +424,7 @@
 
   <div class="toast" id="toast" role="status"></div>
   <script src="analytics.js"></script>
+  <script src="xlsx.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -538,3 +538,41 @@ class StudioStaticIntegrityTests(unittest.TestCase):
             "CONSTANT_CASE identifiers used but never declared in app.js -- "
             "node --check cannot see this, only a browser can: " + str(undeclared),
         )
+
+
+class StudioExportTests(unittest.TestCase):
+    """Exports are workbooks, not CSV handed to Excel to guess at."""
+
+    def test_exports_are_xlsx_and_csv_is_gone(self):
+        html = (DASHBOARD / "index.html").read_text(encoding="utf-8")
+        app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn('<script src="xlsx.js"></script>', html)
+        self.assertIn('id="activity-export">Export to Excel<', html)
+        self.assertIn('id="packs-export">Export to Excel<', html)
+
+        self.assertIn(".xlsx", app)
+        self.assertIn("CplanXlsx", app)
+        # The CSV path is gone from the studio, not merely unused: a second
+        # export shape is a second thing to keep in step with the columns.
+        self.assertNotIn("exportFilteredCsv", app)
+        self.assertNotIn("text/csv", app)
+        self.assertNotIn(".csv", app)
+
+    def test_pack_export_places_summary_cells_by_column_name(self):
+        app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+
+        # The first attempt filled the pack summary row positionally and put
+        # "11 activities" under Start, the first date under End and the last
+        # under Priority -- every value plausible on its own, so nothing looked
+        # wrong until the file was opened. Placement by header name cannot
+        # drift when a column is added or moved.
+        self.assertIn("const summaryRow = values => {", app)
+        self.assertIn("if (header in at) cells[at[header]] = value;", app)
+        self.assertIn("'Pack / activity':", app)
+
+        # Grouping is the reason this export exists: one row per pack, its
+        # activities one level deeper, collapsed on open.
+        self.assertIn("level: 0, bold: true", app)
+        self.assertIn("level: 1,", app)
+        self.assertIn("collapsed: true", app)

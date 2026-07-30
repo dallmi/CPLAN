@@ -31,7 +31,11 @@ class StudioDrawerTests(unittest.TestCase):
         # Planning gained its own "New activity" on 2026-07-29: a fresh-eyes test
         # showed planners look for creation under Planning, not under Activities.
         # The rule is one primary CTA per page, not one in the whole studio.
-        self.assertIn('<button class="btn secondary" id="activity-export">Export filtered CSV</button>', html)
+        # The export became a workbook on 2026-07-30; its label changed, its
+        # rank did not. Both exports are pinned here so a future one cannot
+        # arrive as a second primary on a page that already has one.
+        self.assertIn('<button class="btn secondary" id="activity-export">Export to Excel</button>', html)
+        self.assertIn('<button class="btn secondary" id="packs-export">Export to Excel</button>', html)
         self.assertIn('<button class="btn primary" id="activity-new">New activity</button>', html)
         # Planning was dissolved on 2026-07-29 (12 destinations to 4); its page
         # CTA moved to the new Packs tab, where "New pack" is that page's single

@@ -395,7 +395,10 @@ function donutHtml(entries, colorOf, centerText, centerSub) {
   }
 
   function download(name, content, type) {
-    const blob = new Blob([content], {type:type || 'application/octet-stream'});
+    // A Blob passes straight through: re-wrapping it would discard the MIME
+    // type the builder set, and for .xlsx that type is what stops a browser
+    // from filing the download as a generic binary.
+    const blob = content instanceof Blob ? content : new Blob([content], {type:type || 'application/octet-stream'});
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url; link.download = name; link.click();
@@ -2885,11 +2888,122 @@ function donutHtml(entries, colorOf, centerText, centerSub) {
     updateReady();
   }
 
-  function exportFilteredCsv() {
-    const columns=['tracking_id','activity_name','channel','start_date','end_date','priority','lead','lead_team','target_audience','business_division','region','campaign','strategic_objectives','source_type'];
-    const cell=value=>`"${A.safeCsvValue(value).replace(/"/g,'""')}"`;
-    download(`CPLAN_activities_${new Date().toISOString().slice(0,10)}.csv`,[columns.join(','),...state.filteredRows.map(row=>columns.map(c=>cell(row[c])).join(','))].join('\n'),'text/csv');
+  const X = window.CplanXlsx;
+
+  // Both exports are read in Excel, so both are written as .xlsx rather than
+  // handed over as CSV for Excel to guess at -- separators, decimal marks and
+  // date order all depend on the reader's locale, and a tracking ID like
+  // "IC-2026-0137-IN" has been turned into a formula by a leading character
+  // before now. A real workbook also carries what the reader actually wants:
+  // column widths, a frozen header, a filter row, and dates that sort.
+  const EXPORT_COLUMNS = [
+    ['tracking_id', 'Tracking ID', 22],
+    ['activity_name', 'Activity', 42],
+    ['channel', 'Channel', 20],
+    ['start_date', 'Start', 18],
+    ['end_date', 'End', 18],
+    ['priority', 'Priority', 26],
+    ['lead', 'Lead', 18],
+    ['lead_team', 'Lead team', 16],
+    ['target_audience', 'Target audience', 24],
+    ['business_division', 'Division', 14],
+    ['region', 'Region', 14],
+    ['campaign', 'Campaign', 24],
+    ['communication_pack_cpid', 'Pack ID', 16],
+    ['strategic_objectives', 'Communications pillars', 28],
+    ['source_type', 'Type', 12]
+  ];
+
+  const DATE_FIELDS = new Set(['start_date', 'end_date']);
+  const exportCell = (row, field) =>
+    DATE_FIELDS.has(field) ? (nonempty(row[field]) ? {date: row[field]} : '') : (row[field] || '');
+  const stamp = () => new Date().toISOString().slice(0, 10);
+
+  function exportActivities() {
+    const rows = state.filteredRows;
+    if (!rows.length) { toast('Nothing to export with the current filters'); return; }
+    download(`CPLAN_activities_${stamp()}.xlsx`, X.build({
+      sheetName: 'Activities',
+      columns: EXPORT_COLUMNS.map(([, header, width]) => ({header, width})),
+      rows: rows.map(row => ({cells: EXPORT_COLUMNS.map(([field]) => exportCell(row, field))}))
+    }));
+    toast(`${plural(rows.length, 'activity', 'activities')} exported`);
   }
+
+  // One row per pack, its activities beneath it one outline level deeper, so
+  // the sheet opens as a list of packs and each opens on click. That grouping
+  // is the reason this is a workbook and not a flat table: the question the
+  // export answers is "what belongs together", and a flat table answers it
+  // only if you sort it yourself and trust that nothing else moved.
+  function exportPacks() {
+    const {cards, loose} = packUnits();
+    const shown = filteredPackCards(cards);
+    if (!shown.length && !loose.length) { toast('Nothing to export'); return; }
+
+    const fields = EXPORT_COLUMNS.filter(([field]) => field !== 'activity_name');
+    const columns = [{header: 'Pack / activity', width: 52}]
+      .concat(fields.map(([, header, width]) => ({header, width})));
+
+    // Summary cells are placed by column name, never by counting positions.
+    // The first attempt filled them in order and put "11 activities" under
+    // Start, the pack's first date under End and its last under Priority --
+    // silently, because every value was individually plausible.
+    const at = {};
+    columns.forEach((column, index) => { at[column.header] = index; });
+    const summaryRow = values => {
+      const cells = new Array(columns.length).fill('');
+      Object.entries(values).forEach(([header, value]) => {
+        if (header in at) cells[at[header]] = value;
+      });
+      return cells;
+    };
+
+    const rows = [];
+    const childRow = row => ({
+      level: 1,
+      // Two leading spaces so the nesting survives a copy-paste out of the
+      // outline, where the group controls do not travel.
+      cells: [`  ${row.activity_name || 'Untitled'}`]
+        .concat(fields.map(([field]) => exportCell(row, field)))
+    });
+
+    shown.forEach(card => {
+      const gaps = card.rows.filter(row => A.planningCompleteness(row).score < 100).length;
+      // The count and the readiness ride in the label rather than claiming a
+      // column of their own: they describe the group, and every column here
+      // belongs to an activity.
+      const title = `${card.id}${card.campaign && card.campaign !== card.id ? ` · ${card.campaign}` : ''}`
+        + ` — ${plural(card.activities, 'activity', 'activities')}`
+        + (gaps ? `, ${fmtNum(gaps)} incomplete` : ', complete');
+      rows.push({level: 0, bold: true, cells: summaryRow({
+        'Pack / activity': title,
+        'Channel': plural(card.channels, 'channel'),
+        'Start': card.firstDate ? {date: card.firstDate} : '',
+        'End': card.lastDate ? {date: card.lastDate} : '',
+        'Campaign': card.campaign || '',
+        'Pack ID': card.id
+      })});
+      card.rows.slice()
+        .sort((a, b) => (A.parseDate(a.start_date) || 0) - (A.parseDate(b.start_date) || 0))
+        .forEach(row => rows.push(childRow(row)));
+    });
+
+    if (loose.length) {
+      rows.push({level: 0, bold: true, cells: summaryRow({
+        'Pack / activity': `Not in a pack — ${plural(loose.length, 'activity', 'activities')}`
+      })});
+      loose.slice()
+        .sort((a, b) => (A.parseDate(a.start_date) || 0) - (A.parseDate(b.start_date) || 0))
+        .forEach(row => rows.push(childRow(row)));
+    }
+
+    download(`CPLAN_packs_${stamp()}.xlsx`, X.build({
+      sheetName: 'Packs', columns, rows, collapsed: true
+    }));
+    toast(`${plural(shown.length, 'pack')} exported`);
+  }
+
+
 
   function showPage(name) {
     document.querySelectorAll('.nav-item').forEach(x=>x.classList.toggle('active',x.dataset.page===name));
@@ -3082,7 +3196,8 @@ function donutHtml(entries, colorOf, centerText, centerSub) {
     // The bar's own Clear drops just the queue -- a user who narrowed the
     // review list with a search should not lose that search too.
     document.getElementById('queue-bar-clear').onclick=()=>{state.queueFilter=null;runActivityFilters();};
-    document.getElementById('activity-export').onclick=exportFilteredCsv;
+    document.getElementById('activity-export').onclick=exportActivities;
+    document.getElementById('packs-export').onclick=exportPacks;
     document.getElementById('activity-new').onclick=event=>openCreateDrawer(event.currentTarget);
     document.getElementById('overview-new').onclick=event=>openCreateDrawer(event.currentTarget);
     // The card's selected styling and its "Selected"/"Add" word are driven from
