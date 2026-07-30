@@ -6,7 +6,7 @@ absent from every sheet. They are validated here rather than at use, so a typo
 stops the run instead of silently emptying the workbook.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date
 
 BAND_UNDER_1K = "< 1000"

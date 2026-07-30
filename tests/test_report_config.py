@@ -49,6 +49,11 @@ def test_an_empty_band_tuple_is_rejected_rather_than_filtering_everything_away()
         _config(audience_bands=())
 
 
+def test_an_empty_breakdown_tuple_is_rejected():
+    with pytest.raises(ValueError, match="breakdown_fields"):
+        _config(breakdown_fields=())
+
+
 def test_describe_reports_the_applied_criteria():
     labels = dict(_config(executives="with").describe())
 
