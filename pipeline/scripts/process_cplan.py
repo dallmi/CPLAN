@@ -1142,7 +1142,7 @@ def main():
     load = load_activities(files)
     combined = load.frame
 
-    if not combined.empty:
+    if load.files:
         if preview:
             print_column_comparison(load.raw_columns, load.files)
             print_data_preview(combined)
