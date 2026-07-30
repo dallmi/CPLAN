@@ -671,3 +671,62 @@ class OverviewCardsTests(unittest.TestCase):
     def test_five_column_kpi_grid_is_gone(self):
         self.assertNotIn(".kpi-grid.five", self.css)
         self.assertIn(".kpi-groups{", self.css)
+
+
+class ComingUpCardTests(unittest.TestCase):
+    """Coming up: a seven-day date-box list that scrolls inside its card.
+
+    The eight-row cap it replaces existed only to bound the card's height. The
+    scroll container bounds it directly, so these guards pin the parts that
+    make the container actually work — and that a keyboard can reach it.
+    """
+
+    def setUp(self):
+        self.app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+        self.html = (DASHBOARD / "index.html").read_text(encoding="utf-8")
+        self.css = (DASHBOARD / "styles.css").read_text(encoding="utf-8")
+
+    def _upcoming_block(self) -> str:
+        return _slice(self.app, "// Upcoming: a rolling seven days", "document.getElementById('priority-donut')")
+
+    def test_window_is_seven_rolling_days_and_the_row_cap_is_gone(self):
+        block = self._upcoming_block()
+        self.assertIn("A.comingUp(rows, now, 7)", block)
+        self.assertNotIn("UPCOMING_SHOWN", self.app)
+        self.assertNotIn("weekKey", self.app)
+        self.assertNotIn("week-heading", self.app)
+        self.assertNotIn(".week-heading{", self.css)
+
+    def test_row_carries_a_channel_edge_and_a_source_tinted_date_box(self):
+        block = self._upcoming_block()
+        self.assertIn("event-channel-edge", block)
+        self.assertIn("channelColor(row.channel)", block)
+        self.assertIn("event-date-box", block)
+        self.assertIn("relativeDayLabel", block)
+        # The drawer route survives the redesign.
+        self.assertIn("data-open-id", block)
+
+    def test_scroll_region_is_reachable_by_keyboard(self):
+        card = _slice(self.html, 'id="upcoming-list"', "</article>")
+        opening = _slice(self.html, '<div class="card-body flush scroll-y" id="upcoming-list"', ">")
+        self.assertIn('tabindex="0"', opening)
+        self.assertIn('role="region"', opening)
+        self.assertIn("aria-label=", opening)
+        # The footer is a sibling of the scroll body, or it scrolls away.
+        self.assertIn('id="upcoming-more"', card)
+
+    def test_flex_column_card_can_actually_scroll(self):
+        rule = _slice(self.css, "#view-list .grid.two>.card", ".event-row{")
+        # min-height:0 is load-bearing: without it the flex child grows to its
+        # content instead of scrolling, and the card silently returns to the
+        # 988px problem the row cap was invented for.
+        self.assertIn("min-height:0", rule)
+        self.assertIn("overflow-y:auto", rule)
+        # The floor stops the card collapsing when the queue beside it is empty.
+        self.assertIn("min-height:360px", rule)
+        # Only Coming up scrolls; the queue keeps its own height.
+        self.assertIn(".scroll-y", rule)
+
+    def test_empty_state_names_the_seven_day_window(self):
+        block = self._upcoming_block()
+        self.assertIn("No activities in the next 7 days", block)

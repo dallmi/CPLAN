@@ -813,23 +813,42 @@ function donutHtml(entries, colorOf, centerText, centerSub) {
 
     document.getElementById('readiness-summary').innerHTML = `<div class="metric-line"><span>Fully complete</span><strong>${fmtNum(rows.length-quality.incomplete)}</strong></div><div class="progress"><span style="width:${quality.completenessRate}%"></span></div><div class="metric-line"><span>Missing pack/campaign</span><strong>${fmtNum(quality.missingPackIds)}</strong></div><div class="metric-line"><span>Invalid date range</span><strong>${fmtNum(quality.invalidDateRanges)}</strong></div><div class="metric-line"><span>Total activities</span><strong>${fmtNum(rows.length)}</strong></div>`;
 
-    // Upcoming: grouped by week, channel chip per row.
+    // Upcoming: a rolling seven days, one date box per row.
     //
-    // Capped at eight. Sixteen rows made this card 988px of content beside a
-    // 172px chart, and the grid stretched the chart's card to match -- 893px of
-    // empty card, measured, which is what "the page feels overloaded" looked
-    // like from the other side. Eight covers roughly the first fortnight, which
-    // is the horizon a planner acts on; the rest is one click away and the
-    // footer says how many there are rather than trailing off silently.
-    const UPCOMING_SHOWN = 8;
-    const weekKey = date => {const d=new Date(date);const day=(d.getDay()+6)%7;d.setDate(d.getDate()-day);d.setHours(0,0,0,0);return d;};
-    const weekGroups = new Map();
-    upcoming.slice(0,UPCOMING_SHOWN).forEach(row=>{const key=weekKey(A.parseDate(row.start_date)).getTime();if(!weekGroups.has(key))weekGroups.set(key,[]);weekGroups.get(key).push(row);});
-    const upcomingRest = Math.max(0, upcoming.length - UPCOMING_SHOWN);
-    document.getElementById('upcoming-list').innerHTML = upcoming.length
-      ? Array.from(weekGroups.entries()).map(([key,items])=>`<div class="week-heading">Week of ${fmtDate(new Date(Number(key)))}</div>`+items.map(row=>`<div class="list-row" data-open-id="${esc(row.id||'')}"><span class="severity-line medium"></span><div><div class="list-title">${esc(row.activity_name||'Untitled')}</div><div class="list-meta">${fmtDate(row.start_date)} · ${esc(row.lead_team||row.lead||'Unassigned')}</div></div><span>${row.channel?`<span class="chip"><i class="channel-dot" style="background:${channelColor(row.channel)}" aria-hidden="true"></i>${esc(row.channel)}</span>`:''}</span></div>`).join('')).join('')
-        + (upcomingRest?`<div class="list-more">${fmtNum(upcomingRest)} more in the next 30 days · <button type="button" class="linklike" data-goto="overview:timeline">See them on the timeline →</button></div>`:'')
-      : emptyState(EMPTY_ICONS.calendar, 'No activities in the next 30 days', 'Check back later or widen the planning horizon.');
+    // The eight-row cap this replaces existed only to bound the card's height —
+    // sixteen rows made it 988px tall beside a 172px chart and the grid
+    // stretched the neighbour to match. The card now scrolls, so the height is
+    // bounded directly and there is no reason left to hide rows.
+    //
+    // The date box comes from the standalone dashboard, which is faster to scan
+    // than a text date. The channel colour is the studio's own and stays: as a
+    // 3px edge it reads at a glance without putting eight tinted blocks on the
+    // screen. Both distinctions survive because they answer different questions
+    // — the box says internal or external, the edge says which channel.
+    const comingUpRows = A.comingUp(rows, now, 7);
+    const beyondWeek = Math.max(0, upcoming.length - comingUpRows.length);
+    document.getElementById('upcoming-list').innerHTML = comingUpRows.length
+      ? comingUpRows.map(row => {
+          const date = A.parseDate(row.start_date);
+          const external = row.source_type === 'external';
+          const month = date.toLocaleDateString('en-GB', {month: 'short'}).toUpperCase();
+          const chip = row.channel
+            ? `<span class="chip"><i class="channel-dot" style="background:${channelColor(row.channel)}" aria-hidden="true"></i>${esc(row.channel)}</span>`
+            : '';
+          return `<div class="event-row" data-open-id="${esc(row.id||'')}">`
+            + `<span class="event-channel-edge" style="background:${channelColor(row.channel)}" aria-hidden="true"></span>`
+            + `<div class="event-date-box${external?' external':''}"><span class="event-day">${date.getDate()}</span><span class="event-month">${esc(month)}</span></div>`
+            + `<div class="event-details"><div class="event-title">${esc(row.activity_name||'Untitled')}</div>`
+            + `<div class="event-meta">${esc(A.relativeDayLabel(date, now))} · ${esc(row.lead_team||row.lead||'Unassigned')}</div></div>`
+            + chip
+            + `</div>`;
+        }).join('')
+      : emptyState(EMPTY_ICONS.calendar, 'No activities in the next 7 days', 'The timeline shows the wider horizon.');
+    // Outside the scroll container on purpose: a footer that scrolls away
+    // cannot say how much was left off.
+    document.getElementById('upcoming-more').innerHTML = beyondWeek
+      ? `<div class="list-more">${fmtNum(beyondWeek)} more in the next 30 days · <button type="button" class="linklike" data-goto="overview:timeline">See them on the timeline →</button></div>`
+      : '';
 
     // Centre carries the pool the shares are read against -- "17% urgent" is
     // meaningless without knowing 17% of what.

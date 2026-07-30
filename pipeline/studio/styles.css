@@ -137,7 +137,6 @@ td.action-cell{overflow:visible}
 .fix-link:hover{color:var(--info-dark)}
 
 /* --- Upcoming list week groups + chips --- */
-.week-heading{padding:9px 16px 3px;font-size:10px;font-weight:700;letter-spacing:.02em;color:var(--grey-5);border-bottom:1px solid var(--surface)}
 .chip{display:inline-block;max-width:180px;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom;padding:2px 7px;font-size:10px;font-weight:600;background:var(--surface);color:var(--grey-6);border-radius:var(--radius);margin-left:5px;white-space:nowrap}
 /* Overflow containment for list rows. A single unbroken value -- a pasted
    identifier, a German compound, a mis-imported field -- pushed the document to
@@ -487,3 +486,35 @@ td .channel-tag{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .trend-seg-value{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;line-height:1}
 .trend-seg.internal .trend-seg-value{color:var(--white)}
 .trend-seg.external .trend-seg-value{color:var(--black)}
+
+/* Coming up and Needs you first share a grid row, so they share a height. The
+   queue sets it and grows with its content; Coming up scrolls inside whatever
+   it is given. That is what retired the eight-row cap: the height is bounded
+   here now, not by hiding rows. */
+#view-list .grid.two>.card{display:flex;flex-direction:column;min-height:360px;margin-bottom:0}
+#view-list .grid.two>.card>.card-body{flex:1}
+/* min-height:0 is load-bearing. A flex child defaults to min-height:auto and
+   grows to its content, so without this line the card does not scroll — it
+   just gets tall, which is the exact bug the row cap was invented for. */
+#view-list .grid.two>.card>.card-body.scroll-y{min-height:0;overflow-y:auto}
+/* The scroll boundary. The local layer scrolls with the content and covers the
+   fixed shadow at the end of the list, so the hint disappears once there is
+   nothing more to reach. */
+.scroll-y{background:linear-gradient(rgba(255,255,255,0),var(--white) 70%) bottom/100% 22px no-repeat local,
+          radial-gradient(farthest-side at 50% 100%,rgba(0,0,0,.12),rgba(0,0,0,0)) bottom/100% 9px no-repeat scroll}
+
+/* Upcoming rows. Two colour signals doing two different jobs: the box says
+   internal or external, the edge says which channel. Neither is decodable on
+   its own — the source type is also in the drawer and the channel name is
+   always beside its dot. */
+.event-row{position:relative;display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;padding:11px 16px;border-bottom:1px solid var(--surface);cursor:pointer}
+.event-row:last-child{border-bottom:0}
+.event-row:hover{background:var(--row-alt)}
+.event-channel-edge{position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--grey-1)}
+.event-date-box{display:flex;flex-direction:column;align-items:center;justify-content:center;width:48px;height:48px;flex:none;border-radius:var(--radius);background:var(--surface);color:var(--grey-6)}
+.event-date-box.external{background:var(--surface-alt);color:var(--bronze-3)}
+.event-day{font-size:18px;font-weight:300;line-height:1}
+.event-month{font-size:10px;font-weight:600;letter-spacing:.06em}
+.event-details{min-width:0}
+.event-title{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.event-meta{font-size:11px;color:var(--grey-5);margin-top:2px}
