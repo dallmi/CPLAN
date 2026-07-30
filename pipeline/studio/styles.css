@@ -65,8 +65,8 @@
    and the two rings share it, which keeps them side by side -- they are the
    pair a reader compares -- instead of stacking one under the other. */
 @media(max-width:1300px){.grid.two-one-one{grid-template-columns:1fr 1fr}.grid.two-one-one>:first-child{grid-column:1/-1}}
-@media(max-width:1000px){.kpi-grid{grid-template-columns:repeat(2,1fr)}.grid.two,.grid.two-one,.grid.two-one-one{grid-template-columns:1fr}.topbar{align-items:flex-start}.top-actions{flex-wrap:wrap;justify-content:flex-end}.main-nav{top:96px}}
-@media(max-width:700px){.topbar{position:static;display:block;padding:13px 16px}.time-filter{flex-wrap:wrap;border-right:0;padding-right:0}.top-actions{margin-top:12px;justify-content:flex-start}.freshness{width:100%;border:0}.main-nav{position:static;padding:0 8px;overflow:auto}.content{padding:16px}.kpi-grid{grid-template-columns:1fr 1fr}.page-heading{align-items:flex-start}.filterbar{align-items:stretch}.filterbar>*{width:100%;margin-left:0!important}.calendar-day{min-height:70px}.form-grid{grid-template-columns:1fr}}
+@media(max-width:1000px){.kpi-grid,.kpi-groups{grid-template-columns:repeat(2,1fr)}.grid.two,.grid.two-one,.grid.two-one-one{grid-template-columns:1fr}.topbar{align-items:flex-start}.top-actions{flex-wrap:wrap;justify-content:flex-end}.main-nav{top:96px}}
+@media(max-width:700px){.topbar{position:static;display:block;padding:13px 16px}.time-filter{flex-wrap:wrap;border-right:0;padding-right:0}.top-actions{margin-top:12px;justify-content:flex-start}.freshness{width:100%;border:0}.main-nav{position:static;padding:0 8px;overflow:auto}.content{padding:16px}.kpi-grid,.kpi-groups{grid-template-columns:1fr 1fr}.page-heading{align-items:flex-start}.filterbar{align-items:stretch}.filterbar>*{width:100%;margin-left:0!important}.calendar-day{min-height:70px}.form-grid{grid-template-columns:1fr}}
 /* auto-fill, not a fixed count: the drawer is wider in pack mode, and the real
    portfolio carries roughly forty channels where a fixed three columns would
    run fourteen rows deep. */
@@ -341,11 +341,27 @@ tr:hover td .copy-btn,td .copy-btn:focus-visible{opacity:1}
 .linklike{display:inline-block;border:0;background:none;padding:5px 0;font-size:11px;font-weight:600;line-height:14px;color:var(--info-dark)}
 .linklike:hover{color:var(--primary-dark)}
 
-/* Overview measures: six figures in one row, replacing four collection cards of
-   four rows each. Sixteen figures cannot rank themselves; six can be read in
-   one pass. The row keeps the house .kpi tile rather than inventing a variant,
-   so the Overview, Planning and Quality & Coverage all read as one screen. */
-.kpi-grid.five{grid-template-columns:repeat(5,minmax(150px,1fr))}
+/* Overview measures: four themed collection cards of four figures each. These
+   were here before, were replaced by six flat tiles, and are back by request —
+   see the note in app.js's renderOverview for why it went both ways. Display
+   only: the routes and the movement chips live one card lower now, in "Needs
+   you first". */
+.kpi-groups{display:grid;grid-template-columns:repeat(4,minmax(210px,1fr));gap:14px;margin-bottom:16px}
+.kpi-group{background:var(--white);border:1px solid var(--surface);border-left:3px solid var(--grey-1);padding:14px 16px}
+.kpi-group-title{font-size:10px;font-weight:700;letter-spacing:.02em;color:var(--grey-5);margin-bottom:8px}
+.kpi-group .kpi-row{display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:5px 0;font-size:12px}
+.kpi-group .kpi-row .v{font-size:19px;font-weight:300;line-height:1.2}
+.kpi-group .kpi-row .l{color:var(--grey-5);text-align:right}
+/* A derived figure is read off the ones above it, not counted from the data.
+   Dimming it stops the reader treating a rate as a fifth measurement. */
+.kpi-group .kpi-row.derived .v,.kpi-group .kpi-row.derived .l{color:var(--grey-4)}
+.kpi-group.portfolio{border-left-color:var(--primary)}
+.kpi-group.inflight{border-left-color:var(--grey-6)}
+.kpi-group.leadtime{border-left-color:var(--bronze-1)}
+/* Amber only while something is open — the same rule .priority-card.danger
+   follows. A card that is always amber stops meaning anything. */
+.kpi-group.readiness{border-left-color:var(--warning)}
+.kpi-group.clean{border-left-color:var(--grey-1)}
 /* Column layout rather than three inline children: as inline boxes the label's
    line box varied with what sat below it, and the six labels landed on two
    different baselines 9px apart. A column makes the top edge deterministic. */

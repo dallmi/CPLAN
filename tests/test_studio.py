@@ -6,6 +6,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DASHBOARD = ROOT / "pipeline" / "studio"
 
+
+def _slice(source: str, start_marker: str, end_marker: str) -> str:
+    """Source between two verbatim markers; fails loudly if either is missing."""
+    start = source.index(start_marker)
+    end = source.index(end_marker, start)
+    return source[start:end]
+
+
 TIME_ZONE_OPTIONS = [
     "Europe/Zurich",
     "Europe/London",
@@ -596,3 +604,64 @@ class StudioExportTests(unittest.TestCase):
         self.assertIn("level: 0, bold: true", app)
         self.assertIn("level: 1,", app)
         self.assertIn("collapsed: true", app)
+
+
+class OverviewCardsTests(unittest.TestCase):
+    """The Overview KPI row is four themed collection cards, display only.
+
+    Reverses the six-flat-tiles decision recorded in app.js. These guards pin
+    the parts that a well-meaning refactor would quietly undo: that the cards
+    carry no navigation and no deltas, and that the comparison window is gone
+    from the Overview but still live on Health.
+    """
+
+    def setUp(self):
+        self.app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+        self.html = (DASHBOARD / "index.html").read_text(encoding="utf-8")
+        self.css = (DASHBOARD / "styles.css").read_text(encoding="utf-8")
+
+    def _overview_kpi_block(self) -> str:
+        return _slice(self.app, "const cardsHtml = [", "document.getElementById('overview-kpis')")
+
+    def test_overview_renders_four_named_collection_cards(self):
+        self.assertIn('class="kpi-groups" id="overview-kpis"', self.html)
+        self.assertNotIn('kpi-grid five', self.html)
+        block = self._overview_kpi_block()
+        for title in ("Portfolio", "In flight", "Readiness", "Lead time"):
+            self.assertIn(f"'{title}'", block)
+
+    def test_collection_cards_carry_no_route_and_no_delta(self):
+        block = self._overview_kpi_block()
+        self.assertNotIn("data-goto", block)
+        self.assertNotIn("kpi-trend", block)
+        self.assertNotIn("trend(", block)
+
+    def test_seven_day_rows_do_not_claim_to_be_a_calendar_week(self):
+        block = self._overview_kpi_block()
+        self.assertIn("Starts within 7 days", block)
+        self.assertIn("Ends within 7 days", block)
+        self.assertNotIn("this week", block.lower())
+
+    def test_empty_portfolio_shows_a_dash_not_a_zero_percent(self):
+        block = self._overview_kpi_block()
+        # Both rates go through dash(value, guard). Without the guard an empty
+        # filter reports "0% complete", which is false: nothing is incomplete
+        # when nothing exists.
+        self.assertEqual(block.count("dash("), 2)
+        self.assertIn("const dash = (value, guard)", self.app)
+
+    def test_comparison_window_leaves_the_overview_but_stays_on_health(self):
+        overview = _slice(self.app, "function renderOverview(", "function renderTrend(")
+        self.assertNotIn("comparisonWindow", overview)
+        self.assertNotIn("renderMovements", self.app)
+        self.assertNotIn("windowNoun", self.app)
+        # Still wired where it earns its keep.
+        self.assertIn("A.comparisonWindow", self.app)
+
+    def test_readiness_accent_is_conditional_not_permanently_amber(self):
+        block = self._overview_kpi_block()
+        self.assertIn("readinessTone", block)
+
+    def test_five_column_kpi_grid_is_gone(self):
+        self.assertNotIn(".kpi-grid.five", self.css)
+        self.assertIn(".kpi-groups{", self.css)

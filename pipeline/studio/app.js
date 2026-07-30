@@ -541,6 +541,18 @@ function donutHtml(entries, colorOf, centerText, centerSub) {
       : `<div class="kpi ${tone||''}">${body}</div>`;
   }
 
+  // Themed collection card: one heading, a stack of figures. Taken from the
+  // campaign analytics dashboard, which groups its measures the same way.
+  //
+  // Display only — no route, no delta. That is the deliberate difference from
+  // kpi() above, which is still what the Timeline, Health and Packs pages use.
+  function kpiGroup(title, cls, rows) {
+    const body = rows.map(r =>
+      `<div class="kpi-row${r.derived ? ' derived' : ''}"><span class="v">${esc(r.v)}</span><span class="l">${esc(r.l)}</span></div>`
+    ).join('');
+    return `<div class="kpi-group ${cls}"><div class="kpi-group-title">${esc(title)}</div>${body}</div>`;
+  }
+
   // Channel colour. Taken from the Campaign Studio prototype, which pairs a
   // small solid square with the channel name so a column of channels can be
   // scanned by shape instead of read line by line.
@@ -649,52 +661,6 @@ function donutHtml(entries, colorOf, centerText, centerSub) {
     const quality = A.dataQuality(rows);
     const lead = A.leadTimeStats(rows,7);
 
-    // The comparison window follows the range filter. Two readers independently
-    // called it out: the filter said "All" while every delta silently used a
-    // fixed 30-day window, so the header and the numbers described different
-    // periods. With a range selected the comparison is that range against the
-    // equal-length span immediately before it; with no range there is nothing
-    // to compare "all time" against, so the forward window stays 30 days and
-    // says so.
-    //
-    // Sourced from snapshotRows, not rows: state.rows is already filtered by
-    // start_date, so the preceding period has been removed from it and any
-    // comparison drawn from it would read zero.
-    const previous30 = new Date(now); previous30.setDate(now.getDate()-30);
-    const win = A.comparisonWindow(state.dateFrom, state.dateTo, now, 30);
-    const rangeActive = win.active;
-    const windowCur = win.current, windowPrev = win.previous, spanDays = win.spanDays;
-    // A window that reaches into the future is still being planned, exactly as
-    // the monthly trend's last bars are. Comparing it against a fully-planned
-    // past window reports a collapse that is an artefact of when activities get
-    // created, not a change in behaviour. The comparison still runs — it is the
-    // best available — but it says outright that it understates the present.
-    const windowIsProvisional = win.provisional;
-    const startedIn = win => state.snapshotRows.filter(row=>{
-      const d = A.parseDate(row.start_date);
-      return d && d >= win.from && d < win.to;
-    });
-    const cmpCur = startedIn(windowCur);
-    const cmpPrev = startedIn(windowPrev);
-    // A prior window that holds no activities at all is not a baseline. YTD and
-    // 12M reach back past the start of the data, where every measure reads zero
-    // and every delta therefore reads "improved" — the longer the range, the
-    // more confident the false verdict. No baseline, no comparison.
-    const hasBaseline = cmpPrev.length > 0;
-    // A delta is shown only where it can be trusted. The window used to carry
-    // chips and then a sentence explaining why a fall in them might not be a
-    // fall at all -- printing a comparison and disowning it in the same breath.
-    // A window that reaches past today is still filling, so the measures in it
-    // are incomplete by construction; the honest move is to withhold the
-    // comparison rather than caption it. Six variants of delta presentation
-    // were measured before this and none moved clarity, which is the other half
-    // of the argument: the chips were never carrying their weight.
-    const comparable = hasBaseline && !windowIsProvisional;
-    const windowPhrase = rangeActive
-      ? `the ${plural(spanDays,'day')} before the selected range`
-      : 'the previous 30 days';
-    const windowNoun = rangeActive ? 'In selected range' : 'Next 30 days';
-
     const highPriority = rows.filter(row=>A.isHighPriority(row.priority));
 
     // Attention queue: aggregated by issue type instead of one row per finding.
@@ -763,112 +729,57 @@ function donutHtml(entries, colorOf, centerText, centerSub) {
       shownSignals.map(s=>`<p class="notice ${s.warn?'warn':''}">${s.html} \u00b7 <button type="button" class="linklike" data-goto="${esc(s.goto)}">${esc(s.label)} \u2192</button></p>`).join('')
       + (hidden.length?`<p class="signal-rest">${plural(hidden.length,'further finding','further findings')} of lower urgency \u00b7 <button type="button" class="linklike" data-goto="${esc(hidden[0].goto)}">${esc(hidden[0].label)} \u2192</button></p>`:'');
 
-    // Steering index: four themed collection cards instead of four flat tiles.
-    // A comms lead opens this screen a handful of times a year and needs the
-    // whole portfolio in one scan — volume, timing, coverage, quality — not four
-    // headline numbers with the rest hidden behind tabs. Pattern taken from the
-    // SiteOwnerDashboard overview; accents are meaning-aligned rather than
-    // decorative (grey neutral, warning for timing risk, info for coverage,
-    // bronze for data quality) and titles stay sentence case per the kit.
-    // Every figure carries a reference. "72 on short notice" is unreadable on
-    // its own — a comms lead said as much: "no good or bad, no direction, I have
-    // to bring the judgement myself". A share of the portfolio is derivable from
-    // the same data and honest, unlike a trend the data cannot support.
-    const share = n => rows.length ? `${Math.round(n/rows.length*100)}%` : '';
-
-    // Comparison against the preceding window of equal length. Only figures
-    // derived from start_date can carry one: they describe what happens in a
-    // period, and the period before it is in the same data.
+    // Four themed collection cards, sixteen figures.
     //
-    // Completeness, remediation and pack coverage deliberately carry none. They
-    // describe the state of the portfolio right now, and nothing records what
-    // that state was thirty days ago -- activity_changes tracks edits, not a
-    // nightly snapshot of quality. A delta there would be invented, and an
-    // invented trend is worse than none: it survives exactly one meeting.
-    // One rule, in analytics.js, so the tile and the collision severity cannot
-    // drift -- and so the source system's numbered priorities count as urgent.
-    const isHigh = row => A.isHighPriority(row.priority);
-    // The word carries the direction, the colour only reinforces it. A reader
-    // shown "+3" cannot tell whether more is good, and the house rule is
-    // explicit that colour is never the sole carrier of meaning. Polarity is a
-    // property of the measure, so it is stated per row rather than inferred.
-    // Only the movements worth looking at get a chip.
+    // This screen carried exactly these four cards once before, and they were
+    // replaced by six flat tiles on the argument that sixteen figures cannot
+    // rank themselves and the daily planner needs "what do I do next" instead.
+    // They are back on request: the reader who asked for them wants the whole
+    // portfolio in one scan, and the ranking job the tiles were doing is done
+    // one card lower by "Needs you first", which groups findings by type and
+    // carries an action per group.
     //
-    // Every measure carried one for a while, and clarity measurably fell: a
-    // reader with sixty seconds said "I have to add up six separate values
-    // myself" and could not name what to look at first. Twelve deltas do not
-    // tell you where to look — they make you do the ranking the screen should
-    // have done. So the deltas are computed for all comparable measures, the
-    // verdict counts all of them, and only the two largest relative movements
-    // are rendered. The rest stay plain numbers.
-    const movements = [];
-    const trend = (current, prior, polarity, name, baseline) => {
-      if (baseline === false) return '';
-      if (current === null || prior === null || (!current && !prior)) return '';
-      const diff = current - prior;
-      if (!diff) return '';
-      const good = polarity === 'neutral' ? null : (polarity === 'down-good' ? diff < 0 : diff > 0);
-      const token = `mv${movements.length}`;
-      movements.push({diff, good, name: name || '', weight: Math.abs(diff) / Math.max(Math.abs(prior), 1), token});
-      return `<!--${token}-->`;
-    };
-    const renderMovements = html => {
-      const ranked = movements.filter(m=>m.good!==null).sort((a,b)=>b.weight-a.weight);
-      const shown = new Set(ranked.slice(0,2).map(m=>m.token));
-      return movements.reduce((acc,m)=>{
-        const sign = m.diff > 0 ? '+' : '−';
-        const size = fmtNum(Math.abs(Math.round(m.diff*10)/10));
-        const chip = shown.has(m.token)
-          ? `<span class="kpi-trend ${m.good?'up':'down'}">${sign}${size} ${m.good?'better':'worse'}</span>`
-          : '';
-        return acc.split(`<!--${m.token}-->`).join(chip);
-      }, html);
-    };
-    const leadNow = A.leadTimeStats(cmpCur,7), leadBefore = A.leadTimeStats(cmpPrev,7);
-
-    // Six figures, in the order the leading question asks them: how much is
-    // coming, how much of it is heavy, then the three ways it goes wrong, then
-    // whether there is room to act at all.
+    // What went with the tiles: the routes and the movement chips. Three of the
+    // four routes pointed at findings the queue below already lists. The fourth,
+    // median lead time to Health, is now two clicks instead of one — accepted.
     //
-    // This replaced four themed collection cards holding sixteen rows. Those
-    // were built for a comms lead who opens the screen a handful of times a year
-    // and wants the whole portfolio in one scan; the screen's owner is the
-    // planner, who is in it daily and needs to know what to do next. Sixteen
-    // figures cannot rank themselves, and a reader with sixty seconds said as
-    // much. Portfolio composition -- division split, priority split, monthly
-    // intake, coverage counts -- answers a different question and now sits on
-    // the page that asks it.
-    const highNow = cmpCur.filter(isHigh).length, highBefore = cmpPrev.filter(isHigh).length;
-    const shortNow = cmpCur.filter(A.isShortNotice).length, shortBefore = cmpPrev.filter(A.isShortNotice).length;
-    const tone = (n, level) => n ? (level||'warning') : '';
+    // Display only, with one exception: Readiness takes its accent from whether
+    // anything is actually open. A permanently amber card is a false alarm on a
+    // clean portfolio, which is why .priority-card.danger works the same way.
+    // "In flight" counts a rolling seven days, matching "Coming up" below, and
+    // its two rows say "within 7 days" rather than naming a calendar week. On a
+    // Thursday the two readings share barely a day, and the code computes the
+    // rolling one.
+    const dash = (value, guard) => (guard ? value : '—');
+    const readinessFindings = incompleteRows.length + quality.invalidDateRanges;
+    const readinessTone = readinessFindings ? 'readiness' : 'clean';
     const cardsHtml = [
-      // Every reference figure is conditional on there being a portfolio to
-      // refer to. An empty selection used to render " of 0 activities" and
-      // "0% of the portfolio is complete" -- a dangling fragment and a false
-      // statement, since nothing is incomplete when nothing exists.
-      kpi(windowNoun, fmtNum(cmpCur.length), rows.length?`${share(cmpCur.length)} of ${plural(rows.length,'activity','activities')}`:'Nothing in this range', '', 'activities:incomplete',
-        trend(cmpCur.length,cmpPrev.length,'neutral',null,comparable)),
-      // Deliberately not a route. "Critical and high" sizes the load rather than
-      // naming work to do, and no list in the studio filters on both values at
-      // once -- a tile that navigates somewhere approximate is worse than one
-      // that stays put. Static tiles carry no chevron, so the difference shows.
-      // Neutral on purpose, and not a route. "Critical and high" sizes the load
-      // rather than naming a fault -- twelve high-priority items is what a busy
-      // month looks like, not a defect -- and no list in the studio filters on
-      // both values at once, so a tile that navigated somewhere approximate
-      // would be worse than one that stays put. Accenting it too would put
-      // amber on four of six tiles, which is the flat ranking this page was
-      // rebuilt to get rid of. Amber is reserved for the three measures that
-      // are genuinely out of bounds.
-      kpi('Critical and high', fmtNum(highNow), windowNoun.toLowerCase(), '', '',
-        trend(highNow,highBefore,'down-good','critical items',comparable)),
-      kpi('On short notice', fmtNum(shortNow), 'Under 7 days lead time', tone(shortNow), 'activities:incomplete',
-        trend(shortNow,shortBefore,'down-good','short notice',comparable)),
-      kpi('Incomplete', fmtNum(incompleteRows.length), rows.length?`${quality.completenessRate}% of the portfolio is complete`:'Nothing in this range', tone(incompleteRows.length), 'activities:incomplete'),
-      kpi('Median lead time', leadNow.median===null?'—':`${fmtNum(leadNow.median)}d`, 'Threshold 7 days', leadNow.median!==null&&leadNow.median<7?'warning':'', 'health:planning-health',
-        trend(leadNow.median,leadBefore.median,'up-good','lead time',comparable))
+      kpiGroup('Portfolio', 'portfolio', [
+        {v: fmtNum(rows.length), l: 'Total activities'},
+        {v: fmtNum(internal), l: 'Internal'},
+        {v: fmtNum(external), l: 'External'},
+        {v: fmtNum(highPriority.length), l: 'Critical and high'}
+      ]),
+      kpiGroup('In flight', 'inflight', [
+        {v: fmtNum(active.length), l: 'Active now'},
+        {v: fmtNum(A.comingUp(rows, now, 7).length), l: 'Starts within 7 days'},
+        {v: fmtNum(A.endingWithin(rows, now, 7).length), l: 'Ends within 7 days'},
+        {v: fmtNum(upcoming.length), l: 'Next 30 days'}
+      ]),
+      kpiGroup('Readiness', readinessTone, [
+        {v: fmtNum(incompleteRows.length), l: 'Incomplete'},
+        {v: dash(`${quality.completenessRate}%`, rows.length), l: 'Complete', derived: true},
+        {v: fmtNum(quality.missingPackIds), l: 'No pack'},
+        {v: fmtNum(quality.invalidDateRanges), l: 'Invalid dates'}
+      ]),
+      kpiGroup('Lead time', 'leadtime', [
+        {v: lead.median === null ? '—' : `${fmtNum(lead.median)}d`, l: 'Median lead'},
+        {v: fmtNum(lead.shortNotice), l: 'On short notice'},
+        {v: dash(`${lead.shortNoticeRate}%`, rows.length), l: 'Short-notice rate', derived: true},
+        {v: fmtNum(lead.excluded), l: 'Excluded'}
+      ])
     ].join('');
-    document.getElementById('overview-kpis').innerHTML = renderMovements(cardsHtml);
+    document.getElementById('overview-kpis').innerHTML = cardsHtml;
 
     // The verdict paragraph is gone. It counted the deltas -- "2 of 3 measures
     // improved" -- which is arithmetic over chips the reader can already see,
