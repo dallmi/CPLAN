@@ -114,6 +114,23 @@ def test_the_division_block_header_is_a_distinct_count_not_a_sum(tmp_path):
     assert ws.cell(row=row, column=TOTAL_COL).value == len(scope.frame)
 
 
+def test_every_row_keeps_week_cells_literal_and_aggregates_as_formulas(tmp_path):
+    ws, _ = _sheet(tmp_path)
+    levels = {c: ws.column_dimensions[ws.cell(row=1, column=c).column_letter].outline_level
+              for c in range(FIRST_GRID_COL, ws.max_column + 1)}
+
+    for r in range(3, ws.max_row + 1):
+        if not ws.cell(row=r, column=LABEL_COL).value:
+            continue
+        for c, level in levels.items():
+            value = ws.cell(row=r, column=c).value
+            if level == 2:
+                assert not isinstance(value, str), f"week cell R{r}C{c} is a formula"
+            else:
+                assert value is None or str(value).startswith("=SUM("), \
+                    f"aggregation cell R{r}C{c} is not a SUM"
+
+
 def test_detail_rows_can_be_switched_off(tmp_path):
     with_detail, _ = _sheet(tmp_path, detail_rows=True)
     without_detail, _ = _sheet(tmp_path, detail_rows=False)

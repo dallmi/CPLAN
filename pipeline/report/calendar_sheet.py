@@ -112,11 +112,21 @@ def _write_grid_row(ws, row, counts, columns, positions, month_weeks, quarter_mo
 
 
 def _counts(frame, grid):
-    """Week key -> number of activities starting in that week."""
+    """Week key -> number of activities starting in that week.
+
+    Every row in `frame` is assumed to carry a resolved (non-NaN) `week_index`.
+    That precondition is real, not defensive fiction: `build_scope` filters a
+    row into the grid's own date window (dropping "no start date" and "date
+    window" rows) *before* it computes `week_index`, so every surviving row's
+    start day falls inside the grid and resolves to a real week. It is
+    asserted once, on entry, in `build_calendar` -- so it is not re-checked
+    here. A NaN reaching this loop would mean that upstream invariant broke,
+    and a loud crash close to the cause beats a silent undercount far from
+    it (see the sibling detail-row loop in `build_calendar`, which also
+    relies on the same guarantee without a local guard).
+    """
     counts = {}
     for index in frame["week_index"]:
-        if index is None or (isinstance(index, float) and index != index):
-            continue
         key = grid.weeks[int(index)].key
         counts[key] = counts.get(key, 0) + 1
     return counts
@@ -147,6 +157,15 @@ def build_calendar(wb, scope, config):
     ws.merge_cells(start_row=1, start_column=LABEL_COL, end_row=2, end_column=LABEL_COL)
     ws.merge_cells(start_row=1, start_column=TOTAL_COL, end_row=2, end_column=TOTAL_COL)
     style.write_header_row(ws, 1, ["Scope / activity", "Total"])
+    # `write_header_row` only styles row 1; the merge means A2/B2 are blank
+    # and unstyled underneath it unless we style them too, which would show
+    # as a gap in the header band (no fill, no border) where every grid
+    # column has both rows filled and bordered.
+    for col in (LABEL_COL, TOTAL_COL):
+        under_cell = ws.cell(row=2, column=col)
+        under_cell.fill = style.HEADER_FILL
+        under_cell.border = style.THIN_BORDER
+    grid_widths = {}
     for column in columns:
         col = positions[(column.kind, column.key)]
         style.write_header_row(ws, 1, [column.label], col_start=col)
@@ -154,12 +173,29 @@ def build_calendar(wb, scope, config):
         letter = get_column_letter(col)
         ws.column_dimensions[letter].outline_level = column.level
         ws.column_dimensions[letter].hidden = column.level > 0
-        ws.column_dimensions[letter].width = 11 if column.kind == "week" else 13
+        # NOT set directly on column_dimensions here: `finalize_sheet` calls
+        # `auto_fit_columns`, which unconditionally overwrites every column's
+        # width from its longest cell content (including raw formula text,
+        # which is never what's displayed). Only the `widths=` dict passed to
+        # `finalize_sheet` survives that pass, so the intended widths are
+        # collected here and applied there instead.
+        grid_widths[letter] = 11 if column.kind == "week" else 13
 
     if scope.frame.empty:
-        style.note_missing(ws, "No activities in scope for the configured criteria")
-        style.finalize_sheet(ws, freeze="C3", widths={"A": 52, "B": 12})
+        cell = ws.cell(row=FIRST_DATA_ROW, column=LABEL_COL,
+                        value="No activities in scope for the configured criteria")
+        cell.font = style.SUB_FONT
+        style.finalize_sheet(ws, freeze="C3", widths={**grid_widths, "A": 52, "B": 12})
         return
+
+    # `_counts` (and the detail-row loop below) assume every row's week_index
+    # already resolved -- true by construction (see `_counts`'s docstring),
+    # asserted here once so a broken upstream invariant fails loudly and close
+    # to its cause instead of silently corrupting a header's arithmetic.
+    assert scope.frame["week_index"].notna().all(), (
+        "every row in scope.frame must carry a resolved week_index; "
+        "build_scope is expected to guarantee this by construction"
+    )
 
     row = FIRST_DATA_ROW
     bar_ranges = []
@@ -232,10 +268,18 @@ def build_calendar(wb, scope, config):
         # still counted once here). Only the Total column is overwritten with
         # a literal below -- never a SUM -- because summing the member rows
         # vertically would double-count activities that appear in more than
-        # one division/region.
-        _write_grid_row(ws, header_row, _counts(scope.frame, grid), columns, positions,
+        # one division/region. That literal is derived from the SAME `counts`
+        # dict as the row's own week cells (`sum(counts.values())`), not from
+        # `len(scope.frame)` -- they agree today because every row's
+        # week_index resolves (asserted above), but deriving the Total from
+        # the row's own data keeps that agreement structural rather than
+        # incidental: if the assumption were ever wrong, the header would
+        # still match its own week cells instead of silently disagreeing
+        # with them.
+        counts = _counts(scope.frame, grid)
+        _write_grid_row(ws, header_row, counts, columns, positions,
                         month_weeks, quarter_months, bold=True)
-        _finish_distinct_count_header(ws, header_row, len(scope.frame))
+        _finish_distinct_count_header(ws, header_row, sum(counts.values()))
         bar_ranges.append(member_rows)
 
     for member_rows in bar_ranges:
@@ -246,7 +290,7 @@ def build_calendar(wb, scope, config):
             start_type="num", start_value=0, end_type="max",
             color=style.GRAY_IV, showValue=True))
 
-    style.finalize_sheet(ws, freeze="C3", widths={"A": 52, "B": 12})
+    style.finalize_sheet(ws, freeze="C3", widths={**grid_widths, "A": 52, "B": 12})
 
 
 def _finish_reach_header(ws, header_row, member_rows):
