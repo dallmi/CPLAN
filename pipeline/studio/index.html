@@ -148,11 +148,13 @@
              active filter, so it costs nothing on a normal visit. -->
         <div id="conflict-panel" hidden>
           <div class="toolbar wrap">
-            <label>Proximity <select id="conflict-proximity"><option value="0">Same day</option><option value="1">Within 1 day</option><option value="3">Within 3 days</option><option value="7">Within 7 days</option></select></label>
+            <label>Proximity <select id="conflict-proximity"><option value="0">Same day</option><option value="1" selected>Within 1 day</option><option value="3">Within 3 days</option><option value="7">Within 7 days</option></select></label>
             <label>Type <select id="conflict-type"><option value="conflict">Conflicts only</option><option value="">All including orchestration</option><option value="orchestration">Orchestration only</option></select></label>
+            <label>Timeframe <select id="conflict-when"><option value="upcoming">Upcoming only</option><option value="">All, including past</option></select></label>
             <label>Severity <select id="conflict-severity"><option value="">All severities</option><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option></select></label>
           </div>
           <div class="kpi-grid" id="conflict-kpis"></div>
+          <p class="signal-rest" id="conflict-scope-note" hidden></p>
           <article class="card"><div class="card-head"><div><h3>Conflict workbench</h3><p>Shared audience and channel within the selected proximity window</p></div></div><div class="card-body flush" id="conflict-list"></div></article>
         </div>
       </section>
