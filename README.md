@@ -45,7 +45,7 @@ OneDrive sync folder          pipeline/
 ## Prerequisites
 
 ```
-pip install pandas duckdb pyarrow
+pip install pandas duckdb pyarrow openpyxl
 ```
 
 ## Usage
@@ -63,6 +63,19 @@ python pipeline/scripts/process_cplan.py --full-refresh
 # Build the standalone (double-clickable) dashboard from the current outputs
 python pipeline/scripts/build_standalone.py
 ```
+
+### Calendar report
+
+```bash
+# Generate the .xlsx planning report from the CSV exports (no database needed)
+python pipeline/scripts/report_calendar.py
+```
+
+Edit the `CONFIG` block at the top of
+[`pipeline/scripts/report_calendar.py`](pipeline/scripts/report_calendar.py) to
+change the period, the senior-executive criterion and the audience-size
+criterion. The design is documented in
+[`docs/superpowers/specs/2026-07-30-calendar-report-design.md`](docs/superpowers/specs/2026-07-30-calendar-report-design.md).
 
 ## Daily workflow
 
