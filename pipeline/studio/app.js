@@ -6,6 +6,11 @@
 
   const state = {snapshotRows:[], rows:[], meta:null, syncRun:null, horizonWeeks:8, boardGroup:'channel', trendMode:'', calendarDate:new Date(), selected:null, editing:false, creating:false, packing:false, customChannels:[], dirty:false, showErrors:false, filteredRows:[], collisionsCache:new Map(), drawerOpener:null, discardModalOpen:false, draftModalOpen:false, deleteModalOpen:false, queueFilter:null, dateFrom:null, dateTo:null, packDrawerOpener:null};
 
+  // Sentinel for the campaign filter -- the empty value already means "all",
+  // so the absence needs a value of its own. Plain text, not a control
+  // character: it is written into a DOM attribute and read back out.
+  const NO_PACK = '__no_pack__';
+
   const esc = A.escapeHtml;
   const fmtNum = value => Number(value || 0).toLocaleString('en-GB');
   // "1 activities", "the 1 days before" -- a portfolio of one is a real state
@@ -973,6 +978,15 @@
     const campaigns=new Set();
     state.rows.forEach(row=>{const label=campaignLabel(row);if(label)campaigns.add(label);});
     fill('activity-campaign',Array.from(campaigns).sort((a,b)=>a.localeCompare(b)),'campaigns / packs');
+    // The absence is a selectable value, not a gap in the list. Without it the
+    // packless records could be counted but never listed, and the Packs tile
+    // pointing here would land on an unfiltered table.
+    const campaignSelect=document.getElementById('activity-campaign');
+    if(!campaignSelect.querySelector(`option[value="${NO_PACK}"]`)){
+      const opt=document.createElement('option');
+      opt.value=NO_PACK; opt.textContent='— Not in a pack';
+      campaignSelect.insertBefore(opt, campaignSelect.children[1]||null);
+    }
   }
 
   // Transient filter applied from the Overview attention queue ("Review list").
@@ -1006,7 +1020,7 @@
     const q=document.getElementById('activity-search').value.toLowerCase(),source=document.getElementById('activity-source').value,channel=document.getElementById('activity-channel').value,priority=document.getElementById('activity-priority').value,campaign=document.getElementById('activity-campaign').value,readiness=document.getElementById('activity-readiness').value;
     const rows=state.rows.filter(row=>{
       const complete=A.planningCompleteness(row).score===100;
-      return matchesQueueFilter(row)&&(!q||Object.values(row).some(value=>String(value||'').toLowerCase().includes(q)))&&(!source||row.source_type===source)&&(!channel||split(row.channel).includes(channel))&&(!priority||split(row.priority).includes(priority))&&(!campaign||campaignLabel(row)===campaign)&&(!readiness||(readiness==='complete'&&complete)||(readiness==='incomplete'&&!complete));
+      return matchesQueueFilter(row)&&(!q||Object.values(row).some(value=>String(value||'').toLowerCase().includes(q)))&&(!source||row.source_type===source)&&(!channel||split(row.channel).includes(channel))&&(!priority||split(row.priority).includes(priority))&&(!campaign||(campaign===NO_PACK?!nonempty(row.communication_pack_cpid):campaignLabel(row)===campaign))&&(!readiness||(readiness==='complete'&&complete)||(readiness==='incomplete'&&!complete));
     }).sort((a,b)=>(A.parseDate(b.start_date)||0)-(A.parseDate(a.start_date)||0));
     state.filteredRows=rows;
     document.getElementById('activity-result-count').textContent=`${fmtNum(rows.length)} of ${fmtNum(state.rows.length)}`;
@@ -1284,7 +1298,12 @@
       kpi('Packs',fmtNum(cards.length),`${plural(cards.length?Math.round(cards.reduce((s,c)=>s+c.activities,0)/cards.length*10)/10:0,'activity','activities')} on average`,''),
       kpi('Single-channel',fmtNum(single),single?'A pack in name only':'Every pack spans channels',single?'warning':'success'),
       kpi('With gaps',fmtNum(incomplete),'At least one incomplete activity',incomplete?'warning':'success'),
-      kpi('Not in a pack',fmtNum(loose.length),`${cards.length?Math.round(loose.length/state.rows.length*100):0}% of the portfolio`,loose.length?'warning':'')
+      // The list this number used to sit above is gone: at 148 of 400 records
+      // it filled more of the tab than the packs did, on a page that exists to
+      // show packs. The count stays, and the tile becomes the way to the
+      // records themselves -- removing the block without leaving a route would
+      // have stranded 37% of the portfolio behind a figure.
+      kpi('Not in a pack',fmtNum(loose.length),`${cards.length?Math.round(loose.length/state.rows.length*100):0}% of the portfolio`,loose.length?'warning':'','activities:no-pack')
     ].join('');
 
     document.getElementById('pack-result-count').textContent=
@@ -1342,12 +1361,6 @@
       ? `<div class="table-wrap"><table class="pack-list-table"><thead><tr><th>Pack</th><th>Channels</th><th>Window</th><th>Audiences</th><th>Lead teams</th><th>Readiness</th></tr></thead><tbody>${shown.map(packRow).join('')}</tbody></table></div>`
       : emptyState(EMPTY_ICONS.layers,'No packs match that','Clear the search or pick another campaign.');
 
-    document.getElementById('packless-subtitle').textContent=
-      `${plural(loose.length,'activity','activities')} carrying no communication pack ID`;
-    document.getElementById('packless-list').innerHTML=loose.length
-      ? loose.slice(0,30).map(row=>`<div class="list-row" data-open-id="${esc(row.id||'')}"><span class="severity-line medium"></span><div><div class="list-title">${esc(row.activity_name||'Untitled')}</div><div class="list-meta">${fmtDate(row.start_date)} · ${nonempty(row.channel)?channelTag(row.channel):'no channel'} · ${esc(row.lead_team||'Unassigned')}</div></div><span class="chip">${esc(row.campaign||'no campaign')}</span></div>`).join('')
-        + (loose.length>30?`<div class="list-more">${plural(loose.length-30,'more activity','more activities')} without a pack · <button type="button" class="linklike" data-goto="activities">Open the activity list →</button></div>`:'')
-      : emptyState(EMPTY_ICONS.checkCircle,'Every activity belongs to a pack','Nothing is orphaned right now.');
   }
 
   // Renders the sync-runs portion of the "Refresh & reconciliation" card from
@@ -2968,7 +2981,20 @@
       // land, not how a caller writes it.
       const view=document.querySelector(`#overview-view button[data-view="${sub}"]`);
       if(page==='overview'&&view){view.click();return;}
-      if(page==='activities'){setQueueFilter(sub);return;}
+      if(page==='activities'){
+        // Two shapes of Activities target: an issue queue, and the packless
+        // filter, which is an ordinary filter value rather than a queue --
+        // routing it through setQueueFilter would set a queue name that
+        // matchesQueueFilter does not know and quietly filter nothing.
+        if(sub==='no-pack'){
+          state.queueFilter=null;
+          showPage('activities');
+          document.getElementById('activity-campaign').value=NO_PACK;
+          runActivityFilters();
+          return;
+        }
+        setQueueFilter(sub);return;
+      }
       const section=document.getElementById(`sec-${sub}`);
       if(section)section.scrollIntoView({block:'start'});
     });
