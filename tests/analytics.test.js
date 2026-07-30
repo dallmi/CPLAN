@@ -459,3 +459,39 @@ test('rowIssues reports both a date finding and completeness gaps on the same ro
   assert.equal(issues.filter(i => i.kind === 'short-notice').length, 1);
   assert.equal(issues.filter(i => i.kind === 'missing').length, 4);
 });
+
+test('priority ranking understands the source system numbered labels', () => {
+  // Reported from the real portfolio: the Overview's "Critical and high" tile
+  // read 0 while activities at priority 1 and 2 sat in the list beside it. The
+  // source system does not use the words the studio's own form offers -- its
+  // values are numbered, lowest number most urgent, e.g.
+  // "2 - BoD / GEB level I all staff".
+  assert.equal(analytics.priorityRank('1 - Group critical'), 4);
+  assert.equal(analytics.priorityRank('2 - BoD / GEB level I all staff'), 3);
+  assert.equal(analytics.priorityRank('3 - Divisional'), 2);
+  assert.equal(analytics.priorityRank('5 - For information'), 0);
+  assert.equal(analytics.isHighPriority('1 - Group critical'), true);
+  assert.equal(analytics.isHighPriority('2 - BoD / GEB level I all staff'), true);
+  assert.equal(analytics.isHighPriority('3 - Divisional'), false);
+
+  // The studio's own vocabulary keeps working unchanged.
+  assert.equal(analytics.priorityRank('Critical'), 4);
+  assert.equal(analytics.priorityRank('High'), 3);
+  assert.equal(analytics.isHighPriority('High'), true);
+  assert.equal(analytics.isHighPriority('Medium'), false);
+
+  // Neither shape: the middle rank, never silently "low".
+  assert.equal(analytics.priorityRank(''), 1);
+  assert.equal(analytics.priorityRank('Sonstiges'), 1);
+});
+
+test('collision severity follows the numbered priorities too', () => {
+  const at = (tid, priority) => ({
+    tracking_id: tid, activity_name: tid, channel: 'Email',
+    target_audience: 'Managers', priority,
+    start_date: '2026-09-01T09:00:00Z', end_date: '2026-09-01T17:00:00Z'
+  });
+  const [pair] = analytics.detectCollisions(
+    [at('a', '1 - Group critical'), at('b', '4 - Local')], {proximityDays: 0});
+  assert.equal(pair.severity, 'critical');
+});

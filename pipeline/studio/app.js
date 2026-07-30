@@ -608,7 +608,7 @@
       : 'the previous 30 days';
     const windowNoun = rangeActive ? 'In selected range' : 'Next 30 days';
 
-    const highPriority = rows.filter(row=>{const p=String(row.priority||'').toLowerCase();return p==='high'||p==='critical';});
+    const highPriority = rows.filter(row=>A.isHighPriority(row.priority));
 
     // Attention queue: aggregated by issue type instead of one row per finding.
     const incompleteRows = rows.filter(row=>A.planningCompleteness(row).score<100);
@@ -699,7 +699,9 @@
     // that state was thirty days ago -- activity_changes tracks edits, not a
     // nightly snapshot of quality. A delta there would be invented, and an
     // invented trend is worse than none: it survives exactly one meeting.
-    const isHigh = row => {const p=String(row.priority||'').toLowerCase();return p==='high'||p==='critical';};
+    // One rule, in analytics.js, so the tile and the collision severity cannot
+    // drift -- and so the source system's numbered priorities count as urgent.
+    const isHigh = row => A.isHighPriority(row.priority);
     // The word carries the direction, the colour only reinforces it. A reader
     // shown "+3" cannot tell whether more is good, and the house rule is
     // explicit that colour is never the sole carrier of meaning. Polarity is a

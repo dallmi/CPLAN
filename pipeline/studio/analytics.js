@@ -153,9 +153,32 @@
     return normalizeMulti(a[field]).some(v => right.has(v.toLowerCase()));
   }
 
+  // Two vocabularies reach this function and both have to work.
+  //
+  // The studio's own entry form offers Critical / High / Medium / Low. The
+  // source system does not: its values are numbered labels, lowest number
+  // highest priority -- "1 - ...", "2 - BoD / GEB level I all staff" and so on.
+  // Matching only the words meant every production record scored the default
+  // rank of 1, so the Overview's "Critical and high" tile read 0 while the list
+  // beside it showed priority 1 and 2 activities. Reported from the real
+  // portfolio, reproduced here.
+  //
+  // A leading integer wins, because it is unambiguous: 1 is the most urgent
+  // level in that scheme, so it maps to the top rank and each step down loses
+  // one. Anything else falls through to the words. A value in neither shape
+  // still lands on the middle rank rather than silently reading as low.
   function priorityRank(value) {
+    const text = String(value || '').trim();
+    const numbered = /^(\d+)/.exec(text);
+    if (numbered) return Math.max(0, 5 - Number(numbered[1]));
     const ranks = {critical: 4, high: 3, medium: 2, normal: 1, low: 0};
-    return ranks[String(value || '').toLowerCase()] ?? 1;
+    return ranks[text.toLowerCase()] ?? 1;
+  }
+
+  // "Critical and high" in one place, so the Overview tile and the collision
+  // severity can never disagree about what counts as urgent.
+  function isHighPriority(value) {
+    return priorityRank(value) >= 3;
   }
 
   function detectCollisions(rows, options) {
@@ -381,6 +404,8 @@
     dataQuality,
     createdBetween,
     comparisonWindow,
+    priorityRank,
+    isHighPriority,
     applyChanges,
     attentionItems,
     weeklyCoverage,
