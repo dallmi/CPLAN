@@ -661,6 +661,12 @@ class OverviewCardsTests(unittest.TestCase):
     def test_readiness_accent_is_conditional_not_permanently_amber(self):
         block = self._overview_kpi_block()
         self.assertIn("readinessTone", block)
+        # The slice above starts at cardsHtml, so it only proves the variable is
+        # passed to the card. Hardcoding it amber would still pass that. Pin the
+        # ternary and what drives it, which is the regression the name promises.
+        setup = _slice(self.app, "const readinessFindings", "const cardsHtml = [")
+        self.assertIn("incompleteRows.length + quality.invalidDateRanges", setup)
+        self.assertIn("readinessFindings ? 'readiness' : 'clean'", setup)
 
     def test_five_column_kpi_grid_is_gone(self):
         self.assertNotIn(".kpi-grid.five", self.css)
