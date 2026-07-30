@@ -324,6 +324,157 @@ GLOSSARY_SECTIONS = (
 )
 
 
+def _crosstab_block(ws, row, quarters, frame, title, field):
+    """One label x quarter table with a Total and a first-to-last-quarter delta.
+
+    Rows overlap for multi-valued fields (channel, division): an activity
+    naming two channels counts in both of that field's rows. No TOTAL row is
+    written across the label rows for the same reason the Audience sheet's
+    division block omits one -- a vertical SUM would print a number larger
+    than the portfolio, as if it were a true total.
+    """
+    if not quarters:
+        return style.write_section_header(ws, row, f"{title} — no data", 3)
+
+    delta_header = f"Δ {_quarter_label(quarters[-1])} − {_quarter_label(quarters[0])}"
+    headers = ["Value"] + [_quarter_label(q) for q in quarters] + ["Total", delta_header]
+    total_col = len(headers) - 1
+
+    row = style.write_section_header(ws, row, title, len(headers))
+    row = style.write_header_row(ws, row, headers)
+
+    values = {}
+    for index, activity in frame.iterrows():
+        for name in (split_multi(activity.get(field)) or ["Not specified"]):
+            values.setdefault(name, []).append(index)
+
+    first_letter = get_column_letter(2)
+    last_letter = get_column_letter(total_col - 1)
+    for name in sorted(values):
+        subset = frame.loc[values[name]]
+        counts = [int((subset["_quarter"] == q).sum()) for q in quarters]
+        style.write_data_rows(ws, row, [[name] + counts])
+        span = f"{first_letter}{row}:{last_letter}{row}"
+        style.write_formula(ws, row, total_col, f"=SUM({span})", fmt=style.NUM_FMT_INT)
+        style.write_formula(ws, row, total_col + 1, f"={last_letter}{row}-{first_letter}{row}",
+                            fmt=style.NUM_FMT_INT)
+        row += 1
+    return row + 1
+
+
+def build_mix(wb, scope, config):
+    """Channel, priority and internal/external mix over the quarters in scope,
+    plus lead time by division -- how far ahead planning actually happens.
+    """
+    ws = wb.create_sheet("Mix & Lead Time")
+    frame = scope.frame
+    if frame.empty:
+        style.note_missing(ws, "No activities in scope for the configured criteria")
+        style.finalize_sheet(ws, freeze="A2")
+        return
+
+    quarters = sorted({q for q in frame["_quarter"] if q is not None})
+
+    row = _crosstab_block(ws, 1, quarters, frame, "CHANNEL BY QUARTER", "channel")
+    row = _crosstab_block(ws, row, quarters, frame, "PRIORITY BY QUARTER", "priority")
+    row = _crosstab_block(ws, row, quarters, frame,
+                          "INTERNAL VS EXTERNAL BY QUARTER", "source_type")
+
+    row = style.write_section_header(ws, row, "LEAD TIME BY DIVISION", 6)
+    row = style.write_header_row(ws, row, [
+        "Division", "Measurable", "Median days",
+        f"Under {SHORT_NOTICE_DAYS} days", "Share short notice", "Min / max days"])
+    divisions = {}
+    for index, activity in frame.iterrows():
+        for name in (split_multi(activity.get("business_division")) or ["Not specified"]):
+            divisions.setdefault(name, []).append(index)
+    for name in sorted(divisions):
+        stats = metrics.lead_time_stats(frame.loc[divisions[name]])
+        span = "—" if stats["min_days"] is None else f"{stats['min_days']} / {stats['max_days']}"
+        style.write_data_rows(ws, row, [[
+            name, stats["counted"],
+            stats["median_days"] if stats["median_days"] is not None else "—",
+            stats["short_notice"], None, span]])
+        style.write_formula(ws, row, 5, f"=IF(B{row}=0,0,D{row}/B{row})",
+                            fmt=style.NUM_FMT_PCT)
+        row += 1
+
+    style.finalize_sheet(ws, freeze="B3", widths={"A": 30})
+
+
+ACTIVITY_COLUMNS = (
+    ("tracking_id", "Tracking ID"),
+    ("activity_name", "Activity"),
+    ("source_type", "Type"),
+    ("channel", "Channel"),
+    ("start_date", "Start"),
+    ("end_date", "End"),
+    ("_iso_week", "ISO week"),
+    ("_quarter_label", "Quarter"),
+    ("priority", "Priority"),
+    ("lead", "Lead"),
+    ("lead_team", "Lead team"),
+    ("target_audience", "Target audience"),
+    ("audience_band", "Audience band"),
+    ("business_division", "Divisions"),
+    ("region", "Regions"),
+    ("reach", "Reach"),
+    ("_executives", "Senior executives"),
+    ("communication_pack_cpid", "Pack ID"),
+    ("campaign", "Campaign"),
+    ("strategic_objectives", "Communications pillars"),
+    ("completeness", "Completeness %"),
+    ("lead_time_days", "Lead time (days)"),
+    ("is_archived", "Archived"),
+)
+
+
+def build_activities(wb, scope, config):
+    """Every in-scope activity, one row each, raw fields and derived ones
+    side by side -- the audit trail every other sheet's figures trace back to.
+    """
+    ws = wb.create_sheet("Activities")
+    frame = scope.frame
+    style.write_header_row(ws, 1, [header for _, header in ACTIVITY_COLUMNS])
+    if frame.empty:
+        style.finalize_sheet(ws, freeze="A2")
+        return
+
+    rows = []
+    for _, activity in frame.iterrows():
+        index = activity["week_index"]
+        week = scope.grid.weeks[int(index)] if index == index and index is not None else None
+        quarter = activity["_quarter"]
+        values = []
+        for field, _ in ACTIVITY_COLUMNS:
+            if field == "_iso_week":
+                values.append(f"{week.iso_year}-{week.label}" if week else "")
+            elif field == "_quarter_label":
+                values.append(_quarter_label(quarter) if quarter else "")
+            elif field == "_executives":
+                values.append("Yes" if activity["has_executives"] else "No")
+            elif field in ("start_date", "end_date"):
+                value = activity.get(field)
+                values.append(value.date() if hasattr(value, "date") and value == value
+                              else None)
+            elif field == "lead_time_days":
+                value = activity.get(field)
+                values.append(int(value) if value == value and value is not None else None)
+            else:
+                value = activity.get(field)
+                values.append("" if value is None or value != value else value)
+        rows.append(values)
+
+    date_columns = {
+        i + 1: style.NUM_FMT_DATE
+        for i, (field, _) in enumerate(ACTIVITY_COLUMNS)
+        if field in ("start_date", "end_date")
+    }
+    style.write_data_rows(ws, 2, rows, fmt_map=date_columns)
+    ws.auto_filter.ref = f"A1:{get_column_letter(len(ACTIVITY_COLUMNS))}{len(rows) + 1}"
+    style.finalize_sheet(ws, freeze="A2")
+
+
 def build_glossary(wb, scope, config):
     ws = wb.create_sheet("Glossary")
     ws.sheet_view.showGridLines = False
