@@ -476,3 +476,44 @@ class StudioTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StudioStaticIntegrityTests(unittest.TestCase):
+    """Guards against references that survive `node --check` but die at runtime.
+
+    app.js is a DOM IIFE: it cannot be imported into node, so nothing in the
+    suite ever executes it. Syntax checking passes happily over an identifier
+    that has no declaration -- the failure only appears in a browser, and only
+    on the code path that touches it. This bit twice on 2026-07-29/30, both
+    times because an edit removed a line that also happened to hold something
+    still in use: the `state` object (its literal contained a key being
+    deleted) and `RANGE_LABELS` (the range presets stopped re-rendering, so
+    every tab kept showing pre-filter data with no error visible on screen).
+    """
+
+    def test_every_constant_used_is_also_declared(self):
+        app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+        # Strip comments and strings so prose and copy cannot trip the scan.
+        body = re.sub(r"/\*.*?\*/", " ", app, flags=re.S)
+        body = re.sub(r"(?m)//.*$", " ", body)
+        body = re.sub(r"`(?:[^`\\]|\\.)*`", " ", body)
+        body = re.sub(r"'(?:[^'\\\n]|\\.)*'", " ", body)
+        body = re.sub(r'"(?:[^"\\\n]|\\.)*"', " ", body)
+
+        declared = set(re.findall(r"\b(?:const|let|var|function)\s+([A-Z][A-Z0-9_]{2,})\b", body))
+        # Only uses in a position a constant is actually consumed from --
+        # indexed, called, or a member read. app.js nests template literals
+        # several deep, which defeats naive string stripping and leaves prose
+        # like "API refresh" exposed; requiring a following bracket or dot
+        # keeps the scan on code and off copy. RANGE_LABELS[...] is exactly
+        # the shape that failed.
+        used = set(re.findall(r"(?<![.\w$])([A-Z][A-Z0-9_]{2,})\s*[\[(.]", body))
+        # Browser globals that are legitimately not declared here.
+        ambient = {"JSON", "URL", "MAP", "SET"}
+
+        undeclared = sorted(used - declared - ambient)
+        self.assertEqual(
+            undeclared, [],
+            "CONSTANT_CASE identifiers used but never declared in app.js -- "
+            "node --check cannot see this, only a browser can: " + str(undeclared),
+        )

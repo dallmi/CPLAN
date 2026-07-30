@@ -2862,6 +2862,7 @@
     document.getElementById(`page-${name}`).classList.add('active');
   }
 
+  const RANGE_LABELS = {'30d':'last 30 days', quarter:'this quarter', ytd:'year to date', '12m':'last 12 months'};
   function updateRangeUI() {
     const filtering=Boolean(state.dateFrom||state.dateTo);
     document.getElementById('time-filter').classList.toggle('filtering',filtering);
