@@ -559,6 +559,26 @@ class StudioExportTests(unittest.TestCase):
         self.assertNotIn("text/csv", app)
         self.assertNotIn(".csv", app)
 
+    def test_a_missing_workbook_writer_says_so_instead_of_going_quiet(self):
+        app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+
+        # xlsx.js is the only file the studio gained rather than changed, so a
+        # deployment updated by hand is exactly the one that misses it -- and
+        # the first version of this failed in silence: the button rendered, the
+        # click threw into the console, and the reader saw nothing at all. Read
+        # the module at call time and name the file in the message.
+        self.assertIn("function workbookWriter()", app)
+        self.assertIn("xlsx.js did not load", app)
+        # Never hoisted to load time again, where the check cannot help.
+        self.assertNotIn("const X = window.CplanXlsx", app)
+        for export in ("function exportActivities()", "function exportPacks()"):
+            start = app.index(export)
+            self.assertIn(
+                "const X = workbookWriter();\n    if (!X) return;",
+                app[start:start + 400],
+                f"{export} must bail out before touching the writer",
+            )
+
     def test_pack_export_places_summary_cells_by_column_name(self):
         app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
 

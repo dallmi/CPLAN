@@ -34,7 +34,7 @@ $manifest = @(
     @{ Path = "pipeline\studio\app.js";        Marker = "exportPacks";                   Why = "four-tab studio, pack drawer, channel colour, Excel exports" },
     @{ Path = "pipeline\studio\styles.css";    Marker = "channel-chip";                  Why = "channel colour, packs table, pack drawer, five-tile row" },
     @{ Path = "pipeline\studio\index.html";    Marker = "packs-export";                  Why = "four-tab nav, view switcher, pack drawer, both Excel exports" },
-    @{ Path = "pipeline\studio\xlsx.js";       Marker = "summaryBelow";                  Why = "the workbook writer -- without this file both exports throw" },
+    @{ Path = "pipeline\studio\xlsx.js";       Marker = "summaryBelow";                  Why = "the workbook writer -- without this file both exports refuse and say so" },
     @{ Path = "pipeline\studio\analytics.js";  Marker = "Deliberately NOT tracking_pack_id";                        Why = "missing campaign/pack no longer pinned to zero" },
     @{ Path = "pipeline\scripts\cplan_db.py";  Marker = "def stop";                          Why = "clean database stop" },
     @{ Path = "pipeline\scripts\start_portal.py"; Marker = "DEFAULT_PORT";                   Why = "portal launcher" },

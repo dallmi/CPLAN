@@ -2888,7 +2888,19 @@ function donutHtml(entries, colorOf, centerText, centerSub) {
     updateReady();
   }
 
-  const X = window.CplanXlsx;
+  // Read at call time, not at load time. xlsx.js is the only file the studio
+  // gained rather than changed, so it is the one a hand-copied deployment
+  // silently misses -- and a missing script left the export button doing
+  // absolutely nothing: no file, no message, only a console line nobody has
+  // open. A dependency that is not there has to say so.
+  function workbookWriter() {
+    const writer = window.CplanXlsx;
+    if (!writer) {
+      toast('Export unavailable — xlsx.js did not load. Copy it alongside app.js and reload.');
+      return null;
+    }
+    return writer;
+  }
 
   // Both exports are read in Excel, so both are written as .xlsx rather than
   // handed over as CSV for Excel to guess at -- separators, decimal marks and
@@ -2920,6 +2932,8 @@ function donutHtml(entries, colorOf, centerText, centerSub) {
   const stamp = () => new Date().toISOString().slice(0, 10);
 
   function exportActivities() {
+    const X = workbookWriter();
+    if (!X) return;
     const rows = state.filteredRows;
     if (!rows.length) { toast('Nothing to export with the current filters'); return; }
     download(`CPLAN_activities_${stamp()}.xlsx`, X.build({
@@ -2936,6 +2950,8 @@ function donutHtml(entries, colorOf, centerText, centerSub) {
   // export answers is "what belongs together", and a flat table answers it
   // only if you sort it yourself and trust that nothing else moved.
   function exportPacks() {
+    const X = workbookWriter();
+    if (!X) return;
     const {cards, loose} = packUnits();
     const shown = filteredPackCards(cards);
     if (!shown.length && !loose.length) { toast('Nothing to export'); return; }
