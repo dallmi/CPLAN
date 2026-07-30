@@ -111,6 +111,50 @@ def build_executive_summary(wb, scope, config):
     style.finalize_sheet(ws, freeze="A2", widths={"A": 44, "B": 24, "C": 12})
 
 
+def build_data_quality(wb, scope, config):
+    """The pack problem, quantified: bucket sizes a planner can act on."""
+    ws = wb.create_sheet("Data Quality")
+    frame = scope.frame
+    if frame.empty:
+        style.note_missing(ws, "No activities in scope for the configured criteria")
+        style.finalize_sheet(ws, freeze="A2")
+        return
+
+    row = style.write_section_header(ws, 1, "FIELD COMPLETENESS", 4)
+    row = style.write_header_row(ws, row, ["Field", "Filled", "Missing", "% missing"])
+    for name, filled, missing in metrics.field_completeness(scope):
+        style.write_data_rows(ws, row, [[name, filled, missing]])
+        style.write_formula(ws, row, 4, f"=IF(B{row}+C{row}=0,0,C{row}/(B{row}+C{row}))",
+                            fmt=style.NUM_FMT_PCT)
+        row += 1
+    row = style.write_data_rows(ws, row, [["Median completeness (%)",
+                                           int(frame["completeness"].median())]])
+    row += 1
+
+    packs = metrics.pack_stats(frame)
+    row = style.write_section_header(ws, row, "PACK COVERAGE", 4)
+    row = style.write_header_row(ws, row, ["Measure", "Count", "", ""])
+    pack_rows = [
+        ("Activities with a pack link", packs["with_pack"]),
+        ("Activities without a pack link", packs["without_pack"]),
+        ("Distinct packs", packs["packs"]),
+        ("Packs holding exactly one activity", packs["singleton_packs"]),
+        ("Packs holding 2 to 10", packs["small_packs"]),
+        ("Packs holding 11 to 50", packs["medium_packs"]),
+        ("Packs holding more than 50", packs["oversized_packs"]),
+        ("Largest pack", packs["largest_pack"]),
+    ]
+    row = style.write_data_rows(ws, row, [[label, value] for label, value in pack_rows])
+    row += 1
+
+    row = style.write_section_header(ws, row, "RECORD ANOMALIES", 4)
+    row = style.write_header_row(ws, row, ["Anomaly", "Count", "", ""])
+    row = style.write_data_rows(ws, row, [[label, count] for label, count in
+                                          metrics.anomalies(frame, scope.duplicates_removed)])
+
+    style.finalize_sheet(ws, freeze="A2", widths={"A": 40, "B": 14, "C": 14, "D": 14})
+
+
 GLOSSARY_SECTIONS = (
     ("SCOPE", (
         ("In scope", "Activities whose start date falls inside the configured window and "
