@@ -672,6 +672,29 @@ class OverviewCardsTests(unittest.TestCase):
         self.assertNotIn(".kpi-grid.five", self.css)
         self.assertIn(".kpi-groups{", self.css)
 
+    def test_kpi_groups_responsive_override_wins_the_cascade(self):
+        """Regression: the four-column .kpi-groups base rule used to sit below
+        the shared max-width:1000px media block, so a same-specificity
+        override placed up there lost and the cards never collapsed below
+        four columns, overflowing the viewport on narrow windows. A mere
+        assertIn on the override text passed even while it was dead, since
+        the string existed either way. Pin that the override actually
+        appears *after* the base rule in the file, which is what makes it
+        win.
+        """
+        base = self.css.index(
+            ".kpi-groups{display:grid;grid-template-columns:repeat(4,minmax(210px,1fr))"
+        )
+        override = self.css.index(
+            "@media(max-width:1000px){.kpi-groups{grid-template-columns:repeat(2,1fr)}}"
+        )
+        self.assertGreater(
+            override, base,
+            "the .kpi-groups max-width:1000px override must come after the "
+            "four-column base rule, or it loses the cascade and the cards "
+            "never collapse to 2 columns"
+        )
+
 
 class ComingUpCardTests(unittest.TestCase):
     """Coming up: a seven-day date-box list that scrolls inside its card.
