@@ -753,6 +753,13 @@ function donutHtml(entries, colorOf, centerText, centerSub) {
     const dash = (value, guard) => (guard ? value : '—');
     const readinessFindings = incompleteRows.length + quality.invalidDateRanges;
     const readinessTone = readinessFindings ? 'readiness' : 'clean';
+    // Computed once and shared with the "Coming up" list below -- the same
+    // rolling seven-day window backs both the "Starts within 7 days" figure
+    // here and the row list further down. Two separate calls (one per site)
+    // used to compute the same thing twice and could drift if one was edited
+    // without the other; `now` is the one already captured above, so both
+    // readings stay pinned to the same instant.
+    const comingUpRows = A.comingUp(rows, now, 7);
     const cardsHtml = [
       kpiGroup('Portfolio', 'portfolio', [
         {v: fmtNum(rows.length), l: 'Total activities'},
@@ -762,7 +769,7 @@ function donutHtml(entries, colorOf, centerText, centerSub) {
       ]),
       kpiGroup('In flight', 'inflight', [
         {v: fmtNum(active.length), l: 'Active now'},
-        {v: fmtNum(A.comingUp(rows, now, 7).length), l: 'Starts within 7 days'},
+        {v: fmtNum(comingUpRows.length), l: 'Starts within 7 days'},
         {v: fmtNum(A.endingWithin(rows, now, 7).length), l: 'Ends within 7 days'},
         {v: fmtNum(upcoming.length), l: 'Next 30 days'}
       ]),
@@ -775,7 +782,7 @@ function donutHtml(entries, colorOf, centerText, centerSub) {
       kpiGroup('Lead time', 'leadtime', [
         {v: lead.median === null ? '—' : `${fmtNum(lead.median)}d`, l: 'Median lead'},
         {v: fmtNum(lead.shortNotice), l: 'On short notice'},
-        {v: dash(`${lead.shortNoticeRate}%`, rows.length), l: 'Short-notice rate', derived: true},
+        {v: dash(`${lead.shortNoticeRate}%`, lead.valid), l: 'Short-notice rate', derived: true},
         {v: fmtNum(lead.excluded), l: 'Excluded'}
       ])
     ].join('');
@@ -825,7 +832,6 @@ function donutHtml(entries, colorOf, centerText, centerSub) {
     // 3px edge it reads at a glance without putting eight tinted blocks on the
     // screen. Both distinctions survive because they answer different questions
     // — the box says internal or external, the edge says which channel.
-    const comingUpRows = A.comingUp(rows, now, 7);
     const beyondWeek = Math.max(0, upcoming.length - comingUpRows.length);
     document.getElementById('upcoming-list').innerHTML = comingUpRows.length
       ? comingUpRows.map(row => {

@@ -498,13 +498,13 @@ td .channel-tag{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
    queue sets it and grows with its content; Coming up scrolls inside whatever
    it is given. That is what retired the eight-row cap: the height is bounded
    here now, not by hiding rows. */
-/* #page-overview .grid.two{align-items:start} (styles.css:400) turns off the
+/* The #page-overview .grid.two{align-items:start} rule above turns off the
    grid's default stretch for every two-column row on the Overview, including
    this one -- so without an override scoped back to #view-list, the cards
    size to their own content instead of the row height and never come out
    equal. Restoring stretch here, and only here, is what lets the queue's
    height reach the "Coming up" card at all; a bare #view-list .grid.two
-   selector loses that specificity fight against line 400 unless it names
+   selector loses that specificity fight against that rule unless it names
    #page-overview too. */
 #page-overview #view-list .grid.two{align-items:stretch}
 #view-list .grid.two>.card{display:flex;flex-direction:column;min-height:360px;margin-bottom:0}
@@ -523,8 +523,15 @@ td .channel-tag{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
    view switcher + grid gap), rounded up to 500. Re-measure if the header
    above the grid grows or shrinks. Scoped to .scroll-y so this cap lands on
    "Coming up" only -- "Needs you first" has no scroll container and must be
-   free to overflow if its own content ever needs more than the cap allows. */
-#view-list .grid.two>.card>.card-body.scroll-y{min-height:0;max-height:calc(100vh - 500px);overflow-y:auto}
+   free to overflow if its own content ever needs more than the cap allows.
+   The max(280px, …) floor protects the same cap from itself: below roughly a
+   500px viewport the calc side goes negative, and a negative max-height
+   clamps to 0 -- an empty scroll box with the footer sitting under it, which
+   is exactly the failure mode this rule exists to prevent. 280px keeps a
+   handful of rows visible and scrollable even at extreme zoom levels (e.g.
+   250% on a 1080p display, which is a supported WCAG 1.4.4 condition, not an
+   edge case). */
+#view-list .grid.two>.card>.card-body.scroll-y{min-height:0;max-height:max(280px,calc(100vh - 500px));overflow-y:auto}
 /* The scroll boundary. The local layer scrolls with the content and covers the
    fixed shadow at the end of the list, so the hint disappears once there is
    nothing more to reach. */
@@ -535,7 +542,7 @@ td .channel-tag{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
    internal or external, the edge says which channel. Neither is decodable on
    its own — the source type is also in the drawer and the channel name is
    always beside its dot. */
-.event-row{position:relative;display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;padding:11px 16px;border-bottom:1px solid var(--surface);cursor:pointer}
+.event-row{position:relative;display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;padding:11px 16px;border-bottom:1px solid var(--surface);cursor:pointer;min-width:0}
 .event-row:last-child{border-bottom:0}
 .event-row:hover{background:var(--row-alt)}
 .event-channel-edge{position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--grey-1)}
@@ -545,4 +552,4 @@ td .channel-tag{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .event-month{font-size:10px;font-weight:600;letter-spacing:.06em}
 .event-details{min-width:0}
 .event-title{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.event-meta{font-size:11px;color:var(--grey-5);margin-top:2px}
+.event-meta{font-size:11px;color:var(--grey-5);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

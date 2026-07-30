@@ -635,6 +635,14 @@ class OverviewCardsTests(unittest.TestCase):
         self.assertNotIn("data-goto", block)
         self.assertNotIn("kpi-trend", block)
         self.assertNotIn("trend(", block)
+        # The cardsHtml slice only proves the four kpiGroup(...) call sites
+        # are route-free -- it says nothing about kpiGroup() itself. A future
+        # change could teach the builder to emit a <button data-goto> from a
+        # row object and this assertion would not see it. Slice the function
+        # body directly.
+        builder = _slice(self.app, "function kpiGroup(", "// Channel colour.")
+        self.assertNotIn("data-goto", builder)
+        self.assertNotIn("<button", builder)
 
     def test_seven_day_rows_do_not_claim_to_be_a_calendar_week(self):
         block = self._overview_kpi_block()
@@ -646,9 +654,18 @@ class OverviewCardsTests(unittest.TestCase):
         block = self._overview_kpi_block()
         # Both rates go through dash(value, guard). Without the guard an empty
         # filter reports "0% complete", which is false: nothing is incomplete
-        # when nothing exists.
+        # when nothing exists. Pin the helper body and both call sites --
+        # `const dash = (value, guard) => value` and `dash(x, true)` at either
+        # call site both satisfy a bare occurrence count without exercising
+        # the guard at all.
         self.assertEqual(block.count("dash("), 2)
-        self.assertIn("const dash = (value, guard)", self.app)
+        self.assertIn("const dash = (value, guard) => (guard ? value : '—')", self.app)
+        self.assertIn("dash(`${quality.completenessRate}%`, rows.length)", block)
+        # lead.shortNoticeRate is computed over rows with a usable
+        # planning_lead_days, not over all rows (lead.valid is the right
+        # denominator) -- rows.length here would render a false "0%" when the
+        # filter selects only rows without a usable lead time.
+        self.assertIn("dash(`${lead.shortNoticeRate}%`, lead.valid)", block)
 
     def test_comparison_window_leaves_the_overview_but_stays_on_health(self):
         overview = _slice(self.app, "function renderOverview(", "function renderTrend(")
@@ -713,8 +730,24 @@ class ComingUpCardTests(unittest.TestCase):
         return _slice(self.app, "// Upcoming: a rolling seven days", "document.getElementById('priority-donut')")
 
     def test_window_is_seven_rolling_days_and_the_row_cap_is_gone(self):
+        # comingUpRows is computed once, above the cardsHtml array, and
+        # reused both by the "In flight" card's "Starts within 7 days" figure
+        # and by this list -- so the A.comingUp(...) call itself no longer
+        # lives inside this block. What this block still owns is consuming
+        # that shared row list.
+        #
+        # Regression guard folded in here rather than as a separate test:
+        # A.comingUp(rows, now, 7) used to be called twice per render (once
+        # per card/list), duplicating the work and leaving the two windows
+        # free to drift apart if only one call site was edited. There must be
+        # exactly one call, hoisted above both users.
+        self.assertEqual(self.app.count("A.comingUp(rows, now, 7)"), 1)
+        self.assertIn("const comingUpRows = A.comingUp(rows, now, 7);", self.app)
+        cards_block = _slice(self.app, "const cardsHtml = [", "document.getElementById('overview-kpis')")
+        self.assertIn("comingUpRows.length", cards_block)
         block = self._upcoming_block()
-        self.assertIn("A.comingUp(rows, now, 7)", block)
+        self.assertIn("comingUpRows.length", block)
+        self.assertIn("comingUpRows.map(row =>", block)
         self.assertNotIn("UPCOMING_SHOWN", self.app)
         self.assertNotIn("weekKey", self.app)
         self.assertNotIn("week-heading", self.app)
@@ -728,6 +761,10 @@ class ComingUpCardTests(unittest.TestCase):
         self.assertIn("relativeDayLabel", block)
         # The drawer route survives the redesign.
         self.assertIn("data-open-id", block)
+        # event-date-box carries a source-tint (`.external`), not a priority
+        # one -- an implementation tinting by priority instead would still
+        # satisfy a bare "event-date-box" assertion, so pin what drives it.
+        self.assertIn("row.source_type === 'external'", block)
 
     def test_scroll_region_is_reachable_by_keyboard(self):
         card = _slice(self.html, 'id="upcoming-list"', "</article>")
@@ -751,13 +788,30 @@ class ComingUpCardTests(unittest.TestCase):
         self.assertIn(".scroll-y", rule)
         # A grid row's auto track sizes to its tallest content, so a shorter
         # neighbour can never hand this card a definite height to scroll
-        # within. Only the viewport can put a ceiling on it.
-        self.assertIn("max-height:calc(100vh", rule)
-        # #page-overview .grid.two{align-items:start} (styles.css:400) turns
-        # off stretch for every two-column row on the Overview. Without a more
-        # specific override scoped back to #view-list, the two cards never
-        # come out equal height and the whole fix is inert -- measured
-        # headless: 1479px vs 360px, not equal, and no scrollbar.
+        # within. Only the viewport can put a ceiling on it. The max(280px, …)
+        # floor is what stops that calc clamping to 0 below a ~500px viewport
+        # (extreme browser zoom is a real, WCAG-supported condition).
+        self.assertIn("max-height:max(280px,calc(100vh", rule)
+        # The two assertions above ("min-height:0" and ".scroll-y") are also
+        # both satisfied by the long explanatory comment directly above the
+        # declaration -- it literally contains the strings "min-height:0 is
+        # load-bearing" and "Scoped to .scroll-y so this cap lands on". A
+        # regression that deletes the whole declaration but keeps the comment
+        # (exactly the silent-scroll-loss failure this test exists to catch)
+        # would still pass every assertion above it. Pin the entire
+        # declaration as one string against the full stylesheet instead, the
+        # way the stretch override just below is already asserted.
+        self.assertIn(
+            "#view-list .grid.two>.card>.card-body.scroll-y{min-height:0;"
+            "max-height:max(280px,calc(100vh - 500px));overflow-y:auto}",
+            self.css,
+        )
+        # The #page-overview .grid.two{align-items:start} rule (near the top
+        # of the file) turns off stretch for every two-column row on the
+        # Overview. Without a more specific override scoped back to
+        # #view-list, the two cards never come out equal height and the whole
+        # fix is inert -- measured headless: 1479px vs 360px, not equal, and
+        # no scrollbar.
         self.assertIn("#page-overview #view-list .grid.two{align-items:stretch}", self.css)
 
     def test_empty_state_names_the_seven_day_window(self):
