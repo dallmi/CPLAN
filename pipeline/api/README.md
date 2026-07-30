@@ -1,4 +1,4 @@
-# CPLAN Planning Studio — admin-free local database MVP
+# CPLAN Studio — admin-free local database MVP
 
 The planning studio replaces a browser-local draft store and Parquet runtime with a same-origin FastAPI/SQLAlchemy data path. Three backends share the same API and studio code, chosen once via `setup_backend` and never silently switched: **postgres-embedded** (a real PostgreSQL 16, run as an unprivileged local process — the recommended corp default), a real **PostgreSQL** server you already have, or **SQLite** as the zero-dependency fallback. All three run in the user's context without a Windows service or admin rights.
 

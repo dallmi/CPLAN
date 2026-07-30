@@ -1,4 +1,4 @@
-# CPLAN Planning Studio
+# CPLAN Studio
 
 The planning studio is served by the local FastAPI application. Earlier snapshot studios and the SharePoint draft have been retired; their implementations live in git history.
 

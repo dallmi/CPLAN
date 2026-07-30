@@ -202,7 +202,7 @@ def test_api_serves_the_studio_dashboard(client):
     response = client.get("/")
 
     assert response.status_code == 200
-    assert "CPLAN Planning Studio" in response.text
+    assert "CPLAN Studio" in response.text
 
 
 def test_health_reports_the_selected_database_backend(client):

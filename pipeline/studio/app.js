@@ -131,8 +131,17 @@
     const cols = keys.map(key => {
       const bucket = buckets.get(key), total = totalOf(key);
       const filling = key >= currentKey;
+      // The split value inside its own segment, but only where it fits. The
+      // chart body is 180px less 8px of padding and ~18px for the total label
+      // above the stack, so a segment stands (value / max) * 154 pixels tall;
+      // a 10px numeral needs about sixteen of them before it starts touching
+      // its own edges. Below that the segment stays bare and the tooltip still
+      // carries the number -- a clipped or overhanging label would cost more
+      // than the value it adds, and the total above the bar is never in doubt.
+      const STACK_PX = 154, LABEL_MIN_PX = 16;
+      const fits = value => value / max * STACK_PX >= LABEL_MIN_PX;
       const stack = ['external', 'internal'].map(type => bucket[type]
-        ? `<div class="trend-seg ${type}" style="height:${bucket[type] / total * 100}%" title="${fmtNum(bucket[type])} ${type}"></div>`
+        ? `<div class="trend-seg ${type}" style="height:${bucket[type] / total * 100}%" title="${fmtNum(bucket[type])} ${type}">${fits(bucket[type]) ? `<span class="trend-seg-value">${fmtNum(bucket[type])}</span>` : ''}</div>`
         : '').join('');
       return `<div class="trend-col${filling ? ' filling' : ''}"><span class="trend-value">${fmtNum(total)}</span><div class="trend-stack" style="height:${total / max * 100}%" title="${filling ? 'Still filling' : 'Complete month'}">${stack}</div></div>`;
     }).join('');

@@ -34,7 +34,7 @@ class StudioTests(unittest.TestCase):
         html = (DASHBOARD / "index.html").read_text(encoding="utf-8")
         app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
 
-        self.assertIn("CPLAN Planning Studio", html)
+        self.assertIn("CPLAN Studio", html)
         self.assertIn("local snapshot", html)
         self.assertNotIn("duckdb", html.lower())
         self.assertNotIn("jsdelivr", html.lower())

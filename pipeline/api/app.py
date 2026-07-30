@@ -1,4 +1,4 @@
-"""Local database API for CPLAN Planning Studio."""
+"""Local database API for CPLAN Studio."""
 
 from __future__ import annotations
 
@@ -561,7 +561,7 @@ def create_app(database_url: str | URL | None = None, auth_settings: AuthSetting
         yield
         engine.dispose()
 
-    app = FastAPI(title="CPLAN Planning Studio API", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="CPLAN Studio API", version="0.1.0", lifespan=lifespan)
     app.state.engine = engine
 
     current_user, db_session = build_session_dependencies(engine, auth)

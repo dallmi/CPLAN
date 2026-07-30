@@ -24,7 +24,7 @@ PORTAL_RESERVED = frozenset(GROUP_ROLES) | {AUTHENTICATOR, PORTAL_OWNER}
 _ASSIGNABLE_GROUPS = tuple(ASSIGNABLE_ROLES.values())  # cplan_viewer/contributor/editor/admin
 
 # CPLAN seed for the project registry.
-_CPLAN = {"slug": "cplan", "name": "CPLAN Planning Studio", "url": "http://127.0.0.1:8780/", "role_prefix": "cplan"}
+_CPLAN = {"slug": "cplan", "name": "CPLAN Studio", "url": "http://127.0.0.1:8780/", "role_prefix": "cplan"}
 
 # The reserved-name array literal the functions guard against, built once here so
 # it matches PORTAL_RESERVED exactly.

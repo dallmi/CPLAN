@@ -456,3 +456,10 @@ td .channel-tag{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pack-list-table .badge{white-space:nowrap}
 /* Issue chips in a channel card wrap instead of stretching the head row. */
 .pack-channel-issues{display:flex;flex-wrap:wrap;gap:4px;justify-content:flex-end;flex:none;max-width:60%}
+/* Split values inside the stacked bars. Set against the segment they name, so
+   each needs its own foreground: grey-6 is dark enough for white, bronze-1 is
+   not and takes near-black instead. */
+.trend-seg{position:relative}
+.trend-seg-value{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;line-height:1}
+.trend-seg.internal .trend-seg-value{color:var(--white)}
+.trend-seg.external .trend-seg-value{color:var(--black)}
