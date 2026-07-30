@@ -362,8 +362,12 @@ builder — nested column outlines, two header rows, mixed literal and formula
 cells — in a file that can be read in one sitting.
 
 Output goes to `pipeline/output/CPLAN_calendar_<date_from.year>_<YYYY_MM_DD>.xlsx`.
-`pipeline/output/` is already gitignored. Console output follows the ETL's
-existing `log()` convention: a banner, one line per sheet, a final size report.
+`.gitignore` covers `pipeline/output/` per file extension, not as a directory, so
+`*.xlsx` has to be listed there alongside `*.parquet`, `*.json` and `*.html` —
+without that line the workbook is a tracked file, and the Activities sheet is by
+design a complete audit trail of real activity names, lead names, divisions,
+regions, pack IDs and campaigns. Console output follows the ETL's existing
+`log()` convention: a banner, one line per sheet, a final size report.
 
 ## Testing
 

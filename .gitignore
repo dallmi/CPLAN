@@ -13,6 +13,7 @@ pipeline/data/*.db
 pipeline/output/*.parquet
 pipeline/output/*.json
 pipeline/output/*.html
+pipeline/output/*.xlsx
 
 # Pipeline docs (internal only)
 pipeline/docs/
