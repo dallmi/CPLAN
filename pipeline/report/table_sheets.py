@@ -20,6 +20,7 @@ from pipeline.report.derive import (
     GLOBAL_REGION_TOKENS,
     GROUP_WIDE_MIN_DIVISIONS,
     REACH_ORDER,
+    split_multi,
 )
 
 
@@ -153,6 +154,121 @@ def build_data_quality(wb, scope, config):
                                           metrics.anomalies(frame, scope.duplicates_removed)])
 
     style.finalize_sheet(ws, freeze="A2", widths={"A": 40, "B": 14, "C": 14, "D": 14})
+
+
+def _quarter_label(quarter):
+    return f"Q{quarter[1]} {quarter[0]}"
+
+
+def build_audience(wb, scope, config):
+    """Audience size and senior-executive involvement -- two of the three
+    criteria the whole report is built around.
+
+    The most interesting figure here is the last one: executive involvement
+    as a share of *that division's own volume*, not of the portfolio. A
+    large division with many such activities may still be using that access
+    less than a small one -- the portfolio-wide share would hide that.
+    """
+    ws = wb.create_sheet("Audience & Executives")
+    frame = scope.frame
+    if frame.empty or "audience_band" not in frame.columns:
+        style.note_missing(ws, "No audience data available (audience column missing)")
+        style.finalize_sheet(ws, freeze="A2")
+        return
+
+    quarters = sorted({q for q in frame["_quarter"] if q is not None})
+    headers = ["Audience band"] + [_quarter_label(q) for q in quarters] + ["Total", "% of total"]
+    total_col = len(headers) - 1
+    share_col = len(headers)
+
+    row = style.write_section_header(ws, 1, "AUDIENCE BAND BY QUARTER", len(headers))
+    row = style.write_header_row(ws, row, headers)
+    first_row = row
+    for band in list(AUDIENCE_BANDS) + [BAND_UNKNOWN]:
+        counts = [int(((frame["audience_band"] == band) & (frame["_quarter"] == q)).sum())
+                  for q in quarters]
+        style.write_data_rows(ws, row, [[band] + counts])
+        span = f"{get_column_letter(2)}{row}:{get_column_letter(total_col - 1)}{row}"
+        style.write_formula(ws, row, total_col, f"=SUM({span})", fmt=style.NUM_FMT_INT)
+        row += 1
+    total_row = row
+    for col in range(2, total_col + 1):
+        letter = get_column_letter(col)
+        style.write_formula(ws, total_row, col, f"=SUM({letter}{first_row}:{letter}{row - 1})",
+                            fmt=style.NUM_FMT_INT, fill=style.TOTAL_FILL, bold=True)
+    ws.cell(row=total_row, column=1, value="TOTAL").font = style.TOTAL_FONT
+    total_letter = get_column_letter(total_col)
+    for value_row in range(first_row, total_row):
+        style.write_formula(
+            ws, value_row, share_col,
+            f"=IF({total_letter}${total_row}=0,0,"
+            f"{total_letter}{value_row}/{total_letter}${total_row})",
+            fmt=style.NUM_FMT_PCT)
+    style.write_formula(ws, total_row, share_col, "=1", fmt=style.NUM_FMT_PCT,
+                        fill=style.TOTAL_FILL, bold=True)
+    row = total_row + 2
+
+    row = style.write_section_header(ws, row, "LARGE AUDIENCE BY MONTH", 4)
+    row = style.write_header_row(ws, row, ["Month", "Large audience", "All activities",
+                                           "Share of the month"])
+
+    def _week_month(index):
+        # week_index is None for rows without a placeable week; on the
+        # in-scope frame that never happens (every surviving row's start day
+        # falls inside the grid), but a stray NaN from a mixed-dtype column
+        # is guarded against rather than assumed away.
+        if index is None or index != index:
+            return None
+        return scope.grid.month_of(scope.grid.weeks[int(index)])
+
+    # Computed once per row up front, not once per row per month: the
+    # reference version recomputed `month_of` inside an `.apply()` lambda for
+    # every month, which is O(rows x months) for no benefit.
+    week_months = frame["week_index"].map(_week_month)
+    months = sorted({m for m in week_months if m is not None})
+    for month in months:
+        in_month = week_months == month
+        large = int((in_month & frame["audience_band"].isin(LARGE_AUDIENCE_BANDS)).sum())
+        style.write_data_rows(ws, row, [
+            [f"{month[0]}-{month[1]:02d}", large, int(in_month.sum())]])
+        style.write_formula(ws, row, 4, f"=IF(C{row}=0,0,B{row}/C{row})",
+                            fmt=style.NUM_FMT_PCT)
+        row += 1
+    row += 1
+
+    row = style.write_section_header(ws, row, "SENIOR EXECUTIVES BY QUARTER", 4)
+    row = style.write_header_row(ws, row, ["Quarter", "With executives", "All activities",
+                                           "Share of the quarter"])
+    for quarter in quarters:
+        in_quarter = frame["_quarter"] == quarter
+        style.write_data_rows(ws, row, [
+            [_quarter_label(quarter),
+             int((in_quarter & frame["has_executives"]).sum()),
+             int(in_quarter.sum())]])
+        style.write_formula(ws, row, 4, f"=IF(C{row}=0,0,B{row}/C{row})",
+                            fmt=style.NUM_FMT_PCT)
+        row += 1
+    row += 1
+
+    row = style.write_section_header(ws, row, "SENIOR EXECUTIVES BY DIVISION", 4)
+    row = style.write_header_row(ws, row, ["Division", "With executives",
+                                           "All activities", "Share of the division"])
+    divisions = {}
+    for index, activity in frame.iterrows():
+        for name in (split_multi(activity.get("business_division")) or ["Not specified"]):
+            divisions.setdefault(name, []).append(index)
+    for name in sorted(divisions):
+        subset = frame.loc[divisions[name]]
+        style.write_data_rows(ws, row, [
+            [name, int(subset["has_executives"].sum()), len(subset)]])
+        style.write_formula(ws, row, 4, f"=IF(C{row}=0,0,B{row}/C{row})",
+                            fmt=style.NUM_FMT_PCT)
+        row += 1
+    # No TOTAL row here: an activity naming two divisions is counted in both
+    # rows (see GLOSSARY_SECTIONS' "Overlap" entry), so a vertical SUM would
+    # print a number larger than the portfolio, as if it were a true total.
+
+    style.finalize_sheet(ws, freeze="B3", widths={"A": 26})
 
 
 GLOSSARY_SECTIONS = (
