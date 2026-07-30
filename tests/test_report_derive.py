@@ -72,13 +72,18 @@ def test_neither_field_is_unclassified():
     ("999", BAND_UNDER_1K),
     ("1000", BAND_1_10K),
     ("9999", BAND_1_10K),
+    ("10000", BAND_10_50K),
     ("12000", BAND_10_50K),
+    ("49999", BAND_10_50K),
     ("50000", BAND_50_100K),
     ("100000", BAND_50_100K),
     ("100001", BAND_OVER_100K),
     ("12,000", BAND_10_50K),
     ("12'000", BAND_10_50K),
     (4200, BAND_1_10K),
+    (4200.0, BAND_1_10K),
+    ("4200.00", BAND_1_10K),
+    (999.9, BAND_UNDER_1K),
 ])
 def test_numeric_audience_values_map_to_bands(value, expected):
     assert audience_band(value) == expected

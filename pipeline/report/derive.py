@@ -96,11 +96,29 @@ _BAND_LOOKUP = {
 }
 
 
-def _as_number(text):
+def _as_number(value):
+    # Handle numeric types directly, truncating toward zero. This bypasses string
+    # round-trip ambiguities: a pandas upcasted float64 column reads correctly.
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        if isinstance(value, float) and math.isnan(value):
+            return None
+        return int(value)
+
+    # String path: treat . as a decimal point, not a separator. This field is
+    # written by machine exports, which emit "4200.00" for a count, not "12.000"
+    # European-formatted data would need a different reader.
+    text = str(value).strip()
     if not _NUMERIC.match(text):
         return None
-    digits = re.sub(r"[\s.,']", "", text)
-    return int(digits) if digits else None
+    # Strip only whitespace, comma and apostrophe; keep decimal point.
+    stripped = re.sub(r"[\s,']", "", text)
+    # Accept integers or decimals; take only the integer part.
+    decimal_match = re.match(r"^(\d+)", stripped)
+    if decimal_match:
+        return int(decimal_match.group(1))
+    return None
 
 
 def _normalise_band(text):
@@ -118,17 +136,18 @@ def audience_band(value):
     all is an assumption recorded in the knowledge base; concentrating it here
     means there is one place to correct it.
     """
-    text = _text(value)
-    if not text:
-        return BAND_UNKNOWN
-
-    number = _as_number(text)
+    # Try numeric path first, handling both raw numeric types and string forms.
+    number = _as_number(value)
     if number is not None:
         for upper, band in _BAND_BOUNDS:
             if number <= upper:
                 return band
         return BAND_OVER_100K
 
+    # Fall back to band label lookup.
+    text = _text(value)
+    if not text:
+        return BAND_UNKNOWN
     return _BAND_LOOKUP.get(_normalise_band(text), BAND_UNKNOWN)
 
 
