@@ -128,6 +128,52 @@
     return Number.isNaN(date.getTime()) ? null : date;
   }
 
+  const DAY_MS = 86400000;
+
+  // Rolling horizons for the Overview. app.js is a browser IIFE with no
+  // exports and can only be checked by asserting on its source text, so the
+  // date arithmetic lives here where a node test can actually run it.
+  //
+  // Rolling, not calendar: "this week" and "the next seven days" name the same
+  // thing only on a Monday, and the Overview promises the seven-day reading.
+  function comingUp(rows, now, days) {
+    const end = new Date(now.getTime() + days * DAY_MS);
+    return rows
+      .filter(row => {
+        const start = parseDate(row.start_date);
+        return start && start >= now && start <= end;
+      })
+      .sort((a, b) => parseDate(a.start_date) - parseDate(b.start_date));
+  }
+
+  function endingWithin(rows, now, days) {
+    const end = new Date(now.getTime() + days * DAY_MS);
+    return rows.filter(row => {
+      const finish = parseDate(row.end_date);
+      return finish && finish >= now && finish <= end;
+    });
+  }
+
+  const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+  // Calendar days, not elapsed hours: an activity at 23:00 tonight is "Today"
+  // and one at 01:00 tomorrow is "Tomorrow", which is how the date reads to
+  // the person planning it. Comparing timestamps would call both of them
+  // "Today" for two hours and then swap.
+  //
+  // The subtraction is between two local midnights and is rounded, so the
+  // 23- or 25-hour day at a daylight-saving change still yields a whole
+  // number of days.
+  function relativeDayLabel(date, now) {
+    const parsed = parseDate(date);
+    if (!parsed) return '';
+    const midnight = d => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    const diff = Math.round((midnight(parsed) - midnight(now)) / DAY_MS);
+    if (diff === 0) return 'Today';
+    if (diff === 1) return 'Tomorrow';
+    return WEEKDAYS[parsed.getDay()];
+  }
+
   function fieldValueChanged(field, original, next) {
     if (field === 'start_date' || field === 'end_date') {
       const originalDate = parseDate(original);
@@ -413,6 +459,9 @@
     attentionItems,
     weeklyCoverage,
     parseDate,
+    comingUp,
+    endingWithin,
+    relativeDayLabel,
     REQUIRED_INTERNAL,
     REQUIRED_EXTERNAL,
     requiredFor,

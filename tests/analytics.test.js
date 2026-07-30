@@ -496,3 +496,54 @@ test('collision severity follows the numbered priorities too', () => {
     [at('a', '1 - Price-sensitive'), at('b', '4 - Functional and other')], {proximityDays: 0});
   assert.equal(pair.severity, 'critical');
 });
+
+test('comingUp holds a rolling window, inclusive at both ends, sorted ascending', () => {
+  const now = new Date('2026-08-01T12:00:00Z');
+  const at = (id, start) => Object.assign({}, base, {id, start_date: start});
+  const rows = [
+    at('later', '2026-08-06T09:00:00Z'),
+    at('starts-now', '2026-08-01T12:00:00Z'),
+    at('past', '2026-07-31T09:00:00Z'),
+    at('last-moment', '2026-08-08T12:00:00Z'),
+    at('just-beyond', '2026-08-08T12:00:01Z'),
+    at('unparseable', 'not a date'),
+    at('missing', null)
+  ];
+  assert.deepEqual(
+    analytics.comingUp(rows, now, 7).map(r => r.id),
+    ['starts-now', 'later', 'last-moment']
+  );
+  // A window over nothing is an empty list, not a throw.
+  assert.deepEqual(analytics.comingUp([], now, 7), []);
+});
+
+test('endingWithin finds what finishes in the window and ignores open-ended rows', () => {
+  const now = new Date('2026-08-01T12:00:00Z');
+  const at = (id, end) => Object.assign({}, base, {id, end_date: end});
+  const rows = [
+    at('ends-tomorrow', '2026-08-02T17:00:00Z'),
+    at('ended-already', '2026-07-30T17:00:00Z'),
+    at('ends-far-out', '2026-09-30T17:00:00Z'),
+    at('open-ended', null)
+  ];
+  assert.deepEqual(
+    analytics.endingWithin(rows, now, 7).map(r => r.id),
+    ['ends-tomorrow']
+  );
+});
+
+test('relativeDayLabel compares calendar days, not elapsed hours', () => {
+  // Local-time constructors on purpose: the label is about the day a planner
+  // sees on the wall, so the boundary that matters is local midnight.
+  const now = new Date(2026, 7, 1, 12, 0, 0);            // Sat 1 Aug 2026, midday
+  assert.equal(analytics.relativeDayLabel(new Date(2026, 7, 1, 23, 0, 0), now), 'Today');
+  assert.equal(analytics.relativeDayLabel(new Date(2026, 7, 2, 1, 0, 0), now), 'Tomorrow');
+  assert.equal(analytics.relativeDayLabel(new Date(2026, 7, 5, 9, 0, 0), now), 'Wednesday');
+  // Across a month boundary it is still just a weekday — no special case.
+  assert.equal(
+    analytics.relativeDayLabel(new Date(2026, 8, 1, 9, 0, 0), new Date(2026, 7, 30, 12, 0, 0)),
+    'Tuesday'
+  );
+  assert.equal(analytics.relativeDayLabel(null, now), '');
+  assert.equal(analytics.relativeDayLabel('not a date', now), '');
+});
