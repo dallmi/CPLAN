@@ -551,7 +551,16 @@ def transform(df, source_type):
                 except Exception:
                     return pd.NaT
 
-            df[col] = raw.apply(_parse_date)
+            parsed = raw.apply(_parse_date)
+            if parsed.empty:
+                # On zero rows, .apply() has nothing to infer a dtype from
+                # and leaves the column as `object`, which breaks every
+                # later `.dt` accessor use. Force the same tz-aware
+                # datetime dtype a populated column would have gotten.
+                parsed = pd.Series(
+                    pd.DatetimeIndex([], tz=CET), index=parsed.index, name=col
+                )
+            df[col] = parsed
 
     # Boolean columns
     if "news_digest" in df.columns:

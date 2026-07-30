@@ -63,3 +63,19 @@ def test_load_activities_with_no_activity_files_returns_an_empty_frame(tmp_path)
     assert load.raw_columns == {}
     assert load.files == {}
     assert load.duplicates_removed == 0
+
+
+def test_load_activities_with_a_header_only_csv_returns_an_empty_frame(tmp_path):
+    # A header row with zero data rows happens when the source export (e.g.
+    # an empty archive list) has nothing to report. This must not crash the
+    # ETL — it should behave like "no activities from this file", not blow up.
+    header_only = tmp_path / "InternalCommunicationActivities.csv"
+    header_only.write_text(
+        "ID,Tracking ID,Title,Start date,Region,Modified\n", encoding="utf-8"
+    )
+
+    load = process_cplan.load_activities({"internal": header_only})
+
+    assert load.frame.empty
+    assert "Tracking ID" in load.raw_columns["internal"]
+    assert set(load.files) == {"internal"}

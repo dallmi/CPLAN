@@ -104,11 +104,11 @@ def write_activity_csvs(directory):
     for files that exist on disk — a deployment with no external archive
     export simply has no such file, so the mapping has no `external_archive`
     key. Writing a header-only CSV would model a shape the real discovery
-    path never produces. It would also currently crash the ETL: `transform()`
-    calls `.dt` on date columns, and a zero-row column stays `object` dtype
-    (nothing for `.apply` to infer datetime-ness from), so `.dt` raises. That
-    is a real bug in `pipeline/scripts/process_cplan.py`, already reported
-    separately — this fixture deliberately does not exercise it.
+    path never produces, so this fixture still skips it. (A header-only CSV
+    used to crash `transform()` via a `.dt` accessor on an untyped empty
+    column; that is fixed now — see `tests/test_process_cplan_load.py`'s
+    header-only-CSV test — but it remains outside what `find_input_files`
+    would ever hand the ETL, so it stays out of this fixture.)
     """
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
