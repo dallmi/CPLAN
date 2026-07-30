@@ -166,6 +166,18 @@ Every write path (studio create/edit, the daily sync, and the one-time seed) als
 
 Both dashboards score each activity's planning completeness against the fields a planner actually controls in the entry form: activity name, start date, channel, lead team (or lead), target audience, priority, strategic objectives, and activity description. Pack/campaign linkage is intentionally excluded from this score and tracked as its own metric (`missingPackIds`, shown as "Missing pack/campaign"), because pack membership must never be guessed onto an activity — a legitimate standalone activity is fully complete once its own fields are filled in, even with no pack.
 
+### Priority
+
+Two vocabularies reach the dashboards and both are live at once.
+
+Activities created in the studio use its own entry form, which offers **Critical / High / Medium / Low**. Activities mirrored in from the source system do not: their priority is a *numbered label* of the form `<n> - <label>`, with **four levels, 1 the most urgent and 4 the least**. The labels are internal governance wording and are deliberately not reproduced in this repository — only the numbering carries meaning for the code.
+
+The distribution is heavily skewed toward the lowest level: in a production snapshot of roughly 18,000 activities, level 4 held about 65%, level 3 about 18%, level 2 about 16% and level 1 about 1%. Anything that treats "urgent" as levels 1 and 2 is therefore selecting roughly a sixth of the portfolio, which is the intent — not a filter that has gone wrong.
+
+`analytics.js::priorityRank` reads a leading integer first and maps 1 to the top rank, each step down losing one; the words are the fallback, and a value in neither shape lands on the middle rank rather than silently reading as low. `isHighPriority` (rank ≥ 3, i.e. numbered levels 1–2 or the words Critical/High) is the single definition used by both the Overview's "Critical and high" tile and the collision severity in `detectCollisions`, so the two cannot drift apart.
+
+This was a real defect: matching only the words meant every mirrored record fell through to the default rank, the tile read 0 against a portfolio with thousands of level-1 and level-2 activities, and every collision between two top-priority items was scored medium.
+
 ### Archiving
 
 The SharePoint source splits internal and external activities into an "active" list and a separate "Archive" list purely because SharePoint list views cap at roughly 5,000 items — archiving is a view-size workaround, not a signal that an activity is less relevant. `pipeline/scripts/process_cplan.py` already merges both lists (de-duplicated) into one dataset with an `is_archived` flag, and the studio's `Activity.is_archive` column carries this forward. The studio treats archived rows as regular data: nothing in the dashboard or its analytics filters on `is_archive`, so archived activities count in every KPI. The intent is to make periodic archiving unnecessary once the studio is the system of record — a database has no 5k-item view limit.

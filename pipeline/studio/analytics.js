@@ -157,7 +157,10 @@
   //
   // The studio's own entry form offers Critical / High / Medium / Low. The
   // source system does not: its values are numbered labels, lowest number
-  // highest priority -- "1 - ...", "2 - BoD / GEB level I all staff" and so on.
+  // highest priority: four levels written as "<n> - <label>", where 1 is the
+  // most urgent and 4 the least. The labels themselves are internal wording
+  // and deliberately not reproduced here -- only the shape matters, because
+  // the rank comes from the leading digit.
   // Matching only the words meant every production record scored the default
   // rank of 1, so the Overview's "Critical and high" tile read 0 while the list
   // beside it showed priority 1 and 2 activities. Reported from the real

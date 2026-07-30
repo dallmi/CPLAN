@@ -465,14 +465,15 @@ test('priority ranking understands the source system numbered labels', () => {
   // read 0 while activities at priority 1 and 2 sat in the list beside it. The
   // source system does not use the words the studio's own form offers -- its
   // values are numbered, lowest number most urgent, e.g.
-  // "2 - BoD / GEB level I all staff".
-  assert.equal(analytics.priorityRank('1 - Group critical'), 4);
-  assert.equal(analytics.priorityRank('2 - BoD / GEB level I all staff'), 3);
-  assert.equal(analytics.priorityRank('3 - Divisional'), 2);
-  assert.equal(analytics.priorityRank('5 - For information'), 0);
-  assert.equal(analytics.isHighPriority('1 - Group critical'), true);
-  assert.equal(analytics.isHighPriority('2 - BoD / GEB level I all staff'), true);
-  assert.equal(analytics.isHighPriority('3 - Divisional'), false);
+  // "<n> - <label>", four levels, 1 most urgent. Synthetic labels below:
+  // only the leading digit carries meaning, so the wording is ours.
+  assert.equal(analytics.priorityRank('1 - Price-sensitive'), 4);
+  assert.equal(analytics.priorityRank('2 - Board level, all staff'), 3);
+  assert.equal(analytics.priorityRank('3 - Divisional / regional'), 2);
+  assert.equal(analytics.priorityRank('4 - Functional and other'), 1);
+  assert.equal(analytics.isHighPriority('1 - Price-sensitive'), true);
+  assert.equal(analytics.isHighPriority('2 - Board level, all staff'), true);
+  assert.equal(analytics.isHighPriority('3 - Divisional / regional'), false);
 
   // The studio's own vocabulary keeps working unchanged.
   assert.equal(analytics.priorityRank('Critical'), 4);
@@ -492,6 +493,6 @@ test('collision severity follows the numbered priorities too', () => {
     start_date: '2026-09-01T09:00:00Z', end_date: '2026-09-01T17:00:00Z'
   });
   const [pair] = analytics.detectCollisions(
-    [at('a', '1 - Group critical'), at('b', '4 - Local')], {proximityDays: 0});
+    [at('a', '1 - Price-sensitive'), at('b', '4 - Functional and other')], {proximityDays: 0});
   assert.equal(pair.severity, 'critical');
 });
