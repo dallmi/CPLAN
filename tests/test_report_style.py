@@ -78,3 +78,32 @@ def test_finalize_sheet_freezes_and_clamps_column_widths():
 
     assert ws.freeze_panes == "A2"
     assert ws.column_dimensions["A"].width == style.MAX_WIDTH
+
+
+def test_write_data_rows_does_not_number_format_booleans():
+    ws = _sheet()
+
+    style.write_data_rows(ws, 1, [["x", True, 3]])
+
+    # bool is checked before int, so True must not pick up the integer format
+    assert ws.cell(row=1, column=2).number_format != style.NUM_FMT_INT
+    assert ws.cell(row=1, column=3).number_format == style.NUM_FMT_INT
+
+
+def test_explicit_widths_win_over_the_auto_fit():
+    ws = _sheet()
+    ws.cell(row=1, column=1, value="y" * 200)
+
+    style.finalize_sheet(ws, freeze="A2", widths={"A": 15})
+
+    assert ws.column_dimensions["A"].width == 15
+
+
+def test_write_kpi_row_accepts_a_none_value_for_a_label_only_row():
+    ws = _sheet()
+
+    nxt = style.write_kpi_row(ws, 1, "Section label", None)
+
+    assert nxt == 2
+    assert ws.cell(row=1, column=1).value == "Section label"
+    assert ws.cell(row=1, column=2).value is None
