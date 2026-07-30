@@ -35,6 +35,7 @@ import re
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import NamedTuple
 
 import duckdb
 import pandas as pd
@@ -1036,6 +1037,74 @@ def print_data_preview(df, max_rows=20, title="DATA"):
 
 
 # ---------------------------------------------------------------------------
+# Activity loading (shared by the ETL and the calendar report)
+# ---------------------------------------------------------------------------
+
+# Which activity CSVs exist and what each one means: (source_type, is_archived).
+# The archive lists are a SharePoint view-size workaround, not a different kind
+# of record, so they are merged into the same dataset and only flagged.
+ACTIVITY_KEYS = {
+    "internal":         ("internal", False),
+    "external":         ("external", False),
+    "internal_archive": ("internal", True),
+    "external_archive": ("external", True),
+}
+
+
+class ActivityLoad(NamedTuple):
+    """The merged activity dataset plus what it took to build it.
+
+    `raw_columns` and `files` exist for the ETL's --preview column comparison;
+    the calendar report uses `frame` alone.
+    """
+
+    frame: "pd.DataFrame"
+    raw_columns: dict
+    files: dict
+
+
+def load_activities(files):
+    """Read, transform, merge and de-duplicate the four activity CSVs.
+
+    Shared by the ETL and the calendar report so the two can never disagree
+    about how many activities exist.
+    """
+    activity_files = {k: v for k, v in files.items() if k in ACTIVITY_KEYS}
+    frames = []
+    raw_columns = {}
+    for key, path in activity_files.items():
+        source_type, is_archived = ACTIVITY_KEYS[key]
+        log(f"Reading {path.name}...")
+        df = read_csv_auto(path)
+        log(f"  {key}: {len(df)} rows, {len(df.columns)} columns")
+        raw_columns[key] = [c.strip() for c in df.columns]
+        df = transform(df, source_type=source_type)
+        df["is_archived"] = is_archived
+        frames.append(df)
+
+    if not frames:
+        return ActivityLoad(pd.DataFrame(), raw_columns, activity_files)
+
+    combined = pd.concat(frames, ignore_index=True)
+    log(f"Combined activities: {len(combined)} rows")
+
+    # Deduplicate: active + archive lists can overlap.
+    # Keep the most recently modified row per tracking_id.
+    if "tracking_id" in combined.columns:
+        before = len(combined)
+        sort_col = "modified" if "modified" in combined.columns else None
+        if sort_col:
+            combined = combined.sort_values(sort_col, ascending=False, na_position="last")
+        combined = combined.drop_duplicates(subset=["tracking_id"], keep="first")
+        combined = combined.reset_index(drop=True)
+        dupes = before - len(combined)
+        if dupes:
+            log(f"  Removed {dupes} duplicate rows (by tracking_id)")
+
+    return ActivityLoad(combined, raw_columns, activity_files)
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -1070,44 +1139,12 @@ def main():
         log("Deleted existing database (full refresh)")
 
     # --- Communication activities (internal + external, active + archive) ---
-    ACTIVITY_KEYS = {
-        "internal":         ("internal", False),
-        "external":         ("external", False),
-        "internal_archive": ("internal", True),
-        "external_archive": ("external", True),
-    }
-    activity_files = {k: v for k, v in files.items() if k in ACTIVITY_KEYS}
-    frames = []
-    raw_columns = {}
-    for key, path in activity_files.items():
-        source_type, is_archived = ACTIVITY_KEYS[key]
-        log(f"Reading {path.name}...")
-        df = read_csv_auto(path)
-        log(f"  {key}: {len(df)} rows, {len(df.columns)} columns")
-        raw_columns[key] = [c.strip() for c in df.columns]
-        df = transform(df, source_type=source_type)
-        df["is_archived"] = is_archived
-        frames.append(df)
+    load = load_activities(files)
+    combined = load.frame
 
-    if frames:
-        combined = pd.concat(frames, ignore_index=True)
-        log(f"Combined activities: {len(combined)} rows")
-
-        # Deduplicate: active + archive lists can overlap.
-        # Keep the most recently modified row per tracking_id.
-        if "tracking_id" in combined.columns:
-            before = len(combined)
-            sort_col = "modified" if "modified" in combined.columns else None
-            if sort_col:
-                combined = combined.sort_values(sort_col, ascending=False, na_position="last")
-            combined = combined.drop_duplicates(subset=["tracking_id"], keep="first")
-            combined = combined.reset_index(drop=True)
-            dupes = before - len(combined)
-            if dupes:
-                log(f"  Removed {dupes} duplicate rows (by tracking_id)")
-
+    if not combined.empty:
         if preview:
-            print_column_comparison(raw_columns, activity_files)
+            print_column_comparison(load.raw_columns, load.files)
             print_data_preview(combined)
         else:
             write_table(combined, "communications", "communications", full_refresh=full_refresh)
