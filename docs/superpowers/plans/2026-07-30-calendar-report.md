@@ -3662,7 +3662,11 @@ criterion. The design is documented in
 
 - [ ] **Step 8: Check no brand name leaked**
 
-Run: `git grep -Inwi ubs -- . ':!*.lock' ':!pnpm-lock.yaml'`
+Run a whole-word, case-insensitive `git grep -Inwi` for the employer's
+three-letter name across the repository, excluding lock files. Do not write the
+name into this document, into a script, or into a commit message in order to
+search for it — that is itself the leak this step exists to catch.
+
 Expected: no output.
 
 - [ ] **Step 9: Commit**
