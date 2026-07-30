@@ -1055,12 +1055,13 @@ class ActivityLoad(NamedTuple):
     """The merged activity dataset plus what it took to build it.
 
     `raw_columns` and `files` exist for the ETL's --preview column comparison;
-    the calendar report uses `frame` alone.
+    the calendar report uses `frame` and `duplicates_removed`.
     """
 
     frame: "pd.DataFrame"
     raw_columns: dict
     files: dict
+    duplicates_removed: int = 0
 
 
 def load_activities(files):
@@ -1083,13 +1084,14 @@ def load_activities(files):
         frames.append(df)
 
     if not frames:
-        return ActivityLoad(pd.DataFrame(), raw_columns, activity_files)
+        return ActivityLoad(pd.DataFrame(), raw_columns, activity_files, 0)
 
     combined = pd.concat(frames, ignore_index=True)
     log(f"Combined activities: {len(combined)} rows")
 
     # Deduplicate: active + archive lists can overlap.
     # Keep the most recently modified row per tracking_id.
+    dupes = 0
     if "tracking_id" in combined.columns:
         before = len(combined)
         sort_col = "modified" if "modified" in combined.columns else None
@@ -1101,7 +1103,7 @@ def load_activities(files):
         if dupes:
             log(f"  Removed {dupes} duplicate rows (by tracking_id)")
 
-    return ActivityLoad(combined, raw_columns, activity_files)
+    return ActivityLoad(combined, raw_columns, activity_files, dupes)
 
 
 # ---------------------------------------------------------------------------

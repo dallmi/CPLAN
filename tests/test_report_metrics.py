@@ -2,6 +2,7 @@
 
 from datetime import date
 
+import pandas as pd
 import pytest
 
 pytest.importorskip("pandas")
@@ -14,6 +15,32 @@ from tests.report_fixtures import load_fixture_scope
 def _scope(tmp_path):
     return load_fixture_scope(tmp_path, ReportConfig(
         date_from=date(2025, 1, 1), date_to=date(2025, 12, 31)))
+
+
+def _small_frame():
+    """A hand-built frame with a known, countable number of each anomaly.
+
+    Deliberately not routed through the fixture/ETL: `load_activities`
+    de-duplicates by tracking_id before `anomalies()` ever sees a frame, so a
+    frame built here can carry known blank IDs and end-before-start pairs
+    without the loader silently removing any of them first.
+    """
+    return pd.DataFrame([
+        # end before start
+        {"tracking_id": "A-1", "start_date": "2025-01-10", "end_date": "2025-01-05",
+         "is_archived": False},
+        {"tracking_id": "A-2", "start_date": "2025-01-10", "end_date": "2025-01-20",
+         "is_archived": False},
+        # end before start
+        {"tracking_id": "A-3", "start_date": "2025-02-01", "end_date": "2025-01-25",
+         "is_archived": True},
+        # missing end date, blank tracking id (empty string)
+        {"tracking_id": "", "start_date": "2025-03-01", "end_date": None,
+         "is_archived": False},
+        # blank tracking id (NaN)
+        {"tracking_id": None, "start_date": "2025-03-02", "end_date": "2025-03-10",
+         "is_archived": False},
+    ])
 
 
 def test_load_stats_finds_the_peak_and_the_empty_weeks(tmp_path):
@@ -72,7 +99,31 @@ def test_field_completeness_lists_filled_and_missing_per_field(tmp_path):
 def test_anomalies_report_the_undated_and_the_blank_tracking_ids(tmp_path):
     scope = _scope(tmp_path)
 
-    names = dict(metrics.anomalies(scope.frame))
+    names = dict(metrics.anomalies(scope.frame, scope.duplicates_removed))
 
     assert "End date before start date" in names
     assert "Archived" in names
+    # The fixture's archive list carries one stale duplicate of IC-0001;
+    # load_activities removes it before build_scope ever sees the frame.
+    assert scope.duplicates_removed == 1
+    assert names["Duplicate tracking IDs removed on load"] == 1
+
+
+def test_anomalies_counts_end_before_start_pairs():
+    names = dict(metrics.anomalies(_small_frame()))
+
+    assert names["End date before start date"] == 2
+    assert names["Missing end date"] == 1
+    assert names["Blank tracking ID (after de-duplication)"] == 2
+    assert names["Archived"] == 1
+
+
+def test_anomalies_report_the_real_duplicate_count_not_a_post_dedup_zero():
+    rows = metrics.anomalies(_small_frame(), duplicates_removed=3)
+
+    counts = dict(rows)
+    assert counts["Duplicate tracking IDs removed on load"] == 3
+    # The frame itself has already been de-duplicated upstream, so this must
+    # come from the passed-in figure, not from a nunique() count against
+    # `frame` -- that count is structurally always 0.
+    assert counts["Duplicate tracking IDs removed on load"] != 0

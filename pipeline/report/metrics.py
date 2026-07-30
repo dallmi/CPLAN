@@ -55,7 +55,9 @@ def lead_time_stats(frame):
                 "min_days": None, "max_days": None}
     return {
         "counted": len(days),
-        "median_days": int(statistics.median(days)),
+        # Whole days: round to the nearest day rather than truncate, so a
+        # median of 157.5 reads as 158, not a systematically low 157.
+        "median_days": round(statistics.median(days)),
         "short_notice": sum(1 for d in days if d < SHORT_NOTICE_DAYS),
         "min_days": min(days),
         "max_days": max(days),
@@ -106,7 +108,17 @@ def field_completeness(scope):
     return rows
 
 
-def anomalies(frame):
+def anomalies(frame, duplicates_removed=0):
+    """Data-quality counts for the frame as it stands after `load_activities`.
+
+    `load_activities` already de-duplicates by `tracking_id` (keeping the most
+    recently modified row) before this frame exists, so counting duplicates
+    against `frame` itself is a tautological zero, not a measurement. The real
+    count is computed there and passed in here instead. For the same reason
+    the blank-tracking-ID count below is only ever a post-de-duplication
+    figure -- its label says so, so a reader does not mistake it for a
+    source-data count.
+    """
     import pandas as pd
 
     start = pd.to_datetime(frame.get("start_date"), errors="coerce")
@@ -116,8 +128,8 @@ def anomalies(frame):
     return [
         ("End date before start date", int((end < start).sum())),
         ("Missing end date", int(end.isna().sum())),
-        ("Blank tracking ID", int(_is_blank(tracking).sum()) if tracking is not None else 0),
-        ("Duplicate tracking ID",
-         int(len(frame) - frame["tracking_id"].nunique()) if tracking is not None else 0),
+        ("Blank tracking ID (after de-duplication)",
+         int(_is_blank(tracking).sum()) if tracking is not None else 0),
+        ("Duplicate tracking IDs removed on load", int(duplicates_removed)),
         ("Archived", int(archived.fillna(False).astype(bool).sum()) if archived is not None else 0),
     ]

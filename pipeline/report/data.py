@@ -42,6 +42,7 @@ class Scope:
     source_files: list = field(default_factory=list)
     completeness_fields: list = field(default_factory=list)
     skipped_completeness_fields: list = field(default_factory=list)
+    duplicates_removed: int = 0
 
 
 def _is_blank(series):
@@ -70,7 +71,8 @@ def build_scope(load, config):
 
     if frame.empty:
         return Scope(frame=frame, grid=grid, rows_read=0, excluded=excluded,
-                     source_files=source_files)
+                     source_files=source_files,
+                     duplicates_removed=load.duplicates_removed)
 
     frame = frame.copy()
     # pandas 3: `.dt.date` on a column that is entirely NaT returns dtype
@@ -154,4 +156,5 @@ def build_scope(load, config):
         source_files=source_files,
         completeness_fields=sorted(set(internal_fields) | set(external_fields)),
         skipped_completeness_fields=skipped,
+        duplicates_removed=load.duplicates_removed,
     )

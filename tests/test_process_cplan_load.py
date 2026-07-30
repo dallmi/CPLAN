@@ -43,6 +43,12 @@ def test_load_activities_keeps_the_most_recently_modified_duplicate(tmp_path):
     assert row["activity_name"] == "Active row"
 
 
+def test_load_activities_counts_the_duplicate_it_removed(tmp_path):
+    load = process_cplan.load_activities(_write(tmp_path))
+
+    assert load.duplicates_removed == 1
+
+
 def test_load_activities_reports_raw_columns_per_file(tmp_path):
     load = process_cplan.load_activities(_write(tmp_path))
 
@@ -56,3 +62,4 @@ def test_load_activities_with_no_activity_files_returns_an_empty_frame(tmp_path)
     assert load.frame.empty
     assert load.raw_columns == {}
     assert load.files == {}
+    assert load.duplicates_removed == 0
