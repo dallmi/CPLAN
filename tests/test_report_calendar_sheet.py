@@ -6,7 +6,7 @@ from datetime import date
 import pytest
 
 pytest.importorskip("openpyxl")
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 from openpyxl.utils import get_column_letter
 
 from pipeline.report.calendar_sheet import (
@@ -248,3 +248,41 @@ def test_detail_rows_can_be_switched_off(tmp_path):
     levels = {without_detail.row_dimensions[r].outline_level
               for r in range(3, without_detail.max_row + 1)}
     assert 2 not in levels
+
+
+def test_the_outline_declares_its_depth_and_marks_its_groups_collapsed(tmp_path):
+    """Hidden alone is not an outline.
+
+    Excel draws the +/- controls from `collapsed` on the summary row/column and
+    sizes the outline gutter from `outlineLevelRow`/`outlineLevelCol`. Without
+    both, a sheet that opens collapsed shows four rows, a handful of columns,
+    and no way to expand any of it -- which is how this was first reported from
+    a real Excel.
+
+    Asserted against a saved-and-reloaded workbook, not the in-memory sheet,
+    because `outlineLevelCol` only materialises on save: openpyxl's writer
+    overwrites it from `column_dimensions.max_outline`. An in-memory assertion
+    passes while the shipped file carries nothing.
+    """
+    scope = load_fixture_scope(tmp_path, _config())
+    wb = Workbook()
+    wb.remove(wb.active)
+    build_calendar(wb, scope, _config())
+    saved = tmp_path / "outline.xlsx"
+    wb.save(saved)
+    ws = load_workbook(saved)["Calendar"]
+
+    assert ws.sheet_format.outlineLevelRow == 2
+    assert ws.sheet_format.outlineLevelCol == 2
+
+    by_level = {}
+    for col in range(FIRST_GRID_COL, ws.max_column + 1):
+        letter = ws.cell(row=1, column=col).column_letter
+        by_level.setdefault(ws.column_dimensions[letter].outline_level, []).append(letter)
+    assert by_level.get(0) and by_level.get(1)
+    for letter in by_level[0] + by_level[1]:
+        assert ws.column_dimensions[letter].collapsed is True, f"column {letter}"
+
+    labels = _labels(ws)
+    for header in (label for label in labels if str(label).startswith("BY ")):
+        assert ws.row_dimensions[labels[header]].collapsed is True, header

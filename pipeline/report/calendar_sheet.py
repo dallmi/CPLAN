@@ -132,6 +132,20 @@ def _counts(frame, grid):
     return counts
 
 
+def _mark_collapsed(dimension):
+    """Tell the reader's spreadsheet that the group under this summary is shut.
+
+    `hidden` alone takes the rows and columns out of view but says nothing
+    about the outline. Excel draws the +/- control and its state from
+    `collapsed` on the SUMMARY row/column -- which, with summaryBelow and
+    summaryRight both off, is the one immediately above or to the left of the
+    group. Without it the detail is invisible and there is no control to click:
+    the sheet reads as almost empty, which is exactly how it was first reported
+    from a real Excel.
+    """
+    dimension.collapsed = True
+
+
 def _label_cell(ws, row, text, level, bold=False, hidden=False):
     cell = ws.cell(row=row, column=LABEL_COL, value=text)
     cell.border = style.THIN_BORDER
@@ -152,6 +166,22 @@ def build_calendar(wb, scope, config):
 
     ws.sheet_properties.outlinePr.summaryRight = False
     ws.sheet_properties.outlinePr.summaryBelow = False
+    # How deep the outline goes, on each axis. Excel sizes and draws the
+    # outline gutter from these; at 0 there is no gutter, so a sheet that opens
+    # collapsed offers nothing to expand it with.
+    #
+    # The two axes need different handling, which is not obvious and cost a
+    # debugging session. The row value on `sheet_format` is written through
+    # untouched. The column value is NOT: openpyxl's worksheet writer does
+    # `sheet_format.outlineLevelCol = column_dimensions.max_outline`
+    # unconditionally on save, and `max_outline` is a plain attribute that only
+    # `DimensionHolder.group()` ever sets -- assigning `outline_level` on the
+    # individual columns, as this builder does, leaves it None. So setting
+    # `sheet_format.outlineLevelCol` here would be silently discarded, and the
+    # column outline has to be declared on the holder instead.
+    depth = max((column.level for column in columns), default=0)
+    ws.sheet_format.outlineLevelRow = 2
+    ws.column_dimensions.max_outline = depth
 
     # --- header -------------------------------------------------------------
     ws.merge_cells(start_row=1, start_column=LABEL_COL, end_row=2, end_column=LABEL_COL)
@@ -173,6 +203,10 @@ def build_calendar(wb, scope, config):
         letter = get_column_letter(col)
         ws.column_dimensions[letter].outline_level = column.level
         ws.column_dimensions[letter].hidden = column.level > 0
+        # A quarter column summarises the month group to its right, a month
+        # column its week group. Both open shut, so both carry the flag.
+        if column.kind in ("quarter", "month"):
+            _mark_collapsed(ws.column_dimensions[letter])
         # NOT set directly on column_dimensions here: `finalize_sheet` calls
         # `auto_fit_columns`, which unconditionally overwrites every column's
         # width from its longest cell content (including raw formula text,
@@ -213,7 +247,8 @@ def build_calendar(wb, scope, config):
                         month_weeks, quarter_months)
         value_row = row
         row += 1
-        if config.detail_rows:
+        if config.detail_rows and not subset.empty:
+            _mark_collapsed(ws.row_dimensions[value_row])
             ordered = subset.sort_values("start_day", kind="stable")
             for _, activity in ordered.iterrows():
                 _label_cell(ws, row, f"  {activity.get('activity_name') or 'Untitled'}",
@@ -244,6 +279,8 @@ def build_calendar(wb, scope, config):
     _write_grid_row(ws, header_row, _counts(scope.frame, grid), columns, positions,
                     month_weeks, quarter_months, bold=True)
     _finish_reach_header(ws, header_row, member_rows)
+    if member_rows:
+        _mark_collapsed(ws.row_dimensions[header_row])
     bar_ranges.append(member_rows)
 
     # --- breakdown fields: overlapping, so a distinct count -----------------
@@ -280,6 +317,8 @@ def build_calendar(wb, scope, config):
         _write_grid_row(ws, header_row, counts, columns, positions,
                         month_weeks, quarter_months, bold=True)
         _finish_distinct_count_header(ws, header_row, sum(counts.values()))
+        if member_rows:
+            _mark_collapsed(ws.row_dimensions[header_row])
         bar_ranges.append(member_rows)
 
     for member_rows in bar_ranges:
