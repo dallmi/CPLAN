@@ -327,11 +327,19 @@ archived.
 
 ### 7. Glossary
 
-Definitions and caveats, gridlines off: the five reach buckets and their
-constants; the audience band mapping and its unverified assumption; counting by
-start-date week; the Thursday rule and the possible thirteenth month column; lead
-time; planning completeness; what "in scope" means; why packs are not a grouping
-dimension; and that studio-only activities are not in the file.
+Definitions and caveats, gridlines off: what "in scope" means; the five reach
+buckets and their constants; how overlapping dimensions are split; the audience
+band mapping and its unverified assumption; lead time; planning completeness;
+the derivation of the Executive Summary's literal load figures; the quarter
+delta's choice of comparison; and why packs are not a grouping dimension.
+
+Deliberately **not** on this sheet, removed on request after the first read-through:
+the data source, the note that studio-only activities never reach this report,
+and the whole TIME section — which carried the Thursday week-to-month rule and
+its consequence, the thirteenth month column. That consequence is therefore
+unexplained to a reader who meets it, which is a knowing trade for a shorter
+sheet. `test_the_glossary_records_the_counting_rule_and_the_pack_caveat` pins
+the absence so it is not restored as a phantom regression.
 
 ### Graceful degradation
 

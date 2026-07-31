@@ -112,16 +112,30 @@ def test_the_summary_reports_load_and_discipline(tmp_path):
 
 
 def test_the_glossary_records_the_counting_rule_and_the_pack_caveat(tmp_path):
+    """What the Glossary must still carry after the SCOPE/TIME trim.
+
+    The `Source`, `Not included` and whole `TIME` sections were removed on
+    request. Two things went with them and are deliberately absent, not
+    missing: the Thursday week-to-month rule, and the note that studio-only
+    activities never reach this report. Do not "restore" them as a regression
+    fix -- if they are wanted back, that is a product decision, and this test
+    should be the place it is recorded.
+    """
     ws, _ = _build(tmp_path, build_glossary)
     text = "\n".join(
         f"{ws.cell(row=r, column=1).value} {ws.cell(row=r, column=2).value}"
         for r in range(1, ws.max_row + 1)
     )
 
-    assert "Thursday" in text
-    assert "start date" in text.lower()
-    assert "pack" in text.lower()
-    assert "studio" in text.lower()
+    assert "start date" in text.lower()          # the counting rule
+    assert "pack" in text.lower()                # why packs never group
+    assert "hard filters" in text.lower()        # what "in scope" means
+    # The `Week to month` entry is gone, so its consequence is no longer
+    # explained anywhere. The word still occurs once, under `Quarter delta`,
+    # where it justifies picking the last full quarter -- that entry was never
+    # part of TIME and stays.
+    assert "thirteenth month" not in text.lower()
+    assert "studio" not in text.lower()
     assert ws.sheet_view.showGridLines is False
 
 

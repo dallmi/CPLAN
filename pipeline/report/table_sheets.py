@@ -304,21 +304,6 @@ GLOSSARY_SECTIONS = (
         ("In scope", "Activities whose start date falls inside the configured window and "
                      "that pass the senior-executive and audience-band criteria. All three "
                      "are hard filters: a row that fails any of them is absent from every sheet."),
-        ("Source", "The SharePoint CSV exports in the OneDrive sync folder, internal and "
-                   "external, active and archive lists merged and de-duplicated by tracking ID."),
-        ("Not included", "Activities created only in the planning studio. They live in the "
-                         "local database and are never written back to the source system, so "
-                         "they are invisible to this report."),
-    )),
-    ("TIME", (
-        ("Counting rule", "Each activity is counted once, in the ISO week of its start date. "
-                          "Nothing is spread across an activity's runtime: a figure that is "
-                          "also a duration cannot be summed."),
-        ("Week to month", "A week belongs to the month containing its Thursday (ISO 8601). "
-                          "A full-year window therefore carries a thirteenth month column for "
-                          "the last days of December, which belong to the next year's week 1."),
-        ("Aggregation", "Month, quarter and total cells are SUM formulas over the cells they "
-                        "aggregate, so the grid cannot contradict its own totals."),
     )),
     ("DIMENSIONS", (
         ("Group-wide", f"Names {GROUP_WIDE_MIN_DIVISIONS} or more business divisions, or a "
