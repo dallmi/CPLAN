@@ -21,6 +21,7 @@ Two rules keep the arithmetic honest:
   number larger than the portfolio.
 """
 
+from openpyxl.comments import Comment
 from openpyxl.formatting.rule import DataBarRule
 from openpyxl.utils import get_column_letter
 
@@ -66,6 +67,52 @@ def _children(columns, grid):
         else:
             month_weeks[current_month].append(column.key)
     return month_weeks, quarter_months
+
+
+# A hover listing every name in a busy week is not a hover, it is a wall. Twelve
+# is about what fits on screen without scrolling the tooltip; past that the
+# count and the drill-down are the honest answer.
+MAX_NAMES_IN_COMMENT = 12
+COMMENT_AUTHOR = "CPLAN"
+
+
+def _names(frame, grid):
+    """Week key -> the activity names starting in that week, in date order.
+
+    Same resolved-`week_index` precondition as `_counts`, asserted once in
+    `build_calendar`.
+    """
+    names = {}
+    ordered = frame.sort_values("start_day", kind="stable")
+    for index, name in zip(ordered["week_index"], ordered.get("activity_name", "")):
+        key = grid.weeks[int(index)].key
+        names.setdefault(key, []).append(str(name) if name == name and name else "Untitled")
+    return names
+
+
+def _attach_name_comments(ws, row, names, columns, positions):
+    """Put the week's activity names behind the count, as a cell note.
+
+    The cell value stays the literal it was: a comment carries no value and no
+    formula, so the horizontal identity the month and quarter SUMs depend on is
+    untouched. This is the whole reason names live in a note rather than in the
+    cell -- text in a week cell would make its month read 0.
+    """
+    for column in columns:
+        if column.kind != "week":
+            continue
+        entries = names.get(column.key)
+        if not entries:
+            continue
+        shown = entries[:MAX_NAMES_IN_COMMENT]
+        text = "\n".join(shown)
+        hidden = len(entries) - len(shown)
+        if hidden:
+            text += f"\n+ {hidden} more"
+        cell = ws.cell(row=row, column=positions[(column.kind, column.key)])
+        cell.comment = Comment(text, COMMENT_AUTHOR,
+                               height=18 * (len(shown) + (2 if hidden else 1)),
+                               width=280)
 
 
 def _write_grid_row(ws, row, counts, columns, positions, month_weeks, quarter_months,
@@ -238,6 +285,8 @@ def build_calendar(wb, scope, config):
     _label_cell(ws, row, "ALL ACTIVITIES", level=0, bold=True)
     _write_grid_row(ws, row, _counts(scope.frame, grid), columns, positions,
                     month_weeks, quarter_months, bold=True)
+    if config.hover_names:
+        _attach_name_comments(ws, row, _names(scope.frame, grid), columns, positions)
     row += 1
 
     def write_value_row(label, subset, level, hidden):
@@ -245,6 +294,12 @@ def build_calendar(wb, scope, config):
         _label_cell(ws, row, label, level=level, hidden=hidden)
         _write_grid_row(ws, row, _counts(subset, grid), columns, positions,
                         month_weeks, quarter_months)
+        # Only the aggregating rows carry notes. A detail row's week cell holds
+        # a single 1 whose name is already in column A beside it, and the block
+        # header rows repeat ALL ACTIVITIES exactly -- a note on either would be
+        # the same text a second time, for four times the file size.
+        if config.hover_names:
+            _attach_name_comments(ws, row, _names(subset, grid), columns, positions)
         value_row = row
         row += 1
         if config.detail_rows and not subset.empty:

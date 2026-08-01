@@ -35,6 +35,7 @@ class ReportConfig:
     include_unknown_audience: bool = True
     include_archived: bool = True
     detail_rows: bool = True
+    hover_names: bool = True
     breakdown_fields: tuple = ("business_division", "region")
 
     def __post_init__(self):
@@ -69,5 +70,6 @@ class ReportConfig:
             ("Unknown audience band", "included" if self.include_unknown_audience else "excluded"),
             ("Archived activities", "included" if self.include_archived else "excluded"),
             ("Activity detail rows", "on" if self.detail_rows else "off"),
+            ("Names on hover", "on" if self.hover_names else "off"),
             ("Breakdown dimensions", ", ".join(self.breakdown_fields)),
         ]
