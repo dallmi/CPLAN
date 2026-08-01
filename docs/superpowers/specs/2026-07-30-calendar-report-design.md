@@ -327,19 +327,27 @@ archived.
 
 ### 7. Glossary
 
-Definitions and caveats, gridlines off: what "in scope" means; the five reach
-buckets and their constants; how overlapping dimensions are split; the audience
-band mapping and its unverified assumption; lead time; planning completeness;
-the derivation of the Executive Summary's literal load figures; the quarter
-delta's choice of comparison; and why packs are not a grouping dimension.
+One short line per term, gridlines off. A definition is capped at 110
+characters and `test_every_glossary_definition_stays_short` enforces it: a
+column that needs a paragraph to be understood has failed the reader, and the
+Glossary is not the place to make up for it.
 
-Deliberately **not** on this sheet, removed on request after the first read-through:
-the data source, the note that studio-only activities never reach this report,
-and the whole TIME section — which carried the Thursday week-to-month rule and
-its consequence, the thirteenth month column. That consequence is therefore
-unexplained to a reader who meets it, which is a knowing trade for a shorter
-sheet. `test_the_glossary_records_the_counting_rule_and_the_pack_caveat` pins
-the absence so it is not restored as a phantom regression.
+Defined: what "in scope" means; the five reach buckets; the overlap caveat;
+audience band; senior executives; lead time; planning completeness; weekly
+counts; the quarter delta; and why packs are not a grouping dimension. Plus the
+fields the export does not carry.
+
+Deliberately **not** on this sheet, each removed on request: the data source;
+the note that studio-only activities never reach this report; the Thursday
+week-to-month rule and its consequence, the thirteenth month column; and the
+comma/semicolon splitting caveat. They are recorded here in the design instead.
+`test_the_glossary_defines_the_terms_a_reader_meets_on_the_sheets` pins their
+absence so they are not restored as a phantom regression.
+
+Two caveats therefore live only in this document and nowhere a reader of the
+workbook will see them: a thirteenth month column looks like a bug and is not,
+and a division or region value that legitimately contains a comma reads as two
+values. Both are knowing trades for a Glossary that is actually read.
 
 ### Graceful degradation
 

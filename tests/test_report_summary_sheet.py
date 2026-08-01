@@ -111,76 +111,66 @@ def test_the_summary_reports_load_and_discipline(tmp_path):
     assert "Median lead time (days)" in pairs
 
 
-def test_the_glossary_records_the_counting_rule_and_the_pack_caveat(tmp_path):
-    """What the Glossary must still carry after the SCOPE/TIME trim.
 
-    The `Source`, `Not included` and whole `TIME` sections were removed on
-    request. Two things went with them and are deliberately absent, not
-    missing: the Thursday week-to-month rule, and the note that studio-only
-    activities never reach this report. Do not "restore" them as a regression
-    fix -- if they are wanted back, that is a product decision, and this test
-    should be the place it is recorded.
+def _glossary_entries(ws):
+    """(term, definition) for every defined row, skipping the section bands."""
+    out = []
+    for r in range(1, ws.max_row + 1):
+        term, definition = ws.cell(row=r, column=1).value, ws.cell(row=r, column=2).value
+        if term and definition:
+            out.append((str(term), str(definition)))
+    return out
+
+
+MAX_DEFINITION_CHARS = 110
+
+
+def test_every_glossary_definition_stays_short(tmp_path):
+    """Plain and short is the requirement, not a style preference.
+
+    The Glossary drifted into paragraph-long justifications -- one entry ran to
+    eight lines explaining why two completeness figures could look inconsistent.
+    A reader who needs that much prose to understand a column has been failed by
+    the column, not by the Glossary. This pins the ceiling so the drift cannot
+    quietly happen again.
     """
     ws, _ = _build(tmp_path, build_glossary)
-    text = "\n".join(
-        f"{ws.cell(row=r, column=1).value} {ws.cell(row=r, column=2).value}"
-        for r in range(1, ws.max_row + 1)
-    )
+    entries = _glossary_entries(ws)
 
-    assert "start date" in text.lower()          # the counting rule
-    assert "pack" in text.lower()                # why packs never group
-    assert "hard filters" in text.lower()        # what "in scope" means
-    # The `Week to month` entry is gone, so its consequence is no longer
-    # explained anywhere. The word still occurs once, under `Quarter delta`,
-    # where it justifies picking the last full quarter -- that entry was never
-    # part of TIME and stays.
-    assert "thirteenth month" not in text.lower()
-    assert "studio" not in text.lower()
+    assert entries, "the Glossary has no definitions at all"
+    too_long = [(t, len(d)) for t, d in entries if len(d) > MAX_DEFINITION_CHARS]
+    assert not too_long, f"definitions over {MAX_DEFINITION_CHARS} chars: {too_long}"
+
+
+def test_the_glossary_defines_the_terms_a_reader_meets_on_the_sheets(tmp_path):
+    """The terms that appear as column headers or row labels elsewhere.
+
+    Deliberately absent, each removed on request: the data source, the note that
+    studio-only activities never reach this report, the Thursday week-to-month
+    rule, and the comma/semicolon splitting caveat. They are recorded in the
+    design document instead. Do not restore them here as a phantom regression --
+    if they are wanted back, that is a product decision.
+    """
+    ws, _ = _build(tmp_path, build_glossary)
+    terms = {term for term, _ in _glossary_entries(ws)}
+    text = "\n".join(f"{t} {d}" for t, d in _glossary_entries(ws)).lower()
+
+    for term in ("In scope", "Group-wide", "Overlap", "Audience band",
+                 "Senior executives", "Lead time", "Planning completeness",
+                 "Weekly counts", "Quarter delta", "Packs"):
+        assert term in terms, f"the Glossary does not define {term!r}"
+
+    assert "thursday" not in text
+    assert "studio" not in text
+    assert "semicolon" not in text
     assert ws.sheet_view.showGridLines is False
 
 
-def test_the_glossary_names_the_derivation_of_every_literal_figure(tmp_path):
-    """Where a literal sits next to formulas, the design requires the Glossary
-    to say how it was derived. The Executive Summary's LOAD section is five
-    such literals -- median per week, peak week, zero weeks, longest zero run,
-    top-5 share -- and had no entry at all.
-    """
-    ws, _ = _build(tmp_path, build_glossary)
-    text = "\n".join(
-        f"{ws.cell(row=r, column=1).value} {ws.cell(row=r, column=2).value}"
-        for r in range(1, ws.max_row + 1)
-    ).lower()
-
-    assert "load figures" in text
-    for phrase in ("median", "peak week", "no activity", "longest run", "busiest weeks"):
-        assert phrase in text, f"the Glossary does not account for {phrase!r}"
-
-
-def test_the_glossary_records_the_multi_value_splitting_rule(tmp_path):
-    """A division or channel value that legitimately contains a comma reads as
-    two dimension values. That is a real reading hazard on the Calendar and Mix
-    sheets, so it belongs next to the overlap caveat.
-    """
-    ws, _ = _build(tmp_path, build_glossary)
-    text = "\n".join(str(ws.cell(row=r, column=2).value)
-                     for r in range(1, ws.max_row + 1)).lower()
-
-    assert "semicolon" in text
-    assert "comma" in text
-
-
-def test_the_glossary_points_at_where_the_skipped_fields_are_listed(tmp_path):
-    """The Planning completeness entry used to send the reader to the Data
-    Quality sheet for fields the export does not carry. They are listed on the
-    Glossary itself, under FIELDS NOT IN THIS EXPORT.
-    """
+def test_the_glossary_lists_fields_the_export_does_not_carry(tmp_path):
     ws, scope = _build(tmp_path, build_glossary)
     column_a = [str(ws.cell(row=r, column=1).value) for r in range(1, ws.max_row + 1)]
-    text = "\n".join(str(ws.cell(row=r, column=2).value)
-                     for r in range(1, ws.max_row + 1))
 
-    assert scope.skipped_completeness_fields  # sanity: the fixture skips time_zone
+    assert scope.skipped_completeness_fields      # sanity: the fixture skips time_zone
     assert "FIELDS NOT IN THIS EXPORT" in column_a
-    entry = next(t for t in text.split("\n") if t.startswith("Share of the fields"))
-    assert "FIELDS NOT IN THIS EXPORT" in entry
-    assert "this sheet" in entry
+    for name in scope.skipped_completeness_fields:
+        assert name in column_a

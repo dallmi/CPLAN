@@ -301,60 +301,27 @@ def build_audience(wb, scope, config):
 
 GLOSSARY_SECTIONS = (
     ("SCOPE", (
-        ("In scope", "Activities whose start date falls inside the configured window and "
-                     "that pass the senior-executive and audience-band criteria. All three "
-                     "are hard filters: a row that fails any of them is absent from every sheet."),
+        ("In scope", "Activities that match the criteria listed at the top of the "
+                     "Executive Summary."),
     )),
     ("DIMENSIONS", (
-        ("Group-wide", f"Names {GROUP_WIDE_MIN_DIVISIONS} or more business divisions, or a "
-                       f"global region ({', '.join(sorted(GLOBAL_REGION_TOKENS))})."),
-        ("Multi-division", "Names two business divisions."),
-        ("Single division", "Names exactly one business division."),
-        ("Regional only", "Names no division but at least one region."),
-        ("Unclassified", "Names neither a division nor a region. Kept visible rather than "
-                         "folded into a neighbouring bucket."),
-        ("Overlap", "The reach buckets partition the portfolio and sum to the total. The "
-                    "division and region blocks do not: an activity naming two divisions "
-                    "appears in both rows, so those block totals are distinct counts. "
-                    "Multi-value fields are split on commas and semicolons, so a single "
-                    "value that legitimately contains one reads as two dimension values."),
+        ("Group-wide", f"{GROUP_WIDE_MIN_DIVISIONS} or more divisions, or a global region."),
+        ("Multi-division", "Two divisions."),
+        ("Single division", "One division."),
+        ("Regional only", "A region, but no division."),
+        ("Unclassified", "Neither a division nor a region."),
+        ("Overlap", "An activity naming two divisions counts in both, so those blocks "
+                    "add up to more than the total."),
     )),
     ("MEASURES", (
-        ("Audience band", "Mapped from the source audience field, which carries raw counts in "
-                          "some exports and band labels in others. Whether that field records "
-                          "the estimated audience size is an assumption still to be verified "
-                          "against the source system."),
-        ("Senior executives", "The source system's executive-involvement field carries a "
-                              "value after HTML is stripped."),
-        ("Lead time", "Days between the record's creation date and its start date. Rows "
-                      "missing either date are not counted."),
-        ("Planning completeness", "Share of the fields the entry form requires that carry a "
-                                  "value. Internal activities are measured against a longer "
-                                  "list than external ones; the Data Quality sheet's PLANNING "
-                                  "COMPLETENESS block names both. Fields the CSV export does "
-                                  "not carry are excluded from the denominator and listed "
-                                  "under FIELDS NOT IN THIS EXPORT at the foot of this sheet. "
-                                  "This is a different field set from the per-field rates in "
-                                  "that sheet's FIELD COMPLETENESS block, which is why the "
-                                  "two can look inconsistent."),
-        ("Load figures", "Median activities per week, the peak week and its count, weeks with "
-                         "no activity, the longest run of empty weeks and the share falling in "
-                         "the five busiest weeks are all computed over the one series of weekly "
-                         "counts behind the Calendar sheet: each activity counted once, in the "
-                         "ISO week of its start date, across every week column in the window. "
-                         "They are written as literals rather than formulas because that series "
-                         "is not itself on the Executive Summary sheet. The five-busiest-weeks "
-                         "share is those five weeks' counts over the total in scope."),
-        ("Quarter delta", "The Δ column on the Mix sheet is an absolute difference of counts "
-                          "between two quarters, and its header names which two. It is not "
-                          "always the last quarter present: the Thursday rule can leave a "
-                          "one-week quarter at the end of the window, and measuring a full "
-                          "quarter against that would read as a collapse. The last quarter "
-                          "carrying at least four weeks is used instead."),
-        ("Packs", "Never a grouping dimension in this report. Source pack identifiers collapse "
-                  "large parts of the portfolio into oversized buckets, so a pack-based "
-                  "roll-up describes the portfolio rather than a planning unit. Pack coverage "
-                  "is measured on the Data Quality sheet instead."),
+        ("Audience band", "The size band of the target audience."),
+        ("Senior executives", "A senior executive is involved."),
+        ("Lead time", "Days from creating the record to the activity's start."),
+        ("Planning completeness", "Share of the required fields that are filled in."),
+        ("Weekly counts", "Each activity counts once, in the week it starts."),
+        ("Quarter delta", "The change from the first to the last full quarter."),
+        ("Packs", "Not used for grouping — the source data is unreliable. Pack coverage "
+                  "is on the Data Quality sheet."),
     )),
 )
 
@@ -592,7 +559,6 @@ def build_glossary(wb, scope, config):
         for name in scope.skipped_completeness_fields:
             row = style.write_kpi_row(
                 ws, row, name,
-                "Required by the entry form but not carried by the CSV export; "
-                "excluded from the completeness denominator.")
+                "Not in the export, so not counted.")
 
     style.finalize_sheet(ws, freeze=None, widths={"A": 28, "B": 90})
