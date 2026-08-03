@@ -20,6 +20,7 @@ All fixture data is synthetic.
 
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import json
 import os
@@ -1256,6 +1257,58 @@ def test_stdio_handshake_lists_and_calls_tools(settings_file):
     assert status.is_error is False
     assert status.structured_content["activities"]["total"] == 5
     assert search.structured_content["activities"][0]["activity_name"] == "Alpha townhall"
+
+
+@pytest.mark.skipif(MCP_SDK_MISSING, reason="the mcp SDK is optional (pip install mcp)")
+def test_domain_model_is_registered_as_a_resource(engine):
+    from pipeline.mcp.server import build_server
+
+    server = build_server(str(engine.url))
+    uris = {str(resource.uri) for resource in asyncio.run(server.list_resources())}
+    assert "cplan://domain-model" in uris
+
+
+@pytest.mark.skipif(MCP_SDK_MISSING, reason="the mcp SDK is optional (pip install mcp)")
+def test_instructions_point_at_the_domain_model_resource(engine):
+    from pipeline.mcp.server import build_server
+
+    server = build_server(str(engine.url))
+    assert "cplan://domain-model" in server.instructions
+
+
+@pytest.mark.skipif(MCP_SDK_MISSING, reason="the mcp SDK is optional (pip install mcp)")
+def test_search_exposes_every_new_filter_over_the_protocol(engine):
+    from pipeline.mcp.server import build_server
+
+    server = build_server(str(engine.url))
+    tools = {tool.name: tool for tool in asyncio.run(server.list_tools())}
+    properties = tools["search_activities"].input_schema["properties"]
+    for name in (
+        "lead_team", "partner_team", "region", "business_division", "business_area",
+        "target_audience", "audience", "time_zone", "end_after", "end_before",
+        "news_digest", "has_tracking_id", "locally_modified", "archived_only",
+        "strategic_objective", "executive", "max_lead_days", "min_priority_rank",
+    ):
+        assert name in properties, name
+
+
+@pytest.mark.skipif(MCP_SDK_MISSING, reason="the mcp SDK is optional (pip install mcp)")
+def test_planning_gaps_exposes_grouping_over_the_protocol(engine):
+    from pipeline.mcp.server import build_server
+
+    server = build_server(str(engine.url))
+    tools = {tool.name: tool for tool in asyncio.run(server.list_tools())}
+    assert "group_by" in tools["planning_gaps"].input_schema["properties"]
+
+
+@pytest.mark.skipif(MCP_SDK_MISSING, reason="the mcp SDK is optional (pip install mcp)")
+def test_priority_tool_descriptions_warn_about_the_two_vocabularies(engine):
+    from pipeline.mcp.server import build_server
+
+    server = build_server(str(engine.url))
+    tools = {tool.name: tool for tool in asyncio.run(server.list_tools())}
+    for name in ("search_activities", "activity_counts"):
+        assert "vocabular" in tools[name].description.lower(), name
 
 
 @pytest.mark.skipif(MCP_SDK_MISSING, reason="the mcp SDK is optional (pip install mcp)")
