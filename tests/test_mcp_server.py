@@ -591,7 +591,18 @@ def test_search_summary_omits_long_free_text(session):
     result = queries.search_activities(session, limit=1)
 
     assert "activity_description" not in result["activities"][0]
-    assert set(result["activities"][0]) == set(queries.SUMMARY_FIELDS)
+    assert set(result["activities"][0]) == set(queries.SUMMARY_FIELDS) | {
+        "priority_rank",
+        "is_high_priority",
+    }
+
+
+def test_summaries_carry_the_derived_priority_rank(writable_session):
+    writable_session.add(_activity(priority="2 - label"))
+    writable_session.flush()
+    row = queries.search_activities(writable_session)["activities"][0]
+    assert row["priority_rank"] == 3
+    assert row["is_high_priority"] is True
 
 
 def test_get_activity_by_tracking_id_and_uuid(session):
@@ -615,6 +626,15 @@ def test_get_activity_adds_derived_fields(session):
     assert record["missing_required_fields"] == []
 
 
+def test_full_record_carries_the_derived_priority_rank(writable_session):
+    activity = _activity(priority="4 - label")
+    writable_session.add(activity)
+    writable_session.flush()
+    record = queries.get_activity(writable_session, str(activity.id))["activity"]
+    assert record["priority_rank"] == 1
+    assert record["is_high_priority"] is False
+
+
 def test_get_activity_returns_the_api_read_model_verbatim(session):
     """The full record is the API's ActivityRead plus the completeness extras.
 
@@ -627,7 +647,7 @@ def test_get_activity_returns_the_api_read_model_verbatim(session):
     found = queries.search_activities(session, query="Alpha")["activities"][0]
     record = queries.get_activity(session, found["id"])["activity"]
 
-    extras = {"missing_required_fields", "is_complete"}
+    extras = {"missing_required_fields", "is_complete", "priority_rank", "is_high_priority"}
     assert set(record) - extras == set(ActivityRead.model_fields) | {
         "planning_lead_days",
         "tracking_pack_id",

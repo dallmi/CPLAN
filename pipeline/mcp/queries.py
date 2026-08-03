@@ -325,6 +325,10 @@ def _summarize(activity: Activity) -> dict[str, Any]:
             row[field] = str(value)
         else:
             row[field] = value
+    # Derived, so a mixed-vocabulary result set can be ranked without the model
+    # having to know the two priority schemes.
+    row["priority_rank"] = priority_rank(activity.priority)
+    row["is_high_priority"] = is_high_priority(activity.priority)
     return row
 
 
@@ -582,6 +586,8 @@ def get_activity(session: Session, identifier: str) -> dict[str, Any]:
     gaps = missing_fields(activity)
     record["missing_required_fields"] = gaps
     record["is_complete"] = not gaps
+    record["priority_rank"] = priority_rank(activity.priority)
+    record["is_high_priority"] = is_high_priority(activity.priority)
     return {"found": True, "activity": record}
 
 
