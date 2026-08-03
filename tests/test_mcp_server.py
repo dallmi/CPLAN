@@ -540,6 +540,29 @@ def test_search_finds_activities_without_a_tracking_id(writable_session):
     assert [row["activity_name"] for row in present["activities"]] == ["Tracked"]
 
 
+def test_has_tracking_id_treats_the_sync_sentinel_as_missing(writable_session):
+    """One spelling of "blank" in SQL, not two.
+
+    `has_tracking_id` used to check only NULL and `trim() = ''`, so an activity
+    whose tracking_id is the literal 'None' -- the exact sentinel the sync leaks
+    in, and a value `is_blank` and `activity_counts` both treat as blank -- was
+    reported as HAVING a tracking id.
+    """
+    writable_session.add_all([
+        _activity(activity_name="Sentinel", tracking_id="None"),
+        _activity(activity_name="Null sentinel", tracking_id="null"),
+        _activity(activity_name="Real"),
+    ])
+    writable_session.flush()
+    missing = queries.search_activities(writable_session, has_tracking_id=False)
+    assert sorted(row["activity_name"] for row in missing["activities"]) == [
+        "Null sentinel",
+        "Sentinel",
+    ]
+    present = queries.search_activities(writable_session, has_tracking_id=True)
+    assert [row["activity_name"] for row in present["activities"]] == ["Real"]
+
+
 def test_search_finds_locally_modified_rows_but_not_never_synced_ones(writable_session):
     writable_session.add_all([
         _activity(activity_name="Diverged", version=3, synced_version=2),
@@ -768,6 +791,58 @@ def test_field_values_lists_stored_values_and_blanks(session):
     # 'None' is a blank sentinel, not a value an agent should filter on.
     assert "None" not in values
     assert result["blank_count"] == 1
+
+
+def test_field_values_reports_its_own_truncation(writable_session):
+    """A truncated value list must say so, and must not lose the blanks.
+
+    The stored-column branch used to apply the cap as a SQL LIMIT and only then
+    filter blanks in Python: blank groups consumed limit slots, `blank_count`
+    counted only the blank groups that survived the LIMIT (so it could report 0
+    while blanks existed), and the answer carried no truncation flag at all --
+    an agent then filtered on a name it never saw and reported "no activities"
+    as fact.
+    """
+    writable_session.add_all(
+        [_activity(lead=f"lead.{index:03d}") for index in range(6)]
+        + [_activity(lead=None), _activity(lead="None")]
+    )
+    writable_session.flush()
+    listed = queries.field_values(writable_session, field="lead", limit=2)
+
+    assert listed["returned"] == 2
+    assert listed["distinct_values"] == 6
+    assert listed["truncated"] is True
+    assert "6 distinct values" in listed["note"]
+    # Both blank rows are counted even though neither survived the cap.
+    assert listed["blank_count"] == 2
+    assert all(not queries.is_blank(entry["value"]) for entry in listed["values"])
+
+
+def test_field_values_reports_truncation_for_multi_value_columns_too(writable_session):
+    writable_session.add_all([
+        _activity(strategic_objectives="Objective A, Objective B, Objective C"),
+        _activity(strategic_objectives=None),
+    ])
+    writable_session.flush()
+    listed = queries.field_values(writable_session, field="strategic_objectives", limit=1)
+
+    assert listed["returned"] == 1
+    assert listed["distinct_values"] == 3
+    assert listed["truncated"] is True
+    assert listed["note"] is not None
+    assert listed["blank_count"] == 1
+
+
+def test_field_values_answers_have_the_same_shape_on_both_branches(session):
+    """The multi-value and stored-column branches must not report differently."""
+    stored = queries.field_values(session, field="priority")
+    multi = queries.field_values(session, field="strategic_objectives")
+
+    assert set(stored) == set(multi)
+    assert stored["truncated"] is False
+    assert stored["note"] is None
+    assert stored["returned"] == len(stored["values"]) == stored["distinct_values"]
 
 
 def test_field_values_rejects_unknown_field(session):

@@ -332,6 +332,17 @@ def _summarize(activity: Activity) -> dict[str, Any]:
     return row
 
 
+def _blank_sql(column):
+    """`is_blank` in portable SQL: NULL, whitespace-only, or a sentinel string.
+
+    The single spelling of "blank" for every SQL predicate here. Two spellings is
+    how `has_tracking_id` came to report an activity whose tracking_id is the
+    literal 'None' -- the exact sentinel the sync leaks in -- as HAVING one.
+    """
+    trimmed = func.trim(column)
+    return or_(column.is_(None), trimmed == "", trimmed.in_(BLANK_TEXT_SENTINELS))
+
+
 def _apply_filters(statement, filters: ActivityFilters):
     if filters.text_query:
         needle = f"%{filters.text_query.strip().lower()}%"
@@ -371,10 +382,7 @@ def _apply_filters(statement, filters: ActivityFilters):
     if filters.news_digest is not None:
         statement = statement.where(Activity.news_digest.is_(filters.news_digest))
     if filters.has_tracking_id is not None:
-        blank = or_(
-            Activity.tracking_id.is_(None),
-            func.trim(Activity.tracking_id) == "",
-        )
+        blank = _blank_sql(Activity.tracking_id)
         statement = statement.where(~blank if filters.has_tracking_id else blank)
     if filters.locally_modified is not None:
         # synced_version IS NULL means "never synced", which is not divergence.
@@ -433,6 +441,17 @@ def _truncation_note(total: int, returned: int, limit: int) -> str | None:
         f"Showing {returned} of {total} matching activities (limit={limit}). "
         "Narrow the filters rather than raising the limit -- this tool never "
         "returns the whole table."
+    )
+
+
+def _value_truncation_note(distinct: int, returned: int, limit: int) -> str | None:
+    """Truncation note for a value list, where 'narrow the filters' does not apply."""
+    if returned >= distinct:
+        return None
+    return (
+        f"Showing the {returned} most common of {distinct} distinct values "
+        f"(limit={limit}). Values absent from this list still exist in the data -- "
+        "do not treat it as the complete vocabulary of this column."
     )
 
 
@@ -759,15 +778,13 @@ def activity_counts(
     else:
         column = getattr(Activity, dimension)
         # Unassigned rows are surfaced as their own bucket, never dropped. The
-        # blank rule matches `is_blank` exactly (NULL, whitespace-only, or one
-        # of BLANK_TEXT_SENTINELS) -- a plain `coalesce(column, "Unassigned")`
-        # only catches NULL, which let identical data land in a literal
-        # "None"/"   " bucket here while the Python branch below folded it
-        # into "Unassigned", so the bucket name an agent saw depended on
-        # which branch happened to run rather than on the data itself.
-        trimmed = func.trim(column)
-        is_blank_sql = or_(column.is_(None), trimmed == "", trimmed.in_(BLANK_TEXT_SENTINELS))
-        label = case((is_blank_sql, "Unassigned"), else_=column).cast(String)
+        # blank rule is `_blank_sql`, the same one every other SQL predicate here
+        # uses -- a plain `coalesce(column, "Unassigned")` only catches NULL,
+        # which let identical data land in a literal "None"/"   " bucket here
+        # while the Python branch above folded it into "Unassigned", so the
+        # bucket name an agent saw depended on which branch happened to run
+        # rather than on the data itself.
+        label = case((_blank_sql(column), "Unassigned"), else_=column).cast(String)
         statement = _apply_filters(
             select(label.label("value"), func.count().label("count")), filters
         ).group_by(label)
@@ -804,34 +821,43 @@ def field_values(
         }
     capped = _clamp_limit(limit)
     column = getattr(Activity, field)
+    tally: dict[str, int] = {}
+    blank_count = 0
     if field in MULTI_VALUE_DIMENSIONS:
         # Split before tallying, or the buckets are combinations rather than values.
-        stored = session.scalars(select(column)).all()
-        tally: dict[str, int] = {}
-        blank_count = 0
-        for value in stored:
+        for value in session.scalars(select(column)).all():
             members = split_multi(value, field)
             if not members:
                 blank_count += 1
                 continue
             for member in members:
                 tally[member] = tally.get(member, 0) + 1
-        values = sorted(
-            ({"value": name, "count": count} for name, count in tally.items()),
-            key=lambda entry: (-entry["count"], entry["value"]),
-        )[:capped]
-        return {"field": field, "values": values, "blank_count": blank_count}
-    rows = session.execute(
-        select(column, func.count()).group_by(column).order_by(func.count().desc()).limit(capped)
-    ).all()
+    else:
+        # No SQL LIMIT here on purpose. Blanks have to be folded into
+        # `blank_count` over the WHOLE grouped result -- a LIMIT would let blank
+        # groups consume slots and would under-report blank_count (reporting 0
+        # while blanks exist) -- and `distinct_values` has to be the true
+        # cardinality so the answer can report its own truncation. GROUP BY is
+        # bounded by the number of distinct values, far below what
+        # `_filtered_activities` already materialises.
+        for value, count in session.execute(select(column, func.count()).group_by(column)).all():
+            if is_blank(value):
+                blank_count += int(count)
+            else:
+                tally[value] = tally.get(value, 0) + int(count)
+    ordered = sorted(
+        ({"value": name, "count": count} for name, count in tally.items()),
+        key=lambda entry: (-entry["count"], str(entry["value"])),
+    )
+    values = ordered[:capped]
     return {
         "field": field,
-        "values": [
-            {"value": value, "count": int(count)}
-            for value, count in rows
-            if not is_blank(value)
-        ],
-        "blank_count": sum(int(count) for value, count in rows if is_blank(value)),
+        "values": values,
+        "returned": len(values),
+        "distinct_values": len(ordered),
+        "truncated": len(values) < len(ordered),
+        "blank_count": blank_count,
+        "note": _value_truncation_note(len(ordered), len(values), capped),
     }
 
 
