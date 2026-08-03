@@ -19,6 +19,7 @@ to the studio.
 
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import date, datetime, timezone
 from typing import Any
@@ -65,6 +66,44 @@ _VIEW_FLAG_ALIASES = {
 }
 
 DATE_FIELDS = frozenset({"start_date", "end_date"})
+
+# Three columns hold several values in one string. The separators follow the ETL
+# (`pipeline/scripts/process_cplan.py`): SharePoint lookup and taxonomy values are
+# joined with ", " by `parse_sp_lookup`, person values with "; " by `PERSON_JOIN`
+# for the columns in `SP_MULTI_PERSON_COLUMNS`.
+#
+# Person columns split on ";" ONLY -- deliberately unlike
+# analytics.js::normalizeMulti, which splits both on /[;,]/. A person name may
+# legitimately contain a comma ("Doe, Jane"), and splitting it would invent a
+# person who does not exist. Lookup columns accept either, because the sync writes
+# ", " while a studio-entered value may use "; ".
+#
+# Hazard, documented rather than solved: splitting a lookup value on "," is lossy
+# -- a single objective whose own name contains a comma is indistinguishable from
+# two objectives. Validate any published pillar tally against real values.
+MULTI_VALUE_SEPARATORS: dict[str, tuple[str, ...]] = {
+    "strategic_objectives": (",", ";"),
+    "bod_geb": (";",),
+    "other_executives": (";",),
+}
+
+
+def split_multi(value: Any, field: str) -> list[str]:
+    """The individual members of a possibly multi-valued column.
+
+    Returns [] for a blank value (same rule as `is_blank`), and a single-member
+    list for a column that is not multi-valued -- so callers can treat every
+    column uniformly.
+    """
+    if is_blank(value):
+        return []
+    text = str(value)
+    separators = MULTI_VALUE_SEPARATORS.get(field)
+    if not separators:
+        return [text.strip()]
+    pattern = "[" + re.escape("".join(separators)) + "]"
+    return [member.strip() for member in re.split(pattern, text) if member.strip()]
+
 
 # Columns an agent may group or enumerate. Free-text columns in the schema are
 # not enumerated types, so `field_values` is what stops the model from guessing

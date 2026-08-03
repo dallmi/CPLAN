@@ -213,6 +213,56 @@ def test_dates_are_missing_only_when_null():
     assert "start_date" not in queries.missing_fields(_activity())
 
 
+def test_split_multi_uses_comma_for_lookup_columns():
+    assert queries.split_multi("Objective A, Objective B", "strategic_objectives") == [
+        "Objective A",
+        "Objective B",
+    ]
+
+
+def test_split_multi_also_accepts_a_semicolon_in_lookup_columns():
+    # The sync writes ", ", but a studio-entered value may use "; ".
+    assert queries.split_multi("Objective A; Objective B", "strategic_objectives") == [
+        "Objective A",
+        "Objective B",
+    ]
+
+
+def test_split_multi_uses_only_semicolon_for_person_columns():
+    # Deliberately unlike analytics.js normalizeMulti, which splits on [;,]:
+    # a person name may contain a comma, and splitting it would invent people.
+    assert queries.split_multi("Doe, Jane; Roe, Sam", "other_executives") == [
+        "Doe, Jane",
+        "Roe, Sam",
+    ]
+
+
+@pytest.mark.parametrize("value", [None, "", "   ", "None", "null"])
+def test_split_multi_treats_blank_sentinels_as_no_members(value):
+    assert queries.split_multi(value, "strategic_objectives") == []
+
+
+def test_split_multi_drops_empty_members_and_trims():
+    assert queries.split_multi(" A ,, B ", "strategic_objectives") == ["A", "B"]
+
+
+def test_split_multi_returns_a_single_member_for_a_scalar_column():
+    assert queries.split_multi("Email", "channel") == ["Email"]
+
+
+def test_person_columns_match_the_etl_person_column_set():
+    """The separator choice must follow the ETL, not a guess."""
+    etl = (REPO_ROOT / "pipeline" / "scripts" / "process_cplan.py").read_text()
+    declared = re.search(r"SP_MULTI_PERSON_COLUMNS = \{([^}]*)\}", etl).group(1)
+    person_columns = set(re.findall(r'"(\w+)"', declared))
+    semicolon_only = {
+        field
+        for field, seps in queries.MULTI_VALUE_SEPARATORS.items()
+        if seps == (";",)
+    }
+    assert person_columns == semicolon_only
+
+
 # --------------------------------------------------------------------------
 # Read-only engine
 # --------------------------------------------------------------------------
