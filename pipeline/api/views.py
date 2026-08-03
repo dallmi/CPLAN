@@ -224,3 +224,23 @@ def ensure_analysis_views(engine: Engine) -> None:
     with engine.begin() as connection:
         for name, select_body in ANALYSIS_VIEWS.items():
             connection.execute(text(f"CREATE OR REPLACE VIEW {name} AS {select_body}"))
+
+
+def drop_analysis_views(engine: Engine) -> None:
+    """Drop every view in `ANALYSIS_VIEWS`; a clean no-op on non-Postgres engines.
+
+    The counterpart to `ensure_analysis_views`, and a prerequisite for dropping
+    the tables underneath: PostgreSQL refuses `DROP TABLE activity_changes`
+    while `v_change_log` still selects from it. Any teardown of a whole CPLAN
+    schema has to come through here first.
+
+    Not used by `setup_roles.py`, which drops `v_change_log` alone on purpose --
+    it is recreating that one view around an `actor` column change, not tearing
+    the schema down.
+    """
+    if engine.dialect.name != "postgresql":
+        return
+
+    with engine.begin() as connection:
+        for name in ANALYSIS_VIEWS:
+            connection.execute(text(f"DROP VIEW IF EXISTS {name}"))

@@ -11,6 +11,7 @@ from pipeline.api.app import Activity, ActivityChange, Base, SyncRun, create_app
 from pipeline.api.database import create_cplan_engine, ensure_schema
 from pipeline.api.import_snapshot import seed_records
 from pipeline.api.sync_snapshot import format_report, sync_parquet, sync_records
+from pipeline.api.views import drop_analysis_views
 
 
 TEST_DATABASE_URL = os.environ.get("CPLAN_TEST_DATABASE_URL")
@@ -25,9 +26,11 @@ def database_url(request, tmp_path):
         else f"sqlite:///{tmp_path / 'cplan-sync-test.sqlite3'}"
     )
     engine = create_cplan_engine(url)
+    drop_analysis_views(engine)
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
     yield url
+    drop_analysis_views(engine)
     Base.metadata.drop_all(engine)
     engine.dispose()
 

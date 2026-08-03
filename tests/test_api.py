@@ -18,6 +18,7 @@ from pipeline.api.app import (
     create_environment_app,
     stringify_change_value,
 )
+from pipeline.api.views import drop_analysis_views
 
 TRACKING_ID_PATTERN = re.compile(r"^[A-Z0-9]+-[0-9]+-\d{6}-\d{7}-[A-Z]{2,4}$")
 
@@ -46,11 +47,15 @@ def client(request, tmp_path):
         else f"sqlite:///{tmp_path / 'cplan-test.sqlite3'}"
     )
     app = create_app(database_url)
+    drop_analysis_views(app.state.engine)
     Base.metadata.drop_all(app.state.engine)
     Base.metadata.create_all(app.state.engine)
     with TestClient(app) as test_client:
         test_client.cplan_backend = request.param
         yield test_client
+    # The app lifespan creates the analysis views; PostgreSQL refuses to drop
+    # the tables underneath them while they exist.
+    drop_analysis_views(app.state.engine)
     Base.metadata.drop_all(app.state.engine)
     app.state.engine.dispose()
 
