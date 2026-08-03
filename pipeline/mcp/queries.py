@@ -11,6 +11,10 @@ mirrored here in SQLAlchemy instead -- see `REQUIRED_COMMON_FIELDS` /
 `REQUIRED_INTERNAL_FIELDS`, which `tests/test_mcp_server.py` pins against the
 view SQL so the two cannot drift apart silently.
 
+Laid out in one direction only -- constants, then value helpers, then the filter
+machinery, then the public tools -- so nothing forward-references anything and the
+file can be read top to bottom.
+
 Every function returns plain JSON-ready dicts and caps its own result size: an
 agent's context window is a hard resource, so no query here can reproduce the
 unpaginated full-table response that `GET /api/activities` deliberately serves
@@ -30,6 +34,12 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
 from pipeline.api.app import Activity, ActivityChange, ActivityRead, SyncRun, as_utc
+
+
+# ------------------------------------------------------------------------
+# Constants and vocabularies
+# ------------------------------------------------------------------------
+
 
 # Mirrors analytics.js empty(): a text field counts as missing when it is NULL,
 # blank/whitespace-only, or the literal string 'None'/'null' (Python str(None)
@@ -94,24 +104,6 @@ MULTI_VALUE_SEPARATORS: dict[str, tuple[str, ...]] = {
 # same columns or rows are silently dropped.
 EXECUTIVE_COLUMNS: tuple[str, ...] = ("bod_geb", "other_executives")
 
-
-def split_multi(value: Any, field: str) -> list[str]:
-    """The individual members of a possibly multi-valued column.
-
-    Returns [] for a blank value (same rule as `is_blank`), and a single-member
-    list for a column that is not multi-valued -- so callers can treat every
-    column uniformly.
-    """
-    if is_blank(value):
-        return []
-    text = str(value)
-    separators = MULTI_VALUE_SEPARATORS.get(field)
-    if not separators:
-        return [text.strip()]
-    pattern = "[" + re.escape("".join(separators)) + "]"
-    return [member.strip() for member in re.split(pattern, text) if member.strip()]
-
-
 # The two live priority vocabularies, mirroring analytics.js::priorityRank.
 #
 # The studio's entry form offers Critical / High / Medium / Low. Rows mirrored in
@@ -131,43 +123,12 @@ PRIORITY_WORD_RANKS: dict[str, int] = {
     "normal": 1,
     "low": 0,
 }
+
 DEFAULT_PRIORITY_RANK = 1
+
 HIGH_PRIORITY_RANK = 3
 
 _LEADING_INTEGER = re.compile(r"^(\d+)")
-
-
-def priority_rank(value: Any) -> int:
-    """0-4, higher is more urgent, across both live priority vocabularies."""
-    text = "" if value is None else str(value).strip()
-    numbered = _LEADING_INTEGER.match(text)
-    if numbered:
-        return max(0, 5 - int(numbered.group(1)))
-    return PRIORITY_WORD_RANKS.get(text.lower(), DEFAULT_PRIORITY_RANK)
-
-
-def is_high_priority(value: Any) -> bool:
-    """'Critical and high' in one place -- numbered levels 1-2, or the words."""
-    return priority_rank(value) >= HIGH_PRIORITY_RANK
-
-
-def lead_days(activity: Activity) -> int | None:
-    """Whole days between the reference timestamp and start_date.
-
-    Mirrors ActivityRead.planning_lead_days: the reference is source_created_at
-    when set, else created_at. Computed here in Python rather than in SQL on
-    purpose -- v_lead_times uses PostgreSQL round(), which rounds an exact half
-    day away from zero while Python rounds to even, so a SQL implementation would
-    disagree with the API by a day on that edge case.
-    """
-    if activity.start_date is None:
-        return None
-    reference = activity.source_created_at or activity.created_at
-    if reference is None:
-        return None
-    delta = as_utc(activity.start_date) - as_utc(reference)
-    return round(delta.total_seconds() / 86400)
-
 
 # Every case-insensitive equality filter an agent may apply. Free text in the
 # schema, so `field_values` remains the way to learn the real values first.
@@ -186,42 +147,6 @@ FILTERABLE_TEXT_FIELDS: tuple[str, ...] = (
     "audience",
     "time_zone",
 )
-
-
-@dataclass(frozen=True)
-class ActivityFilters:
-    """Everything that narrows an activity query, in one object.
-
-    `text` maps a column in FILTERABLE_TEXT_FIELDS to a value compared
-    case-insensitively for equality. Keeping it as a mapping rather than one
-    attribute per column is what stops the four query functions from each
-    carrying a twenty-line signature; the MCP tool layer still exposes explicit
-    named parameters, because those are what the model discovers.
-    """
-
-    text_query: str | None = None
-    text: dict[str, str] = dataclass_field(default_factory=dict)
-    start_after: str | None = None
-    start_before: str | None = None
-    end_after: str | None = None
-    end_before: str | None = None
-    include_archived: bool = False
-    news_digest: bool | None = None
-    has_tracking_id: bool | None = None
-    has_executive: bool | None = None
-    locally_modified: bool | None = None
-    # Archived is a source-system view-size workaround, not a relevance signal --
-    # so it gets an explicit "only these" mode rather than only a hide/show flag.
-    archived_only: bool = False
-    # Exact membership in a multi-value column: {column_name: one member value}.
-    contains: dict[str, str] = dataclass_field(default_factory=dict)
-    # Exact membership in EITHER executive column -- an OR across two columns, which
-    # the single-column `contains` mapping cannot express, so it gets its own field
-    # rather than a bespoke implementation in one tool.
-    executive: str | None = None
-    max_lead_days: int | None = None
-    min_priority_rank: int | None = None
-
 
 # Columns an agent may group or enumerate. Free-text columns in the schema are not
 # enumerated types, so `field_values` is what stops the model from guessing filter
@@ -264,6 +189,70 @@ DEFAULT_LIMIT = 50
 MAX_LIMIT = 200
 
 
+# ------------------------------------------------------------------------
+# Value helpers -- pure, no session, no SQL
+# ------------------------------------------------------------------------
+
+
+def is_blank(value: Any) -> bool:
+    """The text-emptiness rule shared with analytics.js and v_planning_completeness."""
+    if value is None:
+        return True
+    if not isinstance(value, str):
+        return False
+    stripped = value.strip()
+    return stripped == "" or stripped in BLANK_TEXT_SENTINELS
+
+
+def split_multi(value: Any, field: str) -> list[str]:
+    """The individual members of a possibly multi-valued column.
+
+    Returns [] for a blank value (same rule as `is_blank`), and a single-member
+    list for a column that is not multi-valued -- so callers can treat every
+    column uniformly.
+    """
+    if is_blank(value):
+        return []
+    text = str(value)
+    separators = MULTI_VALUE_SEPARATORS.get(field)
+    if not separators:
+        return [text.strip()]
+    pattern = "[" + re.escape("".join(separators)) + "]"
+    return [member.strip() for member in re.split(pattern, text) if member.strip()]
+
+
+def priority_rank(value: Any) -> int:
+    """0-4, higher is more urgent, across both live priority vocabularies."""
+    text = "" if value is None else str(value).strip()
+    numbered = _LEADING_INTEGER.match(text)
+    if numbered:
+        return max(0, 5 - int(numbered.group(1)))
+    return PRIORITY_WORD_RANKS.get(text.lower(), DEFAULT_PRIORITY_RANK)
+
+
+def is_high_priority(value: Any) -> bool:
+    """'Critical and high' in one place -- numbered levels 1-2, or the words."""
+    return priority_rank(value) >= HIGH_PRIORITY_RANK
+
+
+def lead_days(activity: Activity) -> int | None:
+    """Whole days between the reference timestamp and start_date.
+
+    Mirrors ActivityRead.planning_lead_days: the reference is source_created_at
+    when set, else created_at. Computed here in Python rather than in SQL on
+    purpose -- v_lead_times uses PostgreSQL round(), which rounds an exact half
+    day away from zero while Python rounds to even, so a SQL implementation would
+    disagree with the API by a day on that edge case.
+    """
+    if activity.start_date is None:
+        return None
+    reference = activity.source_created_at or activity.created_at
+    if reference is None:
+        return None
+    delta = as_utc(activity.start_date) - as_utc(reference)
+    return round(delta.total_seconds() / 86400)
+
+
 def view_flag_name(field: str) -> str:
     """The `missing_*` column v_planning_completeness uses for `field`."""
     return _VIEW_FLAG_ALIASES.get(field, f"missing_{field}")
@@ -300,14 +289,11 @@ def _parse_boundary(value: str | date | datetime | None) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
-def is_blank(value: Any) -> bool:
-    """The text-emptiness rule shared with analytics.js and v_planning_completeness."""
-    if value is None:
-        return True
-    if not isinstance(value, str):
-        return False
-    stripped = value.strip()
-    return stripped == "" or stripped in BLANK_TEXT_SENTINELS
+def _month_key(value: datetime | None) -> str:
+    normalized = as_utc(value)
+    if normalized is None:
+        return "unscheduled"
+    return f"{normalized.year:04d}-{normalized.month:02d}"
 
 
 def missing_fields(activity: Activity) -> list[str]:
@@ -341,6 +327,67 @@ def _summarize(activity: Activity) -> dict[str, Any]:
     row["priority_rank"] = priority_rank(activity.priority)
     row["is_high_priority"] = is_high_priority(activity.priority)
     return row
+
+
+def _truncation_note(total: int, returned: int, limit: int) -> str | None:
+    if returned >= total:
+        return None
+    return (
+        f"Showing {returned} of {total} matching activities (limit={limit}). "
+        "Narrow the filters rather than raising the limit -- this tool never "
+        "returns the whole table."
+    )
+
+
+def _value_truncation_note(distinct: int, returned: int, limit: int) -> str | None:
+    """Truncation note for a value list, where 'narrow the filters' does not apply."""
+    if returned >= distinct:
+        return None
+    return (
+        f"Showing the {returned} most common of {distinct} distinct values "
+        f"(limit={limit}). Values absent from this list still exist in the data -- "
+        "do not treat it as the complete vocabulary of this column."
+    )
+
+
+# ------------------------------------------------------------------------
+# Filter machinery -- shared by every tool below
+# ------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ActivityFilters:
+    """Everything that narrows an activity query, in one object.
+
+    `text` maps a column in FILTERABLE_TEXT_FIELDS to a value compared
+    case-insensitively for equality. Keeping it as a mapping rather than one
+    attribute per column is what stops the four query functions from each
+    carrying a twenty-line signature; the MCP tool layer still exposes explicit
+    named parameters, because those are what the model discovers.
+    """
+
+    text_query: str | None = None
+    text: dict[str, str] = dataclass_field(default_factory=dict)
+    start_after: str | None = None
+    start_before: str | None = None
+    end_after: str | None = None
+    end_before: str | None = None
+    include_archived: bool = False
+    news_digest: bool | None = None
+    has_tracking_id: bool | None = None
+    has_executive: bool | None = None
+    locally_modified: bool | None = None
+    # Archived is a source-system view-size workaround, not a relevance signal --
+    # so it gets an explicit "only these" mode rather than only a hide/show flag.
+    archived_only: bool = False
+    # Exact membership in a multi-value column: {column_name: one member value}.
+    contains: dict[str, str] = dataclass_field(default_factory=dict)
+    # Exact membership in EITHER executive column -- an OR across two columns, which
+    # the single-column `contains` mapping cannot express, so it gets its own field
+    # rather than a bespoke implementation in one tool.
+    executive: str | None = None
+    max_lead_days: int | None = None
+    min_priority_rank: int | None = None
 
 
 def _blank_sql(column):
@@ -469,25 +516,59 @@ def passes_post_filter(activity: Activity, filters: ActivityFilters) -> bool:
     return True
 
 
-def _truncation_note(total: int, returned: int, limit: int) -> str | None:
-    if returned >= total:
-        return None
-    return (
-        f"Showing {returned} of {total} matching activities (limit={limit}). "
-        "Narrow the filters rather than raising the limit -- this tool never "
-        "returns the whole table."
+def _build_filters(**kwargs: Any) -> ActivityFilters:
+    """Build an ActivityFilters from the flat keyword set the tools expose.
+
+    One place that knows which keyword goes into `text`, which into `contains`
+    and which is a scalar, so search, counts and gaps cannot drift apart.
+    """
+    text = {
+        name: kwargs.pop(name, None)
+        for name in FILTERABLE_TEXT_FIELDS
+    }
+    contains = {"strategic_objectives": kwargs.pop("strategic_objective", None)}
+    filters = ActivityFilters(
+        text_query=kwargs.pop("query", None),
+        text={name: value for name, value in text.items() if value},
+        contains={name: value for name, value in contains.items() if value},
+        executive=kwargs.pop("executive", None),
+        start_after=kwargs.pop("start_after", None),
+        start_before=kwargs.pop("start_before", None),
+        end_after=kwargs.pop("end_after", None),
+        end_before=kwargs.pop("end_before", None),
+        include_archived=kwargs.pop("include_archived", False),
+        archived_only=kwargs.pop("archived_only", False),
+        news_digest=kwargs.pop("news_digest", None),
+        has_tracking_id=kwargs.pop("has_tracking_id", None),
+        has_executive=kwargs.pop("has_executive", None),
+        locally_modified=kwargs.pop("locally_modified", None),
+        max_lead_days=kwargs.pop("max_lead_days", None),
+        min_priority_rank=kwargs.pop("min_priority_rank", None),
     )
+    if kwargs:
+        # These keywords come from our own call sites, never from raw user
+        # input, so an unrecognised one is a programming error -- a typo'd
+        # filter name must fail loudly rather than silently return a
+        # confidently wrong, unfiltered tally. Same shape as Python's own
+        # unexpected-keyword-argument TypeError.
+        unexpected = ", ".join(sorted(kwargs))
+        raise TypeError(f"_build_filters() got unexpected keyword argument(s): {unexpected}")
+    return filters
 
 
-def _value_truncation_note(distinct: int, returned: int, limit: int) -> str | None:
-    """Truncation note for a value list, where 'narrow the filters' does not apply."""
-    if returned >= distinct:
-        return None
-    return (
-        f"Showing the {returned} most common of {distinct} distinct values "
-        f"(limit={limit}). Values absent from this list still exist in the data -- "
-        "do not treat it as the complete vocabulary of this column."
-    )
+def _filtered_activities(session: Session, filters: ActivityFilters) -> list[Activity]:
+    """Every activity matching `filters`, SQL first then the Python predicates."""
+    candidates = session.scalars(
+        _apply_filters(select(Activity), filters).order_by(Activity.start_date, Activity.id)
+    ).all()
+    if not needs_post_filter(filters):
+        return list(candidates)
+    return [activity for activity in candidates if passes_post_filter(activity, filters)]
+
+
+# ------------------------------------------------------------------------
+# Public tools
+# ------------------------------------------------------------------------
 
 
 def search_activities(
@@ -687,63 +768,6 @@ def planning_gaps(
             key=lambda group: (-group["incomplete"], group["value"]),
         )
     return answer
-
-
-def _month_key(value: datetime | None) -> str:
-    normalized = as_utc(value)
-    if normalized is None:
-        return "unscheduled"
-    return f"{normalized.year:04d}-{normalized.month:02d}"
-
-
-def _build_filters(**kwargs: Any) -> ActivityFilters:
-    """Build an ActivityFilters from the flat keyword set the tools expose.
-
-    One place that knows which keyword goes into `text`, which into `contains`
-    and which is a scalar, so search, counts and gaps cannot drift apart.
-    """
-    text = {
-        name: kwargs.pop(name, None)
-        for name in FILTERABLE_TEXT_FIELDS
-    }
-    contains = {"strategic_objectives": kwargs.pop("strategic_objective", None)}
-    filters = ActivityFilters(
-        text_query=kwargs.pop("query", None),
-        text={name: value for name, value in text.items() if value},
-        contains={name: value for name, value in contains.items() if value},
-        executive=kwargs.pop("executive", None),
-        start_after=kwargs.pop("start_after", None),
-        start_before=kwargs.pop("start_before", None),
-        end_after=kwargs.pop("end_after", None),
-        end_before=kwargs.pop("end_before", None),
-        include_archived=kwargs.pop("include_archived", False),
-        archived_only=kwargs.pop("archived_only", False),
-        news_digest=kwargs.pop("news_digest", None),
-        has_tracking_id=kwargs.pop("has_tracking_id", None),
-        has_executive=kwargs.pop("has_executive", None),
-        locally_modified=kwargs.pop("locally_modified", None),
-        max_lead_days=kwargs.pop("max_lead_days", None),
-        min_priority_rank=kwargs.pop("min_priority_rank", None),
-    )
-    if kwargs:
-        # These keywords come from our own call sites, never from raw user
-        # input, so an unrecognised one is a programming error -- a typo'd
-        # filter name must fail loudly rather than silently return a
-        # confidently wrong, unfiltered tally. Same shape as Python's own
-        # unexpected-keyword-argument TypeError.
-        unexpected = ", ".join(sorted(kwargs))
-        raise TypeError(f"_build_filters() got unexpected keyword argument(s): {unexpected}")
-    return filters
-
-
-def _filtered_activities(session: Session, filters: ActivityFilters) -> list[Activity]:
-    """Every activity matching `filters`, SQL first then the Python predicates."""
-    candidates = session.scalars(
-        _apply_filters(select(Activity), filters).order_by(Activity.start_date, Activity.id)
-    ).all()
-    if not needs_post_filter(filters):
-        return list(candidates)
-    return [activity for activity in candidates if passes_post_filter(activity, filters)]
 
 
 def activity_counts(
