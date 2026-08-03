@@ -10,6 +10,7 @@ from openpyxl.utils import get_column_letter
 
 from pipeline.report import metrics, style
 from pipeline.report.config import (
+    AUDIENCE_BAND_ORDER,
     AUDIENCE_BANDS,
     BAND_UNKNOWN,
     LARGE_AUDIENCE_BANDS,
@@ -20,13 +21,7 @@ from pipeline.report.data import (
     COMPLETENESS_FIELDS_INTERNAL,
     EXCLUSION_ORDER,
 )
-from pipeline.report.derive import (
-    GLOBAL_REGION_TOKENS,
-    GROUP_WIDE_MIN_DIVISIONS,
-    REACH_ORDER,
-    priority_rank,
-    split_multi,
-)
+from pipeline.report.derive import priority_rank, split_multi
 
 
 def _share_label(total_row, value_row, text):
@@ -34,10 +29,15 @@ def _share_label(total_row, value_row, text):
     return f'=TEXT(IF(B${total_row}=0,0,B{value_row}/B${total_row}),"0%") & "  {text}"'
 
 
-def _write_share_row(ws, row, total_row, text, count):
-    """A count with its share riding in the label, as a sub (indented/italic) row."""
+def _write_share_row(ws, row, total_row, text, count, sub=True):
+    """A count with its share riding in the label.
+
+    `sub` indents and italicises it as a member of the count above -- right for
+    a breakdown, wrong for a headline figure that happens to be a share of the
+    portfolio rather than of the row above it.
+    """
     ws.cell(row=row, column=1, value=_share_label(total_row, row, text))
-    style.write_kpi_row(ws, row, None, count, sub=True)
+    style.write_kpi_row(ws, row, None, count, sub=sub)
 
 
 def build_executive_summary(wb, scope, config):
@@ -65,9 +65,9 @@ def build_executive_summary(wb, scope, config):
         count = int((frame.get("source_type") == source_type).sum()) if len(frame) else 0
         _write_share_row(ws, row, total_row, source_type.title(), count)
         row += 1
-    for bucket in REACH_ORDER:
-        count = int((frame.get("reach") == bucket).sum()) if len(frame) else 0
-        _write_share_row(ws, row, total_row, bucket, count)
+    for band in AUDIENCE_BAND_ORDER:
+        count = int((frame.get("audience_band") == band).sum()) if len(frame) else 0
+        _write_share_row(ws, row, total_row, band, count)
         row += 1
     row += 1
 
@@ -83,18 +83,18 @@ def build_executive_summary(wb, scope, config):
                               stats["top5_share"], fmt=style.NUM_FMT_PCT)
     row += 1
 
+    # Both figures carry their share in the label, the same way VOLUME does, so
+    # column C is not one lone percentage next to two bare counts. No separate
+    # "Audience band unknown" row: VOLUME above now lists every band including
+    # Unknown, and printing the same number twice on one sheet reads as an error.
     row = style.write_section_header(ws, row, "LEADERSHIP & AUDIENCE", 2)
-    exec_total = row
     executives = int(frame["has_executives"].sum()) if len(frame) else 0
-    row = style.write_kpi_row(ws, row, "With GEB involvement", executives)
-    large = int(frame["audience_band"].isin(LARGE_AUDIENCE_BANDS).sum()) if len(frame) else 0
-    row = style.write_kpi_row(ws, row, "Large audience (top two bands)", large)
-    unknown = int((frame["audience_band"] == BAND_UNKNOWN).sum()) if len(frame) else 0
-    row = style.write_kpi_row(ws, row, "Audience band unknown", unknown)
-    style.write_formula(ws, exec_total, 3,
-                        f"=IF(B${total_row}=0,0,B{exec_total}/B${total_row})",
-                        fmt=style.NUM_FMT_PCT)
+    _write_share_row(ws, row, total_row, "With GEB involvement", executives, sub=False)
     row += 1
+    large = int(frame["audience_band"].isin(LARGE_AUDIENCE_BANDS).sum()) if len(frame) else 0
+    _write_share_row(ws, row, total_row, "Large audience (top two bands)", large,
+                     sub=False)
+    row += 2
 
     lead = metrics.lead_time_stats(frame) if len(frame) else {
         "counted": 0, "median_days": None, "short_notice": 0}
@@ -343,11 +343,6 @@ GLOSSARY_SECTIONS = (
                      "Executive Summary."),
     )),
     ("DIMENSIONS", (
-        ("Group-wide", f"{GROUP_WIDE_MIN_DIVISIONS} or more divisions, or a global region."),
-        ("Multi-division", "Two divisions."),
-        ("Single division", "One division."),
-        ("Regional only", "A region, but no division."),
-        ("Unclassified", "Neither a division nor a region."),
         ("Overlap", "An activity naming two divisions counts in both, so those blocks "
                     "add up to more than the total."),
     )),
@@ -521,7 +516,6 @@ ACTIVITY_COLUMNS = (
     ("audience_band", "Audience band"),
     ("business_division", "Divisions"),
     ("region", "Regions"),
-    ("reach", "Reach"),
     ("_executives", "GEB involved"),
     ("executives", "GEB members"),
     ("communication_pack_cpid", "Pack ID"),

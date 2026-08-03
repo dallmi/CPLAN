@@ -1,9 +1,8 @@
 """Per-row derivations for the calendar report.
 
 Each of these turns one or two raw source fields into a value the report groups
-or filters on. They are deliberately small and separately tested: the reach
-constants in particular are guesses against the live vocabulary and are expected
-to be adjusted after the first real run.
+or filters on. They are deliberately small and separately tested, because the
+source vocabulary is only partly known and these are the places to correct it.
 """
 
 import math
@@ -17,26 +16,6 @@ from pipeline.report.config import (
     BAND_UNDER_1K,
     BAND_UNKNOWN,
 )
-
-REACH_GROUP_WIDE = "Group-wide"
-REACH_MULTI_DIVISION = "Multi-division"
-REACH_SINGLE_DIVISION = "Single division"
-REACH_REGIONAL_ONLY = "Regional only"
-REACH_UNCLASSIFIED = "Unclassified"
-
-# Ordered widest-first, which is the order the Calendar sheet lists them in.
-REACH_ORDER = (
-    REACH_GROUP_WIDE,
-    REACH_MULTI_DIVISION,
-    REACH_SINGLE_DIVISION,
-    REACH_REGIONAL_ONLY,
-    REACH_UNCLASSIFIED,
-)
-
-# Naming this many divisions or more is treated as addressing the whole
-# organisation. A guess against the live vocabulary -- revisit after a real run.
-GROUP_WIDE_MIN_DIVISIONS = 3
-GLOBAL_REGION_TOKENS = frozenset({"global", "worldwide", "all regions"})
 
 
 def _text(value):
@@ -55,24 +34,6 @@ def split_multi(value):
     if not text:
         return []
     return [part.strip() for part in re.split(r"[;,]", text) if part.strip()]
-
-
-def classify_reach(business_division, region):
-    """One mutually exclusive bucket per activity, so the block sums to the total."""
-    divisions = split_multi(business_division)
-    regions = [r.lower() for r in split_multi(region)]
-
-    if any(r in GLOBAL_REGION_TOKENS for r in regions):
-        return REACH_GROUP_WIDE
-    if len(divisions) >= GROUP_WIDE_MIN_DIVISIONS:
-        return REACH_GROUP_WIDE
-    if len(divisions) > 1:
-        return REACH_MULTI_DIVISION
-    if len(divisions) == 1:
-        return REACH_SINGLE_DIVISION
-    if regions:
-        return REACH_REGIONAL_ONLY
-    return REACH_UNCLASSIFIED
 
 
 # Boundaries in ascending order: (upper bound inclusive, band).
@@ -122,9 +83,17 @@ def _as_number(value):
 
 
 def _normalise_band(text):
-    """Fold dash variants and whitespace so label matching is not typography."""
+    """Fold typography so label matching is not spelling.
+
+    Dash variants, case and whitespace, plus thousands separators: a source
+    writing "< 1.000" or "< 1'000" means the same band as "< 1000" and used to
+    fall through to Unknown. Only the *label* path calls this -- a raw count has
+    already been read as a number by then -- so dropping separators here cannot
+    turn one number into another.
+    """
     folded = text.lower()
     folded = re.sub(r"[‐-―−]", "-", folded)
+    folded = re.sub(r"[.,']", "", folded)
     return re.sub(r"\s+", "", folded)
 
 
@@ -165,6 +134,27 @@ def executive_names(value):
 def has_executives(value):
     """Involvement means at least one person is named."""
     return bool(executive_names(value))
+
+
+def only_excluded_objectives(value, prefixes):
+    """True when every objective named on the row starts with one of `prefixes`.
+
+    The point of the filter is to drop the catch-all bucket, not the activities
+    that merely touch it. An activity tagged "2026: Other" *and* a real
+    objective is planned against something, so it stays; only one tagged with
+    nothing but catch-alls goes.
+
+    A row naming no objectives at all is not "nothing but the catch-all" -- it
+    is unclassified, a different gap that the Data Quality sheet already counts.
+    It stays too, so this filter can never silently swallow the empty case.
+    """
+    labels = split_multi(value)
+    if not labels:
+        return False
+    wanted = tuple(_text(p).lower() for p in prefixes if _text(p))
+    if not wanted:
+        return False
+    return all(label.lower().startswith(wanted) for label in labels)
 
 
 _PRIORITY_WORDS = {"critical": 4, "high": 3, "medium": 2, "normal": 1, "low": 0}

@@ -60,6 +60,7 @@ CONFIG = ReportConfig(
     executives="any",                # "any" | "with" | "without"
     audience_bands=None,             # None = all bands; else e.g. ("50–100k", "> 100k")
     include_unknown_audience=True,   # applies only when audience_bands is set
+    exclude_objectives=("2026: Other",),  # drop rows whose objectives are ONLY these
     include_archived=True,           # archiving is a view-size workaround, not a status
     detail_rows=True,                # activity rows under each dimension value
     breakdown_fields=("business_division", "region", "executives"),

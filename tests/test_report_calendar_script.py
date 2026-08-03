@@ -85,6 +85,33 @@ def test_the_shipped_workbook_carries_the_geb_block_and_names(tmp_path):
     assert any(name for name in named), "no activity carries a GEB member"
 
 
+def test_the_shipped_config_actually_excludes_the_catch_all_objective():
+    """Against the CONFIG the script ships, not a test-built one.
+
+    The fixtures carry no catch-all row, so an end-to-end run cannot show this
+    filter working; and a CONFIG that quietly lost the prefix would still
+    produce a perfectly valid workbook. Same gap that hid the missing calendar
+    block, so it gets the same kind of test.
+    """
+    import pandas as pd
+
+    from pipeline.report.data import build_scope
+    from pipeline.scripts.process_cplan import ActivityLoad
+
+    frame = pd.DataFrame({
+        "tracking_id": ["A", "B", "C"],
+        "activity_name": ["Catch-all only", "Catch-all plus real", "Real only"],
+        "start_date": pd.to_datetime(["2026-03-05"] * 3),
+        "strategic_objectives": ["2026: Other", "2026: Other, 2026: Growth",
+                                 "2026: Growth"],
+    })
+
+    scope = build_scope(ActivityLoad(frame, {}, {}), report_calendar.CONFIG)
+
+    assert sorted(scope.frame["tracking_id"]) == ["B", "C"]
+    assert scope.excluded["objectives"] == 1
+
+
 def test_a_year_run_cuts_the_activities_outside_it(tmp_path):
     write_activity_csvs(tmp_path / "input")
     out = tmp_path / "report.xlsx"

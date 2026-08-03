@@ -12,7 +12,7 @@ Two rules keep the arithmetic honest:
   for every row, including block headers: week cells are always literal counts,
   never a formula, in every row of the sheet.
 * Vertical aggregation is a formula only where it is valid, and only in the
-  Total (summary) column. The reach buckets partition the portfolio, so that
+  Total (summary) column. The audience bands partition the portfolio, so that
   block header's Total cell carries a genuine SUM down the member rows -- a
   second, independently auditable route to the same number as the horizontal
   route. The division and region blocks overlap -- an activity naming two
@@ -25,7 +25,8 @@ from openpyxl.formatting.rule import DataBarRule
 from openpyxl.utils import get_column_letter
 
 from pipeline.report import style
-from pipeline.report.derive import REACH_ORDER, split_multi
+from pipeline.report.config import AUDIENCE_BAND_ORDER
+from pipeline.report.derive import split_multi
 
 SHEET_NAME = "Calendar"
 LABEL_COL = 1
@@ -76,7 +77,7 @@ def _write_grid_row(ws, row, counts, columns, positions, month_weeks, quarter_mo
     This is the ONLY way grid cells are populated -- every row in the sheet,
     including block header rows, gets its week/month/quarter/Total cells this
     way. A block header's Total cell may be overwritten afterwards (see
-    `_finish_reach_header` and `_finish_distinct_count_header`), but its
+    `_finish_partition_header` and `_finish_distinct_count_header`), but its
     week/month/quarter cells always come from here, so the horizontal identity
     (month = SUM of its weeks, quarter = SUM of its months) never breaks.
     """
@@ -274,26 +275,29 @@ def build_calendar(wb, scope, config):
                 row += 1
         return value_row
 
-    # --- reach: a partition, so its Total is a genuine SUM down the column --
-    _label_cell(ws, row, "BY REACH", level=0, bold=True)
+    # --- audience: a partition, so its Total is a genuine SUM down the column
+    # Every activity carries exactly one band, Unknown included, which is what
+    # makes the vertical SUM below valid. The overlapping blocks that follow
+    # cannot do this and say so in their own headers.
+    _label_cell(ws, row, "BY AUDIENCE", level=0, bold=True)
     header_row = row
     row += 1
     member_rows = []
-    for bucket in REACH_ORDER:
-        subset = scope.frame[scope.frame["reach"] == bucket]
+    for band in AUDIENCE_BAND_ORDER:
+        subset = scope.frame[scope.frame["audience_band"] == band]
         if subset.empty:
             continue
-        member_rows.append(write_value_row(bucket, subset, level=1, hidden=True))
+        member_rows.append(write_value_row(band, subset, level=1, hidden=True))
     # Week/month/quarter cells stay the normal, honest way: literal weekly
     # counts over the whole (partitioned) scope, horizontal SUMs above them --
     # identical in shape to the ALL ACTIVITIES row, since a true partition's
     # per-week total is the same number either way. Only the Total (B) column
     # is deliberately written as a second, independent formula that sums the
-    # member rows vertically, so a reader can audit that the reach buckets
+    # member rows vertically, so a reader can audit that the audience bands
     # really do add back up to the portfolio.
     _write_grid_row(ws, header_row, _counts(scope.frame, grid), columns, positions,
                     month_weeks, quarter_months, bold=True)
-    _finish_reach_header(ws, header_row, member_rows)
+    _finish_partition_header(ws, header_row, member_rows)
     if member_rows:
         _mark_collapsed(ws.row_dimensions[header_row])
     bar_ranges.append(member_rows)
@@ -347,11 +351,11 @@ def build_calendar(wb, scope, config):
     style.finalize_sheet(ws, freeze="C3", widths={**grid_widths, "A": 52, "B": 12})
 
 
-def _finish_reach_header(ws, header_row, member_rows):
+def _finish_partition_header(ws, header_row, member_rows):
     """Overwrite the Total cell with a genuine SUM down the member rows.
 
-    Valid only for a partition: the reach block. Every activity lands in
-    exactly one reach bucket, so summing the member rows' Total column gives
+    Valid only for a partition: the audience block. Every activity lands in
+    exactly one audience band, so summing the member rows' Total column gives
     back the same number as the horizontal route (summing this row's own
     quarters) -- the reader can click either path.
     """

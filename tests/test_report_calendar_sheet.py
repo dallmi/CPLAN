@@ -68,7 +68,7 @@ def test_columns_carry_the_three_outline_levels_and_open_collapsed(tmp_path):
 def test_rows_carry_block_dimension_and_activity_levels(tmp_path):
     ws, _ = _sheet(tmp_path)
     labels = _labels(ws)
-    block_row = labels["BY REACH"]
+    block_row = labels["BY AUDIENCE"]
 
     assert ws.row_dimensions[block_row].outline_level == 0
     child_rows = [r for r in range(block_row + 1, ws.max_row + 1)
@@ -99,9 +99,9 @@ def test_week_cells_are_literal_counts(tmp_path):
     assert sum(numeric) == len(scope.frame)
 
 
-def test_the_reach_block_header_sums_its_children(tmp_path):
+def test_the_audience_block_header_sums_its_children(tmp_path):
     ws, _ = _sheet(tmp_path)
-    row = _labels(ws)["BY REACH"]
+    row = _labels(ws)["BY AUDIENCE"]
 
     assert str(ws.cell(row=row, column=TOTAL_COL).value).startswith("=SUM(")
 
@@ -217,7 +217,7 @@ def test_each_aggregate_formula_sums_exactly_the_cells_it_should(tmp_path):
             continue  # a distinct-count block header: a literal by design
         refs = _refs(total)
         if all(letter == "B" for letter, _ in refs):
-            continue  # the reach header's vertical audit SUM down its members
+            continue  # the audience header's vertical audit SUM down its members
         assert refs == [(letter, row) for letter in quarter_letters], (
             f"the Total cell on row {row} sums the wrong cells: {total!r}")
     assert checked > 0
@@ -375,3 +375,51 @@ def test_a_detail_row_without_members_keeps_the_bare_activity_name():
     # The block titles carry an em dash of their own, so only the detail rows
     # can answer whether an empty field left a dangling separator behind.
     assert all(label.strip() == "Activity 0" for label in detail)
+
+
+# --- the audience block replaces reach --------------------------------------
+
+def test_the_calendar_leads_with_an_audience_block_not_a_reach_one(tmp_path):
+    ws, _ = _sheet(tmp_path)
+    labels = _labels(ws)
+
+    assert "BY AUDIENCE" in labels
+    for gone in ("BY REACH", "Group-wide", "Multi-division", "Single division",
+                 "Regional only", "Unclassified"):
+        assert gone not in labels
+
+
+def test_every_band_present_in_the_scope_gets_a_row(tmp_path):
+    ws, scope = _sheet(tmp_path)
+    labels = _labels(ws)
+    header = labels["BY AUDIENCE"]
+
+    for band in set(scope.frame["audience_band"]):
+        assert band in labels, f"no row for {band!r}"
+        assert labels[band] > header
+
+
+def test_the_bands_are_listed_smallest_first_with_unknown_last(tmp_path):
+    from pipeline.report.calendar_sheet import AUDIENCE_BAND_ORDER
+
+    ws, scope = _sheet(tmp_path)
+    labels = _labels(ws)
+    present = [band for band in AUDIENCE_BAND_ORDER if band in labels]
+
+    assert present == sorted(present, key=lambda b: labels[b])
+    assert len(present) > 1, "the fixture must carry more than one band"
+
+
+def test_the_audience_block_is_a_partition_so_its_members_sum_to_the_scope(tmp_path):
+    """The whole reason this block keeps a vertical SUM: every activity lands
+    in exactly one band, Unknown included, so the member rows really do add
+    back up to the portfolio.
+    """
+    ws, scope = _sheet(tmp_path)
+    labels = _labels(ws)
+    from pipeline.report.calendar_sheet import AUDIENCE_BAND_ORDER
+
+    total = sum(_week_total(ws, labels[band])
+                for band in AUDIENCE_BAND_ORDER if band in labels)
+
+    assert total == len(scope.frame)

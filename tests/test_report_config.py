@@ -49,6 +49,29 @@ def test_an_empty_band_tuple_is_rejected_rather_than_filtering_everything_away()
         _config(audience_bands=())
 
 
+def test_no_excluded_objectives_by_default():
+    config = _config()
+
+    assert config.exclude_objectives == ()
+    assert dict(config.describe())["Excluded objectives"] == "none"
+
+
+def test_excluded_objectives_are_named_on_the_summary():
+    config = _config(exclude_objectives=("2026: Other", "2026: Misc"))
+
+    assert dict(config.describe())["Excluded objectives"] == "2026: Other, 2026: Misc"
+
+
+def test_a_blank_objective_prefix_is_rejected_rather_than_emptying_the_report():
+    """A blank prefix matches every objective, so it would drop every row that
+    carries one -- the loudest possible failure, silently.
+    """
+    with pytest.raises(ValueError, match="blank prefix"):
+        _config(exclude_objectives=("2026: Other", ""))
+    with pytest.raises(ValueError, match="blank prefix"):
+        _config(exclude_objectives=("   ",))
+
+
 def test_an_empty_breakdown_tuple_is_rejected():
     with pytest.raises(ValueError, match="breakdown_fields"):
         _config(breakdown_fields=())

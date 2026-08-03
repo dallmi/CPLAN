@@ -1,9 +1,11 @@
 """The calendar report's configuration and its vocabulary.
 
-The three criteria the report is built around -- start date, senior-executive
-involvement, audience size -- are hard filters: a row that fails any of them is
-absent from every sheet. They are validated here rather than at use, so a typo
-stops the run instead of silently emptying the workbook.
+Every criterion the report is built around -- start date, GEB involvement,
+audience size, strategic objectives, archived state -- is a hard filter: a row
+that fails any of them is absent from every sheet. They live together in one
+dataclass so there is a single place to look for "what is this workbook
+covering", and they are validated here rather than at use, so a typo stops the
+run instead of silently emptying the workbook.
 
 The period is the one criterion that may be left open. Each bound stands alone:
 `None` means "no bound on that side", so an unset pair covers every dated
@@ -25,6 +27,11 @@ BAND_UNKNOWN = "Unknown"
 AUDIENCE_BANDS = (BAND_UNDER_1K, BAND_1_10K, BAND_10_50K, BAND_50_100K, BAND_OVER_100K)
 LARGE_AUDIENCE_BANDS = (BAND_50_100K, BAND_OVER_100K)
 
+# Every band plus Unknown, in reading order. This is a partition of the
+# portfolio -- each activity lands in exactly one -- which is what lets the
+# calendar's audience block carry a genuine vertical SUM.
+AUDIENCE_BAND_ORDER = AUDIENCE_BANDS + (BAND_UNKNOWN,)
+
 EXECUTIVES_CHOICES = frozenset({"any", "with", "without"})
 
 SHORT_NOTICE_DAYS = 7
@@ -37,6 +44,7 @@ class ReportConfig:
     executives: str = "any"
     audience_bands: tuple = None
     include_unknown_audience: bool = True
+    exclude_objectives: tuple = ()
     include_archived: bool = True
     detail_rows: bool = True
     breakdown_fields: tuple = ("business_division", "region", "executives")
@@ -61,6 +69,13 @@ class ReportConfig:
                 raise ValueError(
                     f"unknown audience band(s): {unknown}. Known bands: {list(AUDIENCE_BANDS)}"
                 )
+        blank = [p for p in self.exclude_objectives if not str(p).strip()]
+        if blank:
+            raise ValueError(
+                "exclude_objectives must not contain a blank prefix -- a blank "
+                "matches every objective and would empty the report. Use () to "
+                "exclude nothing."
+            )
         if not self.breakdown_fields:
             raise ValueError("breakdown_fields must name at least one field")
 
@@ -117,6 +132,8 @@ class ReportConfig:
             ("GEB", self.executives),
             ("Audience bands", bands),
             ("Unknown audience band", "included" if self.include_unknown_audience else "excluded"),
+            ("Excluded objectives",
+             ", ".join(self.exclude_objectives) if self.exclude_objectives else "none"),
             ("Archived activities", "included" if self.include_archived else "excluded"),
             ("Activity detail rows", "on" if self.detail_rows else "off"),
             ("Breakdown dimensions", ", ".join(self.breakdown_fields)),

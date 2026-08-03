@@ -1,4 +1,4 @@
-"""Per-row derivations: reach, audience band, executive involvement, priority."""
+"""Per-row derivations: audience band, GEB involvement, objectives, priority."""
 
 import pytest
 
@@ -11,15 +11,10 @@ from pipeline.report.config import (
     BAND_UNKNOWN,
 )
 from pipeline.report.derive import (
-    REACH_GROUP_WIDE,
-    REACH_MULTI_DIVISION,
-    REACH_REGIONAL_ONLY,
-    REACH_SINGLE_DIVISION,
-    REACH_UNCLASSIFIED,
     audience_band,
-    classify_reach,
     executive_names,
     has_executives,
+    only_excluded_objectives,
     priority_rank,
     split_multi,
 )
@@ -38,32 +33,6 @@ from pipeline.report.derive import (
 ])
 def test_split_multi(value, expected):
     assert split_multi(value) == expected
-
-
-# --- classify_reach ----------------------------------------------------------
-
-def test_three_or_more_divisions_is_group_wide():
-    assert classify_reach("IB, P&C, GWM", "EMEA") == REACH_GROUP_WIDE
-
-
-def test_a_global_region_is_group_wide_even_with_one_division():
-    assert classify_reach("IB", "Global") == REACH_GROUP_WIDE
-
-
-def test_two_divisions_is_multi_division():
-    assert classify_reach("IB, P&C", "EMEA") == REACH_MULTI_DIVISION
-
-
-def test_one_division_is_single_division():
-    assert classify_reach("IB", "EMEA") == REACH_SINGLE_DIVISION
-
-
-def test_a_region_without_a_division_is_regional_only():
-    assert classify_reach("", "APAC") == REACH_REGIONAL_ONLY
-
-
-def test_neither_field_is_unclassified():
-    assert classify_reach(None, None) == REACH_UNCLASSIFIED
 
 
 # --- audience_band -----------------------------------------------------------
@@ -96,9 +65,62 @@ def test_numeric_audience_values_map_to_bands(value, expected):
     ("10 - 50k", BAND_10_50K),
     ("> 100k", BAND_OVER_100K),
     ("<1000", BAND_UNDER_1K),
+    # Case, as the source writes it.
+    ("1 - 10K", BAND_1_10K),
+    ("10 - 50K", BAND_10_50K),
+    ("50 - 100K", BAND_50_100K),
+    ("> 100K", BAND_OVER_100K),
+    # Thousands separators. "< 1.000" used to fall through to Unknown, which
+    # silently emptied the smallest band for any source writing it that way.
+    ("< 1.000", BAND_UNDER_1K),
+    ("< 1'000", BAND_UNDER_1K),
+    ("< 1,000", BAND_UNDER_1K),
 ])
-def test_band_labels_survive_dash_and_spacing_variants(value, expected):
+def test_band_labels_survive_dash_case_spacing_and_separator_variants(value, expected):
     assert audience_band(value) == expected
+
+
+def test_folding_separators_cannot_move_a_raw_count_between_bands():
+    """The separator fold is on the label path only. A raw count is read as a
+    number first, so 999 and 1000 still land either side of the boundary.
+    """
+    assert audience_band("999") == BAND_UNDER_1K
+    assert audience_band("1000") == BAND_1_10K
+    assert audience_band("49999") == BAND_10_50K
+    assert audience_band("50000") == BAND_50_100K
+
+
+# --- only_excluded_objectives ------------------------------------------------
+
+PREFIXES = ("2026: Other",)
+
+
+@pytest.mark.parametrize("value,expected", [
+    ("2026: Other", True),                          # nothing but the catch-all
+    ("2026: Other, 2026: Other things", True),      # several, all catch-all
+    ("2026: Other, 2026: Growth", False),           # also planned against a real one
+    ("2026: Growth", False),
+    ("", False),                                    # unclassified is a different gap
+    (None, False),
+    (float("nan"), False),
+])
+def test_a_row_goes_only_when_every_objective_is_a_catch_all(value, expected):
+    assert only_excluded_objectives(value, PREFIXES) is expected
+
+
+def test_the_prefix_match_ignores_case_and_surrounding_space():
+    assert only_excluded_objectives("  2026: OTHER  ", PREFIXES) is True
+    assert only_excluded_objectives("2026: Other", ("  2026: other  ",)) is True
+
+
+def test_it_is_a_prefix_not_a_substring():
+    """"Other" late in a label is a real objective, not the catch-all bucket."""
+    assert only_excluded_objectives("Growth and 2026: Other", PREFIXES) is False
+
+
+def test_no_prefixes_means_nothing_is_excluded():
+    assert only_excluded_objectives("2026: Other", ()) is False
+    assert only_excluded_objectives("2026: Other", ("", "  ")) is False
 
 
 @pytest.mark.parametrize("value", ["", None, "all staff", "n/a", float("nan")])

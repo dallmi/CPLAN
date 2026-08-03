@@ -9,7 +9,6 @@ import pandas as pd
 
 from pipeline.report.config import BAND_10_50K, BAND_OVER_100K, ReportConfig
 from pipeline.report.data import EXCLUSION_ORDER, build_scope
-from pipeline.report.derive import REACH_SINGLE_DIVISION
 from pipeline.scripts.process_cplan import ActivityLoad
 
 
@@ -57,7 +56,6 @@ def test_rows_inside_the_window_survive_and_carry_derived_columns():
 
     assert len(scope.frame) == 1
     row = scope.frame.iloc[0]
-    assert row["reach"] == REACH_SINGLE_DIVISION
     assert row["audience_band"] == BAND_10_50K
     assert row["has_executives"] is False or row["has_executives"] == False  # noqa: E712
     assert row["week_index"] == scope.grid.week_index(date(2025, 3, 5))
@@ -94,6 +92,47 @@ def test_the_executive_filter_can_be_inverted():
     scope = build_scope(load, _config(executives="without"))
 
     assert list(scope.frame["tracking_id"]) == ["B"]
+
+
+def test_the_objectives_filter_drops_only_the_pure_catch_all_rows():
+    load = _load(
+        _row(tracking_id="A", strategic_objectives="2026: Other"),
+        _row(tracking_id="B", strategic_objectives="2026: Other, 2026: Growth"),
+        _row(tracking_id="C", strategic_objectives="2026: Growth"),
+        _row(tracking_id="D", strategic_objectives=""),
+    )
+
+    scope = build_scope(load, _config(exclude_objectives=("2026: Other",)))
+
+    assert sorted(scope.frame["tracking_id"]) == ["B", "C", "D"]
+    assert scope.excluded["objectives"] == 1
+
+
+def test_without_configured_prefixes_the_objectives_filter_does_nothing():
+    load = _load(_row(tracking_id="A", strategic_objectives="2026: Other"))
+
+    scope = build_scope(load, _config())
+
+    assert list(scope.frame["tracking_id"]) == ["A"]
+    assert scope.excluded["objectives"] == 0
+
+
+def test_an_export_without_the_objectives_column_still_produces_a_scope():
+    """`transform()` keeps only the columns the CSV carried, so the field may
+    simply be absent. A configured filter must then exclude nothing rather
+    than raise.
+    """
+    frame = pd.DataFrame([{
+        "tracking_id": "IC-0001", "activity_name": "A",
+        "start_date": pd.Timestamp("2025-03-05"),
+    }])
+    assert "strategic_objectives" not in frame.columns
+
+    scope = build_scope(ActivityLoad(frame, {}, {}),
+                        _config(exclude_objectives=("2026: Other",)))
+
+    assert len(scope.frame) == 1
+    assert scope.excluded["objectives"] == 0
 
 
 def test_the_audience_filter_keeps_only_the_named_bands():
@@ -159,7 +198,6 @@ def test_a_source_export_missing_optional_columns_still_produces_a_scope():
 
     assert len(scope.frame) == 1
     row = scope.frame.iloc[0]
-    assert row["reach"] == "Unclassified"      # no division, no region
     assert row["audience_band"] == "Unknown"
     assert row["has_executives"] is False or row["has_executives"] == False  # noqa: E712
     assert row["completeness"] >= 0            # scored against the external field list

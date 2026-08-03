@@ -30,6 +30,7 @@ COMPLETENESS_FIELDS_INTERNAL = COMPLETENESS_FIELDS_COMMON + (
 
 EXCLUSION_ORDER = (
     "no start date", "date window", "archived", "GEB", "audience band",
+    "objectives",
 )
 
 
@@ -156,11 +157,14 @@ def build_scope(load, config):
             allowed.add(BAND_UNKNOWN)
         drop(~frame["audience_band"].isin(allowed), "audience band")
 
-    frame["reach"] = [
-        derive.classify_reach(division, region)
-        for division, region in zip(_column(frame, "business_division"),
-                                    _column(frame, "region"))
-    ]
+    if config.exclude_objectives:
+        drop(
+            _column(frame, "strategic_objectives").apply(
+                lambda value: derive.only_excluded_objectives(
+                    value, config.exclude_objectives)),
+            "objectives",
+        )
+
     frame["week_index"] = frame["start_day"].apply(grid.week_index)
     frame["_quarter"] = [
         grid.quarter_of(grid.weeks[int(i)]) if i is not None and i == i else None

@@ -8,7 +8,7 @@ import pytest
 pytest.importorskip("openpyxl")
 from openpyxl import Workbook
 
-from pipeline.report.config import ReportConfig
+from pipeline.report.config import AUDIENCE_BAND_ORDER, ReportConfig
 from pipeline.report.data import build_scope
 from pipeline.report.table_sheets import build_executive_summary, build_glossary
 from pipeline.scripts.process_cplan import ActivityLoad
@@ -99,7 +99,7 @@ def test_every_share_formula_divides_by_its_own_section_total(tmp_path):
         assert f"B${total_row}=0" in label, f"row {r} guards the wrong total"
         assert f"B{r}/B${total_row}" in label, f"row {r} divides the wrong cells"
         checked += 1
-    assert checked >= 7  # internal/external plus the five reach buckets
+    assert checked >= 8  # internal/external plus the six audience bands
 
 
 def test_the_summary_reports_load_and_discipline(tmp_path):
@@ -155,7 +155,7 @@ def test_the_glossary_defines_the_terms_a_reader_meets_on_the_sheets(tmp_path):
     terms = {term for term, _ in _glossary_entries(ws)}
     text = "\n".join(f"{t} {d}" for t, d in _glossary_entries(ws)).lower()
 
-    for term in ("In scope", "Group-wide", "Overlap", "Audience band",
+    for term in ("In scope", "Overlap", "Audience band",
                  "GEB", "Lead time", "Planning completeness",
                  "Weekly counts", "Quarter delta", "Packs"):
         assert term in terms, f"the Glossary does not define {term!r}"
@@ -174,3 +174,46 @@ def test_the_glossary_lists_fields_the_export_does_not_carry(tmp_path):
     assert "FIELDS NOT IN THIS EXPORT" in column_a
     for name in scope.skipped_completeness_fields:
         assert name in column_a
+
+
+# --- shares ride in the label, so column C is never one lonely percentage ----
+
+def test_the_leadership_figures_carry_their_share_in_the_label(tmp_path):
+    """The GEB count used to sit as a bare number with a lone percentage in
+    column C beside it, next to two rows that had none. Both figures now use
+    the same TEXT() label formula the VOLUME breakdown uses.
+    """
+    ws, _ = _build(tmp_path, build_executive_summary)
+    labels = [str(ws.cell(row=r, column=1).value) for r in range(1, ws.max_row + 1)]
+
+    geb = [label for label in labels if "With GEB involvement" in label]
+    large = [label for label in labels if "Large audience" in label]
+
+    assert geb and large
+    for label in geb + large:
+        assert label.startswith('=TEXT(IF(B$'), label
+        assert '"0%"' in label
+
+
+def test_no_stray_percentage_is_left_in_column_c(tmp_path):
+    """Column C carried exactly one value: the orphan this replaced."""
+    ws, _ = _build(tmp_path, build_executive_summary)
+
+    column_c = [ws.cell(row=r, column=3).value for r in range(1, ws.max_row + 1)]
+
+    assert not [value for value in column_c if value is not None]
+
+
+def test_the_volume_block_breaks_the_portfolio_down_by_audience_band(tmp_path):
+    """Reach buckets were replaced by the audience bands, which is what a
+    planner actually acts on. Every band gets a row, Unknown included, because
+    the block is a partition of the portfolio.
+    """
+    ws, _ = _build(tmp_path, build_executive_summary)
+    labels = " ".join(str(ws.cell(row=r, column=1).value)
+                      for r in range(1, ws.max_row + 1))
+
+    for band in AUDIENCE_BAND_ORDER:
+        assert band in labels, f"the VOLUME block does not list {band!r}"
+    assert "Group-wide" not in labels
+    assert "Single division" not in labels

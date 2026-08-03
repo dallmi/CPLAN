@@ -7,11 +7,6 @@ import pytest
 pytest.importorskip("pandas")
 
 from pipeline.report.config import ReportConfig
-from pipeline.report.derive import (
-    REACH_GROUP_WIDE,
-    REACH_REGIONAL_ONLY,
-    REACH_UNCLASSIFIED,
-)
 from tests.report_fixtures import FIXTURE_ROW_COUNT, load_fixture_scope, write_activity_csvs
 from pipeline.scripts.process_cplan import load_activities
 
@@ -36,15 +31,6 @@ def test_lookup_json_becomes_readable_values(tmp_path):
 
     assert "Division A" in row["business_division"]
     assert "Division C" in row["business_division"]
-
-
-def test_the_scope_covers_every_reach_bucket(tmp_path):
-    scope = load_fixture_scope(tmp_path, _config())
-
-    reaches = set(scope.frame["reach"])
-    assert REACH_GROUP_WIDE in reaches
-    assert REACH_REGIONAL_ONLY in reaches
-    assert REACH_UNCLASSIFIED in reaches
 
 
 def test_the_scope_excludes_the_undated_and_out_of_window_rows(tmp_path):
