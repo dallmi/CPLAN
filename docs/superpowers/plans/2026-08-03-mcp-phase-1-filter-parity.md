@@ -28,7 +28,19 @@ Question IDs (Q1–Q63) below refer to that catalogue.
   that is the intended behaviour, not an obstacle to work around.
 - **Backend-neutral.** Every query test is parametrized over both backends via the
   existing `engine` fixture: SQLite always, PostgreSQL when
-  `CPLAN_TEST_DATABASE_URL` is set. No feature may work on only one backend.
+  `CPLAN_TEST_DATABASE_URL` is set. No feature may work on only one backend, and
+  no new test may hardcode a single backend's URL.
+- **Which session fixture to use.** `tests/test_mcp_server.py` has two, and
+  picking the wrong one fails at runtime:
+  - `session` — read-only, over a fixed five-activity seed. For tests that only
+    query that seed. It **cannot** accept `add_all`/`flush`: the engine raises
+    `ReadOnlyViolation` by design.
+  - `writable_session` — writable, over an empty database, parametrized over the
+    same backends. For any test that needs its own rows. Added in Task 2.
+
+  Every test in Tasks 3–8 inserts its own rows, so they all take
+  `writable_session`. Pure-function tests (Task 1's, Task 5's `priority_rank`
+  cases, Task 9's) take neither.
 - **Never build on the `v_*` views.** They are PostgreSQL-only and a documented
   no-op on SQLite (`pipeline/api/views.py`). Mirror their semantics in SQLAlchemy
   instead, and pin the mirror with a test.
@@ -446,25 +458,25 @@ filter by any of them. Closes Q8, Q9, Q34.
 - [ ] **Step 1: Write the failing tests**
 
 ```python
-def test_search_filters_by_lead_team(session):
-    session.add_all([
+def test_search_filters_by_lead_team(writable_session):
+    writable_session.add_all([
         _activity(activity_name="Team one item", lead_team="Team One"),
         _activity(activity_name="Team two item", lead_team="Team Two"),
     ])
-    session.flush()
-    found = queries.search_activities(session, lead_team="team one")
+    writable_session.flush()
+    found = queries.search_activities(writable_session, lead_team="team one")
     assert found["total_matches"] == 1
     assert found["activities"][0]["activity_name"] == "Team one item"
 
 
-def test_search_filters_by_region_and_division_together(session):
-    session.add_all([
+def test_search_filters_by_region_and_division_together(writable_session):
+    writable_session.add_all([
         _activity(activity_name="Match", region="Global", business_division="Division One"),
         _activity(activity_name="Wrong division", region="Global", business_division="Division Two"),
         _activity(activity_name="Wrong region", region="Local", business_division="Division One"),
     ])
-    session.flush()
-    found = queries.search_activities(session, region="global", business_division="Division One")
+    writable_session.flush()
+    found = queries.search_activities(writable_session, region="global", business_division="Division One")
     assert found["total_matches"] == 1
     assert found["activities"][0]["activity_name"] == "Match"
 
@@ -479,10 +491,10 @@ def test_search_filters_by_region_and_division_together(session):
         ("time_zone", "UTC"),
     ],
 )
-def test_search_filters_by_every_new_text_field(session, field, value):
-    session.add_all([_activity(**{field: value}), _activity(**{field: "Something else"})])
-    session.flush()
-    found = queries.search_activities(session, **{field: value})
+def test_search_filters_by_every_new_text_field(writable_session, field, value):
+    writable_session.add_all([_activity(**{field: value}), _activity(**{field: "Something else"})])
+    writable_session.flush()
+    found = queries.search_activities(writable_session, **{field: value})
     assert found["total_matches"] == 1
 
 
@@ -577,64 +589,64 @@ row imported before the column existed), which is not the same as diverging.
 - [ ] **Step 1: Write the failing tests**
 
 ```python
-def test_search_filters_by_end_date_window(session):
-    session.add_all([
+def test_search_filters_by_end_date_window(writable_session):
+    writable_session.add_all([
         _activity(activity_name="Ends soon", end_date=REFERENCE + timedelta(days=3)),
         _activity(activity_name="Ends late", end_date=REFERENCE + timedelta(days=90)),
     ])
-    session.flush()
+    writable_session.flush()
     found = queries.search_activities(
-        session,
+        writable_session,
         end_after=REFERENCE.date().isoformat(),
         end_before=(REFERENCE + timedelta(days=14)).date().isoformat(),
     )
     assert [row["activity_name"] for row in found["activities"]] == ["Ends soon"]
 
 
-def test_search_finds_activities_without_a_tracking_id(session):
-    session.add_all([
+def test_search_finds_activities_without_a_tracking_id(writable_session):
+    writable_session.add_all([
         _activity(activity_name="Untracked", tracking_id=None),
         _activity(activity_name="Blank tracked", tracking_id="   "),
         _activity(activity_name="Tracked"),
     ])
-    session.flush()
-    missing = queries.search_activities(session, has_tracking_id=False)
+    writable_session.flush()
+    missing = queries.search_activities(writable_session, has_tracking_id=False)
     assert sorted(row["activity_name"] for row in missing["activities"]) == [
         "Blank tracked",
         "Untracked",
     ]
-    present = queries.search_activities(session, has_tracking_id=True)
+    present = queries.search_activities(writable_session, has_tracking_id=True)
     assert [row["activity_name"] for row in present["activities"]] == ["Tracked"]
 
 
-def test_search_finds_locally_modified_rows_but_not_never_synced_ones(session):
-    session.add_all([
+def test_search_finds_locally_modified_rows_but_not_never_synced_ones(writable_session):
+    writable_session.add_all([
         _activity(activity_name="Diverged", version=3, synced_version=2),
         _activity(activity_name="In step", version=2, synced_version=2),
         _activity(activity_name="Never synced", version=4, synced_version=None),
     ])
-    session.flush()
-    found = queries.search_activities(session, locally_modified=True)
+    writable_session.flush()
+    found = queries.search_activities(writable_session, locally_modified=True)
     assert [row["activity_name"] for row in found["activities"]] == ["Diverged"]
 
 
-def test_search_filters_by_news_digest_flag(session):
-    session.add_all([
+def test_search_filters_by_news_digest_flag(writable_session):
+    writable_session.add_all([
         _activity(activity_name="In digest", news_digest=True),
         _activity(activity_name="Not in digest", news_digest=False),
     ])
-    session.flush()
-    found = queries.search_activities(session, news_digest=True)
+    writable_session.flush()
+    found = queries.search_activities(writable_session, news_digest=True)
     assert [row["activity_name"] for row in found["activities"]] == ["In digest"]
 
 
-def test_archived_only_returns_just_the_archived_rows(session):
-    session.add_all([
+def test_archived_only_returns_just_the_archived_rows(writable_session):
+    writable_session.add_all([
         _activity(activity_name="Live"),
         _activity(activity_name="Archived", is_archive=True),
     ])
-    session.flush()
-    found = queries.search_activities(session, archived_only=True)
+    writable_session.flush()
+    found = queries.search_activities(writable_session, archived_only=True)
     assert [row["activity_name"] for row in found["activities"]] == ["Archived"]
 ```
 
@@ -812,28 +824,28 @@ def test_priority_rank_matches_the_studio_implementation():
     assert queries.DEFAULT_PRIORITY_RANK == 1
 
 
-def test_lead_days_matches_the_api_read_model(session):
+def test_lead_days_matches_the_api_read_model(writable_session):
     activity = _activity(
         source_created_at=REFERENCE,
         start_date=REFERENCE + timedelta(days=12),
     )
-    session.add(activity)
-    session.flush()
+    writable_session.add(activity)
+    writable_session.flush()
     assert queries.lead_days(activity) == 12
     from pipeline.api.app import ActivityRead
 
     assert queries.lead_days(activity) == ActivityRead.model_validate(activity).planning_lead_days
 
 
-def test_lead_days_is_none_without_a_start_date(session):
+def test_lead_days_is_none_without_a_start_date(writable_session):
     activity = _activity(start_date=None)
-    session.add(activity)
-    session.flush()
+    writable_session.add(activity)
+    writable_session.flush()
     assert queries.lead_days(activity) is None
 
 
-def test_search_filters_by_short_lead_time(session):
-    session.add_all([
+def test_search_filters_by_short_lead_time(writable_session):
+    writable_session.add_all([
         _activity(
             activity_name="Short notice",
             source_created_at=REFERENCE,
@@ -845,20 +857,20 @@ def test_search_filters_by_short_lead_time(session):
             start_date=REFERENCE + timedelta(days=40),
         ),
     ])
-    session.flush()
-    found = queries.search_activities(session, max_lead_days=7)
+    writable_session.flush()
+    found = queries.search_activities(writable_session, max_lead_days=7)
     assert [row["activity_name"] for row in found["activities"]] == ["Short notice"]
     assert found["total_matches"] == 1
 
 
-def test_search_filters_by_minimum_priority_rank_across_both_vocabularies(session):
-    session.add_all([
+def test_search_filters_by_minimum_priority_rank_across_both_vocabularies(writable_session):
+    writable_session.add_all([
         _activity(activity_name="Numbered urgent", priority="2 - label"),
         _activity(activity_name="Worded urgent", priority="Critical"),
         _activity(activity_name="Routine", priority="4 - label"),
     ])
-    session.flush()
-    found = queries.search_activities(session, min_priority_rank=3)
+    writable_session.flush()
+    found = queries.search_activities(writable_session, min_priority_rank=3)
     assert sorted(row["activity_name"] for row in found["activities"]) == [
         "Numbered urgent",
         "Worded urgent",
@@ -866,52 +878,52 @@ def test_search_filters_by_minimum_priority_rank_across_both_vocabularies(sessio
     assert found["total_matches"] == 2
 
 
-def test_search_matches_one_member_of_a_multi_value_column(session):
-    session.add_all([
+def test_search_matches_one_member_of_a_multi_value_column(writable_session):
+    writable_session.add_all([
         _activity(activity_name="Two objectives", strategic_objectives="Objective A, Objective B"),
         _activity(activity_name="Longer name", strategic_objectives="Objective AB"),
         _activity(activity_name="Other", strategic_objectives="Objective C"),
     ])
-    session.flush()
-    found = queries.search_activities(session, strategic_objective="Objective A")
+    writable_session.flush()
+    found = queries.search_activities(writable_session, strategic_objective="Objective A")
     assert [row["activity_name"] for row in found["activities"]] == ["Two objectives"]
 
 
-def test_search_matches_an_executive_across_both_executive_columns(session):
-    session.add_all([
+def test_search_matches_an_executive_across_both_executive_columns(writable_session):
+    writable_session.add_all([
         _activity(activity_name="Board member", bod_geb="Doe, Jane"),
         _activity(activity_name="Other executive", other_executives="Roe, Sam; Poe, Ana"),
         _activity(activity_name="Nobody"),
     ])
-    session.flush()
+    writable_session.flush()
     assert [
         row["activity_name"]
-        for row in queries.search_activities(session, executive="Doe, Jane")["activities"]
+        for row in queries.search_activities(writable_session, executive="Doe, Jane")["activities"]
     ] == ["Board member"]
     assert [
         row["activity_name"]
-        for row in queries.search_activities(session, executive="Poe, Ana")["activities"]
+        for row in queries.search_activities(writable_session, executive="Poe, Ana")["activities"]
     ] == ["Other executive"]
 
 
-def test_post_filtered_search_still_reports_truncation(session):
-    session.add_all([
+def test_post_filtered_search_still_reports_truncation(writable_session):
+    writable_session.add_all([
         _activity(activity_name=f"Urgent {index}", priority="1 - label")
         for index in range(5)
     ])
-    session.flush()
-    found = queries.search_activities(session, min_priority_rank=3, limit=2)
+    writable_session.flush()
+    found = queries.search_activities(writable_session, min_priority_rank=3, limit=2)
     assert found["total_matches"] == 5
     assert found["returned"] == 2
     assert found["truncated"] is True
     assert "Narrow the filters" in found["note"]
 
 
-def test_search_without_post_filters_keeps_the_sql_count_path(session):
-    session.add_all([_activity() for _ in range(3)])
-    session.flush()
+def test_search_without_post_filters_keeps_the_sql_count_path(writable_session):
+    writable_session.add_all([_activity() for _ in range(3)])
+    writable_session.flush()
     assert queries.needs_post_filter(queries.ActivityFilters()) is False
-    assert queries.search_activities(session)["total_matches"] == 3
+    assert queries.search_activities(writable_session)["total_matches"] == 3
 ```
 
 - [ ] **Step 2: Run them to verify they fail**
@@ -1159,55 +1171,55 @@ Closes Q35, Q43, Q48, Q50; hardens Q46.
 - [ ] **Step 1: Write the failing tests**
 
 ```python
-def test_counts_by_a_multi_value_dimension_tally_members_not_combinations(session):
-    session.add_all([
+def test_counts_by_a_multi_value_dimension_tally_members_not_combinations(writable_session):
+    writable_session.add_all([
         _activity(strategic_objectives="Objective A, Objective B"),
         _activity(strategic_objectives="Objective A"),
     ])
-    session.flush()
-    counted = queries.activity_counts(session, dimension="strategic_objectives")
+    writable_session.flush()
+    counted = queries.activity_counts(writable_session, dimension="strategic_objectives")
     buckets = {bucket["value"]: bucket["count"] for bucket in counted["buckets"]}
     assert buckets == {"Objective A": 2, "Objective B": 1}
     # The total counts memberships, which can exceed the row count -- say so.
     assert counted["counts_memberships"] is True
 
 
-def test_counts_by_priority_rank_collapses_both_vocabularies(session):
-    session.add_all([
+def test_counts_by_priority_rank_collapses_both_vocabularies(writable_session):
+    writable_session.add_all([
         _activity(priority="1 - label"),
         _activity(priority="Critical"),
         _activity(priority="4 - label"),
     ])
-    session.flush()
-    counted = queries.activity_counts(session, dimension="priority_rank")
+    writable_session.flush()
+    counted = queries.activity_counts(writable_session, dimension="priority_rank")
     buckets = {bucket["value"]: bucket["count"] for bucket in counted["buckets"]}
     assert buckets == {"4": 2, "1": 1}
 
 
-def test_counts_accept_the_same_filters_as_search(session):
-    session.add_all([
+def test_counts_accept_the_same_filters_as_search(writable_session):
+    writable_session.add_all([
         _activity(region="Global", channel="Email"),
         _activity(region="Local", channel="Email"),
     ])
-    session.flush()
-    counted = queries.activity_counts(session, dimension="channel", region="Global")
+    writable_session.flush()
+    counted = queries.activity_counts(writable_session, dimension="channel", region="Global")
     assert counted["buckets"] == [{"value": "Email", "count": 1}]
 
 
 @pytest.mark.parametrize(
     "field", ["partner_team", "business_area", "target_audience", "audience", "time_zone"]
 )
-def test_field_values_enumerates_every_new_filter_column(session, field):
-    session.add_all([_activity(**{field: "Value One"}), _activity(**{field: "Value One"})])
-    session.flush()
-    listed = queries.field_values(session, field=field)
+def test_field_values_enumerates_every_new_filter_column(writable_session, field):
+    writable_session.add_all([_activity(**{field: "Value One"}), _activity(**{field: "Value One"})])
+    writable_session.flush()
+    listed = queries.field_values(writable_session, field=field)
     assert listed["values"] == [{"value": "Value One", "count": 2}]
 
 
-def test_field_values_splits_multi_value_columns(session):
-    session.add(_activity(strategic_objectives="Objective A, Objective B"))
-    session.flush()
-    listed = queries.field_values(session, field="strategic_objectives")
+def test_field_values_splits_multi_value_columns(writable_session):
+    writable_session.add(_activity(strategic_objectives="Objective A, Objective B"))
+    writable_session.flush()
+    listed = queries.field_values(writable_session, field="strategic_objectives")
     assert sorted(entry["value"] for entry in listed["values"]) == [
         "Objective A",
         "Objective B",
@@ -1471,36 +1483,36 @@ Closes Q24, Q25, Q49.
 - [ ] **Step 1: Write the failing tests**
 
 ```python
-def test_planning_gaps_can_be_narrowed_by_priority_rank(session):
-    session.add_all([
+def test_planning_gaps_can_be_narrowed_by_priority_rank(writable_session):
+    writable_session.add_all([
         _activity(activity_name="Urgent gap", priority="1 - label", channel=None),
         _activity(activity_name="Routine gap", priority="4 - label", channel=None),
     ])
-    session.flush()
-    gaps = queries.planning_gaps(session, min_priority_rank=3)
+    writable_session.flush()
+    gaps = queries.planning_gaps(writable_session, min_priority_rank=3)
     assert gaps["incomplete"] == 1
     assert gaps["activities"][0]["activity_name"] == "Urgent gap"
 
 
-def test_planning_gaps_can_be_narrowed_by_lead_team(session):
-    session.add_all([
+def test_planning_gaps_can_be_narrowed_by_lead_team(writable_session):
+    writable_session.add_all([
         _activity(lead_team="Team One", channel=None),
         _activity(lead_team="Team Two", channel=None),
     ])
-    session.flush()
-    gaps = queries.planning_gaps(session, lead_team="Team One")
+    writable_session.flush()
+    gaps = queries.planning_gaps(writable_session, lead_team="Team One")
     assert gaps["checked"] == 1
     assert gaps["incomplete"] == 1
 
 
-def test_planning_gaps_groups_completeness_by_lead_team(session):
-    session.add_all([
+def test_planning_gaps_groups_completeness_by_lead_team(writable_session):
+    writable_session.add_all([
         _activity(lead_team="Team One", channel=None),
         _activity(lead_team="Team One", channel=None),
         _activity(lead_team="Team Two"),
     ])
-    session.flush()
-    gaps = queries.planning_gaps(session, group_by="lead_team")
+    writable_session.flush()
+    gaps = queries.planning_gaps(writable_session, group_by="lead_team")
     groups = {group["value"]: group for group in gaps["groups"]}
     assert groups["Team One"]["incomplete"] == 2
     assert groups["Team One"]["complete"] == 0
@@ -1510,8 +1522,8 @@ def test_planning_gaps_groups_completeness_by_lead_team(session):
     assert gaps["groups"][0]["value"] == "Team One"
 
 
-def test_planning_gaps_rejects_an_unknown_grouping(session):
-    result = queries.planning_gaps(session, group_by="nonsense")
+def test_planning_gaps_rejects_an_unknown_grouping(writable_session):
+    result = queries.planning_gaps(writable_session, group_by="nonsense")
     assert "error" in result
     assert "lead_team" in result["supported_dimensions"]
 ```
@@ -1636,19 +1648,19 @@ sorted and explained without the model knowing the rule.
 - [ ] **Step 1: Write the failing tests**
 
 ```python
-def test_summaries_carry_the_derived_priority_rank(session):
-    session.add(_activity(priority="2 - label"))
-    session.flush()
-    row = queries.search_activities(session)["activities"][0]
+def test_summaries_carry_the_derived_priority_rank(writable_session):
+    writable_session.add(_activity(priority="2 - label"))
+    writable_session.flush()
+    row = queries.search_activities(writable_session)["activities"][0]
     assert row["priority_rank"] == 3
     assert row["is_high_priority"] is True
 
 
-def test_full_record_carries_the_derived_priority_rank(session):
+def test_full_record_carries_the_derived_priority_rank(writable_session):
     activity = _activity(priority="4 - label")
-    session.add(activity)
-    session.flush()
-    record = queries.get_activity(session, str(activity.id))["activity"]
+    writable_session.add(activity)
+    writable_session.flush()
+    record = queries.get_activity(writable_session, str(activity.id))["activity"]
     assert record["priority_rank"] == 1
     assert record["is_high_priority"] is False
 ```
