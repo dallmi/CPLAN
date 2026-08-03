@@ -25,7 +25,7 @@ from dataclasses import dataclass, field as dataclass_field
 from datetime import date, datetime, timezone
 from typing import Any
 
-from sqlalchemy import String, func, or_, select
+from sqlalchemy import String, and_, func, or_, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
@@ -143,6 +143,12 @@ class ActivityFilters:
     end_after: str | None = None
     end_before: str | None = None
     include_archived: bool = False
+    news_digest: bool | None = None
+    has_tracking_id: bool | None = None
+    locally_modified: bool | None = None
+    # Archived is a source-system view-size workaround, not a relevance signal --
+    # so it gets an explicit "only these" mode rather than only a hide/show flag.
+    archived_only: bool = False
 
 
 # Columns an agent may group or enumerate. Free-text columns in the schema are
@@ -285,7 +291,24 @@ def _apply_filters(statement, filters: ActivityFilters):
         if boundary is None:
             continue
         statement = statement.where(column >= boundary if lower_bound else column <= boundary)
-    if not filters.include_archived:
+    if filters.news_digest is not None:
+        statement = statement.where(Activity.news_digest.is_(filters.news_digest))
+    if filters.has_tracking_id is not None:
+        blank = or_(
+            Activity.tracking_id.is_(None),
+            func.trim(Activity.tracking_id) == "",
+        )
+        statement = statement.where(~blank if filters.has_tracking_id else blank)
+    if filters.locally_modified is not None:
+        # synced_version IS NULL means "never synced", which is not divergence.
+        diverged = and_(
+            Activity.synced_version.is_not(None),
+            Activity.version > Activity.synced_version,
+        )
+        statement = statement.where(diverged if filters.locally_modified else ~diverged)
+    if filters.archived_only:
+        statement = statement.where(Activity.is_archive.is_(True))
+    elif not filters.include_archived:
         statement = statement.where(Activity.is_archive.is_(False))
     return statement
 
@@ -319,6 +342,12 @@ def search_activities(
     campaign: str | None = None,
     start_after: str | None = None,
     start_before: str | None = None,
+    end_after: str | None = None,
+    end_before: str | None = None,
+    news_digest: bool | None = None,
+    has_tracking_id: bool | None = None,
+    locally_modified: bool | None = None,
+    archived_only: bool = False,
     include_archived: bool = False,
     limit: int | None = None,
 ) -> dict[str, Any]:
@@ -342,6 +371,12 @@ def search_activities(
         },
         start_after=start_after,
         start_before=start_before,
+        end_after=end_after,
+        end_before=end_before,
+        news_digest=news_digest,
+        has_tracking_id=has_tracking_id,
+        locally_modified=locally_modified,
+        archived_only=archived_only,
         include_archived=include_archived,
     )
     total = session.scalar(_apply_filters(select(func.count()).select_from(Activity), filters))

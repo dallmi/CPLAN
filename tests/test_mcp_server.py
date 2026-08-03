@@ -508,6 +508,67 @@ def test_search_filters_by_start_date_window(session):
     assert [row["activity_name"] for row in result["activities"]] == ["Beta newsletter"]
 
 
+def test_search_filters_by_end_date_window(writable_session):
+    writable_session.add_all([
+        _activity(activity_name="Ends soon", end_date=REFERENCE + timedelta(days=3)),
+        _activity(activity_name="Ends late", end_date=REFERENCE + timedelta(days=90)),
+    ])
+    writable_session.flush()
+    found = queries.search_activities(
+        writable_session,
+        end_after=REFERENCE.date().isoformat(),
+        end_before=(REFERENCE + timedelta(days=14)).date().isoformat(),
+    )
+    assert [row["activity_name"] for row in found["activities"]] == ["Ends soon"]
+
+
+def test_search_finds_activities_without_a_tracking_id(writable_session):
+    writable_session.add_all([
+        _activity(activity_name="Untracked", tracking_id=None),
+        _activity(activity_name="Blank tracked", tracking_id="   "),
+        _activity(activity_name="Tracked"),
+    ])
+    writable_session.flush()
+    missing = queries.search_activities(writable_session, has_tracking_id=False)
+    assert sorted(row["activity_name"] for row in missing["activities"]) == [
+        "Blank tracked",
+        "Untracked",
+    ]
+    present = queries.search_activities(writable_session, has_tracking_id=True)
+    assert [row["activity_name"] for row in present["activities"]] == ["Tracked"]
+
+
+def test_search_finds_locally_modified_rows_but_not_never_synced_ones(writable_session):
+    writable_session.add_all([
+        _activity(activity_name="Diverged", version=3, synced_version=2),
+        _activity(activity_name="In step", version=2, synced_version=2),
+        _activity(activity_name="Never synced", version=4, synced_version=None),
+    ])
+    writable_session.flush()
+    found = queries.search_activities(writable_session, locally_modified=True)
+    assert [row["activity_name"] for row in found["activities"]] == ["Diverged"]
+
+
+def test_search_filters_by_news_digest_flag(writable_session):
+    writable_session.add_all([
+        _activity(activity_name="In digest", news_digest=True),
+        _activity(activity_name="Not in digest", news_digest=False),
+    ])
+    writable_session.flush()
+    found = queries.search_activities(writable_session, news_digest=True)
+    assert [row["activity_name"] for row in found["activities"]] == ["In digest"]
+
+
+def test_archived_only_returns_just_the_archived_rows(writable_session):
+    writable_session.add_all([
+        _activity(activity_name="Live"),
+        _activity(activity_name="Archived", is_archive=True),
+    ])
+    writable_session.flush()
+    found = queries.search_activities(writable_session, archived_only=True)
+    assert [row["activity_name"] for row in found["activities"]] == ["Archived"]
+
+
 def test_search_reports_its_own_truncation(session):
     result = queries.search_activities(session, limit=1)
 
