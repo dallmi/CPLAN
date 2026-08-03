@@ -227,6 +227,26 @@ def test_non_person_lookups_still_join_with_commas():
     assert row["business_division"] == "Division A, Division B"
 
 
+def test_control_characters_are_stripped_from_every_text_column():
+    """A real export carried a vertical tab at the end of an activity title.
+    openpyxl refuses such characters outright, so the report died mid-write and
+    produced no file at all -- for one stray byte in one row.
+    """
+    row = _mapped_cells(["ID", "Title", "Start date", "BOD / GEB"],
+                        ["1", "Leadership Exchange\x0b", "2025-03-05",
+                         "Example\x1f, Ada"])
+
+    assert row["activity_name"] == "Leadership Exchange"
+    assert row["bod_geb"] == "Example, Ada"
+
+
+def test_tabs_and_newlines_survive_the_strip():
+    """Only the characters a spreadsheet cannot hold. Tab and newline can."""
+    assert process_cplan.strip_control_chars("a\tb\nc") == "a\tb\nc"
+    assert process_cplan.strip_control_chars(None) is None
+    assert process_cplan.strip_control_chars(42) == 42
+
+
 def test_the_snapshot_import_lets_the_mapped_fields_through():
     """Two allowlists have to agree, and nothing warned when they did not.
 

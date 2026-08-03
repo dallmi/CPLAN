@@ -204,3 +204,25 @@ def test_the_default_output_path_names_the_period(argv, expected):
 
     assert path.name.startswith(expected)
     assert path.suffix == ".xlsx"
+
+
+def test_a_control_character_in_the_source_does_not_kill_the_run(tmp_path):
+    """A real export carried a vertical tab at the end of an activity title.
+    openpyxl raises on those rather than escaping them, and the exception landed
+    mid-write: the whole run died and left no workbook behind. One bad byte in
+    one row must at worst cost that character.
+    """
+    input_dir = tmp_path / "input"
+    write_activity_csvs(input_dir)
+    csv = input_dir / "InternalCommunicationActivities.csv"
+    csv.write_text(csv.read_text(encoding="utf-8")
+                   .replace("Single division Q1", "Single division Q1\x0b"),
+                   encoding="utf-8")
+    out = tmp_path / "report.xlsx"
+
+    code = report_calendar.main(["--input-dir", str(input_dir), "--out", str(out)])
+
+    assert code == 0
+    assert out.exists()
+    names = [row[1].value for row in load_workbook(out)["Activities"].iter_rows()]
+    assert "Single division Q1" in names

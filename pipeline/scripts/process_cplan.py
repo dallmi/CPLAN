@@ -264,6 +264,26 @@ def decode_sp_column_name(name):
     return re.sub(r"_x([0-9a-fA-F]{4})_", _replace, name)
 
 
+# The characters no .xlsx may contain: the C0 control codes, minus tab, newline
+# and carriage return. openpyxl refuses them outright rather than escaping them,
+# so one stray byte anywhere in the source kills a whole report run and leaves
+# no file behind at all.
+ILLEGAL_XLSX_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def strip_control_chars(val):
+    """Remove control characters a spreadsheet cannot hold.
+
+    They arrive from the source system as paste artefacts -- a vertical tab at
+    the end of a title, a unit separator inside a name. Removed rather than
+    replaced with a space: they carry no meaning worth preserving, and turning
+    one into a space would silently alter values that are matched on elsewhere.
+    """
+    if not isinstance(val, str):
+        return val
+    return ILLEGAL_XLSX_CHARS.sub("", val)
+
+
 def _strip_html(val):
     """Strip HTML tags and decode entities, returning plain text."""
     if not isinstance(val, str):
@@ -536,6 +556,21 @@ def transform(df, source_type):
     df = df[keep]
 
     log(f"  {len(df.columns)} columns mapped to output schema")
+
+    # Before anything else touches the text: no control character survives into
+    # a consumer. The report writes these values straight into cells and
+    # openpyxl refuses such characters outright, killing a whole run over one
+    # stray byte.
+    #
+    # First, not last, because `_strip_html` collapses `\s+` to a single space
+    # and Python counts several of these codes as whitespace -- run afterwards,
+    # it would find nothing to remove and leave "Name<VT>, Ada" reading as
+    # "Name , Ada". The dtype test covers both object and pandas 3's dedicated
+    # string dtype: a CSV read with `dtype=str` lands in the latter, so an
+    # `== object` check silently matches nothing.
+    for col in df.columns:
+        if pd.api.types.is_object_dtype(df[col]) or pd.api.types.is_string_dtype(df[col]):
+            df[col] = df[col].map(strip_control_chars)
 
     # Strip HTML from rich text fields
     for col in ("activity_description", "bod_geb", "other_executives"):

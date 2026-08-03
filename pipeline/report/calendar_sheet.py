@@ -171,7 +171,7 @@ def _detail_label(activity):
 
 
 def _label_cell(ws, row, text, level, bold=False, hidden=False):
-    cell = ws.cell(row=row, column=LABEL_COL, value=text)
+    cell = ws.cell(row=row, column=LABEL_COL, value=style.safe(text))
     cell.border = style.THIN_BORDER
     if bold:
         cell.font = style.TOTAL_FONT

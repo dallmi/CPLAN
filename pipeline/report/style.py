@@ -8,6 +8,8 @@ Colours come from the corporate design system and match what the studio's own
 accent appears only on the summary tab.
 """
 
+import re
+
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
@@ -42,9 +44,24 @@ _SIDE = Side(style="thin", color=GRAY_I)
 THIN_BORDER = Border(left=_SIDE, right=_SIDE, top=_SIDE, bottom=_SIDE)
 
 
+# openpyxl raises on control characters rather than escaping them, and the
+# exception lands mid-write: the run dies and no workbook is produced at all.
+# The ETL strips them at the source (process_cplan.strip_control_chars); this is
+# the backstop for text the report builds itself, so a bad byte can at worst
+# blank a character rather than lose the whole file.
+_ILLEGAL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def safe(value):
+    """A value openpyxl will accept. Non-strings pass through untouched."""
+    if isinstance(value, str):
+        return _ILLEGAL.sub("", value)
+    return value
+
+
 def write_header_row(ws, row, headers, col_start=1):
     for offset, header in enumerate(headers):
-        cell = ws.cell(row=row, column=col_start + offset, value=header)
+        cell = ws.cell(row=row, column=col_start + offset, value=safe(header))
         cell.font = HEADER_FONT
         cell.fill = HEADER_FILL
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
@@ -58,7 +75,7 @@ def write_data_rows(ws, row, rows, fmt_map=None, col_start=1):
         fill = ALT_FILL if index % 2 == 1 else None
         for offset, value in enumerate(values):
             column = col_start + offset
-            cell = ws.cell(row=row + index, column=column, value=value)
+            cell = ws.cell(row=row + index, column=column, value=safe(value))
             cell.border = THIN_BORDER
             if fill:
                 cell.fill = fill
@@ -85,10 +102,10 @@ def write_section_header(ws, row, title, span, col_start=1):
 
 def write_kpi_row(ws, row, label, value, fmt=NUM_FMT_INT, sub=False):
     """Label in column A, value in column B. `sub` indents and italicises."""
-    label_cell = ws.cell(row=row, column=1, value=label)
+    label_cell = ws.cell(row=row, column=1, value=safe(label))
     label_cell.font = SUB_FONT if sub else LABEL_FONT
     label_cell.alignment = Alignment(indent=4 if sub else 1)
-    value_cell = ws.cell(row=row, column=2, value=value)
+    value_cell = ws.cell(row=row, column=2, value=safe(value))
     value_cell.font = SUB_FONT if sub else BODY_FONT
     value_cell.alignment = Alignment(horizontal="right")
     if isinstance(value, (int, float)) and not isinstance(value, bool):
@@ -110,7 +127,7 @@ def write_formula(ws, row, col, formula, fmt=None, fill=None, bold=False):
 
 def note_missing(ws, message):
     """Graceful degradation: one honest cell instead of a traceback."""
-    cell = ws.cell(row=1, column=1, value=message)
+    cell = ws.cell(row=1, column=1, value=safe(message))
     cell.font = SUB_FONT
     return 2
 
