@@ -66,6 +66,11 @@ python pipeline/scripts/build_standalone.py
 
 ### Calendar report
 
+On Windows, double-click `report.cmd` — it resolves the interpreter the same
+way the other launchers do (`CPLAN_PYTHON`, then an active venv, then the
+repo's `.venv`) and opens the workbook when it is done. `report.cmd -NoOpen`
+writes it without opening; `-Out` and `-InputDir` are passed through.
+
 ```bash
 # Generate the .xlsx planning report from the CSV exports (no database needed)
 python pipeline/scripts/report_calendar.py
