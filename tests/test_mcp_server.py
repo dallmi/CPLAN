@@ -1263,7 +1263,7 @@ def test_stdio_handshake_lists_and_calls_tools(settings_file):
 def test_domain_model_is_registered_as_a_resource(engine):
     from pipeline.mcp.server import build_server
 
-    server = build_server(str(engine.url))
+    server = build_server(engine.url.render_as_string(hide_password=False))
     uris = {str(resource.uri) for resource in asyncio.run(server.list_resources())}
     assert "cplan://domain-model" in uris
 
@@ -1272,7 +1272,7 @@ def test_domain_model_is_registered_as_a_resource(engine):
 def test_instructions_point_at_the_domain_model_resource(engine):
     from pipeline.mcp.server import build_server
 
-    server = build_server(str(engine.url))
+    server = build_server(engine.url.render_as_string(hide_password=False))
     assert "cplan://domain-model" in server.instructions
 
 
@@ -1280,7 +1280,7 @@ def test_instructions_point_at_the_domain_model_resource(engine):
 def test_search_exposes_every_new_filter_over_the_protocol(engine):
     from pipeline.mcp.server import build_server
 
-    server = build_server(str(engine.url))
+    server = build_server(engine.url.render_as_string(hide_password=False))
     tools = {tool.name: tool for tool in asyncio.run(server.list_tools())}
     properties = tools["search_activities"].input_schema["properties"]
     for name in (
@@ -1296,7 +1296,7 @@ def test_search_exposes_every_new_filter_over_the_protocol(engine):
 def test_planning_gaps_exposes_grouping_over_the_protocol(engine):
     from pipeline.mcp.server import build_server
 
-    server = build_server(str(engine.url))
+    server = build_server(engine.url.render_as_string(hide_password=False))
     tools = {tool.name: tool for tool in asyncio.run(server.list_tools())}
     assert "group_by" in tools["planning_gaps"].input_schema["properties"]
 
@@ -1305,7 +1305,7 @@ def test_planning_gaps_exposes_grouping_over_the_protocol(engine):
 def test_priority_tool_descriptions_warn_about_the_two_vocabularies(engine):
     from pipeline.mcp.server import build_server
 
-    server = build_server(str(engine.url))
+    server = build_server(engine.url.render_as_string(hide_password=False))
     tools = {tool.name: tool for tool in asyncio.run(server.list_tools())}
     for name in ("search_activities", "activity_counts"):
         assert "vocabular" in tools[name].description.lower(), name
@@ -1361,7 +1361,7 @@ def test_every_declared_parameter_can_be_forwarded_without_a_typo(engine):
     """
     from pipeline.mcp.server import build_server
 
-    server = build_server(str(engine.url))
+    server = build_server(engine.url.render_as_string(hide_password=False))
 
     async def exercise():
         tools = {tool.name: tool for tool in await server.list_tools()}
