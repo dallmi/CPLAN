@@ -711,6 +711,67 @@ def test_field_values_rejects_unknown_field(session):
     assert "channel" in result["supported_fields"]
 
 
+def test_counts_by_a_multi_value_dimension_tally_members_not_combinations(writable_session):
+    writable_session.add_all([
+        _activity(strategic_objectives="Objective A, Objective B"),
+        _activity(strategic_objectives="Objective A"),
+    ])
+    writable_session.flush()
+    counted = queries.activity_counts(writable_session, dimension="strategic_objectives")
+    buckets = {bucket["value"]: bucket["count"] for bucket in counted["buckets"]}
+    assert buckets == {"Objective A": 2, "Objective B": 1}
+    # The total counts memberships, which can exceed the row count -- say so.
+    assert counted["counts_memberships"] is True
+
+
+def test_counts_by_priority_rank_collapses_both_vocabularies(writable_session):
+    writable_session.add_all([
+        _activity(priority="1 - label"),
+        _activity(priority="Critical"),
+        _activity(priority="4 - label"),
+    ])
+    writable_session.flush()
+    counted = queries.activity_counts(writable_session, dimension="priority_rank")
+    buckets = {bucket["value"]: bucket["count"] for bucket in counted["buckets"]}
+    assert buckets == {"4": 2, "1": 1}
+
+
+def test_counts_accept_the_same_filters_as_search(writable_session):
+    writable_session.add_all([
+        _activity(region="Global", channel="Email"),
+        _activity(region="Local", channel="Email"),
+    ])
+    writable_session.flush()
+    counted = queries.activity_counts(writable_session, dimension="channel", region="Global")
+    assert counted["buckets"] == [{"value": "Email", "count": 1}]
+
+
+@pytest.mark.parametrize(
+    "field", ["partner_team", "business_area", "target_audience", "audience", "time_zone"]
+)
+def test_field_values_enumerates_every_new_filter_column(writable_session, field):
+    writable_session.add_all([_activity(**{field: "Value One"}), _activity(**{field: "Value One"})])
+    writable_session.flush()
+    listed = queries.field_values(writable_session, field=field)
+    assert listed["values"] == [{"value": "Value One", "count": 2}]
+
+
+def test_field_values_splits_multi_value_columns(writable_session):
+    writable_session.add(_activity(strategic_objectives="Objective A, Objective B"))
+    writable_session.flush()
+    listed = queries.field_values(writable_session, field="strategic_objectives")
+    assert sorted(entry["value"] for entry in listed["values"]) == [
+        "Objective A",
+        "Objective B",
+    ]
+
+
+def test_every_filterable_column_is_also_discoverable():
+    """An agent must never be able to filter on a column it cannot enumerate."""
+    missing = set(queries.FILTERABLE_TEXT_FIELDS) - set(queries.ENUMERABLE_FIELDS)
+    assert missing == set(), f"filterable but not enumerable: {sorted(missing)}"
+
+
 def test_database_status_summarizes_the_plan(session, engine):
     status = queries.database_status(session, engine)
 

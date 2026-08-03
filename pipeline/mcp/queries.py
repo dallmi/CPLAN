@@ -212,22 +212,25 @@ class ActivityFilters:
     min_priority_rank: int | None = None
 
 
-# Columns an agent may group or enumerate. Free-text columns in the schema are
-# not enumerated types, so `field_values` is what stops the model from guessing
-# filter values that do not exist.
+# Columns an agent may group or enumerate. Free-text columns in the schema are not
+# enumerated types, so `field_values` is what stops the model from guessing filter
+# values that do not exist -- which means every filterable column must appear
+# here too (pinned by test_every_filterable_column_is_also_discoverable).
+MULTI_VALUE_DIMENSIONS: tuple[str, ...] = tuple(MULTI_VALUE_SEPARATORS)
+
 GROUPABLE_FIELDS: tuple[str, ...] = (
-    "channel",
-    "priority",
-    "source_type",
-    "lead_team",
-    "lead",
-    "region",
-    "business_division",
-    "campaign",
+    *FILTERABLE_TEXT_FIELDS,
+    *MULTI_VALUE_DIMENSIONS,
+    "priority_rank",
     "month",
 )
 
-ENUMERABLE_FIELDS: tuple[str, ...] = tuple(f for f in GROUPABLE_FIELDS if f != "month")
+# 'month' and 'priority_rank' are derived, not stored, so they are groupable but
+# not enumerable.
+ENUMERABLE_FIELDS: tuple[str, ...] = (
+    *FILTERABLE_TEXT_FIELDS,
+    *MULTI_VALUE_DIMENSIONS,
+)
 
 # The compact projection for list-shaped answers, mirroring v_activity_overview.
 # Long free text (activity_description) is deliberately absent -- `get_activity`
@@ -462,69 +465,66 @@ def search_activities(
     limit: int | None = None,
 ) -> dict[str, Any]:
     capped = _clamp_limit(limit)
-    filters = ActivityFilters(
-        text_query=query,
-        text={
-            "channel": channel,
-            "source_type": source_type,
-            "priority": priority,
-            "lead": lead,
-            "lead_team": lead_team,
-            "partner_team": partner_team,
-            "campaign": campaign,
-            "region": region,
-            "business_division": business_division,
-            "business_area": business_area,
-            "target_audience": target_audience,
-            "audience": audience,
-            "time_zone": time_zone,
-        },
+    filters = _build_filters(
+        query=query,
+        channel=channel,
+        source_type=source_type,
+        priority=priority,
+        lead=lead,
+        lead_team=lead_team,
+        partner_team=partner_team,
+        campaign=campaign,
+        region=region,
+        business_division=business_division,
+        business_area=business_area,
+        target_audience=target_audience,
+        audience=audience,
+        time_zone=time_zone,
+        strategic_objective=strategic_objective,
         start_after=start_after,
         start_before=start_before,
         end_after=end_after,
         end_before=end_before,
+        include_archived=include_archived,
+        archived_only=archived_only,
         news_digest=news_digest,
         has_tracking_id=has_tracking_id,
         locally_modified=locally_modified,
-        archived_only=archived_only,
-        include_archived=include_archived,
-        # Only populated when actually filtering: an always-present key (even
-        # with a None value) would make `contains` a non-empty dict on every
-        # call, which would make `needs_post_filter` true unconditionally and
-        # permanently disable the cheap SQL-count path below.
-        contains={"strategic_objectives": strategic_objective} if strategic_objective else {},
         max_lead_days=max_lead_days,
         min_priority_rank=min_priority_rank,
     )
-    if needs_post_filter(filters) or executive:
-        # A Python predicate is active, so the count has to come from the
-        # filtered set rather than from SQL. SQL still does the narrowing.
-        statement = _apply_filters(select(Activity), filters)
-        if executive:
-            needle = f"%{executive.strip().lower()}%"
-            statement = statement.where(
-                or_(
-                    func.lower(func.coalesce(Activity.bod_geb, "")).like(needle),
-                    func.lower(func.coalesce(Activity.other_executives, "")).like(needle),
-                )
+    if executive:
+        # The executive filter spans two columns (an OR the single-column
+        # `contains` mapping cannot express), so it stays a special case here
+        # rather than living in `_filtered_activities`.
+        needle = f"%{executive.strip().lower()}%"
+        statement = _apply_filters(select(Activity), filters).where(
+            or_(
+                func.lower(func.coalesce(Activity.bod_geb, "")).like(needle),
+                func.lower(func.coalesce(Activity.other_executives, "")).like(needle),
             )
+        )
         candidates = session.scalars(
             statement.order_by(Activity.start_date, Activity.id)
         ).all()
+        wanted = executive.strip().lower()
         matching = [
             activity
             for activity in candidates
             if passes_post_filter(activity, filters)
-            and (
-                not executive
-                or executive.strip().lower()
-                in {
-                    value.lower()
-                    for column in ("bod_geb", "other_executives")
-                    for value in split_multi(getattr(activity, column), column)
-                }
-            )
+            and wanted
+            in {
+                value.lower()
+                for column in ("bod_geb", "other_executives")
+                for value in split_multi(getattr(activity, column), column)
+            }
         ]
+        total = len(matching)
+        rows = matching[:capped]
+    elif needs_post_filter(filters):
+        # A Python predicate is active, so the count has to come from the
+        # filtered set rather than from SQL. SQL still does the narrowing.
+        matching = _filtered_activities(session, filters)
         total = len(matching)
         rows = matching[:capped]
     else:
@@ -649,37 +649,85 @@ def _month_key(value: datetime | None) -> str:
     return f"{normalized.year:04d}-{normalized.month:02d}"
 
 
+def _build_filters(**kwargs: Any) -> ActivityFilters:
+    """Build an ActivityFilters from the flat keyword set the tools expose.
+
+    One place that knows which keyword goes into `text`, which into `contains`
+    and which is a scalar, so search, counts and gaps cannot drift apart.
+    """
+    text = {
+        name: kwargs.pop(name, None)
+        for name in FILTERABLE_TEXT_FIELDS
+    }
+    contains = {"strategic_objectives": kwargs.pop("strategic_objective", None)}
+    return ActivityFilters(
+        text_query=kwargs.pop("query", None),
+        text={name: value for name, value in text.items() if value},
+        contains={name: value for name, value in contains.items() if value},
+        start_after=kwargs.pop("start_after", None),
+        start_before=kwargs.pop("start_before", None),
+        end_after=kwargs.pop("end_after", None),
+        end_before=kwargs.pop("end_before", None),
+        include_archived=kwargs.pop("include_archived", False),
+        archived_only=kwargs.pop("archived_only", False),
+        news_digest=kwargs.pop("news_digest", None),
+        has_tracking_id=kwargs.pop("has_tracking_id", None),
+        locally_modified=kwargs.pop("locally_modified", None),
+        max_lead_days=kwargs.pop("max_lead_days", None),
+        min_priority_rank=kwargs.pop("min_priority_rank", None),
+    )
+
+
+def _filtered_activities(session: Session, filters: ActivityFilters) -> list[Activity]:
+    """Every activity matching `filters`, SQL first then the Python predicates."""
+    candidates = session.scalars(
+        _apply_filters(select(Activity), filters).order_by(Activity.start_date, Activity.id)
+    ).all()
+    if not needs_post_filter(filters):
+        return list(candidates)
+    return [activity for activity in candidates if passes_post_filter(activity, filters)]
+
+
 def activity_counts(
     session: Session,
     *,
     dimension: str,
-    source_type: str | None = None,
-    start_after: str | None = None,
-    start_before: str | None = None,
-    include_archived: bool = False,
+    **filter_kwargs: Any,
 ) -> dict[str, Any]:
+    """Activity volume grouped by one dimension, honouring every search filter."""
     if dimension not in GROUPABLE_FIELDS:
         return {
             "error": f"Unknown dimension {dimension!r}.",
             "supported_dimensions": list(GROUPABLE_FIELDS),
         }
-    filters = ActivityFilters(
-        text={"source_type": source_type},
-        start_after=start_after,
-        start_before=start_before,
-        include_archived=include_archived,
-    )
-    if dimension == "month":
-        # Month bucketing is the one dimension without a portable SQL spelling
-        # (date_trunc vs strftime), so it is grouped in Python over a
-        # single-column select rather than branching per dialect.
-        values = session.scalars(_apply_filters(select(Activity.start_date), filters)).all()
+    filters = _build_filters(**filter_kwargs)
+    counts_memberships = dimension in MULTI_VALUE_DIMENSIONS
+    if dimension in ("month", "priority_rank") or counts_memberships or needs_post_filter(filters):
+        # Grouped in Python: month has no portable SQL spelling (date_trunc vs
+        # strftime), priority_rank needs the two-vocabulary rule, and a
+        # multi-value dimension has to be split before it can be tallied.
+        rows = _filtered_activities(session, filters)
         tally: dict[str, int] = {}
-        for value in values:
-            key = _month_key(value)
-            tally[key] = tally.get(key, 0) + 1
-        buckets = [{"value": key, "count": count} for key, count in sorted(tally.items())]
-        total = len(values)
+        for activity in rows:
+            if dimension == "month":
+                keys = [_month_key(activity.start_date)]
+            elif dimension == "priority_rank":
+                keys = [str(priority_rank(activity.priority))]
+            elif counts_memberships:
+                keys = split_multi(getattr(activity, dimension), dimension) or ["Unassigned"]
+            else:
+                value = getattr(activity, dimension)
+                keys = ["Unassigned" if is_blank(value) else str(value)]
+            for key in keys:
+                tally[key] = tally.get(key, 0) + 1
+        if dimension == "month":
+            buckets = [{"value": key, "count": count} for key, count in sorted(tally.items())]
+        else:
+            buckets = sorted(
+                ({"value": key, "count": count} for key, count in tally.items()),
+                key=lambda bucket: (-bucket["count"], str(bucket["value"])),
+            )
+        total = sum(bucket["count"] for bucket in buckets)
     else:
         column = getattr(Activity, dimension)
         # Unassigned rows are surfaced as their own bucket, never dropped.
@@ -693,7 +741,12 @@ def activity_counts(
             key=lambda bucket: (-bucket["count"], str(bucket["value"])),
         )
         total = sum(bucket["count"] for bucket in buckets)
-    return {"dimension": dimension, "total": total, "buckets": buckets}
+    return {
+        "dimension": dimension,
+        "total": total,
+        "counts_memberships": counts_memberships,
+        "buckets": buckets,
+    }
 
 
 def field_values(
@@ -715,6 +768,23 @@ def field_values(
         }
     capped = _clamp_limit(limit)
     column = getattr(Activity, field)
+    if field in MULTI_VALUE_DIMENSIONS:
+        # Split before tallying, or the buckets are combinations rather than values.
+        stored = session.scalars(select(column)).all()
+        tally: dict[str, int] = {}
+        blank_count = 0
+        for value in stored:
+            members = split_multi(value, field)
+            if not members:
+                blank_count += 1
+                continue
+            for member in members:
+                tally[member] = tally.get(member, 0) + 1
+        values = sorted(
+            ({"value": name, "count": count} for name, count in tally.items()),
+            key=lambda entry: (-entry["count"], entry["value"]),
+        )[:capped]
+        return {"field": field, "values": values, "blank_count": blank_count}
     rows = session.execute(
         select(column, func.count()).group_by(column).order_by(func.count().desc()).limit(capped)
     ).all()
