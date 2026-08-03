@@ -1127,6 +1127,81 @@ def test_search_matches_an_executive_across_both_executive_columns(writable_sess
     ] == ["Other executive"]
 
 
+def test_executive_filter_spans_both_columns_in_both_stages(writable_session):
+    """The SQL prefilter and the Python exact check must cover the SAME columns.
+
+    A substring match in either column has to survive the prefilter and then be
+    decided exactly: "Doe, Jane" must not match the longer "Doe, Janet", and a
+    name held only in the second column must not be dropped.
+    """
+    writable_session.add_all([
+        _activity(activity_name="Board member", bod_geb="Doe, Jane"),
+        _activity(activity_name="Longer name", bod_geb="Doe, Janet"),
+        _activity(activity_name="Second column", other_executives="Roe, Sam; Doe, Jane"),
+        _activity(activity_name="Nobody"),
+    ])
+    writable_session.flush()
+    found = queries.search_activities(writable_session, executive="doe, jane")
+    assert sorted(row["activity_name"] for row in found["activities"]) == [
+        "Board member",
+        "Second column",
+    ]
+    assert found["total_matches"] == 2
+
+
+def test_planning_gaps_can_be_narrowed_by_executive(writable_session):
+    """Free once the filter lives in ActivityFilters instead of in one tool."""
+    writable_session.add_all([
+        _activity(activity_name="Executive gap", bod_geb="Doe, Jane", channel=None),
+        _activity(activity_name="Other gap", other_executives="Roe, Sam", channel=None),
+    ])
+    writable_session.flush()
+    gaps = queries.planning_gaps(writable_session, executive="Doe, Jane")
+    assert gaps["checked"] == 1
+    assert gaps["incomplete"] == 1
+    assert gaps["activities"][0]["activity_name"] == "Executive gap"
+
+
+def test_activity_counts_can_be_narrowed_by_executive(writable_session):
+    writable_session.add_all([
+        _activity(channel="Email", bod_geb="Doe, Jane"),
+        _activity(channel="Intranet", other_executives="Doe, Jane"),
+        _activity(channel="Email", bod_geb="Roe, Sam"),
+    ])
+    writable_session.flush()
+    counted = queries.activity_counts(
+        writable_session, dimension="channel", executive="Doe, Jane"
+    )
+    assert {bucket["value"]: bucket["count"] for bucket in counted["buckets"]} == {
+        "Email": 1,
+        "Intranet": 1,
+    }
+
+
+def test_search_finds_activities_involving_any_executive(writable_session):
+    """`has_executive` answers "which activities involve an executive at all".
+
+    Without it, that question needs `field_values` plus one search per name.
+    """
+    writable_session.add_all([
+        _activity(activity_name="Board", bod_geb="Doe, Jane"),
+        _activity(activity_name="Other", other_executives="Roe, Sam"),
+        _activity(activity_name="Sentinel", bod_geb="None", other_executives="   "),
+        _activity(activity_name="Nobody"),
+    ])
+    writable_session.flush()
+    involved = queries.search_activities(writable_session, has_executive=True)
+    assert sorted(row["activity_name"] for row in involved["activities"]) == [
+        "Board",
+        "Other",
+    ]
+    without = queries.search_activities(writable_session, has_executive=False)
+    assert sorted(row["activity_name"] for row in without["activities"]) == [
+        "Nobody",
+        "Sentinel",
+    ]
+
+
 def test_post_filtered_search_still_reports_truncation(writable_session):
     writable_session.add_all([
         _activity(activity_name=f"Urgent {index}", priority="1 - label")

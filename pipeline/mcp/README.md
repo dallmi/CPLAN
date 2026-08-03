@@ -28,10 +28,10 @@ host at that command with `cwd` set to the repository root.
 |---|---|
 | `database_status` | How big is the plan, what date range, when did the last sync run |
 | `field_values` | Distinct stored values (with row counts) of any of the 13 free-text filter columns (`source_type`, `channel`, `priority`, `lead`, `lead_team`, `partner_team`, `campaign`, `region`, `business_division`, `business_area`, `target_audience`, `audience`, `time_zone`), or the individual members of the 3 multi-value columns (`strategic_objectives`, `bod_geb`, `other_executives`) |
-| `search_activities` | Find activities by free-text `query` plus every filterable and multi-value column above, `min_priority_rank`, `executive` (OR across both executive columns), start/end date windows, `max_lead_days`, the boolean flags `news_digest` / `has_tracking_id` / `locally_modified`, and archive handling via `include_archived` / `archived_only`; returns compact summaries |
+| `search_activities` | Find activities by free-text `query` plus every filterable and multi-value column above, `min_priority_rank`, `executive` (OR across both executive columns), start/end date windows, `max_lead_days`, the boolean flags `news_digest` / `has_tracking_id` / `has_executive` / `locally_modified`, and archive handling via `include_archived` / `archived_only`; returns compact summaries |
 | `get_activity` | Full record of one activity by tracking id or UUID |
-| `planning_gaps` | Which activities are not fully planned and what is missing, narrowable by `source_type`, `lead_team`, `lead`, `channel`, `region`, `business_division`, `campaign`, `min_priority_rank`, `start_after`/`start_before` and `include_archived`, and groupable with `group_by` (any enumerable column) to show which team/channel is behind — no `executive` filter here: search with `executive=` on `search_activities` to find the activities, then call `get_activity` on each match to read `missing_required_fields` |
-| `activity_counts` | Volume grouped by `dimension` — any filterable or multi-value column, plus `priority_rank` and `month` — filterable by `source_type`, `channel`, `lead_team`, `region`, `business_division`, `campaign`, `min_priority_rank`, `start_after`/`start_before` and `include_archived` (a subset of `planning_gaps`'s filters: no `lead`) |
+| `planning_gaps` | Which activities are not fully planned and what is missing, narrowable by `source_type`, `lead_team`, `lead`, `channel`, `region`, `business_division`, `campaign`, `executive`, `min_priority_rank`, `start_after`/`start_before` and `include_archived`, and groupable with `group_by` (any enumerable column) to show which team/channel is behind |
+| `activity_counts` | Volume grouped by `dimension` — any filterable or multi-value column, plus `priority_rank` and `month` — filterable by `source_type`, `channel`, `lead_team`, `region`, `business_division`, `campaign`, `executive`, `min_priority_rank`, `start_after`/`start_before` and `include_archived` (a subset of `planning_gaps`'s filters: no `lead`) |
 
 ## Resources
 
@@ -91,6 +91,13 @@ can narrow with a substring `LIKE`, but not decide membership, because "Objectiv
 A" also matches "Objective AB" as a substring. SQL narrows the candidate set
 first; `needs_post_filter` keeps the cheap `SELECT COUNT` path for every query
 that uses none of the three.
+
+The `executive` filter is the same two-stage idiom, OR'd across the two executive
+columns because a single-column `contains` entry cannot express that. Both stages
+read `EXECUTIVE_COLUMNS`, so the SQL prefilter and the Python membership check can
+never span different columns — the way rows would be silently dropped. Because it
+lives in `ActivityFilters` rather than in one tool, `planning_gaps` and
+`activity_counts` accept it too.
 
 **Multi-value columns split on the separator the ETL actually wrote.** Lookup
 values join with `", "`, person values with `"; "`. Person columns are split on

@@ -142,6 +142,7 @@ def build_server(database_url: str) -> MCPServer:
         max_lead_days: int | None = None,
         news_digest: bool | None = None,
         has_tracking_id: bool | None = None,
+        has_executive: bool | None = None,
         locally_modified: bool | None = None,
         include_archived: bool = False,
         archived_only: bool = False,
@@ -159,7 +160,9 @@ def build_server(database_url: str) -> MCPServer:
         (0-4, higher is more urgent; 3 means "critical and high") over `priority`.
 
         `strategic_objective` and `executive` match one member of a multi-valued
-        column; `executive` searches both executive columns.
+        column; `executive` searches both executive columns. `has_executive=True`
+        finds every activity involving any executive at all, without needing a
+        name.
 
         Windows: `start_after`/`start_before` filter start_date,
         `end_after`/`end_before` filter end_date; both take 'YYYY-MM-DD' or a
@@ -201,6 +204,7 @@ def build_server(database_url: str) -> MCPServer:
                 max_lead_days=max_lead_days,
                 news_digest=news_digest,
                 has_tracking_id=has_tracking_id,
+                has_executive=has_executive,
                 locally_modified=locally_modified,
                 include_archived=include_archived,
                 archived_only=archived_only,
@@ -227,6 +231,7 @@ def build_server(database_url: str) -> MCPServer:
         region: str | None = None,
         business_division: str | None = None,
         campaign: str | None = None,
+        executive: str | None = None,
         min_priority_rank: int | None = None,
         start_after: str | None = None,
         start_before: str | None = None,
@@ -243,7 +248,9 @@ def build_server(database_url: str) -> MCPServer:
         are required -- there is no either-satisfies shortcut.
 
         Narrow it like a search: `min_priority_rank=3` finds the urgent gaps,
-        `lead_team=` scopes it to one team. `group_by` (any enumerable column,
+        `lead_team=` scopes it to one team, `executive=` scopes it to the
+        activities one executive is involved in (either executive column).
+        `group_by` (any enumerable column,
         e.g. lead_team) additionally reports complete/incomplete per group, worst
         group first -- that is how to answer "which team is behind" rather than
         "which records are incomplete".
@@ -251,12 +258,6 @@ def build_server(database_url: str) -> MCPServer:
         Returns per-activity missing fields plus a tally of which fields are
         missing most often. Pack/campaign linkage is deliberately NOT part of
         completeness: a standalone activity with no pack is fully planned.
-
-        There is no `executive` filter here: to find incomplete executive
-        activities, call search_activities with `executive=` to find them, then
-        get_activity on each match to read `missing_required_fields` --
-        search_activities' own rows are compact summaries and do not carry that
-        field.
         """
         return read(
             lambda session: queries.planning_gaps(
@@ -268,6 +269,7 @@ def build_server(database_url: str) -> MCPServer:
                 region=region,
                 business_division=business_division,
                 campaign=campaign,
+                executive=executive,
                 min_priority_rank=min_priority_rank,
                 start_after=start_after,
                 start_before=start_before,
@@ -286,6 +288,7 @@ def build_server(database_url: str) -> MCPServer:
         region: str | None = None,
         business_division: str | None = None,
         campaign: str | None = None,
+        executive: str | None = None,
         min_priority_rank: int | None = None,
         start_after: str | None = None,
         start_before: str | None = None,
@@ -306,6 +309,10 @@ def build_server(database_url: str) -> MCPServer:
         Grouping a multi-value column (strategic_objectives, the executive
         columns) tallies individual members, so the total counts memberships and
         can exceed the activity count -- `counts_memberships` says when.
+
+        `executive=` narrows to the activities one executive is involved in
+        (either executive column), so "how does one executive's involvement split
+        across channels" is one call.
         """
         return read(
             lambda session: queries.activity_counts(
@@ -317,6 +324,7 @@ def build_server(database_url: str) -> MCPServer:
                 region=region,
                 business_division=business_division,
                 campaign=campaign,
+                executive=executive,
                 min_priority_rank=min_priority_rank,
                 start_after=start_after,
                 start_before=start_before,

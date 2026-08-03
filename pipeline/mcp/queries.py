@@ -88,6 +88,12 @@ MULTI_VALUE_SEPARATORS: dict[str, tuple[str, ...]] = {
     "other_executives": (";",),
 }
 
+# Executive involvement is split across two columns -- executive-board members and
+# senior leaders who are not on that board -- and the `executive` filter spans both.
+# Named once, because the SQL prefilter and the Python exact check MUST cover the
+# same columns or rows are silently dropped.
+EXECUTIVE_COLUMNS: tuple[str, ...] = ("bod_geb", "other_executives")
+
 
 def split_multi(value: Any, field: str) -> list[str]:
     """The individual members of a possibly multi-valued column.
@@ -202,12 +208,17 @@ class ActivityFilters:
     include_archived: bool = False
     news_digest: bool | None = None
     has_tracking_id: bool | None = None
+    has_executive: bool | None = None
     locally_modified: bool | None = None
     # Archived is a source-system view-size workaround, not a relevance signal --
     # so it gets an explicit "only these" mode rather than only a hide/show flag.
     archived_only: bool = False
     # Exact membership in a multi-value column: {column_name: one member value}.
     contains: dict[str, str] = dataclass_field(default_factory=dict)
+    # Exact membership in EITHER executive column -- an OR across two columns, which
+    # the single-column `contains` mapping cannot express, so it gets its own field
+    # rather than a bespoke implementation in one tool.
+    executive: str | None = None
     max_lead_days: int | None = None
     min_priority_rank: int | None = None
 
@@ -369,6 +380,18 @@ def _apply_filters(statement, filters: ActivityFilters):
         column = getattr(Activity, column_name)
         needle = f"%{member.strip().lower()}%"
         statement = statement.where(func.lower(func.coalesce(column, "")).like(needle))
+    if filters.executive:
+        # Same prefilter-then-decide shape as `contains`, but OR'd across the two
+        # executive columns. `passes_post_filter` spans exactly these columns too.
+        needle = f"%{filters.executive.strip().lower()}%"
+        statement = statement.where(
+            or_(
+                *(
+                    func.lower(func.coalesce(getattr(Activity, name), "")).like(needle)
+                    for name in EXECUTIVE_COLUMNS
+                )
+            )
+        )
     for column, raw, lower_bound in (
         (Activity.start_date, filters.start_after, True),
         (Activity.start_date, filters.start_before, False),
@@ -384,6 +407,12 @@ def _apply_filters(statement, filters: ActivityFilters):
     if filters.has_tracking_id is not None:
         blank = _blank_sql(Activity.tracking_id)
         statement = statement.where(~blank if filters.has_tracking_id else blank)
+    if filters.has_executive is not None:
+        # "Any executive involved" is: at least one of the two columns is non-blank.
+        no_executive = and_(*(_blank_sql(getattr(Activity, name)) for name in EXECUTIVE_COLUMNS))
+        statement = statement.where(
+            ~no_executive if filters.has_executive else no_executive
+        )
     if filters.locally_modified is not None:
         # synced_version IS NULL means "never synced", which is not divergence.
         diverged = and_(
@@ -405,6 +434,7 @@ def needs_post_filter(filters: ActivityFilters) -> bool:
     """
     return bool(
         filters.contains
+        or filters.executive
         or filters.max_lead_days is not None
         or filters.min_priority_rank is not None
     )
@@ -419,6 +449,16 @@ def passes_post_filter(activity: Activity, filters: ActivityFilters) -> bool:
         members = {value.lower() for value in split_multi(getattr(activity, column_name), column_name)}
         if wanted not in members:
             return False
+    if filters.executive:
+        wanted = filters.executive.strip().lower()
+        # Spans EXECUTIVE_COLUMNS, exactly like the SQL prefilter above.
+        members = {
+            value.lower()
+            for name in EXECUTIVE_COLUMNS
+            for value in split_multi(getattr(activity, name), name)
+        }
+        if wanted not in members:
+            return False
     if filters.max_lead_days is not None:
         days = lead_days(activity)
         if days is None or days > filters.max_lead_days:
@@ -427,11 +467,6 @@ def passes_post_filter(activity: Activity, filters: ActivityFilters) -> bool:
         if priority_rank(activity.priority) < filters.min_priority_rank:
             return False
     return True
-
-
-# Note: the `executive` filter spans two columns, which the single-column
-# `contains` mapping cannot express as an AND. It is handled as a special case in
-# `search_activities` below (OR across the two columns), not in `_apply_filters`.
 
 
 def _truncation_note(total: int, returned: int, limit: int) -> str | None:
@@ -478,6 +513,7 @@ def search_activities(
     end_before: str | None = None,
     news_digest: bool | None = None,
     has_tracking_id: bool | None = None,
+    has_executive: bool | None = None,
     locally_modified: bool | None = None,
     archived_only: bool = False,
     include_archived: bool = False,
@@ -504,6 +540,7 @@ def search_activities(
         audience=audience,
         time_zone=time_zone,
         strategic_objective=strategic_objective,
+        executive=executive,
         start_after=start_after,
         start_before=start_before,
         end_after=end_after,
@@ -512,39 +549,12 @@ def search_activities(
         archived_only=archived_only,
         news_digest=news_digest,
         has_tracking_id=has_tracking_id,
+        has_executive=has_executive,
         locally_modified=locally_modified,
         max_lead_days=max_lead_days,
         min_priority_rank=min_priority_rank,
     )
-    if executive:
-        # The executive filter spans two columns (an OR the single-column
-        # `contains` mapping cannot express), so it stays a special case here
-        # rather than living in `_filtered_activities`.
-        needle = f"%{executive.strip().lower()}%"
-        statement = _apply_filters(select(Activity), filters).where(
-            or_(
-                func.lower(func.coalesce(Activity.bod_geb, "")).like(needle),
-                func.lower(func.coalesce(Activity.other_executives, "")).like(needle),
-            )
-        )
-        candidates = session.scalars(
-            statement.order_by(Activity.start_date, Activity.id)
-        ).all()
-        wanted = executive.strip().lower()
-        matching = [
-            activity
-            for activity in candidates
-            if passes_post_filter(activity, filters)
-            and wanted
-            in {
-                value.lower()
-                for column in ("bod_geb", "other_executives")
-                for value in split_multi(getattr(activity, column), column)
-            }
-        ]
-        total = len(matching)
-        rows = matching[:capped]
-    elif needs_post_filter(filters):
+    if needs_post_filter(filters):
         # A Python predicate is active, so the count has to come from the
         # filtered set rather than from SQL. SQL still does the narrowing.
         matching = _filtered_activities(session, filters)
@@ -701,6 +711,7 @@ def _build_filters(**kwargs: Any) -> ActivityFilters:
         text_query=kwargs.pop("query", None),
         text={name: value for name, value in text.items() if value},
         contains={name: value for name, value in contains.items() if value},
+        executive=kwargs.pop("executive", None),
         start_after=kwargs.pop("start_after", None),
         start_before=kwargs.pop("start_before", None),
         end_after=kwargs.pop("end_after", None),
@@ -709,6 +720,7 @@ def _build_filters(**kwargs: Any) -> ActivityFilters:
         archived_only=kwargs.pop("archived_only", False),
         news_digest=kwargs.pop("news_digest", None),
         has_tracking_id=kwargs.pop("has_tracking_id", None),
+        has_executive=kwargs.pop("has_executive", None),
         locally_modified=kwargs.pop("locally_modified", None),
         max_lead_days=kwargs.pop("max_lead_days", None),
         min_priority_rank=kwargs.pop("min_priority_rank", None),
@@ -716,8 +728,7 @@ def _build_filters(**kwargs: Any) -> ActivityFilters:
     if kwargs:
         # These keywords come from our own call sites, never from raw user
         # input, so an unrecognised one is a programming error -- a typo'd
-        # filter name (or one this helper genuinely doesn't support, like
-        # `executive`) must fail loudly rather than silently return a
+        # filter name must fail loudly rather than silently return a
         # confidently wrong, unfiltered tally. Same shape as Python's own
         # unexpected-keyword-argument TypeError.
         unexpected = ", ".join(sorted(kwargs))
