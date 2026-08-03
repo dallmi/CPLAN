@@ -857,3 +857,43 @@ def test_get_activity_changes_orders_newest_first_and_404s_for_unknown(client):
     missing_response = client.get(f"/api/activities/{uuid.uuid4()}/changes")
     assert missing_response.status_code == 404
     assert missing_response.json()["detail"]["code"] == "not_found"
+
+
+def test_the_leadership_fields_round_trip_through_the_api(client):
+    """Two separate source fields, and the API must keep them apart. GEB and
+    the non-GEB senior executives are different people with different meaning;
+    a schema that dropped one would look like an empty field, not a bug.
+    """
+    response = client.post(
+        "/api/activities",
+        json={
+            "source_type": "internal",
+            "activity_name": "Leadership fields",
+            "start_date": "2026-08-03T09:00:00+02:00",
+            "end_date": "2026-08-03T10:00:00+02:00",
+            "bod_geb": "Example, Ada",
+            "other_executives": "Sample, Ben; Placeholder, Cara",
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    created = response.json()
+    assert created["bod_geb"] == "Example, Ada"
+    assert created["other_executives"] == "Sample, Ben; Placeholder, Cara"
+
+    persisted = client.get("/api/activities").json()["items"][0]
+    assert persisted["bod_geb"] == "Example, Ada"
+    assert persisted["other_executives"] == "Sample, Ben; Placeholder, Cara"
+
+
+def test_a_non_geb_executive_can_be_edited_without_touching_geb(client):
+    created = create_activity(client)
+
+    response = client.patch(
+        f"/api/activities/{created['id']}",
+        json={"version": created["version"], "other_executives": "Sample, Ben"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["other_executives"] == "Sample, Ben"
+    assert response.json()["bod_geb"] is None

@@ -255,8 +255,8 @@ function donutHtml(entries, colorOf, centerText, centerSub) {
   // drawer share one variant-aware rule -- never two lists that can disagree.
   const REQUIRED_INTERNAL = A.REQUIRED_INTERNAL;
   const REQUIRED_EXTERNAL = A.REQUIRED_EXTERNAL;
-  const FIELD_LABELS = {activity_name:'Activity name', channel:'Channel', priority:'Priority', strategic_objectives:'Communications pillars', activity_description:'Description', target_audience:'Target audience', audience:'Estimated audience size', business_division:'Business division', region:'Region', start_date:'Start date', end_date:'End date', time_zone:'Time zone', lead:'Lead', lead_team:'Lead team', campaign:'Campaign', communication_pack_cpid:'Communication pack', business_area:'Business area', partner_team:'Partner team', news_digest:'News digest', pack_name:'Pack name'};
-  const CREATE_FIELDS = ['activity_name', 'activity_description', 'target_audience', 'business_division', 'business_area', 'region', 'channel', 'partner_team', 'lead_team', 'lead', 'start_date', 'end_date', 'time_zone', 'priority', 'strategic_objectives', 'campaign', 'communication_pack_cpid', 'audience'];
+  const FIELD_LABELS = {activity_name:'Activity name', channel:'Channel', priority:'Priority', strategic_objectives:'Communications pillars', activity_description:'Description', target_audience:'Target audience', audience:'Estimated audience size', business_division:'Business division', region:'Region', start_date:'Start date', end_date:'End date', time_zone:'Time zone', lead:'Lead', lead_team:'Lead team', campaign:'Campaign', communication_pack_cpid:'Communication pack', business_area:'Business area', partner_team:'Partner team', news_digest:'News digest', pack_name:'Pack name', bod_geb:'GEB', other_executives:'Senior executives (non-GEB)'};
+  const CREATE_FIELDS = ['activity_name', 'activity_description', 'target_audience', 'business_division', 'business_area', 'region', 'channel', 'partner_team', 'lead_team', 'lead', 'start_date', 'end_date', 'time_zone', 'priority', 'strategic_objectives', 'campaign', 'communication_pack_cpid', 'audience', 'bod_geb', 'other_executives'];
   const HISTORY_LIMIT = 30;
   const HISTORY_ACTOR_LABELS = {studio:'You', sync:'Source sync', seed:'Initial import'};
 
@@ -1909,9 +1909,12 @@ function donutHtml(entries, colorOf, centerText, centerSub) {
     {title:'Audience', fields:[['target_audience','Target audience'],['audience','Estimated audience size']]},
     {title:'Organisation', fields:[['business_division','Business division'],['business_area','Business area'],['region','Region']]},
     {title:'Schedule', fields:[['start_date','Start'],['end_date','End'],['time_zone','Time zone']]},
-    {title:'Ownership', fields:[['lead','Lead'],['lead_team','Lead team'],['partner_team','Partner team']]}
+    {title:'Ownership', fields:[['lead','Lead'],['lead_team','Lead team'],['partner_team','Partner team']]},
+    // Two separate source fields, never merged: GEB members, and senior
+    // executives who are not on the GEB.
+    {title:'Leadership', fields:[['bod_geb','GEB'],['other_executives','Senior executives (non-GEB)']]}
   ];
-  const EDITABLE_DETAIL_FIELDS = new Set(['campaign','channel','priority','strategic_objectives','activity_description','target_audience','audience','business_division','business_area','region','start_date','end_date','time_zone','lead','lead_team','partner_team']);
+  const EDITABLE_DETAIL_FIELDS = new Set(['campaign','channel','priority','strategic_objectives','activity_description','target_audience','audience','business_division','business_area','region','start_date','end_date','time_zone','lead','lead_team','partner_team','bod_geb','other_executives']);
 
   function renderDetailView(row) {
     const external=row.source_type!=='internal';

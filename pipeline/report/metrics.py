@@ -101,7 +101,8 @@ def pack_stats(frame):
 REPORTED_FIELDS = (
     "activity_name", "start_date", "end_date", "channel", "priority", "lead",
     "lead_team", "target_audience", "strategic_objectives", "activity_description",
-    "business_division", "region", "audience", "bod_geb", "communication_pack_cpid",
+    "business_division", "region", "audience", "bod_geb", "other_executives",
+    "communication_pack_cpid",
 )
 
 

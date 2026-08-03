@@ -148,6 +148,9 @@ class Activity(Base):
     campaign_ltid: Mapped[str | None] = mapped_column(Text, nullable=True)
     communication_pack_cpid: Mapped[str | None] = mapped_column(Text, nullable=True)
     bod_geb: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Senior executives who are not on the GEB -- a separate source field,
+    # counted separately everywhere.
+    other_executives: Mapped[str | None] = mapped_column(Text, nullable=True)
     communication_pack: Mapped[str | None] = mapped_column(Text, nullable=True)
     communication_ref: Mapped[str | None] = mapped_column(Text, nullable=True)
     author: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -259,6 +262,7 @@ class ActivityFields(BaseModel):
     campaign_ltid: str | None = None
     communication_pack_cpid: str | None = None
     bod_geb: str | None = None
+    other_executives: str | None = None
     communication_pack: str | None = None
     communication_ref: str | None = None
     author: str | None = None
@@ -323,6 +327,7 @@ class ActivityPatch(BaseModel):
     campaign_ltid: str | None = None
     communication_pack_cpid: str | None = None
     bod_geb: str | None = None
+    other_executives: str | None = None
     communication_pack: str | None = None
     communication_ref: str | None = None
     audience: str | None = None

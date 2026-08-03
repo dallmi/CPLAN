@@ -44,3 +44,27 @@ def test_is_idempotent_and_reports_nothing_created_on_a_second_run(engine):
     ensure_database(engine)
 
     assert ensure_database(engine) == []
+
+
+def test_a_database_from_before_a_new_column_picks_it_up(engine):
+    """No hand-written migration exists in this project, so a model column that
+    `ensure_schema` cannot add would simply never reach a deployed database --
+    and the field would read as permanently empty rather than as broken.
+
+    `other_executives` is the concrete case: added to the model after the live
+    databases were created.
+    """
+    from sqlalchemy import text
+
+    ensure_database(engine)
+    with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE activities DROP COLUMN other_executives"))
+    assert "other_executives" not in _columns(engine)
+
+    ensure_database(engine)
+
+    assert "other_executives" in _columns(engine)
+
+
+def _columns(engine):
+    return {column["name"] for column in inspect(engine).get_columns("activities")}
