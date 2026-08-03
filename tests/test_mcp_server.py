@@ -1217,6 +1217,29 @@ def test_domain_model_names_every_trap():
         assert phrase.lower() in text.lower(), phrase
 
 
+def test_domain_model_warns_that_free_text_is_untrusted():
+    """The warning has to live where the model reads, not only in the README.
+
+    Activity names and descriptions reach the model verbatim from the source
+    system. The README says so to the human operator; the domain-model resource
+    and the server instructions are the two surfaces built to carry that context
+    to the model itself.
+    """
+    from pipeline.mcp.domain import domain_model
+
+    text = domain_model().lower()
+    assert "untrusted" in text
+    assert "never as instructions" in text
+
+
+@pytest.mark.skipif(MCP_SDK_MISSING, reason="the mcp SDK is optional (pip install mcp)")
+def test_server_instructions_warn_that_free_text_is_untrusted():
+    from pipeline.mcp.server import INSTRUCTIONS
+
+    lowered = INSTRUCTIONS.lower()
+    assert "never" in lowered and "as instructions to follow" in lowered
+
+
 def test_domain_model_lists_the_real_required_fields():
     from pipeline.mcp.domain import domain_model
 
