@@ -32,7 +32,7 @@ COMPLETENESS_FIELDS_INTERNAL = COMPLETENESS_FIELDS_COMMON + (
 
 EXCLUSION_ORDER = (
     "no start date", "date window", "archived", "GEB", "audience band",
-    "objectives",
+    "objectives", "priority",
 )
 
 
@@ -89,8 +89,14 @@ def _resolve_window(days, config):
     bound nor a dated row there is nothing to span, so the axis falls back to
     the current week and the sheets come out empty rather than column-less.
     """
-    first = config.date_from or (min(days) if days else None)
-    last = config.date_to or (max(days) if days else None)
+    first, last = config.date_from, config.date_to
+    if days:
+        # The lower edge widens to reach every surviving row. Under the period's
+        # overlap rule an activity can start before the window and still be in
+        # scope, and the calendar guarantees a column for every activity it
+        # lists -- `build_calendar` asserts exactly that.
+        first = min(days) if first is None else min(first, min(days))
+        last = max(days) if last is None else max(last, max(days))
     if first is None and last is None:
         first = last = date.today()
     return first or last, last or first
@@ -132,7 +138,18 @@ def build_scope(load, config):
             frame = frame[~mask].copy()
 
     drop(frame["start_day"].isna(), "no start date")
-    drop(frame["start_day"].apply(lambda d: not config.covers(d)), "date window")
+    # The period is an overlap test, so it needs the end date too. An export
+    # without one is a real shape; every row then reads as a point in time.
+    frame["end_day"] = pd.to_datetime(
+        _column(frame, "end_date", default=None), errors="coerce"
+    ).dt.date.astype(object)
+    # A plain loop over two columns, not `.apply(axis=1)`: that builds a Series
+    # per row, and this runs once per activity on every run.
+    covered = pd.Series(
+        [config.covers(start, end if end == end else None)
+         for start, end in zip(frame["start_day"], frame["end_day"])],
+        index=frame.index)
+    drop(~covered, "date window")
 
     # The axis is settled here, on the rows the period let through. The filters
     # below narrow *who* appears, not *when* the report is about; letting them
@@ -176,6 +193,14 @@ def build_scope(load, config):
                 lambda value: derive.only_excluded_objectives(
                     value, config.exclude_objectives)),
             "objectives",
+        )
+
+    if config.exclude_priorities:
+        excluded_priorities = set(config.exclude_priorities)
+        drop(
+            _column(frame, "priority").apply(
+                lambda value: derive.priority_number(value) in excluded_priorities),
+            "priority",
         )
 
     frame["week_index"] = frame["start_day"].apply(grid.week_index)

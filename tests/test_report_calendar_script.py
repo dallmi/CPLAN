@@ -20,7 +20,7 @@ def test_the_script_writes_all_seven_sheets(tmp_path):
     write_activity_csvs(tmp_path / "input")
     out = tmp_path / "report.xlsx"
 
-    code = report_calendar.main(["--input-dir", str(tmp_path / "input"), "--out", str(out)])
+    code = report_calendar.main(["--input-dir", str(tmp_path / "input"), "--all", "--out", str(out)])
 
     assert code == 0
     assert out.exists()
@@ -30,7 +30,7 @@ def test_the_script_writes_all_seven_sheets(tmp_path):
 def test_the_workbook_reopens_without_repair(tmp_path):
     write_activity_csvs(tmp_path / "input")
     out = tmp_path / "report.xlsx"
-    report_calendar.main(["--input-dir", str(tmp_path / "input"), "--out", str(out)])
+    report_calendar.main(["--input-dir", str(tmp_path / "input"), "--all", "--out", str(out)])
 
     wb = load_workbook(out)
 
@@ -51,7 +51,7 @@ def test_the_default_run_covers_every_dated_activity(tmp_path):
     """The fixtures carry a 2024 row that the old hard-coded 2025 window cut."""
     write_activity_csvs(tmp_path / "input")
     out = tmp_path / "report.xlsx"
-    report_calendar.main(["--input-dir", str(tmp_path / "input"), "--out", str(out)])
+    report_calendar.main(["--input-dir", str(tmp_path / "input"), "--all", "--out", str(out)])
 
     names = [row[1].value for row in load_workbook(out)["Activities"].iter_rows()]
 
@@ -68,7 +68,7 @@ def test_the_shipped_workbook_carries_the_geb_block_and_names(tmp_path):
     """
     write_activity_csvs(tmp_path / "input")
     out = tmp_path / "report.xlsx"
-    report_calendar.main(["--input-dir", str(tmp_path / "input"), "--out", str(out)])
+    report_calendar.main(["--input-dir", str(tmp_path / "input"), "--all", "--out", str(out)])
     wb = load_workbook(out)
 
     calendar = wb["Calendar"]
@@ -146,7 +146,22 @@ def test_no_period_flags_leave_the_config_block_alone():
     config = _resolve([])
 
     assert config == report_calendar.CONFIG
+    assert config.date_from == date(2026, 1, 1)
+    assert config.date_to == date(2026, 12, 31)
+
+
+def test_all_clears_the_period_the_config_block_sets():
+    config = _resolve(["--all"])
+
     assert config.date_from is None and config.date_to is None
+    # Only the period is cleared; the other criteria are untouched.
+    assert config.exclude_priorities == report_calendar.CONFIG.exclude_priorities
+
+
+def test_all_cannot_be_combined_with_a_window():
+    for argv in (["--all", "--year", "2026"], ["--all", "--from", "2026-01-01"]):
+        with pytest.raises(SystemExit):
+            _resolve(argv)
 
 
 def test_year_expands_to_the_whole_calendar_year():
@@ -194,7 +209,8 @@ def test_a_malformed_date_is_refused_at_parse_time():
 
 
 @pytest.mark.parametrize("argv,expected", [
-    ([], "CPLAN_calendar_all_"),
+    (["--all"], "CPLAN_calendar_all_"),
+    ([], "CPLAN_calendar_2026_"),
     (["--year", "2026"], "CPLAN_calendar_2026_"),
     (["--from", "2025-01-01", "--to", "2026-12-31"], "CPLAN_calendar_2025-2026_"),
     (["--from", "2026-04-01", "--to", "2026-09-30"], "CPLAN_calendar_2026-04-01-2026-09-30_"),
@@ -220,7 +236,7 @@ def test_a_control_character_in_the_source_does_not_kill_the_run(tmp_path):
                    encoding="utf-8")
     out = tmp_path / "report.xlsx"
 
-    code = report_calendar.main(["--input-dir", str(input_dir), "--out", str(out)])
+    code = report_calendar.main(["--input-dir", str(input_dir), "--all", "--out", str(out)])
 
     assert code == 0
     assert out.exists()
@@ -239,7 +255,7 @@ def test_an_unbounded_run_warns_when_one_date_stretches_the_whole_grid(tmp_path,
     csv.write_text(csv.read_text(encoding="utf-8").replace("2025-11-04", "2049-11-04"),
                    encoding="utf-8")
 
-    report_calendar.main(["--input-dir", str(input_dir), "--out", str(tmp_path / "r.xlsx")])
+    report_calendar.main(["--input-dir", str(input_dir), "--all", "--out", str(tmp_path / "r.xlsx")])
     out = capsys.readouterr().out
 
     assert "WARNING" in out
@@ -250,7 +266,7 @@ def test_an_unbounded_run_warns_when_one_date_stretches_the_whole_grid(tmp_path,
 def test_a_normal_span_says_nothing(tmp_path, capsys):
     write_activity_csvs(tmp_path / "input")
 
-    report_calendar.main(["--input-dir", str(tmp_path / "input"),
+    report_calendar.main(["--input-dir", str(tmp_path / "input"), "--all",
                           "--out", str(tmp_path / "r.xlsx")])
 
     assert "WARNING" not in capsys.readouterr().out

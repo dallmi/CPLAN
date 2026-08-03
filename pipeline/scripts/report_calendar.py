@@ -61,12 +61,15 @@ WIDE_GRID_WEEKS = 5 * 52
 # CONFIGURATION -- this is the block to edit.
 # ---------------------------------------------------------------------------
 CONFIG = ReportConfig(
-    date_from=None,                  # None = no lower bound; --year/--from override
-    date_to=None,                    # None = no upper bound; --year/--to override
+    # An activity is in scope if its run *overlaps* this window -- it may start
+    # before it or end after it. --year/--from/--to override, --all clears.
+    date_from=date(2026, 1, 1),
+    date_to=date(2026, 12, 31),
     executives="any",                # "any" | "with" | "without"
     audience_bands=None,             # None = all bands; else e.g. ("50–100k", "> 100k")
     include_unknown_audience=True,   # applies only when audience_bands is set
     exclude_objectives=("2026: Other",),  # drop rows whose objectives are ONLY these
+    exclude_priorities=(4,),         # leading number; word priorities are untouched
     include_archived=True,           # archiving is a view-size workaround, not a status
     detail_rows=True,                # activity rows under each dimension value
     breakdown_fields=("business_division", "region", "executives"),
@@ -125,6 +128,8 @@ def build_parser():
                         help="Cover activities starting on or after this date (YYYY-MM-DD)")
     parser.add_argument("--to", dest="date_to", type=iso_date, default=None,
                         help="Cover activities starting on or before this date (YYYY-MM-DD)")
+    parser.add_argument("--all", dest="all_dates", action="store_true",
+                        help="Cover every dated activity, ignoring the period in CONFIG")
     parser.add_argument("--out", type=str, default=None,
                         help="Output path (default: pipeline/output/CPLAN_calendar_<period>_<date>.xlsx)")
     parser.add_argument("--input-dir", type=str, default=None,
@@ -140,6 +145,10 @@ def resolve_config(config, args, parser):
     what CONFIG says. Merging would let an edited CONFIG and a single flag
     combine into a window neither of them names.
     """
+    if args.all_dates:
+        if args.year is not None or args.date_from is not None or args.date_to is not None:
+            parser.error("--all cannot be combined with --year or --from/--to")
+        return replace(config, date_from=None, date_to=None)
     if args.year is not None:
         if args.date_from is not None or args.date_to is not None:
             parser.error("--year cannot be combined with --from/--to; use one or the other")

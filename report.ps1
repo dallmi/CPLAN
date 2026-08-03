@@ -7,7 +7,8 @@ launcher does far less than refresh.ps1: there is nothing to start and nothing
 to wait for.
 
 Usage (from the repo root, or just double-click report.cmd):
-  .\report.ps1                        # every dated activity, then open it
+  .\report.ps1                        # the period set in CONFIG (2026), then open it
+  .\report.ps1 -All                   # every dated activity, whatever CONFIG says
   .\report.ps1 -Year 2026             # one calendar year
   .\report.ps1 -From 2025-01-01 -To 2026-12-31   # two years in one workbook
   .\report.ps1 -NoOpen                # write it, leave it closed
@@ -22,6 +23,7 @@ every workbook prints its own period on the Executive Summary and carries it in
 its filename, so a run is still readable months later from the file alone.
 #>
 param(
+    [switch]$All,
     [int]$Year,
     [string]$From,
     [string]$To,
@@ -62,6 +64,7 @@ $env:PYTHONPATH = "."
 try {
     $args = @("pipeline\scripts\report_calendar.py")
     # -Year is [int], so an omitted switch arrives as 0 rather than $null.
+    if ($All) { $args += "--all" }
     if ($Year -gt 0) { $args += @("--year", $Year) }
     if ($From) { $args += @("--from", $From) }
     if ($To) { $args += @("--to", $To) }

@@ -72,6 +72,21 @@ def test_a_blank_objective_prefix_is_rejected_rather_than_emptying_the_report():
         _config(exclude_objectives=("   ",))
 
 
+def test_a_priority_that_is_not_a_number_is_rejected():
+    """The filter matches the source's leading integer. A label like
+    "4 - deprioritised" would match nothing and silently exclude no rows.
+    """
+    with pytest.raises(ValueError, match="leading numbers"):
+        _config(exclude_priorities=("4 - deprioritised",))
+    with pytest.raises(ValueError, match="leading numbers"):
+        _config(exclude_priorities=(True,))
+
+
+def test_excluded_priorities_are_named_on_the_summary():
+    assert dict(_config(exclude_priorities=(3, 4)).describe())["Excluded priorities"] == "3, 4"
+    assert dict(_config().describe())["Excluded priorities"] == "none"
+
+
 def test_an_empty_breakdown_tuple_is_rejected():
     with pytest.raises(ValueError, match="breakdown_fields"):
         _config(breakdown_fields=())

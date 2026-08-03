@@ -63,11 +63,47 @@ def test_rows_inside_the_window_survive_and_carry_derived_columns():
     assert row["lead_time_days"] == 32
 
 
-def test_a_row_outside_the_window_is_excluded_and_counted():
-    scope = build_scope(_load(_row(start_date="2024-06-01")), _config())
+def test_a_row_whose_whole_run_falls_outside_the_window_is_excluded():
+    load = _load(_row(start_date="2024-06-01", end_date="2024-06-02"))
+
+    scope = build_scope(load, _config())
 
     assert len(scope.frame) == 0
     assert scope.excluded["date window"] == 1
+
+
+def test_a_run_that_starts_before_the_window_but_ends_inside_it_survives():
+    """The period is an overlap test: an activity running from December into
+    February is running during both years and belongs in both reports.
+    """
+    load = _load(_row(start_date="2024-12-20", end_date="2025-02-15"))
+
+    scope = build_scope(load, _config())
+
+    assert len(scope.frame) == 1
+    assert scope.excluded["date window"] == 0
+
+
+def test_a_run_that_spans_the_whole_window_survives_though_neither_date_is_inside():
+    load = _load(_row(start_date="2024-06-01", end_date="2026-06-01"))
+
+    scope = build_scope(load, _config())
+
+    assert len(scope.frame) == 1
+
+
+def test_the_axis_widens_to_reach_a_row_that_starts_before_the_window():
+    """The calendar guarantees a column for every activity it lists, and
+    `build_calendar` asserts it. An overlap-admitted row starting in December
+    has to have a week to sit in.
+    """
+    load = _load(_row(start_date="2024-12-20", end_date="2025-02-15"))
+
+    scope = build_scope(load, _config())
+
+    assert scope.frame.iloc[0]["week_index"] is not None
+    assert scope.grid.weeks[0].monday <= date(2024, 12, 20)
+    assert scope.grid.weeks[-1].monday >= date(2025, 12, 25)   # the named bound is kept
 
 
 def test_a_row_without_a_start_date_is_excluded_and_counted_separately():
@@ -167,6 +203,40 @@ def test_a_non_geb_executive_alone_does_not_count_as_geb_involvement():
     assert scope.excluded["GEB"] == 1
 
 
+def test_the_priority_filter_drops_the_numbers_it_names():
+    load = _load(
+        _row(tracking_id="A", priority="1 - price sensitive"),
+        _row(tracking_id="B", priority="4 - deprioritised"),
+        _row(tracking_id="C", priority="2 - label"),
+    )
+
+    scope = build_scope(load, _config(exclude_priorities=(4,)))
+
+    assert sorted(scope.frame["tracking_id"]) == ["A", "C"]
+    assert scope.excluded["priority"] == 1
+
+
+def test_a_word_priority_is_left_alone_by_a_numeric_filter():
+    """Two vocabularies are live at once and there is no honest mapping between
+    them, so a numeric filter must not silently judge the words.
+    """
+    load = _load(_row(tracking_id="A", priority="Low"),
+                 _row(tracking_id="B", priority="4 - deprioritised"))
+
+    scope = build_scope(load, _config(exclude_priorities=(4,)))
+
+    assert list(scope.frame["tracking_id"]) == ["A"]
+
+
+def test_without_configured_priorities_nothing_is_dropped():
+    load = _load(_row(tracking_id="A", priority="4 - deprioritised"))
+
+    scope = build_scope(load, _config())
+
+    assert list(scope.frame["tracking_id"]) == ["A"]
+    assert scope.excluded["priority"] == 0
+
+
 def test_the_audience_filter_keeps_only_the_named_bands():
     load = _load(_row(tracking_id="A", audience="12000"), _row(tracking_id="B", audience="250000"))
 
@@ -247,6 +317,7 @@ def test_the_exclusion_counts_partition_the_rows_that_were_read():
         _row(tracking_id="A"),                                     # survives all of it
         _row(tracking_id="B", start_date=None, is_archived=True),  # undated AND archived
         _row(tracking_id="C", start_date="2024-06-01",             # out of window AND
+             end_date="2024-06-02",                                #   (whole run outside)
              is_archived=True, audience=""),                       #   archived AND unbanded
         _row(tracking_id="D", is_archived=True, audience=""),      # archived AND unbanded
         _row(tracking_id="E", audience="250000"),                  # wrong band only

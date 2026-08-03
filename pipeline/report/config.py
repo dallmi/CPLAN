@@ -45,6 +45,7 @@ class ReportConfig:
     audience_bands: tuple = None
     include_unknown_audience: bool = True
     exclude_objectives: tuple = ()
+    exclude_priorities: tuple = ()
     include_archived: bool = True
     detail_rows: bool = True
     breakdown_fields: tuple = ("business_division", "region", "executives")
@@ -76,14 +77,32 @@ class ReportConfig:
                 "matches every objective and would empty the report. Use () to "
                 "exclude nothing."
             )
+        for value in self.exclude_priorities:
+            if not isinstance(value, int) or isinstance(value, bool):
+                raise ValueError(
+                    f"exclude_priorities takes the leading numbers only, e.g. (4,); "
+                    f"got {value!r}"
+                )
         if not self.breakdown_fields:
             raise ValueError("breakdown_fields must name at least one field")
 
-    def covers(self, day):
-        """Is `day` inside the period? An unset bound excludes nothing."""
-        if self.date_from is not None and day < self.date_from:
+    def covers(self, start, end=None):
+        """Does an activity's run touch the period? An unset bound excludes nothing.
+
+        Overlap, not containment. An activity that starts in December and ends
+        in February is running during both years and belongs in both reports;
+        one that runs from before the period to after it is running throughout,
+        even though neither of its dates falls inside. Testing the start date
+        alone would hide both.
+
+        No end date is treated as a point in time at the start. An end before
+        the start is bad data the Data Quality sheet reports separately -- here
+        the later of the two is used, so a typo cannot silently drop a row.
+        """
+        last = start if end is None else max(start, end)
+        if self.date_from is not None and last < self.date_from:
             return False
-        if self.date_to is not None and day > self.date_to:
+        if self.date_to is not None and start > self.date_to:
             return False
         return True
 
@@ -134,6 +153,9 @@ class ReportConfig:
             ("Unknown audience band", "included" if self.include_unknown_audience else "excluded"),
             ("Excluded objectives",
              ", ".join(self.exclude_objectives) if self.exclude_objectives else "none"),
+            ("Excluded priorities",
+             ", ".join(str(p) for p in self.exclude_priorities)
+             if self.exclude_priorities else "none"),
             ("Archived activities", "included" if self.include_archived else "excluded"),
             ("Activity detail rows", "on" if self.detail_rows else "off"),
             ("Breakdown dimensions", ", ".join(self.breakdown_fields)),

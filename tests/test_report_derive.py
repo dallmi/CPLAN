@@ -16,6 +16,7 @@ from pipeline.report.derive import (
     has_executives,
     only_excluded_objectives,
     person_name,
+    priority_number,
     priority_rank,
     split_multi,
     split_people,
@@ -192,6 +193,23 @@ def test_the_flag_and_the_names_cannot_disagree():
     for value in ("Muster, Anna", " ; ", "", None, ";;", "  "):
         assert has_executives(value) is bool(executive_names(value))
 
+
+
+# --- priority_number ---------------------------------------------------------
+
+@pytest.mark.parametrize("value,expected", [
+    ("1 - price sensitive", 1),
+    ("4 - deprioritised", 4),
+    ("2", 2),
+    ("10 - something", 10),
+    # The studio's word vocabulary carries no number and must not be given one.
+    ("Medium", None),
+    ("Low", None),
+    ("", None),
+    (None, None),
+])
+def test_priority_number_reads_only_the_leading_integer(value, expected):
+    assert priority_number(value) == expected
 
 
 # --- priority_rank -----------------------------------------------------------

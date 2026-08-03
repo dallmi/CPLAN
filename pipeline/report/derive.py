@@ -192,6 +192,18 @@ def only_excluded_objectives(value, prefixes):
     return all(label.lower().startswith(wanted) for label in labels)
 
 
+def priority_number(value):
+    """The source system's leading priority number, or None.
+
+    Only the numbered vocabulary has one. The studio's words (Critical, High,
+    Medium, Low) carry no number and cannot be mapped onto one without
+    inventing a correspondence, so they return None and any filter built on
+    this leaves them alone rather than guessing.
+    """
+    match = re.match(r"^(\d+)", _text(value))
+    return int(match.group(1)) if match else None
+
+
 _PRIORITY_WORDS = {"critical": 4, "high": 3, "medium": 2, "normal": 1, "low": 0}
 
 
