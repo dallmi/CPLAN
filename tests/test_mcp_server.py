@@ -737,6 +737,156 @@ def test_query_results_are_json_serializable(session, engine):
 
 
 # --------------------------------------------------------------------------
+# Priority rank, lead time, and exact multi-value filters
+# --------------------------------------------------------------------------
+
+
+def test_priority_rank_reads_the_leading_number_first():
+    assert queries.priority_rank("1 - most urgent label") == 4
+    assert queries.priority_rank("2 - next label") == 3
+    assert queries.priority_rank("3 - lower label") == 2
+    assert queries.priority_rank("4 - lowest label") == 1
+
+
+def test_priority_rank_falls_back_to_the_words():
+    assert queries.priority_rank("Critical") == 4
+    assert queries.priority_rank("high") == 3
+    assert queries.priority_rank("Medium") == 2
+    assert queries.priority_rank("Low") == 0
+
+
+def test_priority_rank_puts_unknown_values_in_the_middle_not_at_the_bottom():
+    for value in (None, "", "   ", "Wichtig"):
+        assert queries.priority_rank(value) == queries.DEFAULT_PRIORITY_RANK == 1
+
+
+def test_is_high_priority_covers_both_vocabularies():
+    assert queries.is_high_priority("1 - label")
+    assert queries.is_high_priority("2 - label")
+    assert not queries.is_high_priority("3 - label")
+    assert queries.is_high_priority("Critical")
+    assert queries.is_high_priority("High")
+    assert not queries.is_high_priority("Medium")
+
+
+def test_priority_rank_matches_the_studio_implementation():
+    """Pinned against analytics.js so the fourth copy of this rule cannot drift."""
+    studio = (REPO_ROOT / "pipeline" / "studio" / "analytics.js").read_text()
+    declared = re.search(r"const ranks = \{([^}]*)\}", studio).group(1)
+    studio_ranks = {
+        key: int(value)
+        for key, value in re.findall(r"(\w+):\s*(\d+)", declared)
+    }
+    assert studio_ranks == queries.PRIORITY_WORD_RANKS
+    # The numbered branch and the default, also read from the studio source.
+    assert "5 - Number(numbered[1])" in studio
+    assert re.search(r"\?\?\s*1;", studio), "studio default rank is 1"
+    assert queries.DEFAULT_PRIORITY_RANK == 1
+
+
+def test_lead_days_matches_the_api_read_model(writable_session):
+    activity = _activity(
+        source_created_at=REFERENCE,
+        start_date=REFERENCE + timedelta(days=12),
+    )
+    writable_session.add(activity)
+    writable_session.flush()
+    assert queries.lead_days(activity) == 12
+    from pipeline.api.app import ActivityRead
+
+    assert queries.lead_days(activity) == ActivityRead.model_validate(activity).planning_lead_days
+
+
+def test_lead_days_is_none_without_a_start_date(writable_session):
+    activity = _activity(start_date=None)
+    writable_session.add(activity)
+    writable_session.flush()
+    assert queries.lead_days(activity) is None
+
+
+def test_search_filters_by_short_lead_time(writable_session):
+    writable_session.add_all([
+        _activity(
+            activity_name="Short notice",
+            source_created_at=REFERENCE,
+            start_date=REFERENCE + timedelta(days=2),
+        ),
+        _activity(
+            activity_name="Well planned",
+            source_created_at=REFERENCE,
+            start_date=REFERENCE + timedelta(days=40),
+        ),
+    ])
+    writable_session.flush()
+    found = queries.search_activities(writable_session, max_lead_days=7)
+    assert [row["activity_name"] for row in found["activities"]] == ["Short notice"]
+    assert found["total_matches"] == 1
+
+
+def test_search_filters_by_minimum_priority_rank_across_both_vocabularies(writable_session):
+    writable_session.add_all([
+        _activity(activity_name="Numbered urgent", priority="2 - label"),
+        _activity(activity_name="Worded urgent", priority="Critical"),
+        _activity(activity_name="Routine", priority="4 - label"),
+    ])
+    writable_session.flush()
+    found = queries.search_activities(writable_session, min_priority_rank=3)
+    assert sorted(row["activity_name"] for row in found["activities"]) == [
+        "Numbered urgent",
+        "Worded urgent",
+    ]
+    assert found["total_matches"] == 2
+
+
+def test_search_matches_one_member_of_a_multi_value_column(writable_session):
+    writable_session.add_all([
+        _activity(activity_name="Two objectives", strategic_objectives="Objective A, Objective B"),
+        _activity(activity_name="Longer name", strategic_objectives="Objective AB"),
+        _activity(activity_name="Other", strategic_objectives="Objective C"),
+    ])
+    writable_session.flush()
+    found = queries.search_activities(writable_session, strategic_objective="Objective A")
+    assert [row["activity_name"] for row in found["activities"]] == ["Two objectives"]
+
+
+def test_search_matches_an_executive_across_both_executive_columns(writable_session):
+    writable_session.add_all([
+        _activity(activity_name="Board member", bod_geb="Doe, Jane"),
+        _activity(activity_name="Other executive", other_executives="Roe, Sam; Poe, Ana"),
+        _activity(activity_name="Nobody"),
+    ])
+    writable_session.flush()
+    assert [
+        row["activity_name"]
+        for row in queries.search_activities(writable_session, executive="Doe, Jane")["activities"]
+    ] == ["Board member"]
+    assert [
+        row["activity_name"]
+        for row in queries.search_activities(writable_session, executive="Poe, Ana")["activities"]
+    ] == ["Other executive"]
+
+
+def test_post_filtered_search_still_reports_truncation(writable_session):
+    writable_session.add_all([
+        _activity(activity_name=f"Urgent {index}", priority="1 - label")
+        for index in range(5)
+    ])
+    writable_session.flush()
+    found = queries.search_activities(writable_session, min_priority_rank=3, limit=2)
+    assert found["total_matches"] == 5
+    assert found["returned"] == 2
+    assert found["truncated"] is True
+    assert "Narrow the filters" in found["note"]
+
+
+def test_search_without_post_filters_keeps_the_sql_count_path(writable_session):
+    writable_session.add_all([_activity() for _ in range(3)])
+    writable_session.flush()
+    assert queries.needs_post_filter(queries.ActivityFilters()) is False
+    assert queries.search_activities(writable_session)["total_matches"] == 3
+
+
+# --------------------------------------------------------------------------
 # Protocol layer -- needs the optional MCP SDK
 # --------------------------------------------------------------------------
 

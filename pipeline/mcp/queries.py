@@ -106,6 +106,63 @@ def split_multi(value: Any, field: str) -> list[str]:
     return [member.strip() for member in re.split(pattern, text) if member.strip()]
 
 
+# The two live priority vocabularies, mirroring analytics.js::priorityRank.
+#
+# The studio's entry form offers Critical / High / Medium / Low. Rows mirrored in
+# from the source system instead carry a numbered label, "<n> - <label>", with four
+# levels where 1 is the most urgent and 4 the least. The labels are internal
+# governance wording and are deliberately not reproduced here -- only the leading
+# digit carries meaning for this code.
+#
+# A leading integer wins because it is unambiguous. Anything in neither shape
+# lands on the middle rank rather than silently reading as low: matching only the
+# words was a real defect, and it made every mirrored record score the default
+# while the portfolio held thousands of level-1 and level-2 activities.
+PRIORITY_WORD_RANKS: dict[str, int] = {
+    "critical": 4,
+    "high": 3,
+    "medium": 2,
+    "normal": 1,
+    "low": 0,
+}
+DEFAULT_PRIORITY_RANK = 1
+HIGH_PRIORITY_RANK = 3
+
+_LEADING_INTEGER = re.compile(r"^(\d+)")
+
+
+def priority_rank(value: Any) -> int:
+    """0-4, higher is more urgent, across both live priority vocabularies."""
+    text = "" if value is None else str(value).strip()
+    numbered = _LEADING_INTEGER.match(text)
+    if numbered:
+        return max(0, 5 - int(numbered.group(1)))
+    return PRIORITY_WORD_RANKS.get(text.lower(), DEFAULT_PRIORITY_RANK)
+
+
+def is_high_priority(value: Any) -> bool:
+    """'Critical and high' in one place -- numbered levels 1-2, or the words."""
+    return priority_rank(value) >= HIGH_PRIORITY_RANK
+
+
+def lead_days(activity: Activity) -> int | None:
+    """Whole days between the reference timestamp and start_date.
+
+    Mirrors ActivityRead.planning_lead_days: the reference is source_created_at
+    when set, else created_at. Computed here in Python rather than in SQL on
+    purpose -- v_lead_times uses PostgreSQL round(), which rounds an exact half
+    day away from zero while Python rounds to even, so a SQL implementation would
+    disagree with the API by a day on that edge case.
+    """
+    if activity.start_date is None:
+        return None
+    reference = activity.source_created_at or activity.created_at
+    if reference is None:
+        return None
+    delta = as_utc(activity.start_date) - as_utc(reference)
+    return round(delta.total_seconds() / 86400)
+
+
 # Every case-insensitive equality filter an agent may apply. Free text in the
 # schema, so `field_values` remains the way to learn the real values first.
 FILTERABLE_TEXT_FIELDS: tuple[str, ...] = (
@@ -149,6 +206,10 @@ class ActivityFilters:
     # Archived is a source-system view-size workaround, not a relevance signal --
     # so it gets an explicit "only these" mode rather than only a hide/show flag.
     archived_only: bool = False
+    # Exact membership in a multi-value column: {column_name: one member value}.
+    contains: dict[str, str] = dataclass_field(default_factory=dict)
+    max_lead_days: int | None = None
+    min_priority_rank: int | None = None
 
 
 # Columns an agent may group or enumerate. Free-text columns in the schema are
@@ -281,6 +342,15 @@ def _apply_filters(statement, filters: ActivityFilters):
             continue
         column = getattr(Activity, column_name)
         statement = statement.where(func.lower(column) == value.strip().lower())
+    # A cheap substring prefilter only: "Objective A" also matches "Objective AB",
+    # so `passes_post_filter` decides membership exactly. Narrowing here keeps the
+    # candidate set small; correctness happens in Python.
+    for column_name, member in filters.contains.items():
+        if not member:
+            continue
+        column = getattr(Activity, column_name)
+        needle = f"%{member.strip().lower()}%"
+        statement = statement.where(func.lower(func.coalesce(column, "")).like(needle))
     for column, raw, lower_bound in (
         (Activity.start_date, filters.start_after, True),
         (Activity.start_date, filters.start_before, False),
@@ -311,6 +381,42 @@ def _apply_filters(statement, filters: ActivityFilters):
     elif not filters.include_archived:
         statement = statement.where(Activity.is_archive.is_(False))
     return statement
+
+
+def needs_post_filter(filters: ActivityFilters) -> bool:
+    """True when a predicate cannot be evaluated in portable SQL.
+
+    When this is False, the caller keeps the cheap SELECT COUNT path.
+    """
+    return bool(
+        filters.contains
+        or filters.max_lead_days is not None
+        or filters.min_priority_rank is not None
+    )
+
+
+def passes_post_filter(activity: Activity, filters: ActivityFilters) -> bool:
+    """The predicates SQL cannot express portably, evaluated exactly."""
+    for column_name, member in filters.contains.items():
+        if not member:
+            continue
+        wanted = member.strip().lower()
+        members = {value.lower() for value in split_multi(getattr(activity, column_name), column_name)}
+        if wanted not in members:
+            return False
+    if filters.max_lead_days is not None:
+        days = lead_days(activity)
+        if days is None or days > filters.max_lead_days:
+            return False
+    if filters.min_priority_rank is not None:
+        if priority_rank(activity.priority) < filters.min_priority_rank:
+            return False
+    return True
+
+
+# Note: the `executive` filter spans two columns, which the single-column
+# `contains` mapping cannot express as an AND. It is handled as a special case in
+# `search_activities` below (OR across the two columns), not in `_apply_filters`.
 
 
 def _truncation_note(total: int, returned: int, limit: int) -> str | None:
@@ -349,6 +455,10 @@ def search_activities(
     locally_modified: bool | None = None,
     archived_only: bool = False,
     include_archived: bool = False,
+    strategic_objective: str | None = None,
+    executive: str | None = None,
+    max_lead_days: int | None = None,
+    min_priority_rank: int | None = None,
     limit: int | None = None,
 ) -> dict[str, Any]:
     capped = _clamp_limit(limit)
@@ -378,19 +488,60 @@ def search_activities(
         locally_modified=locally_modified,
         archived_only=archived_only,
         include_archived=include_archived,
+        # Only populated when actually filtering: an always-present key (even
+        # with a None value) would make `contains` a non-empty dict on every
+        # call, which would make `needs_post_filter` true unconditionally and
+        # permanently disable the cheap SQL-count path below.
+        contains={"strategic_objectives": strategic_objective} if strategic_objective else {},
+        max_lead_days=max_lead_days,
+        min_priority_rank=min_priority_rank,
     )
-    total = session.scalar(_apply_filters(select(func.count()).select_from(Activity), filters))
-    rows = session.scalars(
-        _apply_filters(select(Activity), filters)
-        .order_by(Activity.start_date, Activity.id)
-        .limit(capped)
-    ).all()
+    if needs_post_filter(filters) or executive:
+        # A Python predicate is active, so the count has to come from the
+        # filtered set rather than from SQL. SQL still does the narrowing.
+        statement = _apply_filters(select(Activity), filters)
+        if executive:
+            needle = f"%{executive.strip().lower()}%"
+            statement = statement.where(
+                or_(
+                    func.lower(func.coalesce(Activity.bod_geb, "")).like(needle),
+                    func.lower(func.coalesce(Activity.other_executives, "")).like(needle),
+                )
+            )
+        candidates = session.scalars(
+            statement.order_by(Activity.start_date, Activity.id)
+        ).all()
+        matching = [
+            activity
+            for activity in candidates
+            if passes_post_filter(activity, filters)
+            and (
+                not executive
+                or executive.strip().lower()
+                in {
+                    value.lower()
+                    for column in ("bod_geb", "other_executives")
+                    for value in split_multi(getattr(activity, column), column)
+                }
+            )
+        ]
+        total = len(matching)
+        rows = matching[:capped]
+    else:
+        total = int(
+            session.scalar(_apply_filters(select(func.count()).select_from(Activity), filters)) or 0
+        )
+        rows = session.scalars(
+            _apply_filters(select(Activity), filters)
+            .order_by(Activity.start_date, Activity.id)
+            .limit(capped)
+        ).all()
     items = [_summarize(activity) for activity in rows]
     return {
-        "total_matches": int(total or 0),
+        "total_matches": int(total),
         "returned": len(items),
-        "truncated": len(items) < int(total or 0),
-        "note": _truncation_note(int(total or 0), len(items), capped),
+        "truncated": len(items) < int(total),
+        "note": _truncation_note(int(total), len(items), capped),
         "activities": items,
     }
 
