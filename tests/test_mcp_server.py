@@ -1311,6 +1311,88 @@ def test_priority_tool_descriptions_warn_about_the_two_vocabularies(engine):
         assert "vocabular" in tools[name].description.lower(), name
 
 
+def _plausible_value(name: str, schema: dict) -> object:
+    """A type-plausible argument for one declared tool parameter.
+
+    Driven off the parameter's own JSON-schema fragment (plus a handful of
+    name-based special cases for the enum-ish parameters, which need a real
+    value or the tool legitimately returns an error dict rather than
+    exercising the forwarding path) -- not off a hardcoded parameter list, so
+    this keeps working when a later task widens a tool's signature.
+    """
+    if name in ("dimension", "field"):
+        return "channel"
+    if name == "group_by":
+        return "lead_team"
+    if name == "identifier":
+        return "does-not-exist"  # a clean miss is still a non-error result
+    if name in ("start_after", "start_before", "end_after", "end_before"):
+        return "2020-01-01"
+    schema_type = schema.get("type")
+    if schema_type is None:
+        candidates = [
+            option.get("type")
+            for option in schema.get("anyOf", [])
+            if option.get("type") and option.get("type") != "null"
+        ]
+        schema_type = candidates[0] if candidates else "string"
+    if schema_type == "boolean":
+        return False
+    if schema_type in ("integer", "number"):
+        return 1
+    return "probe"
+
+
+@pytest.mark.skipif(MCP_SDK_MISSING, reason="the mcp SDK is optional (pip install mcp)")
+def test_every_declared_parameter_can_be_forwarded_without_a_typo(engine):
+    """Pins the highest-risk coupling in this task: every parameter a tool's
+    schema declares must be a name `queries._build_filters` (or the
+    explicit-parameter query functions) actually accepts.
+
+    `activity_counts` and `planning_gaps` forward through `**filter_kwargs`, so
+    a typo'd keyword there is NOT a Python-level signature error -- it only
+    raises inside `_build_filters`, at call time. Nothing else in this suite
+    calls those two tools with more than a couple of parameters (the stdio
+    handshake test only exercises `search_activities` with `query`/`limit`),
+    so a typo introduced while widening a signature would ship green through
+    the rest of the suite. This test drives every tool with every parameter
+    its own schema declares -- the same probe used to verify this task by
+    hand -- so that coupling is pinned rather than only spot-checked.
+    """
+    from pipeline.mcp.server import build_server
+
+    server = build_server(str(engine.url))
+
+    async def exercise():
+        tools = {tool.name: tool for tool in await server.list_tools()}
+        results = {}
+        for name, tool in tools.items():
+            properties = tool.input_schema["properties"]
+            arguments = {
+                param: _plausible_value(param, schema)
+                for param, schema in properties.items()
+            }
+            results[name] = await server.call_tool(name, arguments)
+        return results
+
+    results = asyncio.run(exercise())
+
+    assert set(results) == {
+        "database_status",
+        "field_values",
+        "search_activities",
+        "get_activity",
+        "planning_gaps",
+        "activity_counts",
+    }
+    for name, result in results.items():
+        # get_activity legitimately returns a clean miss ({"found": False, ...})
+        # for a nonexistent identifier -- that is a successful call, not a
+        # protocol error, so `is_error` (not the payload contents) is the
+        # right thing to assert on here.
+        assert result.is_error is False, f"{name} raised: {result.content}"
+
+
 @pytest.mark.skipif(MCP_SDK_MISSING, reason="the mcp SDK is optional (pip install mcp)")
 def test_stdio_server_keeps_stdout_clean(settings_file):
     """Diagnostics must go to stderr -- a stray print corrupts the transport."""
