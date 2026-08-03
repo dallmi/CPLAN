@@ -7,6 +7,7 @@ partition of what was read, not overlapping tallies.
 """
 
 from dataclasses import dataclass, field
+from datetime import date
 
 import pandas as pd
 
@@ -76,10 +77,25 @@ def _completeness(frame, fields):
     return (filled / len(fields) * 100).round().astype(int)
 
 
+def _resolve_window(days, config):
+    """The first and last day the time axis has to reach.
+
+    A bound the run asked for is kept even when no activity reaches it: asking
+    for 2026 means seeing all of 2026, empty weeks included. Only where the run
+    named no bound does the axis take its edge from the data. With neither a
+    bound nor a dated row there is nothing to span, so the axis falls back to
+    the current week and the sheets come out empty rather than column-less.
+    """
+    first = config.date_from or (min(days) if days else None)
+    last = config.date_to or (max(days) if days else None)
+    if first is None and last is None:
+        first = last = date.today()
+    return first or last, last or first
+
+
 def build_scope(load, config):
     frame = load.frame
     rows_read = len(frame)
-    grid = build_grid(config.date_from, config.date_to)
     excluded = {key: 0 for key in EXCLUSION_ORDER}
 
     source_files = [
@@ -87,7 +103,8 @@ def build_scope(load, config):
     ]
 
     if frame.empty:
-        return Scope(frame=frame, grid=grid, rows_read=0, excluded=excluded,
+        return Scope(frame=frame, grid=build_grid(*_resolve_window([], config)),
+                     rows_read=0, excluded=excluded,
                      source_files=source_files,
                      duplicates_removed=load.duplicates_removed)
 
@@ -112,10 +129,12 @@ def build_scope(load, config):
             frame = frame[~mask].copy()
 
     drop(frame["start_day"].isna(), "no start date")
-    drop(
-        frame["start_day"].apply(lambda d: d < config.date_from or d > config.date_to),
-        "date window",
-    )
+    drop(frame["start_day"].apply(lambda d: not config.covers(d)), "date window")
+
+    # The axis is settled here, on the rows the period let through. The filters
+    # below narrow *who* appears, not *when* the report is about; letting them
+    # move the time axis would make it shift for surprising reasons.
+    grid = build_grid(*_resolve_window(list(frame["start_day"]), config))
 
     if not config.include_archived and "is_archived" in frame.columns:
         drop(frame["is_archived"].fillna(False).astype(bool), "archived")

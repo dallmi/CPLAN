@@ -7,17 +7,24 @@ launcher does far less than refresh.ps1: there is nothing to start and nothing
 to wait for.
 
 Usage (from the repo root, or just double-click report.cmd):
-  .\report.ps1                        # write to pipeline\output\, then open it
+  .\report.ps1                        # every dated activity, then open it
+  .\report.ps1 -Year 2026             # one calendar year
+  .\report.ps1 -From 2025-01-01 -To 2026-12-31   # two years in one workbook
   .\report.ps1 -NoOpen                # write it, leave it closed
   .\report.ps1 -Out C:\tmp\plan.xlsx  # somewhere else
   .\report.ps1 -InputDir C:\tmp\csv   # read from here instead of OneDrive
 
-The report criteria - period, senior-executive involvement, audience bands -
-deliberately have no switch here. They live in the CONFIG block at the top of
-pipeline\scripts\report_calendar.py so a run is reproducible from the file
-alone, rather than depending on what somebody typed three weeks ago.
+The period is the one criterion with a switch here, because it is the one that
+changes from run to run. The rest - senior-executive involvement, audience
+bands - live in the CONFIG block at the top of
+pipeline\scripts\report_calendar.py. A switch costs nothing in traceability:
+every workbook prints its own period on the Executive Summary and carries it in
+its filename, so a run is still readable months later from the file alone.
 #>
 param(
+    [int]$Year,
+    [string]$From,
+    [string]$To,
     [switch]$NoOpen,
     [string]$Out,
     [string]$InputDir
@@ -54,6 +61,10 @@ Push-Location $root
 $env:PYTHONPATH = "."
 try {
     $args = @("pipeline\scripts\report_calendar.py")
+    # -Year is [int], so an omitted switch arrives as 0 rather than $null.
+    if ($Year -gt 0) { $args += @("--year", $Year) }
+    if ($From) { $args += @("--from", $From) }
+    if ($To) { $args += @("--to", $To) }
     if ($Out) { $args += @("--out", $Out) }
     if ($InputDir) { $args += @("--input-dir", $InputDir) }
 

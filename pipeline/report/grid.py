@@ -1,10 +1,14 @@
 """The report's time axis: ISO weeks nested under months under quarters.
 
-The grid is derived from the filter window rather than from a calendar year, so
-every activity that survives the filter is guaranteed a column. For a full year
-that means the first ISO week of the year through the first ISO week of the
-next -- 53 columns for 2025 -- and a thirteenth month column. That is correct,
-not an off-by-one: the last days of December belong to the next year's week 1.
+The grid is derived from a span of days rather than from a calendar year, so
+every activity that survives the period filter is guaranteed a column. That span
+is the report's period where one was asked for, and the extent of the data
+otherwise (`data._resolve_window`).
+
+For a full year the span means the first ISO week of the year through the first
+ISO week of the next -- 53 columns for 2025 -- and a thirteenth month column.
+That is correct, not an off-by-one: the last days of December belong to the next
+year's week 1.
 """
 
 from dataclasses import dataclass

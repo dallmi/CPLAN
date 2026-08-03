@@ -1,6 +1,6 @@
 """Filtering the loaded activities down to the report's scope."""
 
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 
@@ -221,3 +221,81 @@ def test_an_empty_load_produces_an_empty_scope_rather_than_an_error():
 
     assert scope.frame.empty
     assert scope.rows_read == 0
+
+
+# --- the time axis: a named bound wins, the data fills in the rest ----------
+
+def _open_config(**overrides):
+    return _config(date_from=None, date_to=None, **overrides)
+
+
+def _span(scope):
+    """First and last day the axis reaches."""
+    return scope.grid.weeks[0].monday, scope.grid.weeks[-1].monday + timedelta(days=6)
+
+
+def test_without_a_period_no_dated_row_is_excluded():
+    load = _load(_row(tracking_id="A", start_date="2019-03-05"),
+                 _row(tracking_id="B", start_date="2026-11-02"))
+
+    scope = build_scope(load, _open_config())
+
+    assert len(scope.frame) == 2
+    assert scope.excluded["date window"] == 0
+
+
+def test_without_a_period_the_axis_spans_the_data_and_gives_every_row_a_column():
+    load = _load(_row(tracking_id="A", start_date="2019-03-05"),
+                 _row(tracking_id="B", start_date="2026-11-02"))
+
+    scope = build_scope(load, _open_config())
+
+    first, last = _span(scope)
+    assert first == date(2019, 3, 4)      # Monday of the earliest activity's week
+    assert last == date(2026, 11, 8)      # Sunday of the latest activity's week
+    assert scope.frame["week_index"].notna().all()
+
+
+def test_a_named_period_keeps_its_full_span_even_when_the_data_is_narrower():
+    """Asking for 2026 means seeing all of 2026, empty weeks included."""
+    load = _load(_row(start_date="2026-06-03"))
+
+    scope = build_scope(load, _config(date_from=date(2026, 1, 1), date_to=date(2026, 12, 31)))
+
+    first, last = _span(scope)
+    assert first <= date(2026, 1, 1)
+    assert last >= date(2026, 12, 31)
+
+
+def test_a_one_sided_period_takes_its_open_edge_from_the_data():
+    load = _load(_row(tracking_id="A", start_date="2025-06-04"),
+                 _row(tracking_id="B", start_date="2027-02-10"))
+
+    scope = build_scope(load, _config(date_from=date(2026, 1, 1), date_to=None))
+
+    assert len(scope.frame) == 1               # the 2025 row is out
+    first, last = _span(scope)
+    assert first <= date(2026, 1, 1)           # the named bound is kept...
+    assert last == date(2027, 2, 14)           # ...the open edge follows the data
+
+
+def test_a_later_filter_narrows_the_rows_but_not_the_time_axis():
+    """Archived, executives and audience say *who* appears, not *when* the
+    report is about. Letting them move the axis would make it shift for
+    surprising reasons.
+    """
+    load = _load(_row(tracking_id="A", start_date="2025-03-05", is_archived=False),
+                 _row(tracking_id="B", start_date="2026-09-02", is_archived=True))
+
+    scope = build_scope(load, _open_config(include_archived=False))
+
+    assert len(scope.frame) == 1
+    assert scope.excluded["archived"] == 1
+    assert _span(scope)[1] == date(2026, 9, 6)   # still reaches the archived row
+
+
+def test_an_open_period_with_no_dated_rows_still_produces_an_axis():
+    scope = build_scope(_load(_row(start_date=None)), _open_config())
+
+    assert scope.frame.empty
+    assert scope.grid.weeks          # a column-less sheet would be unopenable

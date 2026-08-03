@@ -60,3 +60,90 @@ def test_describe_reports_the_applied_criteria():
     assert labels["Period"] == "2025-01-01 to 2025-12-31"
     assert labels["Senior executives"] == "with"
     assert labels["Audience bands"] == "all"
+
+
+# --- the period, which is the one criterion that may be left open -----------
+
+def test_a_config_without_a_period_is_valid_and_covers_every_day():
+    config = ReportConfig()
+
+    assert config.date_from is None
+    assert config.date_to is None
+    assert config.covers(date(1999, 1, 1))
+    assert config.covers(date(2049, 12, 31))
+
+
+def test_a_lower_bound_alone_leaves_the_upper_side_open():
+    config = ReportConfig(date_from=date(2026, 1, 1))
+
+    assert not config.covers(date(2025, 12, 31))
+    assert config.covers(date(2026, 1, 1))
+    assert config.covers(date(2049, 1, 1))
+
+
+def test_an_upper_bound_alone_leaves_the_lower_side_open():
+    config = ReportConfig(date_to=date(2026, 12, 31))
+
+    assert config.covers(date(1999, 1, 1))
+    assert config.covers(date(2026, 12, 31))
+    assert not config.covers(date(2027, 1, 1))
+
+
+def test_both_bounds_are_inclusive():
+    config = _config()
+
+    assert config.covers(date(2025, 1, 1))
+    assert config.covers(date(2025, 12, 31))
+    assert not config.covers(date(2024, 12, 31))
+    assert not config.covers(date(2026, 1, 1))
+
+
+@pytest.mark.parametrize("window,expected", [
+    ((date(2026, 1, 1), date(2026, 12, 31)), "2026-01-01 to 2026-12-31"),
+    ((date(2026, 1, 1), None), "from 2026-01-01"),
+    ((None, date(2026, 12, 31)), "until 2026-12-31"),
+    ((None, None), "all dates"),
+])
+def test_the_period_label_says_what_the_run_covered(window, expected):
+    config = ReportConfig(date_from=window[0], date_to=window[1])
+
+    assert config.period_label() == expected
+    assert dict(config.describe())["Period"] == expected
+
+
+@pytest.mark.parametrize("window,expected", [
+    # Full calendar years shrink to their year numbers...
+    ((date(2026, 1, 1), date(2026, 12, 31)), "2026"),
+    ((date(2025, 1, 1), date(2026, 12, 31)), "2025-2026"),
+    # ...anything else spells out the dates rather than rounding to a year it
+    # does not actually cover.
+    ((date(2026, 4, 1), date(2026, 9, 30)), "2026-04-01-2026-09-30"),
+    ((date(2026, 1, 1), date(2026, 6, 30)), "2026-01-01-2026-06-30"),
+    ((date(2026, 4, 1), None), "from-2026-04-01"),
+    ((None, date(2026, 9, 30)), "until-2026-09-30"),
+    ((None, None), "all"),
+])
+def test_the_period_slug_names_the_window_for_the_filename(window, expected):
+    config = ReportConfig(date_from=window[0], date_to=window[1])
+
+    assert config.period_slug() == expected
+
+
+@pytest.mark.parametrize("window", [
+    (date(2026, 1, 1), date(2026, 12, 31)),
+    (date(2025, 1, 1), date(2026, 12, 31)),
+    (date(2026, 4, 1), date(2026, 9, 30)),
+    (date(2026, 4, 1), None),
+    (None, date(2026, 9, 30)),
+    (None, None),
+])
+def test_no_slug_contains_an_underscore(window):
+    """The filename joins slug and a %Y_%m_%d stamp with underscores; a slug
+    that used them too would make "2025_2026_08_03" ambiguous.
+    """
+    assert "_" not in ReportConfig(date_from=window[0], date_to=window[1]).period_slug()
+
+
+def test_a_reversed_window_is_rejected_even_though_bounds_are_optional():
+    with pytest.raises(ValueError, match="date_from"):
+        ReportConfig(date_from=date(2026, 12, 31), date_to=date(2026, 1, 1))

@@ -5,15 +5,19 @@ database, no API process, no sync run has to be up first.
 
 Usage:
     python pipeline/scripts/report_calendar.py
+    python pipeline/scripts/report_calendar.py --year 2026
+    python pipeline/scripts/report_calendar.py --from 2026-01-01 --to 2026-06-30
     python pipeline/scripts/report_calendar.py --out /path/to/report.xlsx
 
-Edit CONFIG below to change what the report covers. The three criteria are hard
-filters: a row that fails any of them is absent from every sheet.
+Without a period the report covers every dated activity. Edit CONFIG below to
+change the rest of what it covers. The criteria are hard filters: a row that
+fails any of them is absent from every sheet.
 """
 
 import argparse
 import sys
-from datetime import date, datetime
+from dataclasses import replace
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from openpyxl import Workbook
@@ -51,8 +55,8 @@ OUTPUT_DIR = PIPELINE_DIR / "output"
 # CONFIGURATION -- this is the block to edit.
 # ---------------------------------------------------------------------------
 CONFIG = ReportConfig(
-    date_from=date(2025, 1, 1),      # filters on start_date, inclusive
-    date_to=date(2025, 12, 31),      # inclusive
+    date_from=None,                  # None = no lower bound; --year/--from override
+    date_to=None,                    # None = no upper bound; --year/--to override
     executives="any",                # "any" | "with" | "without"
     audience_bands=None,             # None = all bands; else e.g. ("50–100k", "> 100k")
     include_unknown_audience=True,   # applies only when audience_bands is set
@@ -86,23 +90,60 @@ def build_workbook(scope, config):
 
 def default_output_path(config):
     stamp = datetime.now().strftime("%Y_%m_%d")
-    return OUTPUT_DIR / f"CPLAN_calendar_{config.date_from.year}_{stamp}.xlsx"
+    return OUTPUT_DIR / f"CPLAN_calendar_{config.period_slug()}_{stamp}.xlsx"
+
+
+def iso_date(text):
+    try:
+        return date.fromisoformat(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected a date as YYYY-MM-DD, got {text!r}")
 
 
 def build_parser():
     parser = argparse.ArgumentParser(description="Generate the calendar .xlsx report")
+    parser.add_argument("--year", type=int, default=None,
+                        help="Cover one calendar year (shorthand for --from YYYY-01-01 --to YYYY-12-31)")
+    parser.add_argument("--from", dest="date_from", type=iso_date, default=None,
+                        help="Cover activities starting on or after this date (YYYY-MM-DD)")
+    parser.add_argument("--to", dest="date_to", type=iso_date, default=None,
+                        help="Cover activities starting on or before this date (YYYY-MM-DD)")
     parser.add_argument("--out", type=str, default=None,
-                        help="Output path (default: pipeline/output/CPLAN_calendar_<year>_<date>.xlsx)")
+                        help="Output path (default: pipeline/output/CPLAN_calendar_<period>_<date>.xlsx)")
     parser.add_argument("--input-dir", type=str, default=None,
                         help="Read the CSV exports from here instead of discovering OneDrive")
     return parser
 
 
+def resolve_config(config, args, parser):
+    """Apply the command line's period to CONFIG.
+
+    A period on the command line replaces the whole window rather than merging
+    bound by bound, so `--from` alone means "from there on, no end" no matter
+    what CONFIG says. Merging would let an edited CONFIG and a single flag
+    combine into a window neither of them names.
+    """
+    if args.year is not None:
+        if args.date_from is not None or args.date_to is not None:
+            parser.error("--year cannot be combined with --from/--to; use one or the other")
+        return replace(config,
+                       date_from=date(args.year, 1, 1),
+                       date_to=date(args.year, 12, 31))
+    if args.date_from is None and args.date_to is None:
+        return config
+    if (args.date_from is not None and args.date_to is not None
+            and args.date_from > args.date_to):
+        parser.error(f"--from ({args.date_from}) is after --to ({args.date_to})")
+    return replace(config, date_from=args.date_from, date_to=args.date_to)
+
+
 def main(argv=None):
-    args = build_parser().parse_args(argv)
-    config = CONFIG
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    config = resolve_config(CONFIG, args, parser)
 
     print_banner("CPLAN Calendar Report")
+    log(f"Period: {config.period_label()}")
     input_dir = Path(args.input_dir) if args.input_dir else find_input_dir()
     files = find_input_files(input_dir)
     if not files:
@@ -120,6 +161,10 @@ def main(argv=None):
     for reason, count in scope.excluded.items():
         if count:
             log(f"  excluded ({reason}): {count}")
+    if scope.grid.weeks:
+        first, last = scope.grid.weeks[0], scope.grid.weeks[-1]
+        log(f"Calendar spans {len(scope.grid.weeks)} weeks: "
+            f"{first.monday.isoformat()} to {(last.monday + timedelta(days=6)).isoformat()}")
 
     log("Building sheets:")
     wb = build_workbook(scope, config)
