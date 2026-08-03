@@ -31,6 +31,10 @@ A portal (landing page with project tiles and browser-based user administration)
 
 `GET /api/activities` deliberately returns the full result set with no pagination — the deployment target is local, single-user use. Revisit if the dataset outgrows an unpaginated response.
 
+## MCP server
+
+An optional read-only [MCP](https://modelcontextprotocol.io) server (`pipeline/mcp/`) exposes the planning data to AI agents over stdio — six tools for searching activities, inspecting planning gaps and counting volumes, on a database connection that refuses writes. It needs no running API server. See [`pipeline/mcp/README.md`](pipeline/mcp/README.md).
+
 ## Architecture
 
 ```

@@ -1,0 +1,4 @@
+# Kept separate from pipeline/api/requirements.txt on purpose: the MCP server is
+# optional, and the corp install path for the studio must not grow a dependency
+# for a feature that machine may never run.
+mcp>=2.0.0
