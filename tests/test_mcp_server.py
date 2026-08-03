@@ -162,6 +162,34 @@ def session(engine):
         yield active
 
 
+@pytest.fixture(params=TEST_BACKENDS)
+def writable_session(request, tmp_path):
+    """A writable session over an EMPTY database, per backend.
+
+    The `session` fixture is read-only over a fixed five-activity seed, which is
+    right for tests that query the seed but cannot serve a test that needs its
+    own rows. Parametrized identically, so a test built on this one still runs
+    on both backends.
+    """
+    from pipeline.api.database import create_cplan_engine
+
+    database_url = (
+        TEST_DATABASE_URL
+        if request.param == "postgresql"
+        else f"sqlite:///{tmp_path / 'mcp-writable.sqlite3'}"
+    )
+
+    writable = create_cplan_engine(database_url)
+    _drop_everything(writable)
+    Base.metadata.create_all(writable)
+    try:
+        with Session(writable) as active:
+            yield active
+    finally:
+        _drop_everything(writable)
+        writable.dispose()
+
+
 # --------------------------------------------------------------------------
 # The completeness rule must not drift from the PostgreSQL view
 # --------------------------------------------------------------------------
@@ -383,24 +411,21 @@ def test_schema_check_names_the_missing_column_and_the_fix(tmp_path):
 # --------------------------------------------------------------------------
 
 
-def test_activity_filters_defaults_to_no_narrowing(tmp_path):
+def test_activity_filters_defaults_to_no_narrowing(writable_session):
     """An empty filter object must behave exactly like the old all-None call.
 
-    Uses its own writable engine rather than the `session` fixture: that
-    fixture is wrapped by the read-only guard (see test_engine_refuses_orm_flush),
-    so it cannot accept the add_all/flush this test needs.
+    Uses `writable_session` rather than the `session` fixture: that fixture is
+    wrapped by the read-only guard (see test_engine_refuses_orm_flush), so it
+    cannot accept the add_all/flush this test needs.
     """
-    from pipeline.api.database import create_cplan_engine
+    writable_session.add_all([_activity(), _activity(is_archive=True)])
+    writable_session.flush()
 
-    writable = create_cplan_engine(f"sqlite:///{tmp_path / 'activity-filters-defaults.sqlite3'}")
-    Base.metadata.create_all(writable)
-    with Session(writable) as writable_session:
-        writable_session.add_all([_activity(), _activity(is_archive=True)])
-        writable_session.flush()
-        unfiltered = queries.search_activities(writable_session)
-        assert unfiltered["total_matches"] == 1  # archived still excluded by default
-    assert queries.ActivityFilters().include_archived is False
-    assert queries.ActivityFilters().text == {}
+    unfiltered = queries.search_activities(writable_session)
+    assert unfiltered["total_matches"] == 1  # archived still excluded by default
+
+    with_archived = queries.search_activities(writable_session, include_archived=True)
+    assert with_archived["total_matches"] == 2  # the only narrowing an empty filter does
 
 
 def test_search_excludes_archived_by_default(session):
