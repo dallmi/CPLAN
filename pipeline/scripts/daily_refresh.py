@@ -1,20 +1,24 @@
 #!/usr/bin/env python3
-"""Daily workflow glue: run the CSV pipeline, then sync its output into the CPLAN database.
+"""Daily workflow glue: run the CSV pipeline, sync into the database, export the snapshot.
 
 One command for the daily refresh:
-  1. `process_cplan.main()` reads the SharePoint CSV export and writes
+  1. `process_cplan.main()` reads the source CSV export and writes
      `pipeline/output/communications.parquet`.
   2. `sync_snapshot.sync_parquet()` upserts that parquet into the CPLAN database:
      source wins, conflicts are recorded, nothing is ever deleted (binding policy —
      see `pipeline/api/sync_snapshot.py`).
+  3. `build_studio_standalone.build()` exports the read-only standalone studio
+     from the now-current database. Non-fatal: the refresh has done its job once
+     the database is current.
 
 Activities created directly in the studio (no `legacy_sp_id`) are never touched by the
 sync and keep running alongside the mirrored SharePoint rows — parallel operation until
 the corp system migrates onto CPLAN.
 
 Usage:
-    python -m pipeline.scripts.daily_refresh                  # pipeline + sync
-    python -m pipeline.scripts.daily_refresh --skip-pipeline  # sync only
+    python -m pipeline.scripts.daily_refresh                    # all three steps
+    python -m pipeline.scripts.daily_refresh --skip-pipeline    # sync + export only
+    python -m pipeline.scripts.daily_refresh --skip-standalone  # pipeline + sync only
 """
 
 from __future__ import annotations
@@ -85,7 +89,7 @@ def run_pipeline_step(pipeline_main: Callable[[], None] | None = None) -> bool:
             print("Or run with --skip-pipeline to sync the existing parquet snapshot only.")
             return False
 
-    _banner("Step 1/2 - Snapshot pipeline (process_cplan)")
+    _banner("Step 1/3 - Snapshot pipeline (process_cplan)")
     original_argv = sys.argv
     sys.argv = original_argv[:1]
     try:
@@ -101,11 +105,36 @@ def run_pipeline_step(pipeline_main: Callable[[], None] | None = None) -> bool:
 
 
 def run_sync_step(settings_path: Path, parquet_path: Path) -> SyncReport:
-    _banner("Step 2/2 - Database sync (sync_snapshot)")
+    _banner("Step 2/3 - Database sync (sync_snapshot)")
     database_url = resolve_database_url(settings_path)
     report = sync_parquet(database_url, parquet_path)
     print(format_report(report))
     return report
+
+
+def run_standalone_step(settings_path: Path) -> bool:
+    """Export the read-only standalone studio. Never fatal.
+
+    The refresh's job is done once the database is current; the standalone file
+    is a convenience on top. A failure here — no write permission, a locked
+    output file still open in a browser — must not make a successful refresh
+    report failure, so it is caught, named, and the command still exits zero.
+    The inverse asymmetry is deliberate: run on its own, the build fails loudly
+    (see `build_studio_standalone.main`), because there the file *is* the point.
+    """
+    _banner("Step 3/3 - Standalone studio export (build_studio_standalone)")
+    try:
+        from pipeline.scripts.build_studio_standalone import DEFAULT_OUT, build
+
+        database_url = resolve_database_url(settings_path)
+        written = build(database_url, DEFAULT_OUT)
+    except Exception as exc:  # noqa: BLE001 - deliberately broad; see docstring
+        print(f"Standalone export skipped: {type(exc).__name__}: {exc}")
+        print("The database is up to date regardless; rerun with")
+        print("  python -m pipeline.scripts.build_studio_standalone")
+        return False
+    print(f"Wrote {written} ({written.stat().st_size / 1024:,.0f} KB)")
+    return True
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -116,6 +145,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--skip-pipeline",
         action="store_true",
         help="Skip the CSV pipeline step and sync the existing parquet snapshot only.",
+    )
+    parser.add_argument(
+        "--skip-standalone",
+        action="store_true",
+        help="Skip the read-only standalone studio export.",
     )
     return parser
 
@@ -129,6 +163,8 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(1)
 
     run_sync_step(args.settings, args.parquet)
+    if not args.skip_standalone:
+        run_standalone_step(args.settings)
     print()
     print("Daily refresh complete.")
 

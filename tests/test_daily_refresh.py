@@ -24,8 +24,13 @@ def _stub_sync(monkeypatch, calls):
         calls.append(("sync_parquet", database_url, parquet_path))
         return SyncReport(created=1)
 
+    def fake_run_standalone_step(settings_path):
+        calls.append("standalone")
+        return True
+
     monkeypatch.setattr(daily_refresh, "resolve_database_url", fake_resolve_database_url)
     monkeypatch.setattr(daily_refresh, "sync_parquet", fake_sync_parquet)
+    monkeypatch.setattr(daily_refresh, "run_standalone_step", fake_run_standalone_step)
 
 
 # --- argument parsing --------------------------------------------------------
@@ -169,7 +174,7 @@ def test_main_runs_pipeline_then_sync_in_order(monkeypatch):
     daily_refresh.main([])
 
     call_names = [c if isinstance(c, str) else c[0] for c in calls]
-    assert call_names == ["pipeline", "resolve_database_url", "sync_parquet"]
+    assert call_names == ["pipeline", "resolve_database_url", "sync_parquet", "standalone"]
 
 
 def test_main_skip_pipeline_only_runs_sync(monkeypatch):
@@ -184,7 +189,7 @@ def test_main_skip_pipeline_only_runs_sync(monkeypatch):
     daily_refresh.main(["--skip-pipeline"])
 
     call_names = [c if isinstance(c, str) else c[0] for c in calls]
-    assert call_names == ["resolve_database_url", "sync_parquet"]
+    assert call_names == ["resolve_database_url", "sync_parquet", "standalone"]
 
 
 def test_main_stops_before_sync_and_exits_nonzero_when_pipeline_step_fails(monkeypatch):
@@ -220,3 +225,44 @@ def test_main_reports_missing_dependency_and_stops_before_sync(monkeypatch, caps
     assert "pip install pandas duckdb pyarrow" in output
     assert "--skip-pipeline" in output
     assert calls == []  # sync never invoked
+
+
+# --- the standalone export step -----------------------------------------------
+
+
+def test_skip_standalone_leaves_the_export_out(monkeypatch):
+    calls = []
+    _stub_sync(monkeypatch, calls)
+    monkeypatch.setattr(daily_refresh, "run_pipeline_step", lambda: calls.append("pipeline") or True)
+
+    daily_refresh.main(["--skip-standalone"])
+
+    call_names = [c if isinstance(c, str) else c[0] for c in calls]
+    assert call_names == ["pipeline", "resolve_database_url", "sync_parquet"]
+
+
+def test_a_failing_export_does_not_make_a_successful_refresh_look_failed(monkeypatch, capsys, tmp_path):
+    """The asymmetry that makes step 3 safe to add to the daily run.
+
+    The refresh's job is done once the database is current. A locked output file
+    or a read-only directory must therefore be reported and survived, not turned
+    into a nonzero exit that sends somebody hunting for a sync problem that isn't
+    there. Run on its own the build still fails loudly — there the file is the
+    point.
+    """
+    def explode(database_url, out_path):
+        raise PermissionError("output file is open in another program")
+
+    monkeypatch.setattr(daily_refresh, "resolve_database_url", lambda _: "sqlite:///:memory:")
+    monkeypatch.setattr(
+        "pipeline.scripts.build_studio_standalone.build", explode, raising=True
+    )
+
+    ok = daily_refresh.run_standalone_step(tmp_path / "settings.json")
+
+    assert ok is False
+    output = capsys.readouterr().out
+    assert "Standalone export skipped" in output
+    assert "open in another program" in output
+    # Names the way out, so the message is actionable rather than merely honest.
+    assert "python -m pipeline.scripts.build_studio_standalone" in output

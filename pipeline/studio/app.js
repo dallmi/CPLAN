@@ -348,6 +348,16 @@ function donutHtml(entries, colorOf, centerText, centerSub) {
   }
 
   async function initSession() {
+    // A snapshot has no server to ask. It runs as a viewer, and that single
+    // fact is what switches off every create/edit/delete affordance below,
+    // through the same role gating the multi-user backend uses.
+    if (snapshotMode) {
+      state.currentUser = window.CplanSnapshot.session();
+      document.body.dataset.role = state.currentUser.role;
+      applyRoleGating();
+      updateUserChip();
+      return state.currentUser;
+    }
     const response = await fetch('/api/me');
     if (response.status === 401) {
       showLoginOverlay();
@@ -403,8 +413,17 @@ function donutHtml(entries, colorOf, centerText, centerSub) {
   }
 
   window.CplanRepositories = {DatabasePlanningRepository};
-  const repository = new DatabasePlanningRepository();
-  const backendLabel = () => state.meta&&state.meta.backend==='postgresql'?'PostgreSQL':state.meta&&state.meta.backend==='sqlite'?'SQLite':'Local database';
+
+  // Snapshot mode. build_studio_standalone.py embeds window.__CPLAN_SNAPSHOT__
+  // and snapshot.js supplies a repository with the same method surface, so every
+  // call site below stays unaware of which mode it runs in. The five places that
+  // do care are marked `snapshotMode` and are all about telling the truth —
+  // no writes, no history, and a visible export date.
+  const snapshotMode = Boolean(window.CplanSnapshot && window.CplanSnapshot.isActive());
+  const repository = snapshotMode
+    ? new window.CplanSnapshot.SnapshotPlanningRepository()
+    : new DatabasePlanningRepository();
+  const backendLabel = () => state.meta&&state.meta.backend==='snapshot'?'Snapshot':state.meta&&state.meta.backend==='postgresql'?'PostgreSQL':state.meta&&state.meta.backend==='sqlite'?'SQLite':'Local database';
 
   // copyValue is optional: when set, the toast grows a "Copy ID" action
   // button (I5/C2 -- create/draft toasts carry the new tracking ID). Clears
@@ -441,7 +460,12 @@ function donutHtml(entries, colorOf, centerText, centerSub) {
 
   async function loadData() {
     const [result,health] = await Promise.all([repository.listActivities(),repository.health()]);
-    return {rows:result.items,meta:{generated_at:new Date().toISOString(),backend:health.database}};
+    // Live mode reads "now" because the rows were just fetched. A snapshot must
+    // report when it was exported instead — "now" would claim the data is
+    // current every time the file is opened, which is the one lie this artefact
+    // cannot afford.
+    const generated = (snapshotMode && window.CplanSnapshot.exportedAt()) || new Date().toISOString();
+    return {rows:result.items,meta:{generated_at:generated,backend:health.database}};
   }
 
   // Best-effort: the sync-runs endpoint is informational only. A missing endpoint,
@@ -1438,7 +1462,17 @@ function donutHtml(entries, colorOf, centerText, centerSub) {
     const q=A.dataQuality(state.rows),generated=state.meta&&(state.meta.generated_at_iso||state.meta.generated_at)||'Unknown';
     document.getElementById('quality-kpis').innerHTML=[kpi('Complete records',`${q.completenessRate}%`,`${q.incomplete} incomplete`,q.incomplete?'warning':'success'),kpi('Duplicate IDs',q.duplicateTrackingIds,'Unique duplicated identifiers',q.duplicateTrackingIds?'danger':'success'),kpi('Missing IDs',q.missingTrackingIds,'Cannot safely edit',q.missingTrackingIds?'danger':'success'),kpi('Invalid dates',q.invalidDateRanges,'End before start',q.invalidDateRanges?'danger':'success')].join('');
     document.getElementById('quality-diagnostics').innerHTML=[['Missing campaign / pack',q.missingPackIds],['Incomplete planning records',q.incomplete],['Duplicate tracking IDs',q.duplicateTrackingIds],['Missing tracking IDs',q.missingTrackingIds],['Invalid date ranges',q.invalidDateRanges]].map(([label,value])=>`<div class="metric-line"><span>${esc(label)}</span><strong>${fmtNum(value)}</strong></div>`).join('');
-    document.getElementById('reconciliation').innerHTML=`<div class="metric-line"><span>API refresh</span><strong>${esc(String(generated))}</strong></div><div class="metric-line"><span>${esc(backendLabel())} rows</span><strong>${fmtNum(state.snapshotRows.length)}</strong></div><div class="metric-line"><span>Write adapter</span><strong>${esc(backendLabel())} REST API</strong></div>${syncRunSummaryHtml()}<div class="notice"><strong>Versioned writes:</strong> stale updates are rejected with HTTP 409 and must be reviewed against the current database record.</div>`;
+    // Both the write line and the closing notice describe a live API. In a
+    // snapshot neither is true, and a Health page that misreports how the data
+    // got here is worse than no Health page.
+    const refreshLine=`<div class="metric-line"><span>${snapshotMode?'Snapshot exported':'API refresh'}</span><strong>${esc(String(generated))}</strong></div>`;
+    const writeLine=snapshotMode
+      ?`<div class="metric-line"><span>Write adapter</span><strong>None — read-only snapshot</strong></div>`
+      :`<div class="metric-line"><span>Write adapter</span><strong>${esc(backendLabel())} REST API</strong></div>`;
+    const writeNotice=snapshotMode
+      ?`<div class="notice"><strong>Read-only snapshot.</strong> Editing, creation and per-activity change history live in the planning studio; the counts above are frozen as of the export.</div>`
+      :`<div class="notice"><strong>Versioned writes:</strong> stale updates are rejected with HTTP 409 and must be reviewed against the current database record.</div>`;
+    document.getElementById('reconciliation').innerHTML=`${refreshLine}<div class="metric-line"><span>${esc(backendLabel())} rows</span><strong>${fmtNum(state.snapshotRows.length)}</strong></div>${writeLine}${syncRunSummaryHtml()}${writeNotice}`;
   }
 
   function updateActivitiesCount() {
@@ -3376,8 +3410,16 @@ function donutHtml(entries, colorOf, centerText, centerSub) {
       const generatedDate=A.parseDate(generated);
       document.getElementById('status-dot').className='status-dot ready';
       document.getElementById('status-label').textContent=`${fmtNum(loaded.rows.length)} activities`;
-      document.getElementById('snapshot-time').textContent=generatedDate?`updated ${generatedDate.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}`:'updated just now';
-      document.getElementById('freshness').title=`${backendLabel()} API: ${generated||'unknown'}`;
+      // The snapshot band names the export date, not a clock time: this file
+      // gets forwarded and opened weeks later, and its age has to be the first
+      // thing visible about it.
+      const exportedLabel=generatedDate?generatedDate.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}):'unknown date';
+      document.getElementById('snapshot-time').textContent=snapshotMode
+        ?`Snapshot · ${exportedLabel} · read-only`
+        :(generatedDate?`updated ${generatedDate.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}`:'updated just now');
+      document.getElementById('freshness').title=snapshotMode
+        ?`Read-only snapshot exported ${generated||'unknown'}`
+        :`${backendLabel()} API: ${generated||'unknown'}`;
       renderAll();
     } catch(error) {
       console.error('CPLAN initialization failed',error);

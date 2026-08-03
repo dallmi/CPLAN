@@ -207,6 +207,34 @@ class SyncRun(Base):
     details: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
+def serialize_sync_run(run: "SyncRun | None") -> dict[str, Any]:
+    """The wire shape of a sync run, for `GET /api/sync-runs/latest`.
+
+    Module-level rather than inline in the endpoint because the standalone
+    snapshot build (`pipeline/scripts/build_studio_standalone.py`) embeds the
+    same value for the same studio code to render. Two hand-written shapes for
+    one payload would drift the first time a counter is added here.
+
+    `None` means no sync has ever run — reported as a status, not an error, so
+    the studio's reconciliation card can tell "never synced" apart from
+    "could not ask".
+    """
+    if run is None:
+        return {"status": "never_synced"}
+    return {
+        "ran_at": as_utc(run.ran_at).isoformat().replace("+00:00", "Z"),
+        "snapshot_path": run.snapshot_path,
+        "created": run.created,
+        "updated": run.updated,
+        "unchanged": run.unchanged,
+        "conflicts": run.conflicts,
+        "vanished": run.vanished,
+        "local_only": run.local_only,
+        "skipped_no_id": run.skipped_no_id,
+        "details": json.loads(run.details) if run.details else None,
+    }
+
+
 class ActivityChange(Base):
     """One row per field-level change, written in the same transaction as the
     data change it records: a `created` row (one per activity, `field` NULL)
@@ -899,20 +927,7 @@ def create_app(database_url: str | URL | None = None, auth_settings: AuthSetting
         session: Session = Depends(db_session),
     ):
         run = session.scalar(select(SyncRun).order_by(SyncRun.ran_at.desc()))
-        if run is None:
-            return {"status": "never_synced"}
-        return {
-            "ran_at": as_utc(run.ran_at).isoformat().replace("+00:00", "Z"),
-            "snapshot_path": run.snapshot_path,
-            "created": run.created,
-            "updated": run.updated,
-            "unchanged": run.unchanged,
-            "conflicts": run.conflicts,
-            "vanished": run.vanished,
-            "local_only": run.local_only,
-            "skipped_no_id": run.skipped_no_id,
-            "details": json.loads(run.details) if run.details else None,
-        }
+        return serialize_sync_run(run)
 
     dashboard_dir = Path(__file__).resolve().parents[1] / "studio"
 

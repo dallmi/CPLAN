@@ -88,12 +88,28 @@ criterion. The design is documented in
 For the database-backed planning studio, `pipeline/scripts/daily_refresh.py` runs the whole daily refresh as one command: the CSV pipeline above, then the database sync (`pipeline/api/sync_snapshot.py`) that mirrors the result into the CPLAN database.
 
 ```bash
-# Pipeline + sync (the normal daily run)
+# Pipeline + sync + standalone export (the normal daily run)
 PYTHONPATH=. .venv/bin/python -m pipeline.scripts.daily_refresh
 
 # Sync only — reuse the parquet snapshot already on disk, skip the CSV step
 PYTHONPATH=. .venv/bin/python -m pipeline.scripts.daily_refresh --skip-pipeline
+
+# Leave the standalone export out
+PYTHONPATH=. .venv/bin/python -m pipeline.scripts.daily_refresh --skip-standalone
 ```
+
+### Standalone studio (read-only)
+
+The third step exports the whole planning studio as one double-clickable file
+that runs offline: `pipeline/output/cplan_studio_standalone.html`. All four
+pages, every analytic, filters, the read-only drawer, CSV and Excel export — no
+web server, no internet, no database. Writing, login and per-activity change
+history stay in the studio. On Windows, `snapshot.cmd` builds and opens it.
+
+The design is documented in
+[`docs/superpowers/specs/2026-08-03-studio-standalone-design.md`](docs/superpowers/specs/2026-08-03-studio-standalone-design.md).
+Note what the file is before sending it anywhere: the complete plan in
+cleartext, with no access control and no expiry.
 
 **Parallel operation.** This is not a one-shot migration: activities created directly in the studio (no `legacy_sp_id`) and activities mirrored in from the SharePoint source live in the same database at the same time. Each daily sync updates only the mirrored rows — source wins on conflicts, nothing is ever deleted — while studio-created activities are left completely untouched. This lets the studio be used for real planning work before the source system is retired; see [`pipeline/api/README.md`](pipeline/api/README.md#daily-snapshot-sync) for the full sync policy.
 
@@ -118,3 +134,4 @@ Expected files:
 | `pipeline/dashboard/index.html` | HTML dashboard (loads Parquet via HTTP — needs a local web server) |
 | `pipeline/output/reports/*.xlsx` | Calendar reports — this folder holds nothing else |
 | `pipeline/output/cplan_dashboard_standalone.html` | Standalone dashboard — Parquet + meta.json embedded as base64, runs from `file://` by double-click (CDN libs still require internet) |
+| `pipeline/output/cplan_studio_standalone.html` | Standalone planning studio — read-only, database-fed, fully offline (no CDN at all) |
