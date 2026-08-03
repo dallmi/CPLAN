@@ -383,6 +383,26 @@ def test_schema_check_names_the_missing_column_and_the_fix(tmp_path):
 # --------------------------------------------------------------------------
 
 
+def test_activity_filters_defaults_to_no_narrowing(tmp_path):
+    """An empty filter object must behave exactly like the old all-None call.
+
+    Uses its own writable engine rather than the `session` fixture: that
+    fixture is wrapped by the read-only guard (see test_engine_refuses_orm_flush),
+    so it cannot accept the add_all/flush this test needs.
+    """
+    from pipeline.api.database import create_cplan_engine
+
+    writable = create_cplan_engine(f"sqlite:///{tmp_path / 'activity-filters-defaults.sqlite3'}")
+    Base.metadata.create_all(writable)
+    with Session(writable) as writable_session:
+        writable_session.add_all([_activity(), _activity(is_archive=True)])
+        writable_session.flush()
+        unfiltered = queries.search_activities(writable_session)
+        assert unfiltered["total_matches"] == 1  # archived still excluded by default
+    assert queries.ActivityFilters().include_archived is False
+    assert queries.ActivityFilters().text == {}
+
+
 def test_search_excludes_archived_by_default(session):
     result = queries.search_activities(session)
 

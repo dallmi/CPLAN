@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from dataclasses import dataclass, field as dataclass_field
 from datetime import date, datetime, timezone
 from typing import Any
 
@@ -103,6 +104,45 @@ def split_multi(value: Any, field: str) -> list[str]:
         return [text.strip()]
     pattern = "[" + re.escape("".join(separators)) + "]"
     return [member.strip() for member in re.split(pattern, text) if member.strip()]
+
+
+# Every case-insensitive equality filter an agent may apply. Free text in the
+# schema, so `field_values` remains the way to learn the real values first.
+FILTERABLE_TEXT_FIELDS: tuple[str, ...] = (
+    "source_type",
+    "channel",
+    "priority",
+    "lead",
+    "lead_team",
+    "partner_team",
+    "campaign",
+    "region",
+    "business_division",
+    "business_area",
+    "target_audience",
+    "audience",
+    "time_zone",
+)
+
+
+@dataclass(frozen=True)
+class ActivityFilters:
+    """Everything that narrows an activity query, in one object.
+
+    `text` maps a column in FILTERABLE_TEXT_FIELDS to a value compared
+    case-insensitively for equality. Keeping it as a mapping rather than one
+    attribute per column is what stops the four query functions from each
+    carrying a twenty-line signature; the MCP tool layer still exposes explicit
+    named parameters, because those are what the model discovers.
+    """
+
+    text_query: str | None = None
+    text: dict[str, str] = dataclass_field(default_factory=dict)
+    start_after: str | None = None
+    start_before: str | None = None
+    end_after: str | None = None
+    end_before: str | None = None
+    include_archived: bool = False
 
 
 # Columns an agent may group or enumerate. Free-text columns in the schema are
@@ -218,21 +258,9 @@ def _summarize(activity: Activity) -> dict[str, Any]:
     return row
 
 
-def _apply_filters(
-    statement,
-    *,
-    text_query: str | None,
-    channel: str | None,
-    source_type: str | None,
-    priority: str | None,
-    lead: str | None,
-    campaign: str | None,
-    start_after: str | None,
-    start_before: str | None,
-    include_archived: bool,
-):
-    if text_query:
-        needle = f"%{text_query.strip().lower()}%"
+def _apply_filters(statement, filters: ActivityFilters):
+    if filters.text_query:
+        needle = f"%{filters.text_query.strip().lower()}%"
         statement = statement.where(
             or_(
                 func.lower(Activity.activity_name).like(needle),
@@ -242,22 +270,22 @@ def _apply_filters(
         )
     # Case-insensitive equality throughout: the columns are free text, so an
     # agent that guesses "Email" for a stored "email" should still get its rows.
-    for column, value in (
-        (Activity.channel, channel),
-        (Activity.source_type, source_type),
-        (Activity.priority, priority),
-        (Activity.lead, lead),
-        (Activity.campaign, campaign),
+    for column_name, value in filters.text.items():
+        if not value:
+            continue
+        column = getattr(Activity, column_name)
+        statement = statement.where(func.lower(column) == value.strip().lower())
+    for column, raw, lower_bound in (
+        (Activity.start_date, filters.start_after, True),
+        (Activity.start_date, filters.start_before, False),
+        (Activity.end_date, filters.end_after, True),
+        (Activity.end_date, filters.end_before, False),
     ):
-        if value:
-            statement = statement.where(func.lower(column) == value.strip().lower())
-    after = _parse_boundary(start_after)
-    if after is not None:
-        statement = statement.where(Activity.start_date >= after)
-    before = _parse_boundary(start_before)
-    if before is not None:
-        statement = statement.where(Activity.start_date <= before)
-    if not include_archived:
+        boundary = _parse_boundary(raw)
+        if boundary is None:
+            continue
+        statement = statement.where(column >= boundary if lower_bound else column <= boundary)
+    if not filters.include_archived:
         statement = statement.where(Activity.is_archive.is_(False))
     return statement
 
@@ -287,22 +315,22 @@ def search_activities(
     limit: int | None = None,
 ) -> dict[str, Any]:
     capped = _clamp_limit(limit)
-    filters = dict(
+    filters = ActivityFilters(
         text_query=query,
-        channel=channel,
-        source_type=source_type,
-        priority=priority,
-        lead=lead,
-        campaign=campaign,
+        text={
+            "channel": channel,
+            "source_type": source_type,
+            "priority": priority,
+            "lead": lead,
+            "campaign": campaign,
+        },
         start_after=start_after,
         start_before=start_before,
         include_archived=include_archived,
     )
-    total = session.scalar(
-        _apply_filters(select(func.count()).select_from(Activity), **filters)
-    )
+    total = session.scalar(_apply_filters(select(func.count()).select_from(Activity), filters))
     rows = session.scalars(
-        _apply_filters(select(Activity), **filters)
+        _apply_filters(select(Activity), filters)
         .order_by(Activity.start_date, Activity.id)
         .limit(capped)
     ).all()
@@ -370,19 +398,14 @@ def planning_gaps(
     SQLite and PostgreSQL; the candidate set is narrowed in SQL first.
     """
     capped = _clamp_limit(limit)
-    filters = dict(
-        text_query=None,
-        channel=None,
-        source_type=source_type,
-        priority=None,
-        lead=None,
-        campaign=None,
+    filters = ActivityFilters(
+        text={"source_type": source_type},
         start_after=start_after,
         start_before=start_before,
         include_archived=include_archived,
     )
     candidates = session.scalars(
-        _apply_filters(select(Activity), **filters).order_by(Activity.start_date, Activity.id)
+        _apply_filters(select(Activity), filters).order_by(Activity.start_date, Activity.id)
     ).all()
 
     incomplete = []
@@ -438,13 +461,8 @@ def activity_counts(
             "error": f"Unknown dimension {dimension!r}.",
             "supported_dimensions": list(GROUPABLE_FIELDS),
         }
-    filters = dict(
-        text_query=None,
-        channel=None,
-        source_type=source_type,
-        priority=None,
-        lead=None,
-        campaign=None,
+    filters = ActivityFilters(
+        text={"source_type": source_type},
         start_after=start_after,
         start_before=start_before,
         include_archived=include_archived,
@@ -453,9 +471,7 @@ def activity_counts(
         # Month bucketing is the one dimension without a portable SQL spelling
         # (date_trunc vs strftime), so it is grouped in Python over a
         # single-column select rather than branching per dialect.
-        values = session.scalars(
-            _apply_filters(select(Activity.start_date), **filters)
-        ).all()
+        values = session.scalars(_apply_filters(select(Activity.start_date), filters)).all()
         tally: dict[str, int] = {}
         for value in values:
             key = _month_key(value)
@@ -467,7 +483,7 @@ def activity_counts(
         # Unassigned rows are surfaced as their own bucket, never dropped.
         label = func.coalesce(column, "Unassigned").cast(String)
         statement = _apply_filters(
-            select(label.label("value"), func.count().label("count")), **filters
+            select(label.label("value"), func.count().label("count")), filters
         ).group_by(label)
         rows = session.execute(statement).all()
         buckets = sorted(
