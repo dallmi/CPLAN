@@ -457,6 +457,51 @@ def test_search_filter_is_case_insensitive_on_free_text_columns(session):
     assert result["total_matches"] == 2
 
 
+def test_search_filters_by_lead_team(writable_session):
+    writable_session.add_all([
+        _activity(activity_name="Team one item", lead_team="Team One"),
+        _activity(activity_name="Team two item", lead_team="Team Two"),
+    ])
+    writable_session.flush()
+    found = queries.search_activities(writable_session, lead_team="team one")
+    assert found["total_matches"] == 1
+    assert found["activities"][0]["activity_name"] == "Team one item"
+
+
+def test_search_filters_by_region_and_division_together(writable_session):
+    writable_session.add_all([
+        _activity(activity_name="Match", region="Global", business_division="Division One"),
+        _activity(activity_name="Wrong division", region="Global", business_division="Division Two"),
+        _activity(activity_name="Wrong region", region="Local", business_division="Division One"),
+    ])
+    writable_session.flush()
+    found = queries.search_activities(writable_session, region="global", business_division="Division One")
+    assert found["total_matches"] == 1
+    assert found["activities"][0]["activity_name"] == "Match"
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("partner_team", "Partner Team One"),
+        ("business_area", "Area One"),
+        ("target_audience", "Line managers only"),
+        ("audience", "10-50k"),
+        ("time_zone", "UTC"),
+    ],
+)
+def test_search_filters_by_every_new_text_field(writable_session, field, value):
+    writable_session.add_all([_activity(**{field: value}), _activity(**{field: "Something else"})])
+    writable_session.flush()
+    found = queries.search_activities(writable_session, **{field: value})
+    assert found["total_matches"] == 1
+
+
+def test_every_filterable_text_field_is_a_real_column():
+    for name in queries.FILTERABLE_TEXT_FIELDS:
+        assert hasattr(Activity, name), name
+
+
 def test_search_filters_by_start_date_window(session):
     result = queries.search_activities(session, start_after="2026-03-01")
 
