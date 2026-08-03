@@ -286,3 +286,92 @@ def test_the_outline_declares_its_depth_and_marks_its_groups_collapsed(tmp_path)
     labels = _labels(ws)
     for header in (label for label in labels if str(label).startswith("BY ")):
         assert ws.row_dimensions[labels[header]].collapsed is True, header
+
+
+# --- the GEB block -----------------------------------------------------------
+
+def _geb_sheet(sources):
+    """A calendar built from nothing but start dates and the GEB source field."""
+    import pandas as pd
+
+    from pipeline.report.data import build_scope
+    from pipeline.scripts.process_cplan import ActivityLoad
+
+    frame = pd.DataFrame({
+        "start_date": pd.to_datetime(["2025-03-05"] * len(sources)),
+        "bod_geb": list(sources),
+        "activity_name": [f"Activity {i}" for i in range(len(sources))],
+    })
+    config = _config()
+    scope = build_scope(ActivityLoad(frame, {}, {}), config)
+    wb = Workbook()
+    wb.remove(wb.active)
+    build_calendar(wb, scope, config)
+    return wb["Calendar"]
+
+
+def test_the_calendar_carries_a_geb_block(tmp_path):
+    ws, _ = _sheet(tmp_path)
+
+    assert "BY GEB — multiple values possible" in _labels(ws)
+
+
+def test_each_member_gets_a_row_under_the_geb_block():
+    ws = _geb_sheet(["A. Person", "A. Person", "B. Person", ""])
+    labels = _labels(ws)
+    header = labels["BY GEB — multiple values possible"]
+
+    assert labels["A. Person"] > header
+    assert labels["B. Person"] > header
+    # The unnamed activity is not dropped -- it lands in the catch-all bucket.
+    assert "Not specified" in labels
+
+
+def _week_total(ws, row):
+    """Sum a row's literal week cells.
+
+    The Total column is a formula by design (see the module docstring), so a
+    test cannot read a number out of it without an Excel to evaluate it. The
+    week cells are always literal counts, in every row -- they are what the
+    formula adds up.
+    """
+    return sum(cell.value for cell in ws[row][FIRST_GRID_COL - 1:]
+               if isinstance(cell.value, int))
+
+
+def test_a_member_row_totals_only_that_members_activities():
+    ws = _geb_sheet(["A. Person", "A. Person", "B. Person"])
+    labels = _labels(ws)
+
+    assert _week_total(ws, labels["A. Person"]) == 2
+    assert _week_total(ws, labels["B. Person"]) == 1
+
+
+def test_the_geb_block_header_counts_activities_once_despite_the_overlap():
+    """Two members on one activity is two member rows but one activity."""
+    ws = _geb_sheet(["A. Person, B. Person"])
+    labels = _labels(ws)
+
+    assert _week_total(ws, labels["A. Person"]) == 1
+    assert _week_total(ws, labels["B. Person"]) == 1
+    assert _week_total(ws, labels["BY GEB — multiple values possible"]) == 1
+
+
+def test_a_detail_row_names_the_members_behind_the_activity():
+    ws = _geb_sheet(["A. Person, B. Person"])
+    labels = [ws.cell(row=r, column=LABEL_COL).value or ""
+              for r in range(3, ws.max_row + 1)]
+
+    assert any(label.strip() == "Activity 0 — A. Person, B. Person" for label in labels)
+
+
+def test_a_detail_row_without_members_keeps_the_bare_activity_name():
+    ws = _geb_sheet([""])
+    detail = [ws.cell(row=r, column=LABEL_COL).value or ""
+              for r in range(3, ws.max_row + 1)
+              if str(ws.cell(row=r, column=LABEL_COL).value or "").startswith("  Activity")]
+
+    assert detail
+    # The block titles carry an em dash of their own, so only the detail rows
+    # can answer whether an empty field left a dangling separator behind.
+    assert all(label.strip() == "Activity 0" for label in detail)

@@ -39,7 +39,7 @@ class ReportConfig:
     include_unknown_audience: bool = True
     include_archived: bool = True
     detail_rows: bool = True
-    breakdown_fields: tuple = ("business_division", "region")
+    breakdown_fields: tuple = ("business_division", "region", "executives")
 
     def __post_init__(self):
         if (self.date_from is not None and self.date_to is not None
@@ -114,7 +114,7 @@ class ReportConfig:
         bands = "all" if self.audience_bands is None else ", ".join(self.audience_bands)
         return [
             ("Period", self.period_label()),
-            ("Senior executives", self.executives),
+            ("GEB", self.executives),
             ("Audience bands", bands),
             ("Unknown audience band", "included" if self.include_unknown_audience else "excluded"),
             ("Archived activities", "included" if self.include_archived else "excluded"),

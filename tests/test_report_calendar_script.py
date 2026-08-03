@@ -12,7 +12,7 @@ from tests.report_fixtures import write_activity_csvs
 
 EXPECTED_SHEETS = [
     "Executive Summary", "Calendar", "Data Quality",
-    "Audience & Executives", "Mix & Lead Time", "Activities", "Glossary",
+    "Audience & GEB", "Mix & Lead Time", "Activities", "Glossary",
 ]
 
 
@@ -57,6 +57,32 @@ def test_the_default_run_covers_every_dated_activity(tmp_path):
 
     assert "Outside the window" in names
     assert dict_of_summary(out)["Period"] == "all dates"
+
+
+def test_the_shipped_workbook_carries_the_geb_block_and_names(tmp_path):
+    """End to end, against the CONFIG the script actually ships.
+
+    The sheet-level tests build their own ReportConfig and so only prove the
+    dataclass default. This one caught the block missing from a real run because
+    the CONFIG block overrode `breakdown_fields` with its own pair.
+    """
+    write_activity_csvs(tmp_path / "input")
+    out = tmp_path / "report.xlsx"
+    report_calendar.main(["--input-dir", str(tmp_path / "input"), "--out", str(out)])
+    wb = load_workbook(out)
+
+    calendar = wb["Calendar"]
+    labels = [calendar.cell(row=r, column=1).value
+              for r in range(1, calendar.max_row + 1)]
+    assert "BY GEB — multiple values possible" in labels
+
+    activities = wb["Activities"]
+    headers = [activities.cell(row=1, column=c).value
+               for c in range(1, activities.max_column + 1)]
+    members = headers.index("GEB members") + 1
+    named = [activities.cell(row=r, column=members).value
+             for r in range(2, activities.max_row + 1)]
+    assert any(name for name in named), "no activity carries a GEB member"
 
 
 def test_a_year_run_cuts_the_activities_outside_it(tmp_path):

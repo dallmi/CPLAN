@@ -162,7 +162,8 @@ def test_the_activities_sheet_carries_the_derived_columns(tmp_path):
     assert headers == [header for _, header in ACTIVITY_COLUMNS]
     assert "Reach" in headers
     assert "Audience band" in headers
-    assert "Senior executives" in headers
+    assert "GEB involved" in headers
+    assert "GEB members" in headers
 
 
 def _empty_scope():

@@ -19,7 +19,7 @@ def test_defaults_keep_everything_in_scope():
     assert config.executives == "any"
     assert config.audience_bands is None
     assert config.include_archived is True
-    assert config.breakdown_fields == ("business_division", "region")
+    assert config.breakdown_fields == ("business_division", "region", "executives")
 
 
 def test_reversed_dates_are_rejected():
@@ -58,7 +58,7 @@ def test_describe_reports_the_applied_criteria():
     labels = dict(_config(executives="with").describe())
 
     assert labels["Period"] == "2025-01-01 to 2025-12-31"
-    assert labels["Senior executives"] == "with"
+    assert labels["GEB"] == "with"
     assert labels["Audience bands"] == "all"
 
 

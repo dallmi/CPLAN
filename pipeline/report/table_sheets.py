@@ -86,7 +86,7 @@ def build_executive_summary(wb, scope, config):
     row = style.write_section_header(ws, row, "LEADERSHIP & AUDIENCE", 2)
     exec_total = row
     executives = int(frame["has_executives"].sum()) if len(frame) else 0
-    row = style.write_kpi_row(ws, row, "With senior-executive involvement", executives)
+    row = style.write_kpi_row(ws, row, "With GEB involvement", executives)
     large = int(frame["audience_band"].isin(LARGE_AUDIENCE_BANDS).sum()) if len(frame) else 0
     row = style.write_kpi_row(ws, row, "Large audience (top two bands)", large)
     unknown = int((frame["audience_band"] == BAND_UNKNOWN).sum()) if len(frame) else 0
@@ -189,15 +189,18 @@ def _quarter_label(quarter):
 
 
 def build_audience(wb, scope, config):
-    """Audience size and senior-executive involvement -- two of the three
-    criteria the whole report is built around.
+    """Audience size and GEB involvement -- two of the three criteria the whole
+    report is built around.
 
-    The most interesting figure here is the last one: executive involvement
-    as a share of *that division's own volume*, not of the portfolio. A
-    large division with many such activities may still be using that access
-    less than a small one -- the portfolio-wide share would hide that.
+    The most interesting figure here is the share per division: involvement as
+    a share of *that division's own volume*, not of the portfolio. A large
+    division with many such activities may still be using that access less than
+    a small one -- the portfolio-wide share would hide that.
+
+    The last block names the people. It is the one place the report answers
+    "whose activity is this", which the yes/no columns elsewhere cannot.
     """
-    ws = wb.create_sheet("Audience & Executives")
+    ws = wb.create_sheet("Audience & GEB")
     frame = scope.frame
     if frame.empty or "audience_band" not in frame.columns:
         style.note_missing(ws, "No audience data available (audience column missing)")
@@ -264,8 +267,8 @@ def build_audience(wb, scope, config):
         row += 1
     row += 1
 
-    row = style.write_section_header(ws, row, "SENIOR EXECUTIVES BY QUARTER", 4)
-    row = style.write_header_row(ws, row, ["Quarter", "With executives", "All activities",
+    row = style.write_section_header(ws, row, "GEB INVOLVEMENT BY QUARTER", 4)
+    row = style.write_header_row(ws, row, ["Quarter", "With GEB", "All activities",
                                            "Share of the quarter"])
     for quarter in quarters:
         in_quarter = frame["_quarter"] == quarter
@@ -278,8 +281,8 @@ def build_audience(wb, scope, config):
         row += 1
     row += 1
 
-    row = style.write_section_header(ws, row, "SENIOR EXECUTIVES BY DIVISION", 4)
-    row = style.write_header_row(ws, row, ["Division", "With executives",
+    row = style.write_section_header(ws, row, "GEB INVOLVEMENT BY DIVISION", 4)
+    row = style.write_header_row(ws, row, ["Division", "With GEB",
                                            "All activities", "Share of the division"])
     divisions = {}
     for index, activity in frame.iterrows():
@@ -295,6 +298,41 @@ def build_audience(wb, scope, config):
     # No TOTAL row here: an activity naming two divisions is counted in both
     # rows (see GLOSSARY_SECTIONS' "Overlap" entry), so a vertical SUM would
     # print a number larger than the portfolio, as if it were a true total.
+    row += 1
+
+    row = style.write_section_header(ws, row, "ACTIVITIES BY GEB MEMBER", 3)
+    row = style.write_header_row(ws, row, ["GEB member", "Activities",
+                                           "Share of GEB activities"])
+    members = {}
+    for index, activity in frame.iterrows():
+        for name in split_multi(activity.get("executives")):
+            members.setdefault(name, []).append(index)
+
+    # The denominator is a real cell, not a literal baked into each formula, so
+    # a reader can click any share and follow it to the number it divides by.
+    style.write_data_rows(ws, row, [["All activities with GEB",
+                                     int(frame["has_executives"].sum())]])
+    ws.cell(row=row, column=1).font = style.TOTAL_FONT
+    for col in (1, 2):
+        ws.cell(row=row, column=col).fill = style.TOTAL_FILL
+    involved_row = row
+    row += 1
+
+    if not members:
+        style.write_data_rows(ws, row, [["No GEB member named on any in-scope activity"]])
+        row += 1
+    for name in sorted(members, key=lambda n: (-len(members[n]), n)):
+        style.write_data_rows(ws, row, [[name, len(members[name])]])
+        style.write_formula(
+            ws, row, 3,
+            f"=IF($B${involved_row}=0,0,B{row}/$B${involved_row})",
+            fmt=style.NUM_FMT_PCT)
+        row += 1
+    # No TOTAL row here either, and for a sharper reason than the divisions
+    # above: an activity naming two members counts under both, so the shares
+    # can legitimately add up to more than 100%. That is the honest reading of
+    # "whose activity is this" when two people share one -- a forced 100% would
+    # have to pick a winner.
 
     style.finalize_sheet(ws, freeze="B3", widths={"A": 26})
 
@@ -315,7 +353,8 @@ GLOSSARY_SECTIONS = (
     )),
     ("MEASURES", (
         ("Audience band", "The size band of the target audience."),
-        ("Senior executives", "A senior executive is involved."),
+        ("GEB", "At least one GEB member is named. The Activities sheet and the "
+                "calendar's BY GEB block name who."),
         ("Lead time", "Days from creating the record to the activity's start."),
         ("Planning completeness", "Share of the required fields that are filled in."),
         ("Weekly counts", "Each activity counts once, in the week it starts."),
@@ -483,7 +522,8 @@ ACTIVITY_COLUMNS = (
     ("business_division", "Divisions"),
     ("region", "Regions"),
     ("reach", "Reach"),
-    ("_executives", "Senior executives"),
+    ("_executives", "GEB involved"),
+    ("executives", "GEB members"),
     ("communication_pack_cpid", "Pack ID"),
     ("campaign", "Campaign"),
     ("strategic_objectives", "Communications pillars"),

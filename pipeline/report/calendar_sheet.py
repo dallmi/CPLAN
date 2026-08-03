@@ -38,6 +38,7 @@ NOT_SPECIFIED = "Not specified"
 FIELD_TITLES = {
     "business_division": "BUSINESS DIVISION",
     "region": "REGION",
+    "executives": "GEB",
 }
 
 
@@ -146,6 +147,20 @@ def _mark_collapsed(dimension):
     dimension.collapsed = True
 
 
+def _detail_label(activity):
+    """An activity's row label, with the GEB members named where there are any.
+
+    The BY GEB block already answers "which activities are this person's". This
+    answers the reverse from inside every other block: expanding a division
+    shows at a glance which of its activities carry GEB involvement, and whose.
+    Text rather than colour -- a colour can say "somebody", never "who", and the
+    Total column's data bars already own the sheet's one visual channel.
+    """
+    name = activity.get("activity_name") or "Untitled"
+    executives = activity.get("executives") or ""
+    return f"  {name} — {executives}" if executives else f"  {name}"
+
+
 def _label_cell(ws, row, text, level, bold=False, hidden=False):
     cell = ws.cell(row=row, column=LABEL_COL, value=text)
     cell.border = style.THIN_BORDER
@@ -251,7 +266,7 @@ def build_calendar(wb, scope, config):
             _mark_collapsed(ws.row_dimensions[value_row])
             ordered = subset.sort_values("start_day", kind="stable")
             for _, activity in ordered.iterrows():
-                _label_cell(ws, row, f"  {activity.get('activity_name') or 'Untitled'}",
+                _label_cell(ws, row, _detail_label(activity),
                             level=level + 1, hidden=True)
                 week_key = grid.weeks[int(activity["week_index"])].key
                 _write_grid_row(ws, row, {week_key: 1}, columns, positions,

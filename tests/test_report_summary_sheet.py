@@ -34,7 +34,7 @@ def test_the_summary_states_the_applied_criteria(tmp_path):
     pairs = _pairs(ws)
 
     assert pairs["Period"] == "2025-01-01 to 2025-12-31"
-    assert pairs["Senior executives"] == "any"
+    assert pairs["GEB"] == "any"
 
 
 def test_the_summary_names_every_source_file(tmp_path):
@@ -76,7 +76,7 @@ def test_the_summary_still_renders_the_report_section_on_an_empty_scope():
     ws = wb.worksheets[0]
     pairs = _pairs(ws)
     assert pairs["Period"] == "2025-01-01 to 2025-12-31"
-    assert pairs["Senior executives"] == "any"
+    assert pairs["GEB"] == "any"
     assert pairs["Excluded: no start date"] == 0
     assert pairs["Excluded: date window"] == 0
     assert pairs["Rows read"] == 0
@@ -156,7 +156,7 @@ def test_the_glossary_defines_the_terms_a_reader_meets_on_the_sheets(tmp_path):
     text = "\n".join(f"{t} {d}" for t, d in _glossary_entries(ws)).lower()
 
     for term in ("In scope", "Group-wide", "Overlap", "Audience band",
-                 "Senior executives", "Lead time", "Planning completeness",
+                 "GEB", "Lead time", "Planning completeness",
                  "Weekly counts", "Quarter delta", "Packs"):
         assert term in terms, f"the Glossary does not define {term!r}"
 

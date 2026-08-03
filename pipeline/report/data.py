@@ -29,7 +29,7 @@ COMPLETENESS_FIELDS_INTERNAL = COMPLETENESS_FIELDS_COMMON + (
 )
 
 EXCLUSION_ORDER = (
-    "no start date", "date window", "archived", "senior executives", "audience band",
+    "no start date", "date window", "archived", "GEB", "audience band",
 )
 
 
@@ -139,11 +139,15 @@ def build_scope(load, config):
     if not config.include_archived and "is_archived" in frame.columns:
         drop(frame["is_archived"].fillna(False).astype(bool), "archived")
 
-    frame["has_executives"] = _column(frame, "bod_geb").apply(derive.has_executives)
+    # One derivation feeds both: the names shown on the sheets and the yes/no
+    # the filters and shares count. Deriving the flag from the normalised list
+    # rather than from the raw field means the two cannot disagree about a row.
+    frame["executives"] = _column(frame, "bod_geb").apply(derive.executive_names)
+    frame["has_executives"] = frame["executives"] != ""
     if config.executives == "with":
-        drop(~frame["has_executives"], "senior executives")
+        drop(~frame["has_executives"], "GEB")
     elif config.executives == "without":
-        drop(frame["has_executives"], "senior executives")
+        drop(frame["has_executives"], "GEB")
 
     frame["audience_band"] = _column(frame, "audience").apply(derive.audience_band)
     if config.audience_bands is not None:

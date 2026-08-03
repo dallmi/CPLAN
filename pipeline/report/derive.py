@@ -151,9 +151,20 @@ def audience_band(value):
     return _BAND_LOOKUP.get(_normalise_band(text), BAND_UNKNOWN)
 
 
+def executive_names(value):
+    """The people named in the source field, as one comma-joined list.
+
+    The source is a person picker: the ETL pulls each entry's display name and
+    joins them with ", ". Re-splitting and re-joining here normalises whatever
+    spacing or separator an export used, so every sheet matches on one spelling
+    and the calendar's multi-value block can split it back apart.
+    """
+    return ", ".join(split_multi(value))
+
+
 def has_executives(value):
-    """Involvement means the source field carries anything after stripping."""
-    return bool(_text(value))
+    """Involvement means at least one person is named."""
+    return bool(executive_names(value))
 
 
 _PRIORITY_WORDS = {"critical": 4, "high": 3, "medium": 2, "normal": 1, "low": 0}

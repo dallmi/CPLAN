@@ -85,7 +85,7 @@ def test_the_executive_filter_keeps_only_involved_rows():
     scope = build_scope(load, _config(executives="with"))
 
     assert list(scope.frame["tracking_id"]) == ["A"]
-    assert scope.excluded["senior executives"] == 1
+    assert scope.excluded["GEB"] == 1
 
 
 def test_the_executive_filter_can_be_inverted():
@@ -196,7 +196,7 @@ def test_the_exclusion_counts_partition_the_rows_that_were_read():
     assert scope.excluded["date window"] == 1       # C, not also "archived"
     assert scope.excluded["archived"] == 1          # D, not also "audience band"
     assert scope.excluded["audience band"] == 1     # E
-    assert scope.excluded["senior executives"] == 0
+    assert scope.excluded["GEB"] == 0
 
 
 def test_the_exclusion_counts_partition_the_rows_read_under_every_criterion():
@@ -212,7 +212,7 @@ def test_the_exclusion_counts_partition_the_rows_read_under_every_criterion():
     scope = build_scope(load, _config(executives="with"))
 
     assert sum(scope.excluded.values()) + len(scope.frame) == scope.rows_read
-    assert scope.excluded["senior executives"] == 1
+    assert scope.excluded["GEB"] == 1
     assert scope.excluded["no start date"] == 1
 
 

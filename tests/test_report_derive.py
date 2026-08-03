@@ -18,6 +18,7 @@ from pipeline.report.derive import (
     REACH_UNCLASSIFIED,
     audience_band,
     classify_reach,
+    executive_names,
     has_executives,
     priority_rank,
     split_multi,
@@ -116,6 +117,44 @@ def test_anything_unrecognised_is_unknown(value):
 ])
 def test_executive_involvement_is_a_non_empty_field(value, expected):
     assert has_executives(value) is expected
+
+
+# --- executive_names ---------------------------------------------------------
+
+@pytest.mark.parametrize("value,expected", [
+    ("A. Person", "A. Person"),
+    ("A. Person, B. Person", "A. Person, B. Person"),
+    ("A. Person,B. Person", "A. Person, B. Person"),      # spacing normalised
+    ("A. Person; B. Person", "A. Person, B. Person"),     # separator normalised
+    ("  A. Person  ", "A. Person"),
+    ("", ""),
+    ("   ", ""),
+    (None, ""),
+    (float("nan"), ""),
+])
+def test_executive_names_normalise_to_one_comma_joined_list(value, expected):
+    assert executive_names(value) == expected
+
+
+def test_the_flag_and_the_names_cannot_disagree():
+    """has_executives is defined in terms of executive_names, so a value that
+    yields no names can never read as involvement.
+    """
+    for value in ("A. Person", " , ", "", None, ";;", "  "):
+        assert has_executives(value) is bool(executive_names(value))
+
+
+def test_a_comma_inside_one_display_name_reads_as_two_people():
+    """A known limitation, recorded rather than hidden.
+
+    The source is a person picker whose display names the ETL joins with ", ";
+    a name that itself contains a comma is already indistinguishable from two
+    names by the time the report sees it. Display names of the form
+    "First Last" are safe. If an export ever delivers "Last, First", the fix
+    belongs in the ETL's join, not here -- the information is gone by then.
+    """
+    assert executive_names("Last, First") == "Last, First"
+    assert split_multi("Last, First") == ["Last", "First"]
 
 
 # --- priority_rank -----------------------------------------------------------

@@ -62,7 +62,7 @@ CONFIG = ReportConfig(
     include_unknown_audience=True,   # applies only when audience_bands is set
     include_archived=True,           # archiving is a view-size workaround, not a status
     detail_rows=True,                # activity rows under each dimension value
-    breakdown_fields=("business_division", "region"),
+    breakdown_fields=("business_division", "region", "executives"),
 )
 # ---------------------------------------------------------------------------
 

@@ -22,7 +22,7 @@ def _sheet(tmp_path):
     wb = Workbook()
     wb.remove(wb.active)
     build_audience(wb, scope, config)
-    return wb["Audience & Executives"], scope
+    return wb["Audience & GEB"], scope
 
 
 def _column_a(ws):
@@ -51,8 +51,8 @@ def test_the_sheet_reports_executives_by_quarter_and_by_division(tmp_path):
     ws, _ = _sheet(tmp_path)
     labels = _column_a(ws)
 
-    assert "SENIOR EXECUTIVES BY QUARTER" in labels
-    assert "SENIOR EXECUTIVES BY DIVISION" in labels
+    assert "GEB INVOLVEMENT BY QUARTER" in labels
+    assert "GEB INVOLVEMENT BY DIVISION" in labels
 
 
 def test_division_rows_report_the_share_of_that_divisions_own_volume(tmp_path):
@@ -96,6 +96,77 @@ def test_the_large_audience_by_month_block_divides_its_own_row(tmp_path):
     assert formula == f"=IF(C{data_row}=0,0,B{data_row}/C{data_row})"
 
 
+# --- ACTIVITIES BY GEB MEMBER ------------------------------------------------
+
+def _geb_sheet(sources):
+    """A sheet built from nothing but start dates and the GEB source field."""
+    frame = pd.DataFrame({
+        "start_date": pd.to_datetime(["2025-03-05"] * len(sources)),
+        "bod_geb": list(sources),
+        "activity_name": [f"Activity {i}" for i in range(len(sources))],
+    })
+    config = ReportConfig(date_from=date(2025, 1, 1), date_to=date(2025, 12, 31))
+    scope = build_scope(ActivityLoad(frame, {}, {}), config)
+    wb = Workbook()
+    wb.remove(wb.active)
+    build_audience(wb, scope, config)
+    return wb["Audience & GEB"]
+
+
+def _member_block(ws):
+    """Label -> count for the rows under ACTIVITIES BY GEB MEMBER."""
+    labels = _column_a(ws)
+    start = labels.index("ACTIVITIES BY GEB MEMBER") + 3  # + header row + denominator
+    return {ws.cell(row=r, column=1).value: ws.cell(row=r, column=2).value
+            for r in range(start + 1, ws.max_row + 1)}
+
+
+def test_each_named_member_gets_a_row_with_their_own_count():
+    ws = _geb_sheet(["A. Person", "A. Person", "B. Person", ""])
+
+    assert _member_block(ws) == {"A. Person": 2, "B. Person": 1}
+
+
+def test_an_activity_naming_two_members_counts_under_both():
+    ws = _geb_sheet(["A. Person, B. Person", "A. Person"])
+
+    assert _member_block(ws) == {"A. Person": 2, "B. Person": 1}
+
+
+def test_the_denominator_is_the_distinct_count_of_involved_activities():
+    """Two members on one activity is still one activity with GEB."""
+    ws = _geb_sheet(["A. Person, B. Person", "", ""])
+    labels = _column_a(ws)
+    denominator_row = labels.index("ACTIVITIES BY GEB MEMBER") + 3
+
+    assert ws.cell(row=denominator_row, column=1).value == "All activities with GEB"
+    assert ws.cell(row=denominator_row, column=2).value == 1
+
+
+def test_each_share_divides_by_that_denominator_cell_rather_than_a_literal():
+    ws = _geb_sheet(["A. Person", "B. Person"])
+    labels = _column_a(ws)
+    denominator_row = labels.index("ACTIVITIES BY GEB MEMBER") + 3
+    first_member = denominator_row + 1
+
+    formula = str(ws.cell(row=first_member, column=3).value)
+
+    assert formula == (f"=IF($B${denominator_row}=0,0,"
+                       f"B{first_member}/$B${denominator_row})")
+
+
+def test_members_are_ordered_by_volume_then_by_name():
+    ws = _geb_sheet(["B. Person", "B. Person", "C. Person", "A. Person"])
+
+    assert list(_member_block(ws)) == ["B. Person", "A. Person", "C. Person"]
+
+
+def test_a_scope_without_any_named_member_says_so_instead_of_showing_nothing():
+    ws = _geb_sheet(["", "   "])
+
+    assert "No GEB member named on any in-scope activity" in _column_a(ws)
+
+
 def test_an_empty_scope_does_not_crash():
     """Task 10 shipped a Critical bug on exactly this shape: a builder that
     raised on the frame `build_scope` produces when nothing was read at all
@@ -111,6 +182,6 @@ def test_an_empty_scope_does_not_crash():
     wb = Workbook()
     wb.remove(wb.active)
     build_audience(wb, scope, config)
-    ws = wb["Audience & Executives"]
+    ws = wb["Audience & GEB"]
 
     assert ws.cell(row=1, column=1).value is not None
