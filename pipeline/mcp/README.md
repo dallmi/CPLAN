@@ -30,14 +30,14 @@ host at that command with `cwd` set to the repository root.
 | `field_values` | Distinct stored values (with row counts) of any of the 13 free-text filter columns (`source_type`, `channel`, `priority`, `lead`, `lead_team`, `partner_team`, `campaign`, `region`, `business_division`, `business_area`, `target_audience`, `audience`, `time_zone`), or the individual members of the 3 multi-value columns (`strategic_objectives`, `bod_geb`, `other_executives`) |
 | `search_activities` | Find activities by free-text `query` plus every filterable and multi-value column above, `min_priority_rank`, `executive` (OR across both executive columns), start/end date windows, `max_lead_days`, the boolean flags `news_digest` / `has_tracking_id` / `locally_modified`, and archive handling via `include_archived` / `archived_only`; returns compact summaries |
 | `get_activity` | Full record of one activity by tracking id or UUID |
-| `planning_gaps` | Which activities are not fully planned and what is missing, narrowable by `source_type`, `lead_team`, `lead`, `channel`, `region`, `business_division`, `campaign`, `min_priority_rank`, `start_after`/`start_before` and `include_archived`, and groupable with `group_by` (any enumerable column) to show which team/channel is behind — no `executive` filter here: search with `executive=` on `search_activities` and read `missing_required_fields` instead |
-| `activity_counts` | Volume grouped by `dimension` — any filterable or multi-value column, plus `priority_rank` and `month` — with the same core filters as `planning_gaps` |
+| `planning_gaps` | Which activities are not fully planned and what is missing, narrowable by `source_type`, `lead_team`, `lead`, `channel`, `region`, `business_division`, `campaign`, `min_priority_rank`, `start_after`/`start_before` and `include_archived`, and groupable with `group_by` (any enumerable column) to show which team/channel is behind — no `executive` filter here: search with `executive=` on `search_activities` to find the activities, then call `get_activity` on each match to read `missing_required_fields` |
+| `activity_counts` | Volume grouped by `dimension` — any filterable or multi-value column, plus `priority_rank` and `month` — filterable by `source_type`, `channel`, `lead_team`, `region`, `business_division`, `campaign`, `min_priority_rank`, `start_after`/`start_before` and `include_archived` (a subset of `planning_gaps`'s filters: no `lead`) |
 
 ## Resources
 
 | Resource | Carries |
 |---|---|
-| `cplan://domain-model` | The hierarchy, both priority vocabularies, the archive semantics, the multi-value columns, the completeness rule, and the planning-only scope boundary |
+| `cplan://domain-model` | The hierarchy, both priority vocabularies, the archive semantics, the free-text-column trap, the multi-value columns, the unverified audience band, the completeness rule, the result caps, and the planning-only scope boundary |
 
 An agent that skips this resource will answer priority and archive questions
 confidently wrong. The server instructions tell it to read the resource first.
@@ -82,12 +82,15 @@ and the filters compare case-insensitively.
 filterable without also being enumerable — an agent must never be able to filter
 on a value it has no way to discover.
 
-**Two predicates are evaluated in Python, not SQL.** `priority_rank` needs the
-two-vocabulary rule and `max_lead_days` has to match the API's rounding
+**Three predicates are evaluated in Python, not SQL.** `priority_rank` needs the
+two-vocabulary rule; `max_lead_days` has to match the API's rounding
 (`v_lead_times` uses PostgreSQL `round()`, which rounds an exact half day away
-from zero while Python rounds to even). SQL narrows the candidate set first;
-`needs_post_filter` keeps the cheap `SELECT COUNT` path for every query that uses
-neither.
+from zero while Python rounds to even); and exact multi-value membership
+(`contains`) needs the same tokenising `split_multi` does everywhere else — SQL
+can narrow with a substring `LIKE`, but not decide membership, because "Objective
+A" also matches "Objective AB" as a substring. SQL narrows the candidate set
+first; `needs_post_filter` keeps the cheap `SELECT COUNT` path for every query
+that uses none of the three.
 
 **Multi-value columns split on the separator the ETL actually wrote.** Lookup
 values join with `", "`, person values with `"; "`. Person columns are split on

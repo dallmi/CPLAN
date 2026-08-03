@@ -249,8 +249,10 @@ def build_server(database_url: str) -> MCPServer:
         completeness: a standalone activity with no pack is fully planned.
 
         There is no `executive` filter here: to find incomplete executive
-        activities, call search_activities with `executive=` and read
-        `missing_required_fields` on the results.
+        activities, call search_activities with `executive=` to find them, then
+        get_activity on each match to read `missing_required_fields` --
+        search_activities' own rows are compact summaries and do not carry that
+        field.
         """
         return read(
             lambda session: queries.planning_gaps(
