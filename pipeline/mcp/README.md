@@ -27,11 +27,20 @@ host at that command with `cwd` set to the repository root.
 | Tool | Answers |
 |---|---|
 | `database_status` | How big is the plan, what date range, when did the last sync run |
-| `field_values` | Which values does `channel` / `priority` / `region` / … actually contain |
-| `search_activities` | Find activities by text and filters; compact summaries |
+| `field_values` | Distinct stored values (with row counts) of any of the 13 free-text filter columns (`source_type`, `channel`, `priority`, `lead`, `lead_team`, `partner_team`, `campaign`, `region`, `business_division`, `business_area`, `target_audience`, `audience`, `time_zone`), or the individual members of the 3 multi-value columns (`strategic_objectives`, `bod_geb`, `other_executives`) |
+| `search_activities` | Find activities by free-text `query` plus every filterable and multi-value column above, `min_priority_rank`, `executive` (OR across both executive columns), start/end date windows, `max_lead_days`, the boolean flags `news_digest` / `has_tracking_id` / `locally_modified`, and archive handling via `include_archived` / `archived_only`; returns compact summaries |
 | `get_activity` | Full record of one activity by tracking id or UUID |
-| `planning_gaps` | Which activities are not fully planned, and what is missing |
-| `activity_counts` | Volume by channel, month, lead team, priority, … |
+| `planning_gaps` | Which activities are not fully planned and what is missing, narrowable by `source_type`, `lead_team`, `lead`, `channel`, `region`, `business_division`, `campaign`, `min_priority_rank`, `start_after`/`start_before` and `include_archived`, and groupable with `group_by` (any enumerable column) to show which team/channel is behind — no `executive` filter here: search with `executive=` on `search_activities` and read `missing_required_fields` instead |
+| `activity_counts` | Volume grouped by `dimension` — any filterable or multi-value column, plus `priority_rank` and `month` — with the same core filters as `planning_gaps` |
+
+## Resources
+
+| Resource | Carries |
+|---|---|
+| `cplan://domain-model` | The hierarchy, both priority vocabularies, the archive semantics, the multi-value columns, the completeness rule, and the planning-only scope boundary |
+
+An agent that skips this resource will answer priority and archive questions
+confidently wrong. The server instructions tell it to read the resource first.
 
 ## Design notes
 
@@ -68,6 +77,25 @@ is set.
 "Newsletter" silently matches nothing. `field_values` exists to close that gap,
 and the filters compare case-insensitively.
 
+**Filter, group and enumerate are kept in step by a test.**
+`test_every_filterable_column_is_also_discoverable` fails if a column becomes
+filterable without also being enumerable — an agent must never be able to filter
+on a value it has no way to discover.
+
+**Two predicates are evaluated in Python, not SQL.** `priority_rank` needs the
+two-vocabulary rule and `max_lead_days` has to match the API's rounding
+(`v_lead_times` uses PostgreSQL `round()`, which rounds an exact half day away
+from zero while Python rounds to even). SQL narrows the candidate set first;
+`needs_post_filter` keeps the cheap `SELECT COUNT` path for every query that uses
+neither.
+
+**Multi-value columns split on the separator the ETL actually wrote.** Lookup
+values join with `", "`, person values with `"; "`. Person columns are split on
+`;` only — deliberately unlike `analytics.js::normalizeMulti`, which splits both
+on `/[;,]/`: a person name may contain a comma, and splitting it would invent a
+person. Splitting a lookup value on `","` remains lossy for a value whose own
+name contains a comma.
+
 ## Known limits
 
 - No write tools. Creating activities has to go through the REST API, whose
@@ -80,3 +108,9 @@ and the filters compare case-insensitively.
   would need the streamable-HTTP transport plus OAuth before this is safe.
 - Free text from the source system (activity names, descriptions) reaches the
   model verbatim; treat it as untrusted input.
+- Cluster-level questions cannot be answered exactly. Tracking clusters and
+  communication packs are not first-class records; their identity lives in the
+  tracking-id string and in free-text columns.
+- No performance data. Reach and engagement questions are out of scope by design;
+  the domain-model resource tells the agent to decline them rather than
+  approximate them from planning fields.

@@ -162,6 +162,15 @@ A daily sync job (`pipeline/api/sync_snapshot.py`, orchestrated end-to-end by `p
 
 Every write path (studio create/edit, the daily sync, and the one-time seed) also records a field-level change history (`activity_changes` table, one row per created activity or per changed field on an update, tagged with an actor of `studio`/`sync`/`seed`) in the same transaction as the data change itself. The drawer's read-only History panel surfaces this per activity — the demo argument being that the SharePoint source cannot show what changed when, and CPLAN now can. See `pipeline/api/README.md` for the schema and endpoint.
 
+Multi-value columns carry several values in one string. `pipeline/scripts/process_cplan.py`
+joins SharePoint lookup and taxonomy values with `", "` (`parse_sp_lookup`) and
+person values with `"; "` (`PERSON_JOIN`, for `SP_MULTI_PERSON_COLUMNS` — the two
+executive columns). Consumers must split before tallying, or they count
+combinations rather than values. Splitting a lookup value on `","` is lossy for a
+value whose own name contains a comma; the person separator is unambiguous. Not
+yet verified against a production snapshot — the code is authoritative for what
+the sync writes.
+
 ### Planning completeness
 
 Both dashboards score each activity's planning completeness against the fields a planner actually controls in the entry form: activity name, start date, channel, lead team (or lead), target audience, priority, strategic objectives, and activity description. Pack/campaign linkage is intentionally excluded from this score and tracked as its own metric (`missingPackIds`, shown as "Missing pack/campaign"), because pack membership must never be guessed onto an activity — a legitimate standalone activity is fully complete once its own fields are filled in, even with no pack.
