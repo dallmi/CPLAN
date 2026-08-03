@@ -180,7 +180,12 @@ not move, so the roadmap and any later gap analysis can reference them safely.
 | 53–57 | Reach and engagement (vision — see scope note) |
 | 58–63 | System and process health |
 
-**Coverage legend.** **A** answerable today, one or two tool calls, no hidden
+**Coverage legend.** The `Cover` column is the **pre-phase-1 baseline** — the
+assessment that motivated the work, deliberately frozen so the gap it measured stays
+legible. Phase 1 has since shipped; what it changed is recorded in the Roadmap below,
+not by editing these rows.
+
+**A** answerable today, one or two tool calls, no hidden
 trap. **P** partial — several calls, client-side arithmetic, or a domain trap the
 tools do not warn about. **T** data is in the database, no tool reaches it. **D**
 data is not in CPLAN at all.
@@ -389,6 +394,20 @@ gets halfway: phase 1 makes executive activities findable by date window, but
 
 Planned in detail in
 [`../plans/2026-08-03-mcp-phase-1-filter-parity.md`](../plans/2026-08-03-mcp-phase-1-filter-parity.md).
+
+**Delivered 2026-08-04.** The projection above held. Two questions needed a late
+correction to reach it: `executive` began life as a filter only `search_activities`
+could express, which left Q47 and Q49 answerable only through an N+1 call pattern.
+The whole-branch review caught the overclaim, and `executive` moved into the shared
+filter object — so `planning_gaps(executive=…)` now answers Q49 in one call, and a
+`has_executive` predicate answers Q47 without first enumerating names.
+
+**Known phase-1 shortfall, recorded rather than fixed.** `search_activities`
+carries the full filter set, but `planning_gaps` and `activity_counts` expose a
+deliberate subset of it — no end-date window, no `max_lead_days`, no
+`strategic_objective`, and `activity_counts` has no `lead`. The shared
+`_build_filters` helper already accepts all of them, so widening either tool later
+is signature work only, with no new query logic.
 
 ### Phase 2 — the analytics the studio already has
 
