@@ -665,6 +665,51 @@ def test_planning_gaps_orders_worst_first(session):
     assert counts == sorted(counts, reverse=True)
 
 
+def test_planning_gaps_can_be_narrowed_by_priority_rank(writable_session):
+    writable_session.add_all([
+        _activity(activity_name="Urgent gap", priority="1 - label", channel=None),
+        _activity(activity_name="Routine gap", priority="4 - label", channel=None),
+    ])
+    writable_session.flush()
+    gaps = queries.planning_gaps(writable_session, min_priority_rank=3)
+    assert gaps["incomplete"] == 1
+    assert gaps["activities"][0]["activity_name"] == "Urgent gap"
+
+
+def test_planning_gaps_can_be_narrowed_by_lead_team(writable_session):
+    writable_session.add_all([
+        _activity(lead_team="Team One", channel=None),
+        _activity(lead_team="Team Two", channel=None),
+    ])
+    writable_session.flush()
+    gaps = queries.planning_gaps(writable_session, lead_team="Team One")
+    assert gaps["checked"] == 1
+    assert gaps["incomplete"] == 1
+
+
+def test_planning_gaps_groups_completeness_by_lead_team(writable_session):
+    writable_session.add_all([
+        _activity(lead_team="Team One", channel=None),
+        _activity(lead_team="Team One", channel=None),
+        _activity(lead_team="Team Two"),
+    ])
+    writable_session.flush()
+    gaps = queries.planning_gaps(writable_session, group_by="lead_team")
+    groups = {group["value"]: group for group in gaps["groups"]}
+    assert groups["Team One"]["incomplete"] == 2
+    assert groups["Team One"]["complete"] == 0
+    assert groups["Team Two"]["incomplete"] == 0
+    assert groups["Team Two"]["complete"] == 1
+    # Worst group first, so the answer leads with where the problem is.
+    assert gaps["groups"][0]["value"] == "Team One"
+
+
+def test_planning_gaps_rejects_an_unknown_grouping(writable_session):
+    result = queries.planning_gaps(writable_session, group_by="nonsense")
+    assert "error" in result
+    assert "lead_team" in result["supported_dimensions"]
+
+
 def test_activity_counts_by_channel_groups_unassigned(session):
     result = queries.activity_counts(session, dimension="channel")
 

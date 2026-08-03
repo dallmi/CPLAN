@@ -588,41 +588,46 @@ def get_activity(session: Session, identifier: str) -> dict[str, Any]:
 def planning_gaps(
     session: Session,
     *,
-    source_type: str | None = None,
-    start_after: str | None = None,
-    start_before: str | None = None,
-    include_archived: bool = False,
+    group_by: str | None = None,
     limit: int | None = None,
+    **filter_kwargs: Any,
 ) -> dict[str, Any]:
     """Activities failing the unified completeness rule, worst offenders first.
 
     The rule is evaluated in Python rather than SQL so it holds identically on
     SQLite and PostgreSQL; the candidate set is narrowed in SQL first.
-    """
-    capped = _clamp_limit(limit)
-    filters = ActivityFilters(
-        text={"source_type": source_type},
-        start_after=start_after,
-        start_before=start_before,
-        include_archived=include_archived,
-    )
-    candidates = session.scalars(
-        _apply_filters(select(Activity), filters).order_by(Activity.start_date, Activity.id)
-    ).all()
 
-    incomplete = []
+    `group_by` additionally reports completeness per group -- which team or
+    channel is behind, rather than only which records are.
+    """
+    if group_by is not None and group_by not in ENUMERABLE_FIELDS:
+        return {
+            "error": f"Cannot group planning gaps by {group_by!r}.",
+            "supported_dimensions": list(ENUMERABLE_FIELDS),
+        }
+    capped = _clamp_limit(limit)
+    filters = _build_filters(**filter_kwargs)
+    candidates = _filtered_activities(session, filters)
+
+    incomplete: list[tuple[Activity, list[str]]] = []
     field_tally: dict[str, int] = {}
+    groups: dict[str, dict[str, int]] = {}
     for activity in candidates:
         gaps = missing_fields(activity)
+        if group_by is not None:
+            for key in split_multi(getattr(activity, group_by), group_by) or ["Unassigned"]:
+                bucket = groups.setdefault(key, {"checked": 0, "complete": 0, "incomplete": 0})
+                bucket["checked"] += 1
+                bucket["incomplete" if gaps else "complete"] += 1
         if not gaps:
             continue
-        for field in gaps:
-            field_tally[field] = field_tally.get(field, 0) + 1
+        for name in gaps:
+            field_tally[name] = field_tally.get(name, 0) + 1
         incomplete.append((activity, gaps))
 
     incomplete.sort(key=lambda pair: (-len(pair[1]), pair[0].start_date is None))
     shown = incomplete[:capped]
-    return {
+    answer: dict[str, Any] = {
         "checked": len(candidates),
         "complete": len(candidates) - len(incomplete),
         "incomplete": len(incomplete),
@@ -640,6 +645,13 @@ def planning_gaps(
             for activity, gaps in shown
         ],
     }
+    if group_by is not None:
+        answer["group_by"] = group_by
+        answer["groups"] = sorted(
+            ({"value": key, **counts} for key, counts in groups.items()),
+            key=lambda group: (-group["incomplete"], group["value"]),
+        )
+    return answer
 
 
 def _month_key(value: datetime | None) -> str:
