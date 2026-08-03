@@ -28,6 +28,7 @@ import sys
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest import mock
 
 import pytest
 from sqlalchemy.orm import Session
@@ -796,6 +797,23 @@ def test_lead_days_matches_the_api_read_model(writable_session):
 
     assert queries.lead_days(activity) == ActivityRead.model_validate(activity).planning_lead_days
 
+    # source_created_at and created_at are the SAME instant above, so that case
+    # cannot tell "source_created_at wins" apart from "created_at wins", from
+    # reversed precedence, or from either operand hardcoded. Here they diverge,
+    # so the documented precedence (source_created_at when set, else
+    # created_at -- see ActivityRead.planning_lead_days) is actually exercised:
+    # a created_at 100 days later would give a very different lead time if it
+    # were read instead.
+    diverging = _activity(
+        source_created_at=REFERENCE,
+        created_at=REFERENCE + timedelta(days=100),
+        start_date=REFERENCE + timedelta(days=12),
+    )
+    writable_session.add(diverging)
+    writable_session.flush()
+    assert queries.lead_days(diverging) == 12  # counted from source_created_at, not created_at
+    assert queries.lead_days(diverging) == ActivityRead.model_validate(diverging).planning_lead_days
+
 
 def test_lead_days_is_none_without_a_start_date(writable_session):
     activity = _activity(start_date=None)
@@ -884,6 +902,56 @@ def test_search_without_post_filters_keeps_the_sql_count_path(writable_session):
     writable_session.flush()
     assert queries.needs_post_filter(queries.ActivityFilters()) is False
     assert queries.search_activities(writable_session)["total_matches"] == 3
+
+
+def test_search_activities_builds_an_empty_contains_filter_when_unused(writable_session):
+    """Regression pin for a real bug caught during review of this task.
+
+    `search_activities` builds `contains={"strategic_objectives": strategic_objective}
+    if strategic_objective else {}` internally. The `if strategic_objective else {}`
+    guard is essential: an unconditional `{"strategic_objectives": strategic_objective}`
+    would leave `contains` a non-empty dict (with a None value) even when the
+    caller passes no `strategic_objective` at all, and `needs_post_filter` only
+    checks `bool(filters.contains)` -- so that shape would make the gate return
+    True unconditionally, permanently disabling the cheap SQL-count path below
+    for every single call.
+
+    `test_search_without_post_filters_keeps_the_sql_count_path` does not catch
+    this: it calls `needs_post_filter` on a directly constructed, always-empty
+    `ActivityFilters()`, never on what `search_activities` itself builds, and
+    `total_matches` is correct either way (the slow branch also computes the
+    right count, just less cheaply). This test instead spies on the real gate
+    with the `ActivityFilters` `search_activities` actually constructs, so a
+    future rewrite of that construction (Task 6 replaces it with a
+    `_build_filters` helper) trips this test if the property regresses --
+    regardless of which function ends up building the dict, as long as
+    `needs_post_filter` stays the gate.
+    """
+    writable_session.add_all([_activity() for _ in range(3)])
+    writable_session.flush()
+
+    captured = {}
+    original = queries.needs_post_filter
+
+    def recording_gate(filters):
+        result = original(filters)
+        captured["filters"] = filters
+        captured["result"] = result
+        return result
+
+    with mock.patch.object(queries, "needs_post_filter", side_effect=recording_gate):
+        no_filter_result = queries.search_activities(writable_session)
+    assert captured["filters"].contains == {}
+    assert captured["result"] is False
+    assert no_filter_result["total_matches"] == 3
+
+    with mock.patch.object(queries, "needs_post_filter", side_effect=recording_gate):
+        filtered_result = queries.search_activities(
+            writable_session, strategic_objective="Objective A"
+        )
+    assert captured["filters"].contains == {"strategic_objectives": "Objective A"}
+    assert captured["result"] is True
+    assert filtered_result["total_matches"] == 3  # every fixture row carries "Objective A"
 
 
 # --------------------------------------------------------------------------
