@@ -1764,10 +1764,12 @@ def test_domain_model_uses_the_generic_organisation_vocabulary():
 
     text = domain_model().lower()
     assert "source system" in text
-    assert "organisation" in text or "communication" in text
-    # No name-shaped tokens: the executive columns are described by column name,
-    # never by example, so no capitalised personal name can appear.
-    assert "e.g. jane" not in text
+    assert "communication" in text
+    # The executive columns must be described by column name, never by example --
+    # an example would be a personal name, and this text reaches an external
+    # model. Assert the column names carry the explanation.
+    assert "bod_geb" in text
+    assert "other_executives" in text
 ```
 
 - [ ] **Step 2: Run them to verify they fail**
