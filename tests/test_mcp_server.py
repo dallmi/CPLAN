@@ -746,6 +746,47 @@ def test_counts_accept_the_same_filters_as_search(writable_session):
     assert counted["buckets"] == [{"value": "Email", "count": 1}]
 
 
+def test_build_filters_rejects_an_unexpected_keyword(writable_session):
+    """A typo'd filter name must raise, not return a confidently wrong tally.
+
+    Before this fix, `_build_filters` only ever `pop`ped names it knew and
+    never inspected what was left over, so a typo (`regoin=`) or a keyword it
+    genuinely doesn't support (`executive=`) silently produced a complete,
+    plausible, *unfiltered* result with no error at all.
+    """
+    writable_session.add_all([_activity(region="Global"), _activity(region="Local")])
+    writable_session.flush()
+    with pytest.raises(TypeError, match="regoin"):
+        queries.activity_counts(writable_session, dimension="channel", regoin="Global")
+
+
+def test_counts_python_branch_matches_sql_branch_for_a_stored_dimension(writable_session):
+    """Pins the fix for divergent blank-bucket labelling across branches.
+
+    Every activity here is priority='Critical' (rank 4), so
+    `min_priority_rank=3` excludes nothing -- it only forces `activity_counts`
+    through its Python-grouped branch (any post-filter does) instead of the
+    plain SQL `GROUP BY` branch, for the exact same counted rows. Before the
+    fix, the SQL branch's `coalesce(column, "Unassigned")` caught only NULL,
+    so the whitespace-only and 'None'/'null' sentinel rows surfaced as their
+    own literal buckets there while the Python branch (using `is_blank`)
+    folded all of them into "Unassigned" -- so the bucket name an agent saw
+    depended on whether an unrelated filter was active, not on the data.
+    """
+    writable_session.add_all([
+        _activity(channel="Email", priority="Critical"),
+        _activity(channel=None, priority="Critical"),
+        _activity(channel="   ", priority="Critical"),
+        _activity(channel="None", priority="Critical"),
+        _activity(channel="null", priority="Critical"),
+    ])
+    writable_session.flush()
+    via_python = queries.activity_counts(writable_session, dimension="channel", min_priority_rank=3)
+    via_sql = queries.activity_counts(writable_session, dimension="channel")
+    assert via_python["buckets"] == via_sql["buckets"]
+    assert {bucket["value"] for bucket in via_sql["buckets"]} == {"Email", "Unassigned"}
+
+
 @pytest.mark.parametrize(
     "field", ["partner_team", "business_area", "target_audience", "audience", "time_zone"]
 )

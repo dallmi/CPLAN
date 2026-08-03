@@ -25,7 +25,7 @@ from dataclasses import dataclass, field as dataclass_field
 from datetime import date, datetime, timezone
 from typing import Any
 
-from sqlalchemy import String, and_, func, or_, select
+from sqlalchemy import String, and_, case, func, or_, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
@@ -660,7 +660,7 @@ def _build_filters(**kwargs: Any) -> ActivityFilters:
         for name in FILTERABLE_TEXT_FIELDS
     }
     contains = {"strategic_objectives": kwargs.pop("strategic_objective", None)}
-    return ActivityFilters(
+    filters = ActivityFilters(
         text_query=kwargs.pop("query", None),
         text={name: value for name, value in text.items() if value},
         contains={name: value for name, value in contains.items() if value},
@@ -676,6 +676,16 @@ def _build_filters(**kwargs: Any) -> ActivityFilters:
         max_lead_days=kwargs.pop("max_lead_days", None),
         min_priority_rank=kwargs.pop("min_priority_rank", None),
     )
+    if kwargs:
+        # These keywords come from our own call sites, never from raw user
+        # input, so an unrecognised one is a programming error -- a typo'd
+        # filter name (or one this helper genuinely doesn't support, like
+        # `executive`) must fail loudly rather than silently return a
+        # confidently wrong, unfiltered tally. Same shape as Python's own
+        # unexpected-keyword-argument TypeError.
+        unexpected = ", ".join(sorted(kwargs))
+        raise TypeError(f"_build_filters() got unexpected keyword argument(s): {unexpected}")
+    return filters
 
 
 def _filtered_activities(session: Session, filters: ActivityFilters) -> list[Activity]:
@@ -730,8 +740,16 @@ def activity_counts(
         total = sum(bucket["count"] for bucket in buckets)
     else:
         column = getattr(Activity, dimension)
-        # Unassigned rows are surfaced as their own bucket, never dropped.
-        label = func.coalesce(column, "Unassigned").cast(String)
+        # Unassigned rows are surfaced as their own bucket, never dropped. The
+        # blank rule matches `is_blank` exactly (NULL, whitespace-only, or one
+        # of BLANK_TEXT_SENTINELS) -- a plain `coalesce(column, "Unassigned")`
+        # only catches NULL, which let identical data land in a literal
+        # "None"/"   " bucket here while the Python branch below folded it
+        # into "Unassigned", so the bucket name an agent saw depended on
+        # which branch happened to run rather than on the data itself.
+        trimmed = func.trim(column)
+        is_blank_sql = or_(column.is_(None), trimmed == "", trimmed.in_(BLANK_TEXT_SENTINELS))
+        label = case((is_blank_sql, "Unassigned"), else_=column).cast(String)
         statement = _apply_filters(
             select(label.label("value"), func.count().label("count")), filters
         ).group_by(label)
