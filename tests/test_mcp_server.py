@@ -334,6 +334,40 @@ def test_engine_refuses_orm_flush(session):
         session.flush()
 
 
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "WITH doomed AS (SELECT id FROM activities) DELETE FROM activities",
+        "PRAGMA writable_schema = ON",
+        "with x as (select 1) update activities set priority = 'Low'",
+    ],
+)
+def test_engine_refuses_a_write_hidden_behind_an_allowed_prefix(session, statement):
+    """`with` and `pragma` start read-only statements -- but not only those.
+
+    The allowlist matched on the prefix alone, so a CTE ending in DELETE and
+    `PRAGMA writable_schema = ON` both passed the guard. PostgreSQL still refused
+    them via default_transaction_read_only; on SQLite nothing did.
+    """
+    from sqlalchemy import text
+
+    with pytest.raises(ReadOnlyViolation):
+        session.execute(text(statement))
+
+
+def test_engine_still_allows_a_read_only_cte(session):
+    """The narrowing must not break a legitimate `WITH ... SELECT`."""
+    from sqlalchemy import text
+
+    rows = session.execute(
+        text(
+            "WITH counted AS (SELECT channel, COUNT(*) AS n FROM activities "
+            "GROUP BY channel) SELECT channel, n FROM counted"
+        )
+    ).all()
+    assert rows  # a real result, not a refusal
+
+
 def test_engine_allows_reads(session):
     from sqlalchemy import func, select
 

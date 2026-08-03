@@ -46,9 +46,13 @@ confidently wrong. The server instructions tell it to read the resource first.
 
 **Read-only is enforced by the connection, not by convention.**
 `pipeline/mcp/engine.py` installs a statement guard that raises
-`ReadOnlyViolation` on anything that is not a read, and additionally sets
-`default_transaction_read_only` on PostgreSQL. A tool that tried to write would
-fail loudly rather than mutate the plan.
+`ReadOnlyViolation` on every statement whose leading keyword is not one that
+reads, and additionally sets `default_transaction_read_only` on PostgreSQL. A tool
+that tried to write would fail loudly rather than mutate the plan. `with` and
+`pragma` are allowed prefixes but not sufficient ones — a `WITH … DELETE` or
+`PRAGMA writable_schema = ON` is refused, a plain `WITH … SELECT` is not — because
+on SQLite the guard is the only layer there is. No tool accepts SQL today, so the
+guard is defence in depth rather than the primary control.
 
 **Every tool caps its own answer.** `GET /api/activities` deliberately returns
 the full result set unpaginated — correct for the studio, fatal for an agent

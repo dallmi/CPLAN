@@ -17,6 +17,8 @@ trap.
 
 from __future__ import annotations
 
+import re
+
 from sqlalchemy import event, inspect
 from sqlalchemy.engine import Engine
 from sqlalchemy.engine.url import URL
@@ -26,6 +28,18 @@ from pipeline.api.database import create_cplan_engine
 
 # Statement prefixes that cannot change data. Everything else is refused.
 _READ_ONLY_PREFIXES = ("select", "with", "pragma", "explain", "show", "set", "reset")
+
+# Two of those prefixes are not read-only by themselves: `WITH x AS (...) DELETE
+# FROM activities` and `PRAGMA writable_schema = ON` both begin with an allowed
+# word and both mutate. PostgreSQL still refuses them via
+# `default_transaction_read_only`, but nothing stops them on SQLite -- so a
+# statement with either prefix is refused when it also names a mutating keyword.
+# A plain read-only CTE (`WITH ... SELECT`) still passes.
+_CONDITIONAL_PREFIXES = ("with", "pragma")
+_MUTATING_KEYWORDS = re.compile(
+    r"\b(insert|update|delete|drop|alter|truncate|create|grant|revoke|attach|vacuum"
+    r"|writable_schema)\b"
+)
 
 
 class ReadOnlyViolation(RuntimeError):
@@ -76,7 +90,11 @@ def _is_read_only(statement: str) -> bool:
     lowered = stripped.lower()
     if not lowered:
         return True
-    return lowered.startswith(_READ_ONLY_PREFIXES)
+    if not lowered.startswith(_READ_ONLY_PREFIXES):
+        return False
+    if lowered.startswith(_CONDITIONAL_PREFIXES) and _MUTATING_KEYWORDS.search(lowered):
+        return False
+    return True
 
 
 def create_read_only_engine(database_url: str | URL) -> Engine:
