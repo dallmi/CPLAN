@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import inspect
 import json
 import os
 import re
@@ -172,6 +173,11 @@ def writable_session(request, tmp_path):
     right for tests that query the seed but cannot serve a test that needs its
     own rows. Parametrized identically, so a test built on this one still runs
     on both backends.
+
+    Hazard: on PostgreSQL this fixture and `engine` resolve to the SAME database
+    (`CPLAN_TEST_DATABASE_URL`), and each drops and recreates every table on
+    setup and teardown -- so a test that takes both would have the other's seed
+    dropped out from under it mid-run. Take one or the other, never both.
     """
     from pipeline.api.database import create_cplan_engine
 
@@ -281,7 +287,13 @@ def test_split_multi_returns_a_single_member_for_a_scalar_column():
 
 
 def test_person_columns_match_the_etl_person_column_set():
-    """The separator choice must follow the ETL, not a guess."""
+    """The separator choice must follow the ETL, not a guess.
+
+    Pins the column set AND the two separator literals: the column set alone
+    would still pass if `parse_sp_lookup`'s default changed from ", " or
+    `PERSON_JOIN` from "; ", which is exactly the change that would make
+    `split_multi` split on the wrong character and invent or lose members.
+    """
     etl = (REPO_ROOT / "pipeline" / "scripts" / "process_cplan.py").read_text()
     declared = re.search(r"SP_MULTI_PERSON_COLUMNS = \{([^}]*)\}", etl).group(1)
     person_columns = set(re.findall(r'"(\w+)"', declared))
@@ -291,6 +303,17 @@ def test_person_columns_match_the_etl_person_column_set():
         if seps == (";",)
     }
     assert person_columns == semicolon_only
+
+    person_join = re.search(r'PERSON_JOIN = "(.*?)"', etl).group(1)
+    lookup_join = re.search(r'def parse_sp_lookup\(val, separator="(.*?)"\)', etl).group(1)
+    assert person_join.strip() == ";"
+    assert lookup_join.strip() == ","
+    # Every person column splits on the ETL's person separator, and the lookup
+    # columns accept the ETL's lookup separator.
+    for field in person_columns:
+        assert queries.MULTI_VALUE_SEPARATORS[field] == (person_join.strip(),)
+    for field in set(queries.MULTI_VALUE_SEPARATORS) - person_columns:
+        assert lookup_join.strip() in queries.MULTI_VALUE_SEPARATORS[field]
 
 
 # --------------------------------------------------------------------------
@@ -572,6 +595,26 @@ def test_search_finds_locally_modified_rows_but_not_never_synced_ones(writable_s
     writable_session.flush()
     found = queries.search_activities(writable_session, locally_modified=True)
     assert [row["activity_name"] for row in found["activities"]] == ["Diverged"]
+
+
+def test_locally_modified_false_keeps_never_synced_rows(writable_session):
+    """The `~diverged` branch: never-synced is not divergence, so it is included.
+
+    `synced_version IS NULL` makes the comparison three-valued, which is why the
+    predicate guards it explicitly -- a plain `NOT (version > synced_version)`
+    would drop every never-synced row here instead of keeping it.
+    """
+    writable_session.add_all([
+        _activity(activity_name="Diverged", version=3, synced_version=2),
+        _activity(activity_name="In step", version=2, synced_version=2),
+        _activity(activity_name="Never synced", version=4, synced_version=None),
+    ])
+    writable_session.flush()
+    found = queries.search_activities(writable_session, locally_modified=False)
+    assert sorted(row["activity_name"] for row in found["activities"]) == [
+        "In step",
+        "Never synced",
+    ]
 
 
 def test_search_filters_by_news_digest_flag(writable_session):
@@ -1451,18 +1494,38 @@ def test_instructions_point_at_the_domain_model_resource(engine):
 
 @pytest.mark.skipif(MCP_SDK_MISSING, reason="the mcp SDK is optional (pip install mcp)")
 def test_search_exposes_every_new_filter_over_the_protocol(engine):
+    """Every filterable column must be searchable over the protocol, too.
+
+    `ENUMERABLE_FIELDS` and `GROUPABLE_FIELDS` derive from
+    `FILTERABLE_TEXT_FIELDS` automatically, but `search_activities`' signature
+    and the MCP tool schema restate the list by hand. Driving the loop off
+    `FILTERABLE_TEXT_FIELDS` instead of a literal is what stops a newly added
+    column from becoming enumerable and groupable but not searchable, with a
+    green suite.
+    """
     from pipeline.mcp.server import build_server
 
     server = build_server(engine.url.render_as_string(hide_password=False))
     tools = {tool.name: tool for tool in asyncio.run(server.list_tools())}
     properties = tools["search_activities"].input_schema["properties"]
     for name in (
-        "lead_team", "partner_team", "region", "business_division", "business_area",
-        "target_audience", "audience", "time_zone", "end_after", "end_before",
-        "news_digest", "has_tracking_id", "locally_modified", "archived_only",
+        *queries.FILTERABLE_TEXT_FIELDS,
+        "end_after", "end_before", "news_digest", "has_tracking_id",
+        "has_executive", "locally_modified", "archived_only",
         "strategic_objective", "executive", "max_lead_days", "min_priority_rank",
     ):
         assert name in properties, name
+
+
+def test_every_filterable_column_is_searchable_in_the_query_layer():
+    """The same invariant one layer down, where no MCP SDK is needed.
+
+    The protocol test above needs the optional SDK; this one pins the query
+    function's own signature, so the invariant holds even on a machine without
+    the SDK installed.
+    """
+    parameters = set(inspect.signature(queries.search_activities).parameters)
+    assert set(queries.FILTERABLE_TEXT_FIELDS) <= parameters
 
 
 @pytest.mark.skipif(MCP_SDK_MISSING, reason="the mcp SDK is optional (pip install mcp)")
