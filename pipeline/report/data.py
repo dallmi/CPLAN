@@ -11,7 +11,7 @@ from datetime import date
 
 import pandas as pd
 
-from pipeline.report import derive
+from pipeline.report import derive, regions
 from pipeline.report.config import BAND_UNKNOWN
 from pipeline.report.grid import build_grid
 
@@ -202,6 +202,13 @@ def build_scope(load, config):
                 lambda value: derive.priority_number(value) in excluded_priorities),
             "priority",
         )
+
+    # The source column mixes regions, countries and cities; these two resolve
+    # it into the levels a planner works at. The raw value stays on the
+    # Activities sheet as the audit trail.
+    raw_region = _column(frame, "region")
+    frame["region_group"] = raw_region.apply(regions.region_group)
+    frame["country"] = raw_region.apply(regions.country_names)
 
     frame["week_index"] = frame["start_day"].apply(grid.week_index)
     frame["_quarter"] = [

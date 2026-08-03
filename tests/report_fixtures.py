@@ -62,7 +62,7 @@ INTERNAL_ROWS = [
     _row(4, "IC-0004", "Two divisions", "2025-08-20",
          **{"Business Division": _lookup("Division A", "Division B")}),
     _row(5, "IC-0005", "Region only", "2025-11-04",
-         **{"Business Division": "", "Region": _lookup("APAC")}),
+         **{"Business Division": "", "Region": _lookup("APAC:Japan")}),
     _row(6, "IC-0006", "Neither dimension", "2025-11-05",
          **{"Business Division": "", "Region": ""}),
     _row(7, "IC-0007", "With senior executives", "2025-03-19",
@@ -74,6 +74,10 @@ INTERNAL_ROWS = [
     _row(9, "IC-0009", "No audience value", "2025-06-12", **{"Estimated audience size": ""}),
     _row(10, "IC-0010", "No start date", None, **{"Start date": ""}),
     _row(11, "IC-0011", "Outside the window", "2024-06-04"),
+    _row(17, "IC-0018", "City rolls up to its country", "2025-04-08",
+         **{"Region": _lookup("Zurich")}),
+    _row(18, "IC-0019", "Region value nobody mapped", "2025-04-09",
+         **{"Region": _lookup("Atlantis")}),
     _row(12, "IC-0012", "Incomplete record", "2025-09-24",
          **{"Channel": "", "Lead Team": "", "Communication pack:C": ""}),
     _row(13, "IC-0013", "Last week of the year", "2025-12-31"),
@@ -101,13 +105,13 @@ EXTERNAL_ROWS = [
     _row(30, "EC-0001", "External single division", "2025-02-19",
          **{"Channel": _lookup("Press")}),
     _row(31, "EC-0002", "External group-wide", "2025-07-16",
-         **{"Region": _lookup("Worldwide"), "Audience": "external"}),
+         **{"Region": _lookup("All"), "Audience": "external"}),
 ]
 
 EXTERNAL_ARCHIVE_ROWS = []
 
-# 17 internal + 1 surviving archive + 2 external, minus the losing duplicate.
-FIXTURE_ROW_COUNT = 20
+# 19 internal + 1 surviving archive + 2 external, minus the losing duplicate.
+FIXTURE_ROW_COUNT = 22
 
 
 def _write_csv(path, rows, header):

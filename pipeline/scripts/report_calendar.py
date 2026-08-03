@@ -79,7 +79,8 @@ CONFIG = ReportConfig(
     exclude_priorities=(4,),         # leading number; word priorities are untouched
     include_archived=True,           # archiving is a view-size workaround, not a status
     detail_rows=True,                # activity rows under each dimension value
-    breakdown_fields=("business_division", "region", "executives"),
+    breakdown_fields=("business_division", "region_group", "country",
+                      "executives"),
 )
 # ---------------------------------------------------------------------------
 

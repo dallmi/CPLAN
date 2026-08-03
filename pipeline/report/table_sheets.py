@@ -8,7 +8,7 @@ is a handful of lines rather than a new layout.
 from openpyxl.styles import Alignment
 from openpyxl.utils import get_column_letter
 
-from pipeline.report import metrics, style
+from pipeline.report import metrics, regions, style
 from pipeline.report.config import (
     AUDIENCE_BAND_ORDER,
     AUDIENCE_BANDS,
@@ -180,8 +180,31 @@ def build_data_quality(wb, scope, config):
     row = style.write_header_row(ws, row, ["Anomaly", "Count", "", ""])
     row = style.write_data_rows(ws, row, [[label, count] for label, count in
                                           metrics.anomalies(frame, scope.duplicates_removed)])
+    row += 1
+
+    _write_unmapped_regions(ws, row, frame)
 
     style.finalize_sheet(ws, freeze="A2", widths={"A": 40, "B": 14, "C": 14, "D": 14})
+
+
+def _write_unmapped_regions(ws, row, frame):
+    """The source region values no group could be resolved for.
+
+    Named with their counts rather than swept into an "Unmapped" row, because
+    this listing is how `regions.py`'s tables are meant to grow: a value that
+    only ever appears inside a bucket total never gets fixed. Printed exactly as
+    the source wrote it -- that is what somebody has to search for.
+    """
+    unmapped = regions.unmapped_values(frame.get("region", []))
+    row = style.write_section_header(ws, row, "REGION VALUES NOT YET MAPPED", 4)
+    row = style.write_header_row(ws, row, ["Value", "Activities", "", ""])
+    if not unmapped:
+        return style.write_data_rows(
+            ws, row, [["Every region value resolves to a group", 0]])
+    for value, count in unmapped:
+        style.write_data_rows(ws, row, [[value, count]])
+        row += 1
+    return row
 
 
 def _quarter_label(quarter):
@@ -368,6 +391,10 @@ GLOSSARY_SECTIONS = (
                      "Executive Summary."),
     )),
     ("DIMENSIONS", (
+        ("Region", "Americas, APAC, EMEA, Switzerland or Global, resolved from the "
+                   "source value. Switzerland is its own group."),
+        ("Country", "The country behind the source value. Cities roll up into "
+                    "theirs; a region-only value has none."),
         ("Overlap", "An activity naming two divisions counts in both, so those blocks "
                     "add up to more than the total."),
     )),
@@ -542,7 +569,9 @@ ACTIVITY_COLUMNS = (
     ("target_audience", "Target audience"),
     ("audience_band", "Audience band"),
     ("business_division", "Divisions"),
-    ("region", "Regions"),
+    ("region", "Regions (as recorded)"),
+    ("region_group", "Region"),
+    ("country", "Country"),
     ("_executives", "GEB involved"),
     ("executives", "GEB members"),
     ("senior_executives", "Senior executives (non-GEB)"),

@@ -24,7 +24,7 @@ Two rules keep the arithmetic honest:
 from openpyxl.formatting.rule import DataBarRule
 from openpyxl.utils import get_column_letter
 
-from pipeline.report import style
+from pipeline.report import regions, style
 from pipeline.report.config import AUDIENCE_BAND_ORDER
 from pipeline.report.derive import split_multi, split_people
 
@@ -39,8 +39,23 @@ NOT_SPECIFIED = "Not specified"
 FIELD_TITLES = {
     "business_division": "BUSINESS DIVISION",
     "region": "REGION",
+    "region_group": "REGION",
+    "country": "COUNTRY",
     "executives": "GEB",
 }
+
+# Most blocks read best alphabetically. The region groups do not: they have a
+# natural reading order, and Global -- the largest value in the source -- would
+# otherwise sit between EMEA and Switzerland.
+FIELD_ORDER = {"region_group": {name: i for i, name in enumerate(regions.GROUP_ORDER)}}
+
+
+def _sort_key(field, name):
+    order = FIELD_ORDER.get(field)
+    if order is None:
+        return (name == NOT_SPECIFIED, name)
+    return (name == NOT_SPECIFIED, order.get(name, len(order)), name)
+
 
 # People fields split on the semicolon only: a display name contains a comma
 # ("Last, First"), so the generic splitter would turn one person into two rows.
@@ -348,7 +363,7 @@ def build_calendar(wb, scope, config):
             for name in names:
                 values.setdefault(name, []).append(activity.name)
         member_rows = []
-        for name in sorted(values, key=lambda n: (n == NOT_SPECIFIED, n)):
+        for name in sorted(values, key=lambda n: _sort_key(field, n)):
             subset = scope.frame.loc[values[name]]
             member_rows.append(write_value_row(name, subset, level=1, hidden=True))
         # Week/month/quarter cells: the same true, non-overlapping distinct

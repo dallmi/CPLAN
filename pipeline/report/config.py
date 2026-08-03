@@ -48,7 +48,8 @@ class ReportConfig:
     exclude_priorities: tuple = ()
     include_archived: bool = True
     detail_rows: bool = True
-    breakdown_fields: tuple = ("business_division", "region", "executives")
+    breakdown_fields: tuple = ("business_division", "region_group", "country",
+                               "executives")
 
     def __post_init__(self):
         if (self.date_from is not None and self.date_to is not None

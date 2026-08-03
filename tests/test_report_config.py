@@ -19,7 +19,8 @@ def test_defaults_keep_everything_in_scope():
     assert config.executives == "any"
     assert config.audience_bands is None
     assert config.include_archived is True
-    assert config.breakdown_fields == ("business_division", "region", "executives")
+    assert config.breakdown_fields == ("business_division", "region_group",
+                                      "country", "executives")
 
 
 def test_reversed_dates_are_rejected():
