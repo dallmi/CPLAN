@@ -1122,6 +1122,61 @@ def test_search_activities_builds_an_empty_contains_filter_when_unused(writable_
 
 
 # --------------------------------------------------------------------------
+# Domain model resource -- pure text generation, no session, no MCP SDK
+# --------------------------------------------------------------------------
+
+
+def test_domain_model_names_every_trap():
+    from pipeline.mcp.domain import domain_model
+
+    text = domain_model()
+    for phrase in (
+        "two vocabularies",
+        "archiv",  # archived is not a relevance signal
+        "tracking cluster",
+        "other_executives",
+        "audience",
+        "planning only",
+    ):
+        assert phrase.lower() in text.lower(), phrase
+
+
+def test_domain_model_lists_the_real_required_fields():
+    from pipeline.mcp.domain import domain_model
+
+    text = domain_model()
+    for name in queries.REQUIRED_COMMON_FIELDS + queries.REQUIRED_INTERNAL_FIELDS:
+        assert name in text, name
+
+
+def test_domain_model_states_the_real_multi_value_separators():
+    from pipeline.mcp.domain import domain_model
+
+    text = domain_model()
+    for name in queries.MULTI_VALUE_SEPARATORS:
+        assert name in text, name
+
+
+def test_domain_model_uses_the_generic_organisation_vocabulary():
+    """The resource text reaches an external model -- it must stay brand-neutral.
+
+    Asserted positively, by requiring the generic wording. A denylist test would
+    have to spell the forbidden name, which is the thing that must not enter this
+    repository; the repo-wide pre-push grep is the negative check.
+    """
+    from pipeline.mcp.domain import domain_model
+
+    text = domain_model().lower()
+    assert "source system" in text
+    assert "communication" in text
+    # The executive columns must be described by column name, never by example --
+    # an example would be a personal name, and this text reaches an external
+    # model. Assert the column names carry the explanation.
+    assert "bod_geb" in text
+    assert "other_executives" in text
+
+
+# --------------------------------------------------------------------------
 # Protocol layer -- needs the optional MCP SDK
 # --------------------------------------------------------------------------
 
