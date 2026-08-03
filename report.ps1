@@ -82,7 +82,7 @@ try {
             $written = $Out
         }
         else {
-            $written = Get-ChildItem (Join-Path $root "pipeline\output") -Filter "CPLAN_calendar_*.xlsx" |
+            $written = Get-ChildItem (Join-Path $root "pipeline\output\reports") -Filter "CPLAN_calendar_*.xlsx" |
                 Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
         }
         if ($written -and (Test-Path $written)) {

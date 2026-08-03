@@ -39,6 +39,7 @@ OneDrive sync folder          pipeline/
   *.csv  ──────────────────>    data/cplan.db      <- DuckDB database
                                 output/communications.parquet
                                 output/communications.json
+                                output/reports/*.xlsx  <- calendar reports
                                 dashboard/index.html  <- HTML dashboard
 ```
 
@@ -115,4 +116,5 @@ Expected files:
 | `pipeline/output/communications.parquet` | Combined data as Parquet |
 | `pipeline/output/communications.json` | JSON for the HTML dashboard |
 | `pipeline/dashboard/index.html` | HTML dashboard (loads Parquet via HTTP — needs a local web server) |
+| `pipeline/output/reports/*.xlsx` | Calendar reports — this folder holds nothing else |
 | `pipeline/output/cplan_dashboard_standalone.html` | Standalone dashboard — Parquet + meta.json embedded as base64, runs from `file://` by double-click (CDN libs still require internet) |

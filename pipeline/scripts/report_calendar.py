@@ -48,7 +48,14 @@ from pipeline.scripts.process_cplan import (                       # noqa: E402
     print_banner,
 )
 
+# Reports get their own folder, and it holds nothing but .xlsx. The rest of
+# pipeline/output is the pipeline's own working data -- parquet the API reads,
+# meta.json the dashboard fetches -- and a delivered workbook sitting among
+# them was easy to lose. Flat inside `reports/`, not bucketed by month: a run
+# is identified by the period it covers, which the filename already carries,
+# and two runs on one day can cover completely different periods.
 OUTPUT_DIR = PIPELINE_DIR / "output"
+REPORTS_DIR = OUTPUT_DIR / "reports"
 
 # Beyond roughly five years the calendar stops being something a planner reads
 # and starts being something Excel struggles to open. It is still built -- the
@@ -110,7 +117,7 @@ def build_workbook(scope, config):
 
 def default_output_path(config):
     stamp = datetime.now().strftime("%Y_%m_%d")
-    return OUTPUT_DIR / f"CPLAN_calendar_{config.period_slug()}_{stamp}.xlsx"
+    return REPORTS_DIR / f"CPLAN_calendar_{config.period_slug()}_{stamp}.xlsx"
 
 
 def iso_date(text):
@@ -131,7 +138,7 @@ def build_parser():
     parser.add_argument("--all", dest="all_dates", action="store_true",
                         help="Cover every dated activity, ignoring the period in CONFIG")
     parser.add_argument("--out", type=str, default=None,
-                        help="Output path (default: pipeline/output/CPLAN_calendar_<period>_<date>.xlsx)")
+                        help="Output path (default: pipeline/output/reports/CPLAN_calendar_<period>_<date>.xlsx)")
     parser.add_argument("--input-dir", type=str, default=None,
                         help="Read the CSV exports from here instead of discovering OneDrive")
     return parser

@@ -14,6 +14,7 @@ pipeline/output/*.parquet
 pipeline/output/*.json
 pipeline/output/*.html
 pipeline/output/*.xlsx
+pipeline/output/reports/
 
 # Pipeline docs (internal only)
 pipeline/docs/

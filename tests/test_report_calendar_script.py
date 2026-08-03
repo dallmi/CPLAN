@@ -208,6 +208,30 @@ def test_a_malformed_date_is_refused_at_parse_time():
         _resolve(["--from", "01.04.2026"])
 
 
+def test_the_default_output_lands_in_the_reports_folder():
+    """Nothing but .xlsx lives there. The rest of pipeline/output is the
+    pipeline's own working data -- parquet the API reads, meta.json the
+    dashboard fetches -- and a delivered workbook was easy to lose among them.
+    """
+    path = report_calendar.default_output_path(_resolve([]))
+
+    assert path.parent == report_calendar.REPORTS_DIR
+    assert path.parent.name == "reports"
+    assert path.parent.parent == report_calendar.OUTPUT_DIR
+
+
+def test_an_explicit_out_path_still_wins(tmp_path):
+    """The folder is a default, not a cage: --out puts the file where asked."""
+    write_activity_csvs(tmp_path / "input")
+    out = tmp_path / "somewhere" / "else.xlsx"
+
+    code = report_calendar.main(["--input-dir", str(tmp_path / "input"), "--all",
+                                 "--out", str(out)])
+
+    assert code == 0
+    assert out.exists()
+
+
 @pytest.mark.parametrize("argv,expected", [
     (["--all"], "CPLAN_calendar_all_"),
     ([], "CPLAN_calendar_2026_"),
