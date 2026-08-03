@@ -15,10 +15,12 @@ from pipeline.report import derive
 from pipeline.report.config import BAND_UNKNOWN
 from pipeline.report.grid import build_grid
 
-# The fields the studio requires, from analytics.js. `time_zone` is on that list
-# but is not mapped by the ETL, so it is dropped from the denominator here and
-# reported as skipped -- otherwise every row from a CSV export would be capped
-# below 100% by a field the export cannot carry.
+# The fields the studio requires, from analytics.js. Any of them the export did
+# not carry is dropped from the denominator and reported as skipped, so a row is
+# never capped below 100% by a field nothing could have filled. `time_zone` was
+# the standing example -- present in the source but unmapped, so every activity
+# looked as if it were missing a time zone; it is mapped now, and this stays
+# general rather than naming it, because the next gap will be a different field.
 COMPLETENESS_FIELDS_COMMON = (
     "activity_name", "channel", "priority", "strategic_objectives",
     "activity_description", "region", "start_date", "end_date", "time_zone",
@@ -145,11 +147,22 @@ def build_scope(load, config):
     # rather than from the raw field means the two cannot disagree about a row.
     frame["executives"] = _column(frame, "bod_geb").apply(derive.executive_names)
     frame["has_executives"] = frame["executives"] != ""
+
+    # The other half of the leadership pair: senior executives who are not on
+    # the GEB. Same derivation, a different source field -- the two never mix,
+    # and the `executives` filter above deliberately still means GEB only.
+    frame["senior_executives"] = (
+        _column(frame, "other_executives").apply(derive.executive_names))
     if config.executives == "with":
         drop(~frame["has_executives"], "GEB")
     elif config.executives == "without":
         drop(frame["has_executives"], "GEB")
 
+    # `audience` now carries the source's "Estimated audience size", which is
+    # what it was always meant to hold; the source's own "Audience" column is a
+    # different field and lands in `audience_type` (see process_cplan's
+    # COLUMN_MAP). The external export has no size column at all, so external
+    # rows band as Unknown -- honestly, rather than by reading the wrong field.
     frame["audience_band"] = _column(frame, "audience").apply(derive.audience_band)
     if config.audience_bands is not None:
         allowed = set(config.audience_bands)

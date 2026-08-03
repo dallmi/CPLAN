@@ -15,8 +15,10 @@ from pipeline.report.derive import (
     executive_names,
     has_executives,
     only_excluded_objectives,
+    person_name,
     priority_rank,
     split_multi,
+    split_people,
 )
 
 
@@ -141,42 +143,55 @@ def test_executive_involvement_is_a_non_empty_field(value, expected):
     assert has_executives(value) is expected
 
 
-# --- executive_names ---------------------------------------------------------
+# --- executive_names / split_people / person_name ------------------------------
 
 @pytest.mark.parametrize("value,expected", [
-    ("A. Person", "A. Person"),
-    ("A. Person, B. Person", "A. Person, B. Person"),
-    ("A. Person,B. Person", "A. Person, B. Person"),      # spacing normalised
-    ("A. Person; B. Person", "A. Person, B. Person"),     # separator normalised
-    ("  A. Person  ", "A. Person"),
+    # The source's own format: "Last, First", several people split by semicolon.
+    ("Muster, Anna", "Anna Muster"),
+    ("Muster, Anna; Weber, Ben", "Anna Muster; Ben Weber"),
+    ("Muster, Anna;Weber, Ben", "Anna Muster; Ben Weber"),    # spacing normalised
+    ("  Muster, Anna  ", "Anna Muster"),
+    # Already plain, or one of the source's known inconsistencies: left alone.
+    ("Anna Muster", "Anna Muster"),
+    ("Muster, Anna; Plain Name", "Anna Muster; Plain Name"),
+    ("von Muster, Anna Maria", "Anna Maria von Muster"),
+    ("Odd, Name, Here", "Odd, Name, Here"),
     ("", ""),
     ("   ", ""),
     (None, ""),
     (float("nan"), ""),
 ])
-def test_executive_names_normalise_to_one_comma_joined_list(value, expected):
+def test_executive_names_read_first_last_and_join_on_semicolons(value, expected):
     assert executive_names(value) == expected
+
+
+def test_a_comma_never_separates_two_people():
+    """The whole point. A display name is "Last, First", so a comma inside one
+    is part of the name -- splitting on it turned two people into four
+    fragments, silently, in every block that lists them.
+    """
+    assert split_people("Muster, Anna; Weber, Ben") == ["Muster, Anna", "Weber, Ben"]
+    assert split_people("Muster, Anna") == ["Muster, Anna"]
+    assert len(split_people("Muster, Anna; Weber, Ben")) == 2
+
+
+def test_a_name_the_source_writes_inconsistently_is_passed_through_not_guessed():
+    """Two or more commas is one of the known inconsistencies. No rule would
+    reliably say which part is the surname, so it stays as written rather than
+    being reordered into a confident-looking mistake.
+    """
+    assert person_name("Odd, Name, Here") == "Odd, Name, Here"
+    assert person_name("Muster,") == "Muster,"
+    assert person_name(", Anna") == ", Anna"
 
 
 def test_the_flag_and_the_names_cannot_disagree():
     """has_executives is defined in terms of executive_names, so a value that
     yields no names can never read as involvement.
     """
-    for value in ("A. Person", " , ", "", None, ";;", "  "):
+    for value in ("Muster, Anna", " ; ", "", None, ";;", "  "):
         assert has_executives(value) is bool(executive_names(value))
 
-
-def test_a_comma_inside_one_display_name_reads_as_two_people():
-    """A known limitation, recorded rather than hidden.
-
-    The source is a person picker whose display names the ETL joins with ", ";
-    a name that itself contains a comma is already indistinguishable from two
-    names by the time the report sees it. Display names of the form
-    "First Last" are safe. If an export ever delivers "Last, First", the fix
-    belongs in the ETL's join, not here -- the information is gone by then.
-    """
-    assert executive_names("Last, First") == "Last, First"
-    assert split_multi("Last, First") == ["Last", "First"]
 
 
 # --- priority_rank -----------------------------------------------------------

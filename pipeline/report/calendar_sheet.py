@@ -26,7 +26,7 @@ from openpyxl.utils import get_column_letter
 
 from pipeline.report import style
 from pipeline.report.config import AUDIENCE_BAND_ORDER
-from pipeline.report.derive import split_multi
+from pipeline.report.derive import split_multi, split_people
 
 SHEET_NAME = "Calendar"
 LABEL_COL = 1
@@ -41,6 +41,14 @@ FIELD_TITLES = {
     "region": "REGION",
     "executives": "GEB",
 }
+
+# People fields split on the semicolon only: a display name contains a comma
+# ("Last, First"), so the generic splitter would turn one person into two rows.
+PEOPLE_FIELDS = frozenset({"executives", "senior_executives"})
+
+
+def _split_for(field, value):
+    return split_people(value) if field in PEOPLE_FIELDS else split_multi(value)
 
 
 def _column_positions(columns):
@@ -312,7 +320,7 @@ def build_calendar(wb, scope, config):
         row += 1
         values = {}
         for _, activity in scope.frame.iterrows():
-            names = split_multi(activity.get(field)) or [NOT_SPECIFIED]
+            names = _split_for(field, activity.get(field)) or [NOT_SPECIFIED]
             for name in names:
                 values.setdefault(name, []).append(activity.name)
         member_rows = []

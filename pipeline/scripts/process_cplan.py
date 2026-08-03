@@ -276,7 +276,16 @@ def _strip_html(val):
     return text
 
 
-def parse_sp_lookup(val):
+# Person fields are joined with a semicolon, not a comma. A person picker's
+# display names arrive as "Last, First", so a comma-joined pair of them is
+# indistinguishable from four fragments -- and that ambiguity cannot be undone
+# further downstream. A display name never contains a semicolon, which is also
+# what the source itself uses when it writes several people into one cell.
+PERSON_JOIN = "; "
+SP_MULTI_PERSON_COLUMNS = {"bod_geb", "other_executives"}
+
+
+def parse_sp_lookup(val, separator=", "):
     """Extract the Value from a SharePoint lookup/taxonomy JSON field.
 
     SharePoint Power Automate exports lookup columns as JSON:
@@ -311,7 +320,7 @@ def parse_sp_lookup(val):
                 values.append(_extract_sp_value(item))
             elif isinstance(item, str) and item.strip():
                 values.append(item.strip())
-        return ", ".join(v for v in values if v)
+        return separator.join(v for v in values if v)
 
     if isinstance(parsed, dict):
         return _extract_sp_value(parsed)
@@ -415,18 +424,39 @@ COLUMN_MAP = {
     "Start date":               "start_date",
     "End date":                 "end_date",
     "News digest":              "news_digest",
+    "Time*zone":                "time_zone",
     "Priority":                 "priority",
     "Strategic Objectives":     "strategic_objectives",
     "Campaign":                 "campaign",
     "Campaign*LTID":            "campaign_ltid",
     "Communication pack:C":     "communication_pack_cpid",
     "BOD*GEB":                  "bod_geb",
+    # Senior executives who are NOT on the GEB. The source misspells "senior",
+    # and the two lists carry it under names that differ by a trailing digit
+    # (internal vs external), so this matches on "Other ... execut" rather than
+    # on either spelling. Each export is transformed on its own, so one label
+    # claiming one column per file is enough -- there is no cross-file clash.
+    "Other*execut":             "other_executives",
+    # The size goes to `audience`, which is the field the studio labels
+    # "Estimated audience size" and the database has always had a column for.
+    # It used to be fed from the source's own "Audience" column, which is a
+    # different field entirely -- it reads "external" on every external row --
+    # so every activity carried a size that was not one.
+    #
+    # A wildcard, not an exact label: exact matching is case-sensitive and the
+    # source writes whatever case the column was created with. It sorts before
+    # "Audience" (longest label first) so it claims its own column, and it
+    # cannot steal "Extended audience", which does not start with "Estimated".
+    "Estimated*audience":       "audience",
     "Communication pack":       "communication_pack",
     "Communication":            "communication_ref",
     "Created":                  "created",
     "Modified":                 "modified",
     "Author":                   "author",
-    "Audience":                 "audience",
+    # Not a size. Kept under a name that says so, and deliberately absent
+    # from the snapshot import's allowlist, so it stays out of the database
+    # rather than overwriting the field above.
+    "Audience":                 "audience_type",
 }
 
 # Columns that contain SP lookup JSON and need Value extraction
@@ -436,6 +466,7 @@ SP_LOOKUP_COLUMNS = {
     "partner_team", "priority", "strategic_objectives",
     "campaign", "campaign_ltid", "communication_pack_cpid", "bod_geb",
     "communication_ref", "communication_pack", "author", "audience",
+    "audience_type", "other_executives",
 }
 
 # Columns where we also want to extract the email from Claims
@@ -507,7 +538,7 @@ def transform(df, source_type):
     log(f"  {len(df.columns)} columns mapped to output schema")
 
     # Strip HTML from rich text fields
-    for col in ("activity_description", "bod_geb"):
+    for col in ("activity_description", "bod_geb", "other_executives"):
         if col in df.columns:
             df[col] = df[col].apply(_strip_html)
 
@@ -519,7 +550,8 @@ def transform(df, source_type):
     # Parse SP lookup JSON fields -> extract Value / DisplayName
     for col in SP_LOOKUP_COLUMNS:
         if col in df.columns:
-            df[col] = df[col].apply(parse_sp_lookup)
+            sep = PERSON_JOIN if col in SP_MULTI_PERSON_COLUMNS else ", "
+            df[col] = df[col].apply(lambda v, s=sep: parse_sp_lookup(v, s))
 
     # Parse dates — keep full datetime (date + time), convert to CET
     # Formats seen: "DD.MM.YYYY HH:MM", ISO 8601 with tz ("2025-05-06 08:00:00+00:00")

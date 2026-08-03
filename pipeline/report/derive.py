@@ -120,15 +120,50 @@ def audience_band(value):
     return _BAND_LOOKUP.get(_normalise_band(text), BAND_UNKNOWN)
 
 
-def executive_names(value):
-    """The people named in the source field, as one comma-joined list.
+PERSON_SEPARATOR = "; "
 
-    The source is a person picker: the ETL pulls each entry's display name and
-    joins them with ", ". Re-splitting and re-joining here normalises whatever
-    spacing or separator an export used, so every sheet matches on one spelling
-    and the calendar's multi-value block can split it back apart.
+
+def split_people(value):
+    """The people named in one cell.
+
+    Semicolon only -- never comma. A person picker's display names arrive as
+    "Last, First", so the comma belongs *inside* a name; splitting on it turns
+    two people into four fragments. The source itself separates several people
+    with a semicolon, and the ETL joins person arrays the same way, so this is
+    the one separator that means "next person" in both paths.
     """
-    return ", ".join(split_multi(value))
+    text = _text(value)
+    if not text:
+        return []
+    return [part.strip() for part in text.split(";") if part.strip()]
+
+
+def person_name(text):
+    """"Last, First" read as "First Last"; anything else left alone.
+
+    Exactly one comma is the pattern the source writes. Zero commas is already
+    a plain name. Two or more is one of the inconsistencies the source is known
+    to contain -- no rule would reliably say which part is which, so it is
+    passed through verbatim rather than mangled into a confident guess.
+    """
+    parts = text.split(",")
+    if len(parts) != 2:
+        return text.strip()
+    last, first = (part.strip() for part in parts)
+    if not last or not first:
+        return text.strip()
+    return f"{first} {last}"
+
+
+def executive_names(value):
+    """The people named in the source field, normalised and semicolon-joined.
+
+    Names come out as "First Last" -- which is what a reader expects, and which
+    also leaves no comma behind for a downstream splitter to trip over. Where a
+    name does not follow the source's "Last, First" pattern it is kept as it
+    stands; the semicolon join means an unexpected comma is still safe.
+    """
+    return PERSON_SEPARATOR.join(person_name(name) for name in split_people(value))
 
 
 def has_executives(value):

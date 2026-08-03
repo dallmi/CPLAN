@@ -349,7 +349,7 @@ def test_a_member_row_totals_only_that_members_activities():
 
 def test_the_geb_block_header_counts_activities_once_despite_the_overlap():
     """Two members on one activity is two member rows but one activity."""
-    ws = _geb_sheet(["A. Person, B. Person"])
+    ws = _geb_sheet(["A. Person; B. Person"])
     labels = _labels(ws)
 
     assert _week_total(ws, labels["A. Person"]) == 1
@@ -358,11 +358,11 @@ def test_the_geb_block_header_counts_activities_once_despite_the_overlap():
 
 
 def test_a_detail_row_names_the_members_behind_the_activity():
-    ws = _geb_sheet(["A. Person, B. Person"])
+    ws = _geb_sheet(["A. Person; B. Person"])
     labels = [ws.cell(row=r, column=LABEL_COL).value or ""
               for r in range(3, ws.max_row + 1)]
 
-    assert any(label.strip() == "Activity 0 — A. Person, B. Person" for label in labels)
+    assert any(label.strip() == "Activity 0 — A. Person; B. Person" for label in labels)
 
 
 def test_a_detail_row_without_members_keeps_the_bare_activity_name():

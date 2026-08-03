@@ -13,8 +13,17 @@ HEADER = [
     "ID", "Tracking ID", "Title", "Activity", "Target audience", "Business Division",
     "Region", "Channel", "Priority", "Strategic Objectives", "Lead", "Lead Team",
     "Start date", "End date", "Created", "Modified", "Communication pack:C",
-    "Communication pack", "Campaign", "BOD*GEB", "Audience",
+    "Communication pack", "Campaign", "BOD*GEB", "Audience", "Time zone",
+    # The source misspells "senior", and the two lists name it differently.
+    "Other seinor executives",
 ]
+
+# The size column exists in the internal exports only -- the external form has
+# no "Estimated audience size" field at all. Modelling that here rather than
+# giving every file the same header is what exercises `data._column`'s
+# missing-column path, and it is why external rows band as Unknown.
+INTERNAL_HEADER = HEADER + ["Estimated audience size"]
+EXTERNAL_HEADER = HEADER
 
 
 def _lookup(*values):
@@ -31,7 +40,12 @@ def _row(sp_id, tracking_id, name, start, **overrides):
         "Lead Team": "Team", "Start date": start, "End date": start,
         "Created": "2025-01-05", "Modified": "2025-06-01",
         "Communication pack:C": "CP-100", "Communication pack": "Pack one",
-        "Campaign": "Campaign one", "BOD*GEB": "", "Audience": "4200",
+        "Campaign": "Campaign one", "BOD*GEB": "", "Time zone": "Europe/Zurich",
+        "Other seinor executives": "",
+        # Two different source fields, as the real export has them: "Audience"
+        # is not a size (it reads "external" on every external row), the band
+        # lives in its own column.
+        "Audience": "internal", "Estimated audience size": "4200",
     }
     row.update(overrides)
     return row
@@ -52,10 +66,12 @@ INTERNAL_ROWS = [
     _row(6, "IC-0006", "Neither dimension", "2025-11-05",
          **{"Business Division": "", "Region": ""}),
     _row(7, "IC-0007", "With senior executives", "2025-03-19",
-         **{"BOD*GEB": "<p>An executive</p>", "Audience": "250000"}),
+         **{"BOD*GEB": "<p>Example, Ada</p>", "Estimated audience size": "250000"}),
+    _row(17, "IC-0017", "With a non-GEB executive", "2025-05-21",
+         **{"Other seinor executives": "<p>Sample, Ben; Placeholder, Cara</p>"}),
     _row(8, "IC-0008", "Audience as a band label", "2025-06-11",
-         **{"Audience": "10–50k"}),
-    _row(9, "IC-0009", "No audience value", "2025-06-12", **{"Audience": ""}),
+         **{"Estimated audience size": "10–50k"}),
+    _row(9, "IC-0009", "No audience value", "2025-06-12", **{"Estimated audience size": ""}),
     _row(10, "IC-0010", "No start date", None, **{"Start date": ""}),
     _row(11, "IC-0011", "Outside the window", "2024-06-04"),
     _row(12, "IC-0012", "Incomplete record", "2025-09-24",
@@ -85,21 +101,21 @@ EXTERNAL_ROWS = [
     _row(30, "EC-0001", "External single division", "2025-02-19",
          **{"Channel": _lookup("Press")}),
     _row(31, "EC-0002", "External group-wide", "2025-07-16",
-         **{"Region": _lookup("Worldwide"), "Audience": "150000"}),
+         **{"Region": _lookup("Worldwide"), "Audience": "external"}),
 ]
 
 EXTERNAL_ARCHIVE_ROWS = []
 
-# 16 internal + 1 surviving archive + 2 external, minus the losing duplicate.
-FIXTURE_ROW_COUNT = 19
+# 17 internal + 1 surviving archive + 2 external, minus the losing duplicate.
+FIXTURE_ROW_COUNT = 20
 
 
-def _write_csv(path, rows):
-    lines = [",".join(f'"{h}"' for h in HEADER)]
+def _write_csv(path, rows, header):
+    lines = [",".join(f'"{h}"' for h in header)]
     for row in rows:
         cells = []
-        for header in HEADER:
-            value = row.get(header, "")
+        for header_name in header:
+            value = row.get(header_name, "")
             text = "" if value is None else str(value)
             cells.append('"' + text.replace('"', '""') + '"')
         lines.append(",".join(cells))
@@ -124,18 +140,20 @@ def write_activity_csvs(directory):
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     sources = {
-        "internal": (directory / "InternalCommunicationActivities.csv", INTERNAL_ROWS),
-        "internal_archive": (
-            directory / "InternalCommunicationActivitiesArchive.csv", INTERNAL_ARCHIVE_ROWS),
-        "external": (directory / "ExternalCommunicationActivities.csv", EXTERNAL_ROWS),
-        "external_archive": (
-            directory / "ExternalCommunicationActivitiesArchive.csv", EXTERNAL_ARCHIVE_ROWS),
+        "internal": (directory / "InternalCommunicationActivities.csv",
+                     INTERNAL_ROWS, INTERNAL_HEADER),
+        "internal_archive": (directory / "InternalCommunicationActivitiesArchive.csv",
+                             INTERNAL_ARCHIVE_ROWS, INTERNAL_HEADER),
+        "external": (directory / "ExternalCommunicationActivities.csv",
+                     EXTERNAL_ROWS, EXTERNAL_HEADER),
+        "external_archive": (directory / "ExternalCommunicationActivitiesArchive.csv",
+                             EXTERNAL_ARCHIVE_ROWS, EXTERNAL_HEADER),
     }
     files = {}
-    for key, (path, rows) in sources.items():
+    for key, (path, rows, header) in sources.items():
         if not rows:
             continue
-        files[key] = _write_csv(path, rows)
+        files[key] = _write_csv(path, rows, header)
     return files
 
 

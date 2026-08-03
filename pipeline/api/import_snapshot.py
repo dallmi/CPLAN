@@ -27,6 +27,7 @@ TEXT_FIELDS = {
     "business_division", "business_area", "region", "channel", "partner_team", "lead_team", "lead",
     "priority", "strategic_objectives", "campaign", "campaign_ltid", "communication_pack_cpid",
     "bod_geb", "communication_pack", "communication_ref", "author", "author_email", "audience",
+    "time_zone",
 }
 SOURCE_RENAMES = {
     "sp_id": "legacy_sp_id",

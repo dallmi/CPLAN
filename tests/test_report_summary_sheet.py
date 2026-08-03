@@ -166,11 +166,36 @@ def test_the_glossary_defines_the_terms_a_reader_meets_on_the_sheets(tmp_path):
     assert ws.sheet_view.showGridLines is False
 
 
-def test_the_glossary_lists_fields_the_export_does_not_carry(tmp_path):
-    ws, scope = _build(tmp_path, build_glossary)
+def test_the_export_now_carries_every_field_completeness_is_scored_against(tmp_path):
+    """`time_zone` used to be the standing gap: present in the source, unmapped
+    by the ETL, so every activity read as missing a time zone and the field had
+    to be dropped from the denominator. It is mapped now, and nothing is skipped.
+    """
+    _, scope = _build(tmp_path, build_glossary)
+
+    assert scope.skipped_completeness_fields == []
+    assert "time_zone" in scope.completeness_fields
+
+
+def test_the_glossary_lists_fields_the_export_does_not_carry():
+    """The block still has to appear when a field really is absent -- an export
+    that predates a form change is a real shape, not a hypothetical one.
+    """
+    frame = pd.DataFrame([{
+        "tracking_id": "IC-0001", "activity_name": "A", "source_type": "internal",
+        "start_date": pd.Timestamp("2025-03-05"), "channel": "Email",
+    }])
+    assert "time_zone" not in frame.columns
+
+    config = ReportConfig(date_from=date(2025, 1, 1), date_to=date(2025, 12, 31))
+    scope = build_scope(ActivityLoad(frame, {}, {}), config)
+    wb = Workbook()
+    wb.remove(wb.active)
+    build_glossary(wb, scope, config)
+    ws = wb.worksheets[0]
     column_a = [str(ws.cell(row=r, column=1).value) for r in range(1, ws.max_row + 1)]
 
-    assert scope.skipped_completeness_fields      # sanity: the fixture skips time_zone
+    assert "time_zone" in scope.skipped_completeness_fields
     assert "FIELDS NOT IN THIS EXPORT" in column_a
     for name in scope.skipped_completeness_fields:
         assert name in column_a

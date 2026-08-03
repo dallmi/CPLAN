@@ -135,6 +135,38 @@ def test_an_export_without_the_objectives_column_still_produces_a_scope():
     assert scope.excluded["objectives"] == 0
 
 
+def test_the_two_leadership_fields_are_derived_separately():
+    """GEB and non-GEB senior executives are different source fields and must
+    never bleed into each other -- the GEB filter counts only the former.
+    """
+    frame = pd.DataFrame([{
+        "tracking_id": "A", "activity_name": "A",
+        "start_date": pd.Timestamp("2025-03-05"),
+        "bod_geb": "A GEB person",
+        "other_executives": "A non-GEB person; Another one",
+    }])
+
+    scope = build_scope(ActivityLoad(frame, {}, {}), _config())
+    row = scope.frame.iloc[0]
+
+    assert row["executives"] == "A GEB person"
+    assert row["senior_executives"] == "A non-GEB person; Another one"
+    assert row["has_executives"] is True or row["has_executives"] == True  # noqa: E712
+
+
+def test_a_non_geb_executive_alone_does_not_count_as_geb_involvement():
+    frame = pd.DataFrame([{
+        "tracking_id": "A", "activity_name": "A",
+        "start_date": pd.Timestamp("2025-03-05"),
+        "bod_geb": "", "other_executives": "A non-GEB person",
+    }])
+
+    scope = build_scope(ActivityLoad(frame, {}, {}), _config(executives="with"))
+
+    assert len(scope.frame) == 0
+    assert scope.excluded["GEB"] == 1
+
+
 def test_the_audience_filter_keeps_only_the_named_bands():
     load = _load(_row(tracking_id="A", audience="12000"), _row(tracking_id="B", audience="250000"))
 

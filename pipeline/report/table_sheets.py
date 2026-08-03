@@ -21,7 +21,7 @@ from pipeline.report.data import (
     COMPLETENESS_FIELDS_INTERNAL,
     EXCLUSION_ORDER,
 )
-from pipeline.report.derive import priority_rank, split_multi
+from pipeline.report.derive import priority_rank, split_multi, split_people
 
 
 def _share_label(total_row, value_row, text):
@@ -300,41 +300,66 @@ def build_audience(wb, scope, config):
     # print a number larger than the portfolio, as if it were a true total.
     row += 1
 
-    row = style.write_section_header(ws, row, "ACTIVITIES BY GEB MEMBER", 3)
-    row = style.write_header_row(ws, row, ["GEB member", "Activities",
-                                           "Share of GEB activities"])
-    members = {}
-    for index, activity in frame.iterrows():
-        for name in split_multi(activity.get("executives")):
-            members.setdefault(name, []).append(index)
+    row = _write_people_block(
+        ws, row, frame, "executives",
+        "ACTIVITIES BY GEB MEMBER", "GEB member", "All activities with GEB",
+        "No GEB member named on any in-scope activity")
+    row += 1
 
-    # The denominator is a real cell, not a literal baked into each formula, so
-    # a reader can click any share and follow it to the number it divides by.
-    style.write_data_rows(ws, row, [["All activities with GEB",
-                                     int(frame["has_executives"].sum())]])
+    row = _write_people_block(
+        ws, row, frame, "senior_executives",
+        "ACTIVITIES BY SENIOR EXECUTIVE (NON-GEB)", "Senior executive",
+        "All activities with a senior executive",
+        "No senior executive named on any in-scope activity")
+
+    style.finalize_sheet(ws, freeze="B3", widths={"A": 26})
+
+
+def _write_people_block(ws, row, frame, field, title, noun, total_label, empty_note):
+    """One block of person -> activity count -> share, for one people field.
+
+    Both leadership fields render through here so they cannot drift apart:
+    same ordering (volume, then name), same denominator rule, same handling of
+    an empty field. Only the wording differs.
+
+    No TOTAL row. An activity naming two people counts under both, so the
+    shares can legitimately add up to past 100% -- the honest reading of shared
+    ownership. A forced 100% would have to pick a winner.
+    """
+    row = style.write_section_header(ws, row, title, 3)
+    row = style.write_header_row(ws, row, [noun, "Activities", "Share of these"])
+
+    people = {}
+    for index, activity in frame.iterrows():
+        for name in split_people(activity.get(field)):
+            people.setdefault(name, []).append(index)
+
+    # Activities with at least one name, counted once each however many names
+    # they carry -- derived from the very rows listed below rather than from a
+    # separate column, so the denominator and its members cannot disagree.
+    involved = len({index for indices in people.values() for index in indices})
+
+    # A real cell, not a literal baked into each formula, so a reader can click
+    # any share and follow it to the number it divides by.
+    style.write_data_rows(ws, row, [[total_label, involved]])
     ws.cell(row=row, column=1).font = style.TOTAL_FONT
     for col in (1, 2):
         ws.cell(row=row, column=col).fill = style.TOTAL_FILL
     involved_row = row
     row += 1
 
-    if not members:
-        style.write_data_rows(ws, row, [["No GEB member named on any in-scope activity"]])
-        row += 1
-    for name in sorted(members, key=lambda n: (-len(members[n]), n)):
-        style.write_data_rows(ws, row, [[name, len(members[name])]])
+    if not people:
+        style.write_data_rows(ws, row, [[empty_note]])
+        return row + 1
+
+    for name in sorted(people, key=lambda n: (-len(people[n]), n)):
+        style.write_data_rows(ws, row, [[name, len(people[name])]])
         style.write_formula(
             ws, row, 3,
             f"=IF($B${involved_row}=0,0,B{row}/$B${involved_row})",
             fmt=style.NUM_FMT_PCT)
         row += 1
-    # No TOTAL row here either, and for a sharper reason than the divisions
-    # above: an activity naming two members counts under both, so the shares
-    # can legitimately add up to more than 100%. That is the honest reading of
-    # "whose activity is this" when two people share one -- a forced 100% would
-    # have to pick a winner.
-
-    style.finalize_sheet(ws, freeze="B3", widths={"A": 26})
+    return row
 
 
 GLOSSARY_SECTIONS = (
@@ -350,6 +375,8 @@ GLOSSARY_SECTIONS = (
         ("Audience band", "The size band of the target audience."),
         ("GEB", "At least one GEB member is named. The Activities sheet and the "
                 "calendar's BY GEB block name who."),
+        ("Senior executives (non-GEB)", "A senior executive who is not on the GEB. "
+                                        "A separate source field, counted separately."),
         ("Lead time", "Days from creating the record to the activity's start."),
         ("Planning completeness", "Share of the required fields that are filled in."),
         ("Weekly counts", "Each activity counts once, in the week it starts."),
@@ -518,6 +545,7 @@ ACTIVITY_COLUMNS = (
     ("region", "Regions"),
     ("_executives", "GEB involved"),
     ("executives", "GEB members"),
+    ("senior_executives", "Senior executives (non-GEB)"),
     ("communication_pack_cpid", "Pack ID"),
     ("campaign", "Campaign"),
     ("strategic_objectives", "Communications pillars"),

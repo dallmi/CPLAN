@@ -113,12 +113,23 @@ def _geb_sheet(sources):
     return wb["Audience & GEB"]
 
 
-def _member_block(ws):
-    """Label -> count for the rows under ACTIVITIES BY GEB MEMBER."""
+def _member_block(ws, title="ACTIVITIES BY GEB MEMBER"):
+    """Label -> count for the person rows under one block.
+
+    Stops at the next section header: a second people block follows this one,
+    and a helper that ran to max_row would silently merge the two.
+    """
     labels = _column_a(ws)
-    start = labels.index("ACTIVITIES BY GEB MEMBER") + 3  # + header row + denominator
-    return {ws.cell(row=r, column=1).value: ws.cell(row=r, column=2).value
-            for r in range(start + 1, ws.max_row + 1)}
+    start = labels.index(title) + 3  # + column-header row + denominator row
+    out = {}
+    for r in range(start + 1, ws.max_row + 1):
+        label = ws.cell(row=r, column=1).value
+        if label is None:
+            continue
+        if str(label).isupper() and str(label).startswith("ACTIVITIES BY"):
+            break
+        out[label] = ws.cell(row=r, column=2).value
+    return out
 
 
 def test_each_named_member_gets_a_row_with_their_own_count():
@@ -128,14 +139,14 @@ def test_each_named_member_gets_a_row_with_their_own_count():
 
 
 def test_an_activity_naming_two_members_counts_under_both():
-    ws = _geb_sheet(["A. Person, B. Person", "A. Person"])
+    ws = _geb_sheet(["A. Person; B. Person", "A. Person"])
 
     assert _member_block(ws) == {"A. Person": 2, "B. Person": 1}
 
 
 def test_the_denominator_is_the_distinct_count_of_involved_activities():
     """Two members on one activity is still one activity with GEB."""
-    ws = _geb_sheet(["A. Person, B. Person", "", ""])
+    ws = _geb_sheet(["A. Person; B. Person", "", ""])
     labels = _column_a(ws)
     denominator_row = labels.index("ACTIVITIES BY GEB MEMBER") + 3
 
