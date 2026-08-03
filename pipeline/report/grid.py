@@ -64,14 +64,20 @@ class Grid:
         return (year, (month - 1) // 3 + 1)
 
     def week_index(self, day):
-        """Position of `day`'s week in the grid, or None if outside it."""
+        """Position of `day`'s week in the grid, or None if outside it.
+
+        Looked up, not scanned. This is called once per activity, and the scan
+        it replaces was linear in the number of weeks -- fine for one year,
+        thousands of times slower on a grid that spans a decade. The map is
+        built on first use and cached on the (frozen) instance.
+        """
         if day is None:
             return None
-        monday = day - timedelta(days=day.weekday())
-        for index, week in enumerate(self.weeks):
-            if week.monday == monday:
-                return index
-        return None
+        lookup = self.__dict__.get("_by_monday")
+        if lookup is None:
+            lookup = {week.monday: index for index, week in enumerate(self.weeks)}
+            object.__setattr__(self, "_by_monday", lookup)
+        return lookup.get(day - timedelta(days=day.weekday()))
 
     def columns(self):
         """Ordered columns: each quarter, then its months, each with its weeks.

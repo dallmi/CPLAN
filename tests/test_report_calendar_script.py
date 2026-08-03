@@ -226,3 +226,42 @@ def test_a_control_character_in_the_source_does_not_kill_the_run(tmp_path):
     assert out.exists()
     names = [row[1].value for row in load_workbook(out)["Activities"].iter_rows()]
     assert "Single division Q1" in names
+
+
+def test_an_unbounded_run_warns_when_one_date_stretches_the_whole_grid(tmp_path, capsys):
+    """A mistyped year is the usual cause of a calendar that spans decades, and
+    without a warning it just looks like a slow run. Name the rows at the edges,
+    which is where the typo is.
+    """
+    input_dir = tmp_path / "input"
+    write_activity_csvs(input_dir)
+    csv = input_dir / "InternalCommunicationActivities.csv"
+    csv.write_text(csv.read_text(encoding="utf-8").replace("2025-11-04", "2049-11-04"),
+                   encoding="utf-8")
+
+    report_calendar.main(["--input-dir", str(input_dir), "--out", str(tmp_path / "r.xlsx")])
+    out = capsys.readouterr().out
+
+    assert "WARNING" in out
+    assert "2049-11-04" in out, "the warning must name the outlier"
+    assert "Region only" in out, "and the activity carrying it"
+
+
+def test_a_normal_span_says_nothing(tmp_path, capsys):
+    write_activity_csvs(tmp_path / "input")
+
+    report_calendar.main(["--input-dir", str(tmp_path / "input"),
+                          "--out", str(tmp_path / "r.xlsx")])
+
+    assert "WARNING" not in capsys.readouterr().out
+
+
+def test_a_bounded_run_never_warns_however_wide_it_is(tmp_path, capsys):
+    """The warning is about an accident. A window someone typed is a decision."""
+    write_activity_csvs(tmp_path / "input")
+
+    report_calendar.main(["--input-dir", str(tmp_path / "input"),
+                          "--from", "2000-01-01", "--to", "2049-12-31",
+                          "--out", str(tmp_path / "r.xlsx")])
+
+    assert "WARNING" not in capsys.readouterr().out

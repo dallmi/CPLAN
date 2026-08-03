@@ -423,3 +423,52 @@ def test_the_audience_block_is_a_partition_so_its_members_sum_to_the_scope(tmp_p
                 for band in AUDIENCE_BAND_ORDER if band in labels)
 
     assert total == len(scope.frame)
+
+
+# --- the grid has to stay writable at real scale ------------------------------
+
+def test_an_empty_week_costs_no_cell_at_all():
+    """Nearly every cell in the grid is empty, and styling them was 87% of the
+    sheet's build time -- openpyxl re-hashes the whole border object on every
+    assignment. Excel draws its own gridlines there and SUM reads an absent
+    cell as zero, so an untouched empty week loses nothing.
+    """
+    ws = _geb_sheet([""])
+    labels = _labels(ws)
+    row = labels["Not specified"]
+
+    week_cells = [ws.cell(row=row, column=c) for c in range(FIRST_GRID_COL, ws.max_column + 1)]
+    written = [c for c in week_cells if c.value is not None]
+    styled = [c for c in week_cells if c.has_style]
+
+    assert written, "the row must still carry its one count and its SUM formulas"
+    assert len(styled) < len(week_cells), "every single grid cell was styled"
+
+
+def test_a_header_row_still_fills_its_empty_weeks(tmp_path):
+    """Their shading is what draws the block's outline, so they are the one
+    exception to leaving empty weeks alone.
+    """
+    ws, _ = _sheet(tmp_path)
+    row = _labels(ws)["BY AUDIENCE"]
+
+    filled = [ws.cell(row=row, column=c)
+              for c in range(FIRST_GRID_COL, ws.max_column + 1)
+              if ws.cell(row=row, column=c).has_style]
+
+    assert len(filled) > 10
+
+
+def test_the_totals_still_reconcile_with_empty_cells_skipped(tmp_path):
+    """The optimisation must not cost the arithmetic. Every member row's week
+    counts still add up to the scope, and the partition header still sums its
+    members vertically.
+    """
+    ws, scope = _sheet(tmp_path)
+    labels = _labels(ws)
+    from pipeline.report.calendar_sheet import AUDIENCE_BAND_ORDER
+
+    total = sum(_week_total(ws, labels[band])
+                for band in AUDIENCE_BAND_ORDER if band in labels)
+
+    assert total == len(scope.frame)

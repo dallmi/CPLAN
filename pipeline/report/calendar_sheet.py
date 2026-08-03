@@ -78,8 +78,37 @@ def _children(columns, grid):
     return month_weeks, quarter_months
 
 
-def _write_grid_row(ws, row, counts, columns, positions, month_weeks, quarter_months,
-                    bold=False):
+def build_row_plan(columns, positions, month_weeks, quarter_months):
+    """Everything about the grid's columns that does not depend on the row.
+
+    The per-row writer used to rebuild each month's and quarter's child-column
+    letters from scratch, for every row in the sheet. Identical work, thousands
+    of times: on a wide grid that is the difference between a report and a
+    hang. Computed once here, and the row number is the only thing left to
+    substitute.
+    """
+    weeks, sums = [], []
+    for column in columns:
+        col = positions[(column.kind, column.key)]
+        if column.kind == "week":
+            weeks.append((column.key, col))
+            continue
+        if column.kind == "month":
+            child_keys = [("week", key) for key in month_weeks[column.key]]
+        else:
+            child_keys = [("month", key) for key in quarter_months[column.key]]
+        letters = [get_column_letter(positions[key]) for key in child_keys]
+        sums.append((col, "=SUM(" + ",".join(f"{letter}{{row}}" for letter in letters) + ")"))
+
+    quarter_letters = [
+        get_column_letter(positions[("quarter", column.key)])
+        for column in columns if column.kind == "quarter"
+    ]
+    total = "=SUM(" + ",".join(f"{letter}{{row}}" for letter in quarter_letters) + ")"
+    return weeks, sums, total
+
+
+def _write_grid_row(ws, row, counts, plan, bold=False):
     """Literal week counts, SUM formulas everywhere else (month, quarter, Total).
 
     This is the ONLY way grid cells are populated -- every row in the sheet,
@@ -88,35 +117,33 @@ def _write_grid_row(ws, row, counts, columns, positions, month_weeks, quarter_mo
     `_finish_partition_header` and `_finish_distinct_count_header`), but its
     week/month/quarter cells always come from here, so the horizontal identity
     (month = SUM of its weeks, quarter = SUM of its months) never breaks.
+
+    An empty week in an ordinary row is left untouched -- no cell, no style.
+    Nearly every cell in the grid is empty (one activity occupies one week out
+    of hundreds), and styling them was 87% of the sheet's build time: openpyxl
+    re-hashes the whole border object on every assignment. Excel draws its own
+    gridlines there, and SUM reads an absent cell as zero, so nothing is lost.
+    Header rows still fill theirs, because their shading is the block's outline.
     """
+    weeks, sums, total = plan
     fill = style.TOTAL_FILL if bold else None
-    for column in columns:
-        col = positions[(column.kind, column.key)]
-        if column.kind == "week":
-            value = counts.get(column.key, 0)
-            cell = ws.cell(row=row, column=col, value=value or None)
-            cell.border = style.THIN_BORDER
-            if value:
-                cell.number_format = style.NUM_FMT_INT
-            if bold:
-                cell.font = style.TOTAL_FONT
-                cell.fill = style.TOTAL_FILL
+    for key, col in weeks:
+        value = counts.get(key, 0)
+        if not value and not bold:
             continue
+        cell = ws.cell(row=row, column=col, value=value or None)
+        cell.border = style.THIN_BORDER
+        if value:
+            cell.number_format = style.NUM_FMT_INT
+        if bold:
+            cell.font = style.TOTAL_FONT
+            cell.fill = style.TOTAL_FILL
 
-        if column.kind == "month":
-            child_keys = [("week", key) for key in month_weeks[column.key]]
-        else:
-            child_keys = [("month", key) for key in quarter_months[column.key]]
-        letters = [get_column_letter(positions[key]) for key in child_keys]
-        formula = "=SUM(" + ",".join(f"{letter}{row}" for letter in letters) + ")"
-        style.write_formula(ws, row, col, formula, fmt=style.NUM_FMT_INT,
-                            fill=fill, bold=bold)
+    for col, template in sums:
+        style.write_formula(ws, row, col, template.format(row=row),
+                            fmt=style.NUM_FMT_INT, fill=fill, bold=bold)
 
-    quarter_letters = [
-        get_column_letter(positions[("quarter", column.key)])
-        for column in columns if column.kind == "quarter"
-    ]
-    total_formula = "=SUM(" + ",".join(f"{letter}{row}" for letter in quarter_letters) + ")"
+    total_formula = total.format(row=row)
     style.write_formula(ws, row, TOTAL_COL, total_formula, fmt=style.NUM_FMT_INT,
                         fill=fill, bold=bold)
 
@@ -187,6 +214,7 @@ def build_calendar(wb, scope, config):
     columns = grid.columns()
     positions = _column_positions(columns)
     month_weeks, quarter_months = _children(columns, grid)
+    plan = build_row_plan(columns, positions, month_weeks, quarter_months)
 
     ws.sheet_properties.outlinePr.summaryRight = False
     ws.sheet_properties.outlinePr.summaryBelow = False
@@ -260,15 +288,13 @@ def build_calendar(wb, scope, config):
 
     # --- all activities -----------------------------------------------------
     _label_cell(ws, row, "ALL ACTIVITIES", level=0, bold=True)
-    _write_grid_row(ws, row, _counts(scope.frame, grid), columns, positions,
-                    month_weeks, quarter_months, bold=True)
+    _write_grid_row(ws, row, _counts(scope.frame, grid), plan, bold=True)
     row += 1
 
     def write_value_row(label, subset, level, hidden):
         nonlocal row
         _label_cell(ws, row, label, level=level, hidden=hidden)
-        _write_grid_row(ws, row, _counts(subset, grid), columns, positions,
-                        month_weeks, quarter_months)
+        _write_grid_row(ws, row, _counts(subset, grid), plan)
         value_row = row
         row += 1
         if config.detail_rows and not subset.empty:
@@ -278,8 +304,7 @@ def build_calendar(wb, scope, config):
                 _label_cell(ws, row, _detail_label(activity),
                             level=level + 1, hidden=True)
                 week_key = grid.weeks[int(activity["week_index"])].key
-                _write_grid_row(ws, row, {week_key: 1}, columns, positions,
-                                month_weeks, quarter_months)
+                _write_grid_row(ws, row, {week_key: 1}, plan)
                 row += 1
         return value_row
 
@@ -303,8 +328,7 @@ def build_calendar(wb, scope, config):
     # is deliberately written as a second, independent formula that sums the
     # member rows vertically, so a reader can audit that the audience bands
     # really do add back up to the portfolio.
-    _write_grid_row(ws, header_row, _counts(scope.frame, grid), columns, positions,
-                    month_weeks, quarter_months, bold=True)
+    _write_grid_row(ws, header_row, _counts(scope.frame, grid), plan, bold=True)
     _finish_partition_header(ws, header_row, member_rows)
     if member_rows:
         _mark_collapsed(ws.row_dimensions[header_row])
@@ -341,8 +365,7 @@ def build_calendar(wb, scope, config):
         # still match its own week cells instead of silently disagreeing
         # with them.
         counts = _counts(scope.frame, grid)
-        _write_grid_row(ws, header_row, counts, columns, positions,
-                        month_weeks, quarter_months, bold=True)
+        _write_grid_row(ws, header_row, counts, plan, bold=True)
         _finish_distinct_count_header(ws, header_row, sum(counts.values()))
         if member_rows:
             _mark_collapsed(ws.row_dimensions[header_row])

@@ -50,6 +50,12 @@ from pipeline.scripts.process_cplan import (                       # noqa: E402
 
 OUTPUT_DIR = PIPELINE_DIR / "output"
 
+# Beyond roughly five years the calendar stops being something a planner reads
+# and starts being something Excel struggles to open. It is still built -- the
+# data is the data -- but an unbounded run says so and names the rows at the
+# edges, because the usual cause is one mistyped year, not five years of plans.
+WIDE_GRID_WEEKS = 5 * 52
+
 
 # ---------------------------------------------------------------------------
 # CONFIGURATION -- this is the block to edit.
@@ -78,6 +84,16 @@ SHEET_BUILDERS = (
     build_activities,
     build_glossary,
 )
+
+
+def _edge_activities(frame, count=3):
+    """The earliest and latest activities, which is where a typo shows up."""
+    dated = frame[["start_day", "activity_name"]].dropna(subset=["start_day"])
+    ordered = dated.sort_values("start_day")
+    edges = list(ordered.head(count).itertuples(index=False))
+    edges += [row for row in ordered.tail(count).itertuples(index=False)
+              if row not in edges]
+    return [(name or "Untitled", day.isoformat()) for day, name in edges]
 
 
 def build_workbook(scope, config):
@@ -164,8 +180,16 @@ def main(argv=None):
             log(f"  excluded ({reason}): {count}")
     if scope.grid.weeks:
         first, last = scope.grid.weeks[0], scope.grid.weeks[-1]
-        log(f"Calendar spans {len(scope.grid.weeks)} weeks: "
+        weeks = len(scope.grid.weeks)
+        log(f"Calendar spans {weeks} weeks: "
             f"{first.monday.isoformat()} to {(last.monday + timedelta(days=6)).isoformat()}")
+        if weeks > WIDE_GRID_WEEKS and config.date_from is None and config.date_to is None:
+            log(f"WARNING: that is {weeks / 52:.0f} years wide. Without --year or")
+            log("         --from/--to the calendar spans every dated activity, so a")
+            log("         single mistyped date stretches the whole sheet. The dates")
+            log("         at the edges are:")
+            for label, day in _edge_activities(scope.frame):
+                log(f"           {day}  {label}")
 
     log("Building sheets:")
     wb = build_workbook(scope, config)
