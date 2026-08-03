@@ -133,6 +133,14 @@ Every list-shaped answer is capped ({queries.DEFAULT_LIMIT} rows by default,
 {queries.MAX_LIMIT} maximum) and reports its own truncation. When an answer is
 truncated, narrow the filters — do not raise the limit and do not assume the
 returned rows are the whole set.
+
+That includes the aggregate answers: `activity_counts` returns at most
+{queries.MAX_LIMIT} buckets (largest first, with `bucket_count` and `truncated`,
+while `total` stays the true total), `planning_gaps` at most {queries.MAX_LIMIT}
+groups (`group_count` / `groups_truncated`), and `field_values` at most its own
+limit of the most common values (`distinct_values` / `truncated`). A value missing
+from a truncated `field_values` answer still exists — never conclude "there are no
+activities for X" from a list that says it is truncated.
 """
 
 

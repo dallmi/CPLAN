@@ -54,7 +54,13 @@ fail loudly rather than mutate the plan.
 the full result set unpaginated — correct for the studio, fatal for an agent
 (the current dataset is ≈450 KB of JSON, well over 100k tokens). The MCP tools
 return at most 50 rows by default, 200 as a hard cap, and report their own
-truncation so the model narrows its filters instead of asking for more.
+truncation so the model narrows its filters instead of asking for more. That
+covers the aggregates too: `activity_counts` caps its buckets and `planning_gaps`
+its groups at 200 (largest first, `bucket_count` / `group_count` and a truncation
+flag alongside), and `field_values` reports `distinct_values` so a truncated value
+list can never be mistaken for the column's whole vocabulary — a model that
+filters on a value it never saw and then reports "no activities" as fact is the
+failure this prevents.
 
 **Not built on the `v_*` analysis views.** Those are PostgreSQL-only by design
 and a documented no-op on SQLite (`pipeline/api/views.py`), so building on them
@@ -98,6 +104,14 @@ read `EXECUTIVE_COLUMNS`, so the SQL prefilter and the Python membership check c
 never span different columns — the way rows would be silently dropped. Because it
 lives in `ActivityFilters` rather than in one tool, `planning_gaps` and
 `activity_counts` accept it too.
+
+**One labelling rule for every grouping path.** `_bucket_keys` (`split_multi` or
+`"Unassigned"`) labels both `planning_gaps(group_by=…)` and `activity_counts`'
+Python branch, and the SQL branch's label is trimmed to match — otherwise `" Email
+"` is a bucket of its own in one tool and folds into `"Email"` in the other. SQL
+`trim()` removes spaces only, so a tab-padded value can still differ from the
+Python label; documented rather than solved, because there is no portable
+whitespace trim.
 
 **Multi-value columns split on the separator the ETL actually wrote.** Lookup
 values join with `", "`, person values with `"; "`. Person columns are split on

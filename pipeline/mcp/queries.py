@@ -210,6 +210,11 @@ def split_multi(value: Any, field: str) -> list[str]:
     Returns [] for a blank value (same rule as `is_blank`), and a single-member
     list for a column that is not multi-valued -- so callers can treat every
     column uniformly.
+
+    Individual members are held to the same blank rule as whole values: a
+    "Objective A; None" mix drops the sentinel rather than offering it as a
+    discoverable filter value in `field_values`, a bucket in `activity_counts`
+    and a group in `planning_gaps`.
     """
     if is_blank(value):
         return []
@@ -218,7 +223,9 @@ def split_multi(value: Any, field: str) -> list[str]:
     if not separators:
         return [text.strip()]
     pattern = "[" + re.escape("".join(separators)) + "]"
-    return [member.strip() for member in re.split(pattern, text) if member.strip()]
+    return [
+        member.strip() for member in re.split(pattern, text) if not is_blank(member)
+    ]
 
 
 def priority_rank(value: Any) -> int:
@@ -312,6 +319,41 @@ def missing_fields(activity: Activity) -> list[str]:
     return missing
 
 
+def _bucket_keys(activity: Activity, field: str) -> list[str]:
+    """The group labels one activity contributes for `field`.
+
+    The single labelling rule for every Python-side grouping path, so
+    `activity_counts` and `planning_gaps` cannot label the same data differently:
+    a multi-value column contributes one label per member, a single-value column
+    contributes its trimmed value, and a blank value contributes "Unassigned"
+    rather than being dropped.
+    """
+    return split_multi(getattr(activity, field), field) or ["Unassigned"]
+
+
+def _capped_by_count(
+    tally: dict[str, int], *, chronological: bool = False
+) -> tuple[list[dict[str, Any]], int, int]:
+    """The buckets to report, the true total, and the true bucket count.
+
+    Grouping is capped like every other list-shaped answer here: a real portfolio
+    grouped by campaign yields four figures' worth of buckets, which is exactly
+    the unbounded response the module refuses to serve. The cap keeps the largest
+    buckets; `total` stays the true total across ALL of them, so a truncated
+    answer still reports the right volume.
+    """
+    ordered = sorted(
+        ({"value": key, "count": count} for key, count in tally.items()),
+        key=lambda bucket: (-bucket["count"], str(bucket["value"])),
+    )
+    kept = ordered[:MAX_LIMIT]
+    if chronological:
+        # Months read in time order, but it is still the biggest months that
+        # survive the cap rather than an arbitrary prefix of the timeline.
+        kept = sorted(kept, key=lambda bucket: str(bucket["value"]))
+    return kept, sum(tally.values()), len(ordered)
+
+
 def _summarize(activity: Activity) -> dict[str, Any]:
     row: dict[str, Any] = {}
     for field in SUMMARY_FIELDS:
@@ -329,11 +371,13 @@ def _summarize(activity: Activity) -> dict[str, Any]:
     return row
 
 
-def _truncation_note(total: int, returned: int, limit: int) -> str | None:
+def _truncation_note(
+    total: int, returned: int, limit: int, subject: str = "matching activities"
+) -> str | None:
     if returned >= total:
         return None
     return (
-        f"Showing {returned} of {total} matching activities (limit={limit}). "
+        f"Showing {returned} of {total} {subject} (limit={limit}). "
         "Narrow the filters rather than raising the limit -- this tool never "
         "returns the whole table."
     )
@@ -731,7 +775,9 @@ def planning_gaps(
     for activity in candidates:
         gaps = missing_fields(activity)
         if group_by is not None:
-            for key in split_multi(getattr(activity, group_by), group_by) or ["Unassigned"]:
+            # `_bucket_keys`, so a group label here is the same label
+            # `activity_counts` gives the same value.
+            for key in _bucket_keys(activity, group_by):
                 bucket = groups.setdefault(key, {"checked": 0, "complete": 0, "incomplete": 0})
                 bucket["checked"] += 1
                 bucket["incomplete" if gaps else "complete"] += 1
@@ -762,11 +808,22 @@ def planning_gaps(
         ],
     }
     if group_by is not None:
-        answer["group_by"] = group_by
-        answer["groups"] = sorted(
+        # Capped like every other list here -- grouping by a high-cardinality
+        # column (campaign) yields thousands of groups otherwise. Worst group
+        # first, so the cap keeps the groups the answer is about. `groups_truncated`
+        # rather than `truncated`, which already reports the activity list.
+        ordered_groups = sorted(
             ({"value": key, **counts} for key, counts in groups.items()),
-            key=lambda group: (-group["incomplete"], group["value"]),
+            key=lambda group: (-group["incomplete"], -group["checked"], group["value"]),
         )
+        answer["group_by"] = group_by
+        answer["group_count"] = len(ordered_groups)
+        answer["groups"] = ordered_groups[:MAX_LIMIT]
+        answer["groups_truncated"] = len(answer["groups"]) < len(ordered_groups)
+        if answer["groups_truncated"]:
+            answer["groups_note"] = _truncation_note(
+                len(ordered_groups), len(answer["groups"]), MAX_LIMIT, subject=f"{group_by} groups"
+            )
     return answer
 
 
@@ -795,21 +852,15 @@ def activity_counts(
                 keys = [_month_key(activity.start_date)]
             elif dimension == "priority_rank":
                 keys = [str(priority_rank(activity.priority))]
-            elif counts_memberships:
-                keys = split_multi(getattr(activity, dimension), dimension) or ["Unassigned"]
             else:
-                value = getattr(activity, dimension)
-                keys = ["Unassigned" if is_blank(value) else str(value)]
+                # One labelling rule for stored and multi-value dimensions alike,
+                # shared with `planning_gaps` -- see `_bucket_keys`.
+                keys = _bucket_keys(activity, dimension)
             for key in keys:
                 tally[key] = tally.get(key, 0) + 1
-        if dimension == "month":
-            buckets = [{"value": key, "count": count} for key, count in sorted(tally.items())]
-        else:
-            buckets = sorted(
-                ({"value": key, "count": count} for key, count in tally.items()),
-                key=lambda bucket: (-bucket["count"], str(bucket["value"])),
-            )
-        total = sum(bucket["count"] for bucket in buckets)
+        buckets, total, bucket_count = _capped_by_count(
+            tally, chronological=dimension == "month"
+        )
     else:
         column = getattr(Activity, dimension)
         # Unassigned rows are surfaced as their own bucket, never dropped. The
@@ -819,21 +870,25 @@ def activity_counts(
         # while the Python branch above folded it into "Unassigned", so the
         # bucket name an agent saw depended on which branch happened to run
         # rather than on the data itself.
-        label = case((_blank_sql(column), "Unassigned"), else_=column).cast(String)
+        # Trimmed, because the Python branch's labels are trimmed (`split_multi`
+        # strips every member): without this, " Email " is a bucket of its own
+        # here and folds into "Email" there.
+        label = case((_blank_sql(column), "Unassigned"), else_=func.trim(column)).cast(String)
         statement = _apply_filters(
             select(label.label("value"), func.count().label("count")), filters
         ).group_by(label)
-        rows = session.execute(statement).all()
-        buckets = sorted(
-            ({"value": value, "count": int(count)} for value, count in rows),
-            key=lambda bucket: (-bucket["count"], str(bucket["value"])),
-        )
-        total = sum(bucket["count"] for bucket in buckets)
+        tally = {value: int(count) for value, count in session.execute(statement).all()}
+        buckets, total, bucket_count = _capped_by_count(tally)
     return {
         "dimension": dimension,
         "total": total,
         "counts_memberships": counts_memberships,
+        "bucket_count": bucket_count,
+        "truncated": len(buckets) < bucket_count,
         "buckets": buckets,
+        "note": _truncation_note(
+            bucket_count, len(buckets), MAX_LIMIT, subject=f"{dimension} buckets"
+        ),
     }
 
 

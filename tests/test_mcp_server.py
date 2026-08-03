@@ -908,6 +908,117 @@ def test_counts_by_a_multi_value_dimension_tally_members_not_combinations(writab
     assert counted["counts_memberships"] is True
 
 
+def test_split_multi_drops_blank_members(writable_session):
+    """A sentinel member must not become a value, a bucket or a group.
+
+    "Objective A; None" used to yield ["Objective A", "None"], so the sentinel
+    surfaced as a discoverable filter value in `field_values`, its own bucket in
+    `activity_counts` and its own group in `planning_gaps`.
+    """
+    assert queries.split_multi("Objective A; None", "strategic_objectives") == ["Objective A"]
+    assert queries.split_multi("null; Roe, Sam", "other_executives") == ["Roe, Sam"]
+
+    writable_session.add(_activity(strategic_objectives="Objective A, None"))
+    writable_session.flush()
+    listed = queries.field_values(writable_session, field="strategic_objectives")
+    counted = queries.activity_counts(writable_session, dimension="strategic_objectives")
+    grouped = queries.planning_gaps(writable_session, group_by="strategic_objectives")
+    assert [entry["value"] for entry in listed["values"]] == ["Objective A"]
+    assert [bucket["value"] for bucket in counted["buckets"]] == ["Objective A"]
+    assert [group["value"] for group in grouped["groups"]] == ["Objective A"]
+
+
+def test_group_labels_agree_between_planning_gaps_and_activity_counts(writable_session):
+    """One labelling rule for both Python grouping paths.
+
+    `planning_gaps` routed through `split_multi` (which strips) while
+    `activity_counts` used the raw value on one branch and `str(value)` on the
+    other, so " Email " was a different bucket in the two tools for the same
+    data. Also pins that a two-member activity counts toward BOTH groups.
+    """
+    writable_session.add_all([
+        _activity(strategic_objectives="Objective A, Objective B", channel=" Email "),
+        _activity(strategic_objectives="Objective A", channel="Email"),
+    ])
+    writable_session.flush()
+
+    grouped = queries.planning_gaps(writable_session, group_by="strategic_objectives")
+    counted = queries.activity_counts(writable_session, dimension="strategic_objectives")
+    assert {group["value"]: group["checked"] for group in grouped["groups"]} == {
+        "Objective A": 2,
+        "Objective B": 1,
+    }
+    assert {bucket["value"]: bucket["count"] for bucket in counted["buckets"]} == {
+        "Objective A": 2,
+        "Objective B": 1,
+    }
+
+    # The stored-column path: the SQL label is trimmed, exactly like split_multi.
+    gaps_by_channel = queries.planning_gaps(writable_session, group_by="channel")
+    counts_by_channel = queries.activity_counts(writable_session, dimension="channel")
+    assert [group["value"] for group in gaps_by_channel["groups"]] == ["Email"]
+    assert counts_by_channel["buckets"] == [{"value": "Email", "count": 2}]
+
+
+@pytest.mark.parametrize("extra", [{}, {"min_priority_rank": 0}])
+def test_activity_counts_caps_its_buckets_and_says_so(writable_session, extra):
+    """Grouping is capped like every other list answer, on both branches.
+
+    `min_priority_rank=0` excludes nothing (it only forces the Python-grouped
+    branch), so both branches are exercised over the same rows. `total` must stay
+    the TRUE total across all buckets, not the sum of the ones shown.
+    """
+    surplus = 5
+    writable_session.add_all([
+        _activity(campaign=f"Campaign {index:04d}")
+        for index in range(queries.MAX_LIMIT + surplus)
+    ])
+    writable_session.flush()
+    counted = queries.activity_counts(writable_session, dimension="campaign", **extra)
+
+    assert len(counted["buckets"]) == queries.MAX_LIMIT
+    assert counted["bucket_count"] == queries.MAX_LIMIT + surplus
+    assert counted["truncated"] is True
+    assert counted["total"] == queries.MAX_LIMIT + surplus
+    assert "campaign buckets" in counted["note"]
+
+
+def test_activity_counts_reports_no_truncation_when_it_fits(session):
+    counted = queries.activity_counts(session, dimension="channel")
+
+    assert counted["truncated"] is False
+    assert counted["note"] is None
+    assert counted["bucket_count"] == len(counted["buckets"])
+
+
+def test_planning_gaps_caps_its_groups_and_says_so(writable_session):
+    surplus = 5
+    writable_session.add_all([
+        _activity(campaign=f"Campaign {index:04d}", channel=None)
+        for index in range(queries.MAX_LIMIT + surplus)
+    ])
+    writable_session.flush()
+    gaps = queries.planning_gaps(writable_session, group_by="campaign")
+
+    assert len(gaps["groups"]) == queries.MAX_LIMIT
+    assert gaps["group_count"] == queries.MAX_LIMIT + surplus
+    assert gaps["groups_truncated"] is True
+    assert "campaign groups" in gaps["groups_note"]
+    # The activity list keeps its own, separate truncation report.
+    assert gaps["incomplete"] == queries.MAX_LIMIT + surplus
+    assert gaps["truncated"] is True
+
+
+def test_planning_gaps_reports_no_group_truncation_when_it_fits(writable_session):
+    writable_session.add_all([_activity(lead_team="Team One", channel=None)])
+    writable_session.flush()
+    gaps = queries.planning_gaps(writable_session, group_by="lead_team")
+
+    assert gaps["group_count"] == 1
+    assert gaps["groups_truncated"] is False
+    assert "groups_note" not in gaps
+
+
 def test_counts_by_priority_rank_collapses_both_vocabularies(writable_session):
     writable_session.add_all([
         _activity(priority="1 - label"),

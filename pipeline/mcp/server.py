@@ -109,7 +109,11 @@ def build_server(database_url: str) -> MCPServer:
             "nothing. Counts include archived rows, so a value occurring only on "
             "archived activities is still discoverable. Multi-value columns are "
             "split into their individual members rather than listed as "
-            "combinations.\n\n"
+            "combinations. Blank and sentinel values are counted in "
+            "`blank_count`, never offered as values.\n\n"
+            "The most common values come first, capped by `limit`: "
+            "`distinct_values` and `truncated` say whether more exist, so never "
+            "read a truncated list as the column's complete vocabulary.\n\n"
             f"Supported fields: {', '.join(queries.ENUMERABLE_FIELDS)}."
         )
     )
@@ -256,7 +260,8 @@ def build_server(database_url: str) -> MCPServer:
         "which records are incomplete".
 
         Returns per-activity missing fields plus a tally of which fields are
-        missing most often. Pack/campaign linkage is deliberately NOT part of
+        missing most often; grouped answers return at most 200 groups, worst
+        first, with `group_count` and `groups_truncated` reporting the rest. Pack/campaign linkage is deliberately NOT part of
         completeness: a standalone activity with no pack is fully planned.
         """
         return read(
@@ -313,6 +318,10 @@ def build_server(database_url: str) -> MCPServer:
         `executive=` narrows to the activities one executive is involved in
         (either executive column), so "how does one executive's involvement split
         across channels" is one call.
+
+        At most 200 buckets come back, largest first; `bucket_count` and
+        `truncated` report whether more exist, while `total` is always the true
+        total across all of them.
         """
         return read(
             lambda session: queries.activity_counts(
