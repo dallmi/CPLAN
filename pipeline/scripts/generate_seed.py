@@ -40,7 +40,12 @@ from pipeline.api.setup_backend import (
 
 
 CHANNELS = ["Intranet", "Email", "Town Hall", "Digital Signage", "Manager Cascade", "Podcast"]
-DIVISIONS = ["P&C", "GWM", "IB", "Group Functions"]
+# Deliberately spelled out and industry-nonspecific: "P&C" / "GWM" / "IB" /
+# "Group Functions" (an earlier version of this list) reproduce a real
+# employer's actual reporting-segment abbreviations, not a generic stand-in --
+# exactly the kind of production identifier a screenshot of this data must
+# never carry (see Task 10's brand-safety check, which is what caught this).
+DIVISIONS = ["Retail Banking", "Corporate Banking", "Wealth Management", "Corporate Functions"]
 REGIONS = ["EMEA", "Americas", "APAC", "Switzerland"]
 AUDIENCES = ["All Employees", "Managers", "Frontline Staff", "Technology Staff", "New Joiners"]
 OBJECTIVES = ["Growth", "Efficiency", "Culture", "Risk & Control", "Client Focus"]
@@ -186,15 +191,14 @@ def write(database_url, records: list[dict], replace: bool) -> int:
         activities, changes = [], []
         for record in records:
             activity_id = uuid.uuid4()
-            # time_zone is a column on Activity but not in the importer's
-            # ALLOWED_FIELDS, so normalize_record drops it silently. Set it
-            # afterwards, otherwise every generated row counts as incomplete.
-            time_zone = record.pop("time_zone", None)
+            # time_zone is a real column in import_snapshot's ALLOWED_FIELDS
+            # (TEXT_FIELDS), so normalize_record(record) already carries it
+            # through -- passing it again here would collide with that key
+            # ("got multiple values for keyword argument 'time_zone'").
             activities.append(
                 Activity(
                     id=activity_id,
                     **normalize_record(record),
-                    time_zone=time_zone,
                     created_by="generate_seed",
                 )
             )

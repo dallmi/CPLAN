@@ -93,3 +93,20 @@ def test_document_css_keeps_sticky_off_the_print_path():
     css = (STATIC / "document.css").read_text(encoding="utf-8")
     if "position: sticky" in css:
         assert "@media screen" in css
+
+
+def test_every_manual_screenshot_referenced_exists():
+    manual = Path(__file__).resolve().parents[1] / "pipeline" / "portal" / "projects" / "cplan" / "manual.html"
+    if not manual.is_file():
+        pytest.skip("the manual has not been written yet")
+    referenced = set(re.findall(r'src="(/docs/img/[^"]+)"', manual.read_text(encoding="utf-8")))
+    assert referenced, "the manual should carry screenshots"
+    for source in referenced:
+        assert (STATIC / source.lstrip("/")).is_file(), f"missing screenshot: {source}"
+
+
+def test_capture_script_declares_a_shot_per_manual_step():
+    from pipeline.scripts.capture_manual_shots import SHOTS
+
+    assert len(SHOTS) >= 9
+    assert len({shot.key for shot in SHOTS}) == len(SHOTS)
