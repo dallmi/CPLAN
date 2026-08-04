@@ -978,7 +978,9 @@ def build_server(database_url: str) -> MCPServer:
         week" rather than the flat field-level log activity_history would force
         you to reassemble by hand across many activities.
 
-        `since` accepts 'YYYY-MM-DD' or a full ISO timestamp. A change whose
+        `since` is required and accepts 'YYYY-MM-DD' or a full ISO timestamp; a
+        blank or unparseable value returns an error rather than the whole change
+        log. A change whose
         activity no longer resolves (the change log carries no foreign key to
         activities, by design) is still reported, under a null activity
         (`activity_found: false`) -- UNLESS an activity filter is active, in
@@ -989,8 +991,14 @@ def build_server(database_url: str) -> MCPServer:
         only the ones inside the capped `activities` list, so a truncated
         answer still reports the true volumes. A `created` (or `deleted`) row
         has no `field` and is bucketed as `"(created)"` / `"(deleted)"` rather
-        than silently dropped from `by_field`. `limit` caps the number of
-        activity GROUPS returned, not the changes inside one group.
+        than silently dropped from `by_field`. All three tallies are capped like
+        every other grouped answer here; `tallies_truncated` says which, if any,
+        was cut.
+
+        `limit` caps the number of activity GROUPS returned (`activity_count` is
+        the true group total). Each group's own `changes` list is capped at 20,
+        with `changes_truncated` on the group and `change_count` still reporting
+        the true total -- use activity_history to read one activity's full log.
         """
         return read(
             lambda session: queries.plan_changes_since(

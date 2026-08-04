@@ -3255,6 +3255,137 @@ def test_plan_changes_since_reports_truncation(writable_session):
     assert result["note"] is not None
 
 
+def test_plan_changes_since_caps_the_changes_inside_one_group(writable_session):
+    """`limit` caps groups; the group's own list needs its own cap.
+
+    One nightly-synced activity is enough to produce this shape: `returned: 1`
+    with every change row it ever accumulated inlined underneath, plus a
+    `by_field` key per column touched -- an unbounded list-shaped answer from
+    the one module whose domain resource promises the agent that every
+    list-shaped answer is capped.
+    """
+    activity = _activity()
+    writable_session.add(activity)
+    writable_session.flush()
+    surplus = 5
+    writable_session.add_all(
+        [
+            ActivityChange(
+                activity_id=activity.id,
+                actor="sync",
+                change_type="updated",
+                field=f"field_{index}",
+                changed_at=REFERENCE + timedelta(minutes=index),
+                version_from=index + 1,
+                version_to=index + 2,
+            )
+            for index in range(queries.MAX_CHANGES_PER_ACTIVITY + surplus)
+        ]
+    )
+    writable_session.flush()
+
+    result = queries.plan_changes_since(writable_session, since="2026-01-01")
+
+    assert result["returned"] == 1
+    group = result["activities"][0]
+    # The true total is still reported -- only the payload is bounded.
+    assert group["change_count"] == queries.MAX_CHANGES_PER_ACTIVITY + surplus
+    assert len(group["changes"]) == queries.MAX_CHANGES_PER_ACTIVITY
+    assert group["changes_truncated"] is True
+    # Newest first, like the ungrouped log: the cap keeps the most recent.
+    assert group["changes"][0]["field"] == f"field_{queries.MAX_CHANGES_PER_ACTIVITY + surplus - 1}"
+
+
+def test_plan_changes_since_reports_an_untruncated_group_as_such(writable_session):
+    activity = _activity()
+    writable_session.add(activity)
+    writable_session.flush()
+    writable_session.add(
+        ActivityChange(
+            activity_id=activity.id,
+            actor="sync",
+            change_type="created",
+            changed_at=REFERENCE,
+            version_to=1,
+        )
+    )
+    writable_session.flush()
+
+    result = queries.plan_changes_since(writable_session, since="2026-01-01")
+
+    assert result["activities"][0]["changes_truncated"] is False
+    assert result["tallies_truncated"] == {
+        "by_actor": False,
+        "by_change_type": False,
+        "by_field": False,
+    }
+
+
+def test_plan_changes_since_caps_its_field_tally(writable_session):
+    """`by_field` is a grouped answer too, and nothing bounded it.
+
+    One activity touched on enough distinct columns produces more `by_field`
+    keys than any other grouped answer here is allowed to return.
+    """
+    activity = _activity()
+    writable_session.add(activity)
+    writable_session.flush()
+    surplus = 3
+    writable_session.add_all(
+        [
+            ActivityChange(
+                activity_id=activity.id,
+                actor=f"actor_{index}",
+                change_type="updated",
+                field=f"field_{index}",
+                changed_at=REFERENCE + timedelta(minutes=index),
+                version_from=1,
+                version_to=2,
+            )
+            for index in range(queries.MAX_LIMIT + surplus)
+        ]
+    )
+    writable_session.flush()
+
+    result = queries.plan_changes_since(writable_session, since="2026-01-01")
+
+    assert result["changes"] == queries.MAX_LIMIT + surplus
+    assert len(result["by_field"]) == queries.MAX_LIMIT
+    assert len(result["by_actor"]) == queries.MAX_LIMIT
+    assert result["tallies_truncated"]["by_field"] is True
+    assert result["tallies_truncated"]["by_actor"] is True
+    assert result["tallies_truncated"]["by_change_type"] is False
+
+
+@pytest.mark.parametrize("since", ["", "   ", None])
+def test_plan_changes_since_refuses_a_blank_boundary(writable_session, since):
+    """A blank `since` is a caller slip, not a request for the whole log.
+
+    `since` is a required argument, and `_parse_boundary('')` returns None --
+    which used to mean no WHERE clause at all, so the tool answered with the
+    entire change log while looking like it had honoured a boundary.
+    """
+    activity = _activity()
+    writable_session.add(activity)
+    writable_session.flush()
+    writable_session.add(
+        ActivityChange(
+            activity_id=activity.id,
+            actor="sync",
+            change_type="created",
+            changed_at=REFERENCE,
+            version_to=1,
+        )
+    )
+    writable_session.flush()
+
+    result = queries.plan_changes_since(writable_session, since=since)
+
+    assert "error" in result
+    assert "YYYY-MM-DD" in result["accepted_formats"]
+    assert "activities" not in result
+
+
 def test_plan_changes_since_excludes_changes_before_the_boundary(writable_session):
     activity = _activity()
     writable_session.add(activity)

@@ -219,6 +219,16 @@ SUMMARY_FIELDS: tuple[str, ...] = (
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 200
 
+# `plan_changes_since`'s own `limit` caps activity GROUPS, not the changes
+# inside one group -- so without this a single nightly-synced activity with 500
+# change rows returns `returned: 1` and 500 changes, which is exactly the
+# unbounded list-shaped answer this module promises never to serve. Deliberately
+# far below MAX_LIMIT: this tool answers "what moved", and 20 entries is already
+# more than enough to characterise one activity's week. `activity_history` is
+# the tool for reading one activity's log in full, and `change_count` on every
+# group still reports the true total.
+MAX_CHANGES_PER_ACTIVITY = 20
+
 # `detect_collisions`'s sliding window has no cap of its own: the inner loop's
 # `break` only fires once the gap exceeds `proximity_days`, so an unbounded
 # value lets it accumulate (and `_summarize`) every pair in the filtered set
@@ -1042,27 +1052,53 @@ def plan_changes_since(
     All three tallies, and the true `changes` total, are computed over every
     kept change -- not only the ones inside the capped `activities` list --
     so a truncated answer still reports the right volumes (same contract as
-    `_capped_by_count` elsewhere in this module).
+    `_capped_by_count` elsewhere in this module). Each tally is itself capped
+    by `_capped_by_count`: `by_field` over a nightly-synced portfolio is
+    bounded by the column count, but `by_actor` is free text and `by_field`
+    grows a `"(<change_type>)"` bucket per change type, so neither is
+    structurally bounded and both go through the same cap as every other
+    grouped answer here. `tallies_truncated` says which, if any, was cut.
 
     Groups are ordered newest-first by their own most recent change: `rows`
     is fetched newest-first overall, so the first change appended to any
     group is already that group's most recent -- reused directly rather than
-    re-sorting. `limit` caps the number of activity GROUPS returned, not the
-    changes within one group (an activity accumulating enough history to
-    need its own cap is a job for `activity_history`, not this tool).
+    re-sorting. `limit` caps the number of activity GROUPS returned; each
+    group's own `changes` list is capped at MAX_CHANGES_PER_ACTIVITY
+    (`changes_truncated` per group, with `change_count` still the true total),
+    because one nightly-synced activity can carry hundreds of change rows and
+    a group's list is just as list-shaped as the answer that contains it. Read
+    one activity's full log with `activity_history`, which pages it properly.
+
+    `since` is required, so a blank or unparseable value is a caller slip, not
+    a request for "everything": it returns an error naming the accepted
+    formats rather than silently falling through to the whole change log with
+    no boundary at all.
     """
     boundary = _parse_boundary(since)
+    if boundary is None:
+        return {
+            "error": (
+                "plan_changes_since requires a `since` boundary; "
+                f"got {since!r}."
+            ),
+            "accepted_formats": ["YYYY-MM-DD", "a full ISO 8601 timestamp"],
+            "note": (
+                "Without a boundary this would return the entire change log. "
+                "Pass an explicit date, or use activity_history for one "
+                "activity's full log."
+            ),
+        }
     capped = _clamp_limit(limit)
     filters = _build_filters(**filter_kwargs)
     filters_active = filters != ActivityFilters()
     candidates_by_id = {activity.id: activity for activity in _filtered_activities(session, filters)}
 
-    statement = select(ActivityChange, Activity).outerjoin(
-        Activity, ActivityChange.activity_id == Activity.id
+    statement = (
+        select(ActivityChange, Activity)
+        .outerjoin(Activity, ActivityChange.activity_id == Activity.id)
+        .where(ActivityChange.changed_at >= boundary)
+        .order_by(ActivityChange.changed_at.desc(), ActivityChange.id.desc())
     )
-    if boundary is not None:
-        statement = statement.where(ActivityChange.changed_at >= boundary)
-    statement = statement.order_by(ActivityChange.changed_at.desc(), ActivityChange.id.desc())
 
     groups: dict[uuid.UUID, dict[str, Any]] = {}
     by_actor: dict[str, int] = {}
@@ -1112,18 +1148,42 @@ def plan_changes_since(
     )
     total_groups = len(ordered_groups)
     shown_groups = ordered_groups[:capped]
+    for group in shown_groups:
+        # `limit` does not reach inside a group, so cap the group's own list
+        # here. `change_count` above is already the true total, so the count
+        # stays right while the payload stays bounded.
+        group["changes_truncated"] = group["change_count"] > MAX_CHANGES_PER_ACTIVITY
+        group["changes"] = group["changes"][:MAX_CHANGES_PER_ACTIVITY]
+
+    def _tally(counts: dict[str, int]) -> tuple[dict[str, int], bool]:
+        """One tally, capped exactly like every other grouped answer here.
+
+        Kept as a `{value: count}` mapping rather than `_capped_by_count`'s
+        bucket list -- the reading order (largest first, ties by value) is
+        identical, and a tally is what a caller wants to index by name.
+        """
+        buckets, _, distinct = _capped_by_count(counts)
+        return {bucket["value"]: bucket["count"] for bucket in buckets}, len(buckets) < distinct
+
+    actors, actors_truncated = _tally(by_actor)
+    change_types, change_types_truncated = _tally(by_change_type)
+    fields, fields_truncated = _tally(by_field)
 
     return {
         "since": _iso(boundary),
         "changes": total_changes,
+        "activity_count": total_groups,
         "returned": len(shown_groups),
         "truncated": len(shown_groups) < total_groups,
         "note": _truncation_note(total_groups, len(shown_groups), capped, subject="activities"),
-        "by_actor": dict(sorted(by_actor.items(), key=lambda item: (-item[1], item[0]))),
-        "by_change_type": dict(
-            sorted(by_change_type.items(), key=lambda item: (-item[1], item[0]))
-        ),
-        "by_field": dict(sorted(by_field.items(), key=lambda item: (-item[1], item[0]))),
+        "by_actor": actors,
+        "by_change_type": change_types,
+        "by_field": fields,
+        "tallies_truncated": {
+            "by_actor": actors_truncated,
+            "by_change_type": change_types_truncated,
+            "by_field": fields_truncated,
+        },
         "activities": shown_groups,
     }
 

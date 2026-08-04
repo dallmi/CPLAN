@@ -39,7 +39,7 @@ host at that command with `cwd` set to the repository root.
 | `lead_time_stats` | Planning lead-time distribution (median/p25/p75 days) over activities with a valid, non-negative lead time, plus `short_notice_rate` against `threshold_days`; `excluded` counts everything left out and why |
 | `data_quality` | Portfolio-wide health tally: duplicate and missing tracking ids, reversed date ranges, missing pack linkage, `completeness_rate` — `incomplete` reuses `planning_gaps`'s own rule so the two figures cannot disagree |
 | `activity_history` | The change log for one activity, newest first, resolved by tracking id or UUID like `get_activity` |
-| `plan_changes_since` | Change rows since `since`, grouped per activity, with `by_actor`/`by_change_type`/`by_field` tallies; changes whose activity no longer resolves are still reported (unless an activity filter is active) rather than silently dropped |
+| `plan_changes_since` | Change rows since `since`, grouped per activity, with `by_actor`/`by_change_type`/`by_field` tallies; changes whose activity no longer resolves are still reported (unless an activity filter is active) rather than silently dropped. A blank `since` is an error, not "everything"; groups, each group's own `changes` list and all three tallies are capped independently |
 
 ## Resources
 
