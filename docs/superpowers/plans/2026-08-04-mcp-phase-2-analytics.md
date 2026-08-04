@@ -476,13 +476,26 @@ None of Tasks 1–6 is reachable by an agent until this lands.
 ## Deliberately not in this plan
 
 - **Phase 3 (packs and clusters as first-class records; audience size as an
-  ordinal column).** Both need production facts that cannot be obtained: whether
-  `campaign_ltid` is the tracking-cluster key (empty in every local snapshot), and
-  whether production stores audience bands or integers (integers locally, and the
-  domain-model resource asserted the opposite until an eval run caught it). Each
-  is a write-path schema change touching the studio, the API and the sync.
-  Designing one against synthetic assumptions and then finding production differs
-  is worse than waiting. The two unblocking queries are recorded in the spec.
+  ordinal column).** Both need production facts that cannot be obtained here:
+  whether `campaign_ltid` is the tracking-cluster key (empty in every local
+  snapshot), and whether production stores audience bands or integers (integers
+  locally, and the domain-model resource asserted the opposite until an eval run
+  caught it). Each is a write-path schema change touching the studio, the API and
+  the sync. Designing one against synthetic assumptions and then finding
+  production differs is worse than waiting.
+
+  **The way to unblock is `pipeline/mcp/probe.py`, not the queries alone.**
+  Production data must not leave the corporate environment, so the facts have to
+  be produced *there*. `python -m pipeline.mcp.probe --settings <path>` answers
+  both questions — plus the combination question phase 2 disclosed but left
+  whole-matched, and the pack-key-chain facts a `packs` table needs — against
+  whatever database the settings point at, over the same read-only engine the
+  server uses. Its output is shape-only by construction (counts, rates, distinct
+  cardinalities, shape classifications and redacted patterns; never a value), so
+  the operator can run it inside the environment and carry the report out. The
+  spec records the underlying questions; `pipeline/mcp/README.md` records what
+  decision each of the probe's four answers unblocks. Phase 3 starts when that
+  report comes back, not before.
 - **Semantic search** (Q29, Q42) — needs embeddings, and the
   free-text-is-untrusted caveat applies doubly once the model compares message
   content.

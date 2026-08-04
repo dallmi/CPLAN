@@ -50,6 +50,56 @@ host at that command with `cwd` set to the repository root.
 An agent that skips this resource will answer priority and archive questions
 confidently wrong. The server instructions tell it to read the resource first.
 
+## Schema probe
+
+```bash
+.venv/bin/python -m pipeline.mcp.probe                        # the configured backend
+.venv/bin/python -m pipeline.mcp.probe --settings path/to/cplan-settings.json
+```
+
+`pipeline/mcp/probe.py` characterises the SHAPE of whatever database the
+settings point at and prints a short report. It exists because the phase-three
+modelling work — making communication packs and tracking clusters first-class
+records, and turning `audience` into an ordinal size column — is blocked on
+facts about a production database that cannot be copied out of the corporate
+environment. The probe answers those questions in place instead. It resolves the
+database and connects exactly as the server does (`create_read_only_engine`), and
+its SQL is a plain column projection, so it runs unchanged on PostgreSQL and on a
+local SQLite snapshot.
+
+**Its output is shape-only and safe to share by construction.** It prints row
+counts, fill rates, distinct cardinalities, bucket-size distributions and shape
+classifications, and nothing else. No activity name, campaign or pack label,
+lead, person, audience label or identifier can reach stdout — where an example
+helps, it prints a redacted pattern (`AAA-N-NNNNNN-NNNNNNN-AA`; digits become
+`N`, letters `A`/`a`), never the value. That is a property of the code, not of
+the data: only the columns in `PROBED_COLUMNS` are ever selected, every value is
+reduced to a count or a pattern inside `build_report`, and `render` formats only
+what that returned. `test_the_rendered_report_contains_no_value_from_the_database`
+seeds every probed column with a marker and fails if any survives into the
+report. The printed header says all of this, so the operator running it knows
+what they are holding without reading the source.
+
+Four questions, and the decision each one unblocks:
+
+| Section | Reports | Unblocks |
+|---|---|---|
+| 1. Is there a tracking-cluster key? | Fill rate, distinct count and bucket-size distribution of `campaign_ltid`, the tracking-id cluster segment, the tracking-id pack prefix, `communication_pack_cpid` and `campaign`; whether `campaign_ltid` agrees with the cluster segment and how the two fan out; whether each pack nests under exactly one cluster | Whether a `clusters` table can be keyed on a stored column, on the tracking-id prefix, or not at all. `campaign_ltid` is empty in every local snapshot, so this cannot be settled here |
+| 2. What shape does `audience` hold? | Fill rate, distinct count, the shape histogram over rows and over distinct values (`integer` / `decimal` / `range` / `bounded` / `text`), the integer range if numeric, and the same split by synced vs never-synced rows | Whether `audience` becomes ordinal by parsing integers, by mapping bands, or by both with a migration between them. The domain-model resource asserted the band shape against a database holding integers until an eval run caught it |
+| 3. Do `channel` and `target_audience` really hold combinations? | What fraction of non-blank values hold more than one member, which separator, and distinct raw strings against distinct members — with the three already-split multi-value columns alongside as a control | Whether making those two columns properly multi-valued is worth a schema change, or whole-string matching is already exact on this data |
+| 4. What would a `packs` table be keyed on? | Which link of `_PACK_KEY_FIELDS` resolves each activity and how many resolve none; whether `communication_pack_cpid`, the tracking pack prefix and the pack label agree or fan out; the tracking-id segment-count histogram | Whether pack identity can be one column with a stable label, and how many activities a `packs` table would leave unlinked |
+
+Read the fan-out figures before the equality rates: two keys can disagree on
+spelling and still be one key, while an equal-looking pair that fans out
+one-to-many is two levels of a hierarchy rather than one key.
+
+The probe imports no `mcp` — like `queries.py` and `domain.py` — so an operator
+can run it without installing the SDK. It degrades rather than aborting on a
+database older than the models: a column the models expect and the database
+lacks is named as schema drift and skipped, because a read-only probe cannot
+migrate what it is pointed at and one absent column must not cost every other
+answer.
+
 ## Design notes
 
 **Read-only is enforced by the connection, not by convention.**
