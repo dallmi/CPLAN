@@ -26,7 +26,7 @@ from __future__ import annotations
 import re
 import uuid
 from dataclasses import dataclass, field as dataclass_field
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import String, and_, case, func, or_, select
@@ -323,6 +323,13 @@ def _parse_boundary(value: str | date | datetime | None) -> datetime | None:
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
+
+
+def _truncate_to_midnight(value: datetime) -> datetime:
+    """`value` at 00:00:00 UTC on the same date -- mirrors the studio's
+    `setHours(0, 0, 0, 0)` in `weeklyCoverage`."""
+    normalized = as_utc(value)
+    return normalized.replace(hour=0, minute=0, second=0, microsecond=0)
 
 
 def _month_key(value: datetime | None) -> str:
@@ -1080,6 +1087,155 @@ def activity_counts(
         "truncated": truncated,
         "buckets": buckets,
         "note": note,
+    }
+
+
+def _resolve_anchor(
+    session: Session,
+    explicit: str | date | datetime | None,
+    candidates: list[Activity],
+) -> tuple[datetime, str]:
+    """The deterministic "now" for a time-relative question.
+
+    Resolution order, each stage cheaper to trust than the next: the caller's
+    own explicit argument; else the latest sync run (`SyncRun.ran_at`, newest
+    first); else the latest `start_date` among the already-filtered
+    `candidates`. Deliberately never `datetime.now()` -- a tool whose answer
+    depends on the wall clock is not reproducible under test (this suite runs
+    on two backends and in CI) and, worse, an agent cannot tell a user what
+    "next month" meant without knowing what the database considers "now" to
+    be. The caller gets the choice back as `anchor_source` for exactly that
+    reason.
+    """
+    parsed = _parse_boundary(explicit)
+    if parsed is not None:
+        return parsed, "argument"
+    latest_sync = session.scalars(
+        select(SyncRun.ran_at).order_by(SyncRun.ran_at.desc()).limit(1)
+    ).first()
+    if latest_sync is not None:
+        return as_utc(latest_sync), "latest_sync"
+    latest_start = max(
+        (activity.start_date for activity in candidates if activity.start_date is not None),
+        default=None,
+    )
+    if latest_start is not None:
+        return as_utc(latest_start), "latest_start_date"
+    # Nothing in the data can anchor the question either: no sync run and no
+    # dated activity in the candidate set. A fixed, documented instant --
+    # never the wall clock -- keeps this branch deterministic too.
+    return datetime(1970, 1, 1, tzinfo=timezone.utc), "latest_start_date"
+
+
+def calendar_load(
+    session: Session,
+    *,
+    weeks: int = 8,
+    start_date: str | date | datetime | None = None,
+    **filter_kwargs: Any,
+) -> dict[str, Any]:
+    """Weekly activity volume, mirroring `analytics.js::weeklyCoverage`.
+
+    `weeks` consecutive 7-day spans starting at the anchor date, each a
+    half-open window `[from, to)` -- an activity landing exactly on a `to`
+    boundary belongs to the NEXT week, matching the studio's
+    `date >= from && date < to`. The anchor is truncated to midnight UTC,
+    matching the studio's own `setHours(0, 0, 0, 0)`.
+
+    `start_date` resolves via `_resolve_anchor` -- the explicit argument, else
+    the latest sync run, else the latest `start_date` among the filtered
+    activities -- and is echoed back as `anchor` / `anchor_source` so the
+    agent can say what the window actually anchored on.
+    """
+    span_weeks = max(1, min(int(weeks), 52))
+    filters = _build_filters(**filter_kwargs)
+    candidates = _filtered_activities(session, filters)
+    anchor, anchor_source = _resolve_anchor(session, start_date, candidates)
+    anchor = _truncate_to_midnight(anchor)
+
+    dated = [
+        as_utc(activity.start_date) for activity in candidates if activity.start_date is not None
+    ]
+    buckets: list[dict[str, Any]] = []
+    for index in range(span_weeks):
+        week_from = anchor + timedelta(days=7 * index)
+        week_to = week_from + timedelta(days=7)
+        count = sum(1 for value in dated if week_from <= value < week_to)
+        buckets.append({"from": _iso(week_from), "to": _iso(week_to), "count": count})
+
+    busiest = max(buckets, key=lambda bucket: bucket["count"])
+    quietest = min(buckets, key=lambda bucket: bucket["count"])
+    empty_weeks = [bucket for bucket in buckets if bucket["count"] == 0]
+
+    return {
+        "anchor": _iso(anchor),
+        "anchor_source": anchor_source,
+        "weeks": span_weeks,
+        "buckets": buckets,
+        "busiest": busiest,
+        "quietest": quietest,
+        "empty_weeks": empty_weeks,
+    }
+
+
+def window_comparison(
+    session: Session,
+    *,
+    days: int = 30,
+    reference: str | date | datetime | None = None,
+    **filter_kwargs: Any,
+) -> dict[str, Any]:
+    """Current vs. immediately-preceding window, mirroring
+    `analytics.js::comparisonWindow`.
+
+    The current window is the half-open span `[reference, reference + days)`;
+    the previous window is the same-length span immediately before it,
+    `[reference - days, reference)`. `reference` resolves exactly like
+    `calendar_load`'s `start_date` (see `_resolve_anchor`) but is NOT
+    truncated to midnight -- `comparisonWindow` uses the raw instant, unlike
+    `weeklyCoverage`.
+
+    `change_pct` is `None`, never `inf` and never `0`, when the previous
+    window has no activity to compare against -- either of those numbers
+    would read to an agent as a real answer about a comparison that cannot be
+    made.
+    """
+    span_days = max(1, int(days))
+    filters = _build_filters(**filter_kwargs)
+    candidates = _filtered_activities(session, filters)
+    anchor, anchor_source = _resolve_anchor(session, reference, candidates)
+
+    dated = [
+        as_utc(activity.start_date) for activity in candidates if activity.start_date is not None
+    ]
+
+    def _count_between(window_from: datetime, window_to: datetime) -> int:
+        return sum(1 for value in dated if window_from <= value < window_to)
+
+    current_from, current_to = anchor, anchor + timedelta(days=span_days)
+    previous_from, previous_to = anchor - timedelta(days=span_days), anchor
+
+    current_count = _count_between(current_from, current_to)
+    previous_count = _count_between(previous_from, previous_to)
+    change = current_count - previous_count
+    change_pct = None if previous_count == 0 else round((change / previous_count) * 100, 1)
+
+    return {
+        "anchor": _iso(anchor),
+        "anchor_source": anchor_source,
+        "days": span_days,
+        "current": {
+            "from": _iso(current_from),
+            "to": _iso(current_to),
+            "count": current_count,
+        },
+        "previous": {
+            "from": _iso(previous_from),
+            "to": _iso(previous_to),
+            "count": previous_count,
+        },
+        "change": change,
+        "change_pct": change_pct,
     }
 
 

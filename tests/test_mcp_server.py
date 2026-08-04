@@ -1476,6 +1476,160 @@ def test_time_bucket_key_week_carries_the_iso_year_at_the_boundary():
     assert queries._time_bucket_key(value, "week") == "2030-W01"
 
 
+# --------------------------------------------------------------------------
+# Calendar load and window-over-window comparison
+# --------------------------------------------------------------------------
+
+
+def test_calendar_load_buckets_consecutive_weeks(writable_session):
+    """Half-open [from, to): an activity exactly on a `to` boundary belongs
+    to the NEXT week, not the one that just ended."""
+    anchor = datetime(2026, 1, 5, tzinfo=timezone.utc)  # a Monday, midnight UTC
+    writable_session.add_all([
+        _activity(activity_name="On the anchor", start_date=anchor),
+        _activity(activity_name="Mid first week", start_date=anchor + timedelta(days=3)),
+        _activity(activity_name="On the boundary", start_date=anchor + timedelta(days=7)),
+        _activity(activity_name="Mid second week", start_date=anchor + timedelta(days=10)),
+    ])
+    writable_session.flush()
+
+    result = queries.calendar_load(writable_session, weeks=2, start_date="2026-01-05")
+
+    assert result["anchor"] == "2026-01-05T00:00:00Z"
+    assert result["anchor_source"] == "argument"
+    assert result["buckets"] == [
+        {"from": "2026-01-05T00:00:00Z", "to": "2026-01-12T00:00:00Z", "count": 2},
+        {"from": "2026-01-12T00:00:00Z", "to": "2026-01-19T00:00:00Z", "count": 2},
+    ]
+
+
+def test_calendar_load_names_empty_weeks(writable_session):
+    writable_session.add_all([
+        _activity(start_date=datetime(2026, 1, 6, tzinfo=timezone.utc)),  # week 0
+        _activity(start_date=datetime(2026, 1, 20, tzinfo=timezone.utc)),  # week 2
+    ])
+    writable_session.flush()
+
+    result = queries.calendar_load(writable_session, weeks=3, start_date="2026-01-05")
+
+    assert [bucket["count"] for bucket in result["buckets"]] == [1, 0, 1]
+    gap = result["buckets"][1]
+    assert gap["count"] == 0
+    # A gap week appears in `buckets` with count 0 -- not omitted -- AND is
+    # called out in `empty_weeks` so an agent does not have to scan for it.
+    assert result["empty_weeks"] == [gap]
+
+
+def test_calendar_load_resolves_its_anchor_deterministically(writable_session):
+    # No SyncRun row and no explicit start_date: falls back to the latest
+    # start_date among the FILTERED candidates. Called twice -- the same
+    # input must yield the same anchor, which is what rules out `datetime.now()`.
+    writable_session.add_all([
+        _activity(start_date=datetime(2026, 3, 1, tzinfo=timezone.utc)),
+        _activity(start_date=datetime(2026, 3, 15, tzinfo=timezone.utc)),
+    ])
+    writable_session.flush()
+
+    first = queries.calendar_load(writable_session, weeks=1)
+    second = queries.calendar_load(writable_session, weeks=1)
+    assert first["anchor_source"] == "latest_start_date"
+    assert first["anchor"] == second["anchor"] == "2026-03-15T00:00:00Z"
+
+    # A SyncRun row outranks the latest-start_date fallback.
+    writable_session.add(
+        SyncRun(
+            ran_at=datetime(2026, 4, 1, 9, tzinfo=timezone.utc),
+            snapshot_path="communications.parquet",
+            created=0,
+            updated=0,
+            unchanged=0,
+            conflicts=0,
+            vanished=0,
+            local_only=0,
+            skipped_no_id=0,
+        )
+    )
+    writable_session.flush()
+    with_sync = queries.calendar_load(writable_session, weeks=1)
+    assert with_sync["anchor_source"] == "latest_sync"
+    assert with_sync["anchor"] == "2026-04-01T00:00:00Z"
+
+    # An explicit argument outranks everything else.
+    explicit = queries.calendar_load(writable_session, weeks=1, start_date="2026-05-01")
+    assert explicit["anchor_source"] == "argument"
+    assert explicit["anchor"] == "2026-05-01T00:00:00Z"
+
+
+def test_calendar_load_clamps_the_week_count(writable_session):
+    writable_session.add(_activity(start_date=datetime(2026, 1, 5, tzinfo=timezone.utc)))
+    writable_session.flush()
+
+    too_few = queries.calendar_load(writable_session, weeks=0, start_date="2026-01-05")
+    too_many = queries.calendar_load(writable_session, weeks=200, start_date="2026-01-05")
+
+    assert too_few["weeks"] == 1
+    assert len(too_few["buckets"]) == 1
+    assert too_many["weeks"] == 52
+    assert len(too_many["buckets"]) == 52
+
+
+def test_calendar_load_matches_the_studio_week_math():
+    """Pinned against analytics.js so the week math cannot silently drift.
+
+    Same technique as test_priority_rank_matches_the_studio_implementation:
+    read the studio's own source for the 7-day step and the half-open
+    comparison rather than re-deriving the rule independently.
+    """
+    studio = (REPO_ROOT / "pipeline" / "studio" / "analytics.js").read_text()
+    match = re.search(r"function weeklyCoverage\([^)]*\)\s*\{(.*?)\n  \}", studio, re.DOTALL)
+    assert match, "weeklyCoverage not found in analytics.js"
+    body = match.group(1)
+    assert "from.getDate() + i * 7" in body
+    assert "to.getDate() + 7" in body
+    assert "date >= from && date < to" in body
+
+
+def test_window_comparison_counts_both_windows_and_the_delta(writable_session):
+    reference = datetime(2026, 2, 1, tzinfo=timezone.utc)
+    writable_session.add_all([
+        # Previous window [2026-01-02, 2026-02-01): 2 activities.
+        _activity(start_date=reference - timedelta(days=20)),
+        _activity(start_date=reference - timedelta(days=5)),
+        # Current window [2026-02-01, 2026-03-03): 4 activities.
+        _activity(start_date=reference + timedelta(days=1)),
+        _activity(start_date=reference + timedelta(days=10)),
+        _activity(start_date=reference + timedelta(days=20)),
+        _activity(start_date=reference + timedelta(days=29)),
+    ])
+    writable_session.flush()
+
+    result = queries.window_comparison(
+        writable_session, days=30, reference="2026-02-01T00:00:00Z"
+    )
+
+    assert result["anchor_source"] == "argument"
+    assert result["current"]["count"] == 4
+    assert result["previous"]["count"] == 2
+    assert result["change"] == 2
+    assert result["change_pct"] == 100.0
+
+
+def test_window_comparison_reports_no_percentage_when_the_previous_window_is_empty(
+    writable_session,
+):
+    reference = datetime(2026, 2, 1, tzinfo=timezone.utc)
+    writable_session.add(_activity(start_date=reference + timedelta(days=5)))
+    writable_session.flush()
+
+    result = queries.window_comparison(writable_session, days=30, reference=reference)
+
+    assert result["previous"]["count"] == 0
+    assert result["current"]["count"] == 1
+    assert result["change"] == 1
+    # Never inf, never 0 -- both would read as a real percentage.
+    assert result["change_pct"] is None
+
+
 @pytest.mark.parametrize(
     "field", ["partner_team", "business_area", "target_audience", "audience", "time_zone"]
 )
@@ -1522,6 +1676,8 @@ def test_query_results_are_json_serializable(session, engine):
         queries.activity_counts(session, dimension="month"),
         queries.field_values(session, field="channel"),
         queries.database_status(session, engine),
+        queries.calendar_load(session),
+        queries.window_comparison(session),
     ]
 
     for payload in payloads:
