@@ -21,14 +21,22 @@ ROLE_LABEL = {"admin": "Admin", "editor": "Editor", "contributor": "Contributor"
 
 
 def _count(n: int, singular: str, plural: str | None = None) -> str:
-    """"1 file", "4 files" — every status line in this module counts something."""
+    """"1 file", "4 files", "4 109 activities" — every status line here counts something.
+
+    Thousands are grouped with a thin space, the same grouping the studio uses,
+    and grouping lives here rather than at the call sites: the one status line
+    that grouped its own number also passed the number to this helper, and read
+    "4 109 4109 activities" — "0 0 activities" on a fresh installation, which is
+    how it was finally noticed.
+    """
+    grouped = f"{n:,}".replace(",", " ")
     if n == 1:
-        return f"{n} {singular}"
+        return f"{grouped} {singular}"
     if plural:
-        return f"{n} {plural}"
+        return f"{grouped} {plural}"
     if singular.endswith("y"):
-        return f"{n} {singular[:-1]}ies"
-    return f"{n} {singular}s"
+        return f"{grouped} {singular[:-1]}ies"
+    return f"{grouped} {singular}s"
 
 
 def humanise_age(moment: datetime | None, now: datetime | None = None) -> str | None:
@@ -81,7 +89,7 @@ def _data(spec: dict[str, Any], context: dict[str, Any]) -> str | None:
         return None
     activities = session.execute(text("SELECT count(*) FROM activities")).scalar_one()
     ran_at = session.execute(text("SELECT max(ran_at) FROM sync_runs")).scalar_one_or_none()
-    count = f"{activities:,} {_count(activities, 'activity')}".replace(",", " ")
+    count = _count(activities, "activity")
     refreshed = humanise_age(ran_at)
     return f"Refreshed {refreshed} · {count}" if refreshed else f"Never synced · {count}"
 
@@ -112,11 +120,25 @@ def _access(spec: dict[str, Any], context: dict[str, Any]) -> str | None:
     return f"You are {role}"
 
 
-def _reports(spec: dict[str, Any], context: dict[str, Any]) -> str | None:
-    directory: Path | None = context.get("reports_dir")
+REPORT_PATTERN = "*.xlsx"
+
+
+def report_files(directory: Path | None) -> list[Path]:
+    """The generated workbooks in a project's report directory, newest first.
+
+    Shared by the tile's status line and the page it leads to, so the count on
+    the tile and the list on the page can never disagree about what counts as a
+    report. A missing directory is an empty list, not an error: a fresh
+    checkout has produced nothing yet, and that is a state, not a fault.
+    """
     if directory is None or not directory.is_dir():
-        return "None yet"
-    files = sorted(directory.glob("*.xlsx"), key=lambda p: p.stat().st_mtime, reverse=True)
+        return []
+    files = [path for path in directory.glob(REPORT_PATTERN) if path.is_file()]
+    return sorted(files, key=lambda p: p.stat().st_mtime, reverse=True)
+
+
+def _reports(spec: dict[str, Any], context: dict[str, Any]) -> str | None:
+    files = report_files(context.get("reports_dir"))
     if not files:
         return "None yet"
     newest = datetime.fromtimestamp(files[0].stat().st_mtime, tz=timezone.utc).strftime("%-d %b")

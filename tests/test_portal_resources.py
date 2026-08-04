@@ -36,6 +36,79 @@ def test_manifest_is_read(tmp_path):
     assert load_manifest("demo", root=tmp_path)["purpose"] == "Plan things."
 
 
+def write_raw_manifest(root: Path, slug: str, text: str) -> None:
+    directory = root / slug
+    directory.mkdir(parents=True)
+    (directory / "resources.json").write_text(text, encoding="utf-8")
+
+
+@pytest.mark.parametrize("source", ['[]', '"a string"', '42', 'null', '{"tiles": "manual"}'])
+def test_a_structurally_wrong_manifest_is_no_manifest_at_all(tmp_path, source):
+    # The module contract is that a project with no *usable* manifest is not an
+    # error. Valid JSON that is not an object used to satisfy load_manifest and
+    # then raise AttributeError out of resolve_tiles and tile_context, so a
+    # typo in one project's manifest returned 500 from both its API endpoint
+    # and its access page.
+    write_raw_manifest(tmp_path, "broken", source)
+    manifest = load_manifest("broken", root=tmp_path)
+    tiles = resolve_tiles("broken", manifest, "http://studio/", resolvers={}, context={})
+    assert [t.kind for t in tiles] == ["app"]
+    assert manifest_path("broken", "docs", "data-model", root=tmp_path) is None
+
+
+def test_tiles_that_are_not_objects_are_ignored_not_fatal(tmp_path):
+    write_raw_manifest(
+        tmp_path,
+        "mixed",
+        '{"tiles": ["manual", 7, null, {"kind": "access", "title": "Access & support"}]}',
+    )
+    manifest = load_manifest("mixed", root=tmp_path)
+    tiles = resolve_tiles("mixed", manifest, "http://studio/", resolvers={}, context={})
+    assert [t.kind for t in tiles] == ["app", "access"]
+
+
+def test_documents_that_are_not_objects_are_ignored_not_fatal(tmp_path):
+    write_raw_manifest(
+        tmp_path,
+        "mixed2",
+        '{"tiles": [{"kind": "docs", "documents": ["data-model", {"key": "k", "path": "README.md"}]}]}',
+    )
+    assert manifest_path("mixed2", "docs", "data-model", root=tmp_path) is None
+    assert manifest_path("mixed2", "docs", "k", root=tmp_path) is not None
+
+
+def test_a_second_tile_of_one_kind_is_ignored_and_logged(tmp_path, caplog):
+    # Every route addresses a tile by its kind, so a second `docs` tile is
+    # unreachable. First one still wins; it is the silence that was the bug.
+    write_manifest(tmp_path, "twice", {"tiles": [
+        {"kind": "docs", "documents": [{"key": "a", "path": "README.md"}]},
+        {"kind": "docs", "documents": [{"key": "b", "path": "README.md"}]},
+    ]})
+    with caplog.at_level("WARNING", logger="pipeline.portal.resources"):
+        assert manifest_path("twice", "docs", "a", root=tmp_path) is not None
+        assert manifest_path("twice", "docs", "b", root=tmp_path) is None
+    assert "only the first is reachable" in caplog.text
+
+
+def test_manifest_path_reads_a_named_field(tmp_path):
+    # The manual's illustrations are declared beside the manual, on the same
+    # tile, and resolved through the same repository-escape guard.
+    write_manifest(tmp_path, "demo", {"tiles": [
+        {"kind": "manual", "path": "pipeline/portal/projects/cplan/manual.html",
+         "assets": "pipeline/portal/projects/cplan/assets"},
+    ]})
+    assets = manifest_path("demo", "manual", root=tmp_path, field="assets")
+    assert assets is not None and assets.name == "assets"
+    assert manifest_path("demo", "manual", root=tmp_path, field="nosuchfield") is None
+
+
+def test_a_named_field_cannot_escape_the_repository(tmp_path):
+    write_manifest(tmp_path, "demo", {"tiles": [
+        {"kind": "manual", "path": "x.html", "assets": "../../../etc"},
+    ]})
+    assert manifest_path("demo", "manual", root=tmp_path, field="assets") is None
+
+
 def test_app_tile_is_always_present_and_primary(tmp_path):
     write_manifest(tmp_path, "demo", {"tiles": []})
     tiles = resolve_tiles(
@@ -84,6 +157,71 @@ def test_a_failing_resolver_costs_only_its_status_line(tmp_path):
         context={},
     )
     assert [t.kind for t in tiles] == ["app", "data"]
+    assert tiles[1].status is None
+
+
+class _AbortingSession:
+    """A session with PostgreSQL's aborted-transaction semantics.
+
+    A statement that raises aborts the whole transaction, and every later
+    statement on the same session then fails with 25P02 until someone rolls
+    back. That is why swallowing a resolver's exception is only half the fix:
+    the resolvers share the request's session with each other and with the page
+    built after them.
+    """
+
+    def __init__(self) -> None:
+        self.aborted = False
+        self.rollbacks = 0
+
+    def execute(self, *args, **kwargs):
+        if self.aborted:
+            raise RuntimeError("current transaction is aborted, commands ignored until end of block")
+        return 41
+
+    def rollback(self) -> None:
+        self.rollbacks += 1
+        self.aborted = False
+
+
+def test_a_failing_database_resolver_does_not_cost_the_next_one_its_status(tmp_path):
+    def explode(spec, context):
+        context["session"].execute("SELECT count(*) FROM activities")
+        context["session"].aborted = True  # as the failing statement itself would
+        raise RuntimeError("relation does not exist")
+
+    def counts(spec, context):
+        return f"{context['session'].execute('SELECT count(*) FROM activities')} activities"
+
+    session = _AbortingSession()
+    write_manifest(tmp_path, "demo", {"tiles": [
+        {"kind": "data", "title": "Data & freshness"},
+        {"kind": "access", "title": "Access & support"},
+    ]})
+    tiles = resolve_tiles(
+        "demo",
+        load_manifest("demo", root=tmp_path),
+        "http://studio/",
+        resolvers={"data": explode, "access": counts},
+        context={"session": session},
+    )
+    assert tiles[1].status is None
+    assert tiles[2].status == "41 activities"
+    assert session.rollbacks == 1
+
+
+def test_a_failing_resolver_without_a_session_needs_no_rollback(tmp_path):
+    def explode(spec, context):
+        raise RuntimeError("no database in sight")
+
+    write_manifest(tmp_path, "demo", {"tiles": [{"kind": "manual", "title": "User manual"}]})
+    tiles = resolve_tiles(
+        "demo",
+        load_manifest("demo", root=tmp_path),
+        "http://studio/",
+        resolvers={"manual": explode},
+        context={},
+    )
     assert tiles[1].status is None
 
 
@@ -206,6 +344,40 @@ def test_changelog_resolver_counts_dated_entries(tmp_path):
 
 def test_changelog_resolver_without_a_file_says_nothing():
     assert RESOLVERS["changelog"]({}, {"changelog_path": None}) is None
+
+
+class _AnsweringSession:
+    """Answers `_data`'s two statements in order: the activity count, then the last run."""
+
+    def __init__(self, activities: int, ran_at):
+        self._answers = [activities, ran_at]
+
+    def execute(self, *args, **kwargs):
+        value = self._answers.pop(0)
+        return SimpleNamespace(scalar_one=lambda: value, scalar_one_or_none=lambda: value)
+
+
+def test_data_resolver_states_the_refresh_and_the_grouped_activity_count():
+    # This line was the only status line that formatted its own number AND
+    # passed it through the counting helper, so it printed the count twice:
+    # "4 109 4109 activities". Nothing tested it, because it is the one
+    # resolver that needs a session.
+    session = _AnsweringSession(4109, datetime.now(timezone.utc) - timedelta(hours=2))
+    assert RESOLVERS["data"]({}, {"session": session}) == "Refreshed 2 hours ago · 4 109 activities"
+
+
+def test_data_resolver_says_never_synced_on_a_fresh_installation():
+    session = _AnsweringSession(0, None)
+    assert RESOLVERS["data"]({}, {"session": session}) == "Never synced · 0 activities"
+
+
+def test_data_resolver_with_a_single_activity():
+    session = _AnsweringSession(1, None)
+    assert RESOLVERS["data"]({}, {"session": session}) == "Never synced · 1 activity"
+
+
+def test_data_resolver_without_a_session_says_nothing():
+    assert RESOLVERS["data"]({}, {}) is None
 
 
 def test_access_resolver_states_role_and_headcount():
