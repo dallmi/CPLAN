@@ -134,7 +134,11 @@ def test_shipped_cplan_manifest_publishes_five_documents_and_not_the_review(tmp_
 
 
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
+from sqlalchemy.exc import ProgrammingError
+
+from pipeline.portal.pages import _people_section
 from pipeline.portal.resolvers import RESOLVERS, humanise_age
 
 
@@ -243,3 +247,41 @@ def test_changelog_resolver_with_singular_entry(tmp_path):
 
 def test_access_resolver_with_singular_member():
     assert RESOLVERS["access"]({}, {"role": "viewer", "member_count": 1}) == "You are Viewer · 1 person has access"
+
+
+class _FakeSqlstateOrig(Exception):
+    def __init__(self, sqlstate: str) -> None:
+        super().__init__(sqlstate)
+        self.sqlstate = sqlstate
+
+
+class _FakeSession:
+    """A session whose `execute` always raises SQLSTATE 42501 -- the shape a
+    non-admin caller gets from `portal.users` (see `_people_section`'s own
+    docstring in pipeline/portal/pages.py)."""
+
+    def execute(self, *args, **kwargs):
+        raise ProgrammingError("SELECT ...", {}, _FakeSqlstateOrig("42501"))
+
+    def rollback(self) -> None:
+        pass
+
+
+def test_people_section_degraded_branch_agrees_with_a_singular_headcount():
+    # This is the branch every non-admin sees (SELECT on portal.users is
+    # admin-only), so it is read more, not less, than the admin table below
+    # it -- and it once hard-coded "have" onto the count, reading "1 person
+    # have access to this project" for a single-member project. Every other
+    # test of a counted phrase in this file already used a plural quantity,
+    # which is exactly how that shipped.
+    row = SimpleNamespace(slug="cplan")
+    heading, body = _people_section(row, _FakeSession(), member_count=1)
+    assert heading == ""
+    assert "1 person has access to this project." in body
+    assert "have" not in body
+
+
+def test_people_section_degraded_branch_still_agrees_with_a_plural_headcount():
+    row = SimpleNamespace(slug="cplan")
+    heading, body = _people_section(row, _FakeSession(), member_count=3)
+    assert "3 people have access to this project." in body

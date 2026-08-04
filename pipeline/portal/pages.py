@@ -74,8 +74,23 @@ def register_pages(app: FastAPI, db_session, project_row, tile_context) -> None:
         return HTMLResponse(_access_page(row, tile_context(session, row)))
 
 
-def _count_people(n: int) -> str:
-    return "1 person" if n == 1 else f"{n} people"
+def _count_people(n: int, verb: bool = False) -> str:
+    """"1 person"/"4 people", or with `verb=True` the count plus its agreeing "has"/"have".
+
+    The verb lives here, not stranded in the caller's f-string, precisely
+    because it was stranded in one once: `_people_section`'s degraded
+    (non-admin) branch below used to hard-code "have" onto this count,
+    reading "1 person have access to this project" for a single-member
+    project -- caught only because that branch, being the one every
+    non-admin sees, is read more than the admin one below it. Same class of
+    bug `pipeline/portal/resolvers.py`'s `_count` exists to prevent for tile
+    status lines; this is the equivalent fix for this module's one
+    person-count call site that also needs a verb.
+    """
+    noun = "1 person" if n == 1 else f"{n} people"
+    if not verb:
+        return noun
+    return f"{noun} has" if n == 1 else f"{noun} have"
 
 
 def _people_section(row, session: Session, member_count: int | None) -> tuple[str, str]:
@@ -116,7 +131,7 @@ def _people_section(row, session: Session, member_count: int | None) -> tuple[st
         if getattr(exc.orig, "sqlstate", None) != "42501":
             raise
         if member_count:
-            body = f'<div class="prose"><p>{_count_people(member_count)} have access to this project.</p></div>'
+            body = f'<div class="prose"><p>{_count_people(member_count, verb=True)} access to this project.</p></div>'
         else:
             body = '<div class="prose"><p>Nobody else has been given access to this project yet.</p></div>'
         return "", body
