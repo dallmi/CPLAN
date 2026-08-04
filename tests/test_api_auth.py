@@ -2,22 +2,17 @@
 
 from __future__ import annotations
 
-import importlib.util
-
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
 from pipeline.api.app import Base, create_app
 from pipeline.api.auth import AuthSettings
-from pipeline.api.database import create_cplan_engine, embedded_database_url
+from pipeline.api.database import create_cplan_engine
 from pipeline.api.setup_roles import apply_roles, create_user
-from pipeline.scripts.cplan_db import stop
+from tests.conftest import postgres_required, postgres_test_database
 
-pytestmark = pytest.mark.skipif(
-    importlib.util.find_spec("pgserver") is None,
-    reason="pgserver is not installed; the postgres-embedded backend is optional (pip install pgserver)",
-)
+pytestmark = postgres_required
 
 SETTINGS = AuthSettings(secret="test-secret")
 PASSWORDS = {"a_viewer": "pw-v", "a_contrib": "pw-c", "a_editor": "pw-e", "a_admin": "pw-a"}
@@ -25,8 +20,7 @@ PASSWORDS = {"a_viewer": "pw-v", "a_contrib": "pw-c", "a_editor": "pw-e", "a_adm
 
 @pytest.fixture(scope="module")
 def api(tmp_path_factory):
-    pgdata = tmp_path_factory.mktemp("apiauth") / "pgdata"
-    url = embedded_database_url(pgdata)
+    url, teardown = postgres_test_database(tmp_path_factory, "apiauth")
     engine = create_cplan_engine(url)
     Base.metadata.create_all(engine)
     apply_roles(engine)
@@ -36,7 +30,7 @@ def api(tmp_path_factory):
     app = create_app(url, auth_settings=SETTINGS)
     with TestClient(app) as client:
         yield app, url
-    stop(pgdata)
+    teardown()
 
 
 def login(app, username):

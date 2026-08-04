@@ -2,23 +2,18 @@
 
 from __future__ import annotations
 
-import importlib.util
-
 import pytest
 from fastapi.testclient import TestClient
 
 from pipeline.api.app import Base
 from pipeline.api.auth import AuthSettings
-from pipeline.api.database import create_cplan_engine, embedded_database_url
+from pipeline.api.database import create_cplan_engine
 from pipeline.api.setup_portal import apply_portal, register_project
 from pipeline.api.setup_roles import apply_roles, create_user
 from pipeline.portal.app import create_portal_app
-from pipeline.scripts.cplan_db import stop
+from tests.conftest import postgres_required, postgres_test_database
 
-pytestmark = pytest.mark.skipif(
-    importlib.util.find_spec("pgserver") is None,
-    reason="pgserver is not installed; the postgres-embedded backend is optional (pip install pgserver)",
-)
+pytestmark = postgres_required
 
 SETTINGS = AuthSettings(secret="portal-secret")
 PW = {"pa_admin": "pw-a", "pa_viewer": "pw-v"}
@@ -26,8 +21,7 @@ PW = {"pa_admin": "pw-a", "pa_viewer": "pw-v"}
 
 @pytest.fixture(scope="module")
 def portal(tmp_path_factory):
-    pgdata = tmp_path_factory.mktemp("portalapi") / "pgdata"
-    url = embedded_database_url(pgdata)
+    url, teardown = postgres_test_database(tmp_path_factory, "portalapi")
     engine = create_cplan_engine(url)
     Base.metadata.create_all(engine)
     apply_roles(engine)
@@ -38,7 +32,7 @@ def portal(tmp_path_factory):
     app = create_portal_app(url, auth_settings=SETTINGS)
     with TestClient(app):
         yield app
-    stop(pgdata)
+    teardown()
 
 
 def login(app, username):

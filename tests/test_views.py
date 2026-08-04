@@ -9,7 +9,6 @@ part follows the same skip-if-no-`pgserver` pattern as
 
 from __future__ import annotations
 
-import importlib.util
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -18,9 +17,9 @@ from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
 from pipeline.api.app import Activity, ActivityChange, Base, SyncRun
-from pipeline.api.database import create_cplan_engine, embedded_database_url
+from pipeline.api.database import create_cplan_engine
 from pipeline.api.views import ANALYSIS_VIEWS, ensure_analysis_views
-from pipeline.scripts.cplan_db import stop
+from tests.conftest import postgres_required, postgres_test_database
 
 
 def test_ensure_analysis_views_is_a_documented_no_op_on_sqlite(tmp_path):
@@ -39,13 +38,9 @@ def test_ensure_analysis_views_is_a_documented_no_op_on_sqlite(tmp_path):
     engine.dispose()
 
 
-@pytest.mark.skipif(
-    importlib.util.find_spec("pgserver") is None,
-    reason="pgserver is not installed; the postgres-embedded backend is optional (pip install pgserver)",
-)
-def test_ensure_analysis_views_creates_and_populates_views_on_postgres(tmp_path):
-    pgdata = tmp_path / "pgdata"
-    database_url = embedded_database_url(pgdata)
+@postgres_required
+def test_ensure_analysis_views_creates_and_populates_views_on_postgres(tmp_path_factory):
+    database_url, teardown = postgres_test_database(tmp_path_factory, "views")
     engine = create_cplan_engine(database_url)
     try:
         Base.metadata.create_all(engine)
@@ -244,4 +239,4 @@ def test_ensure_analysis_views_creates_and_populates_views_on_postgres(tmp_path)
         ensure_analysis_views(engine)
     finally:
         engine.dispose()
-        stop(pgdata)
+        teardown()

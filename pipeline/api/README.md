@@ -292,3 +292,13 @@ node --check pipeline/studio/app.js
 ```
 
 `tests/test_postgres_embedded.py` starts a real embedded PostgreSQL server end-to-end (setup, connect, clean stop) and skips itself automatically when `pgserver` is not installed, so CI without that optional dependency stays green. `tests/test_database.py` and `tests/test_setup_backend.py` cover the same URL-conversion and settings logic against a stubbed `pgserver` module — no real server needed for those.
+
+The role/RBAC/portal/session test modules (`tests/test_setup_roles.py`, `tests/test_setup_portal.py`, `tests/test_rbac_matrix.py`, `tests/test_portal_api.py`, `tests/test_session.py`, `tests/test_api_auth.py`) need a real PostgreSQL server the same way `test_postgres_embedded.py` does, and skip the same way when `pgserver` is missing. On a machine without a `pgserver` wheel (e.g. Python 3.13 on macOS arm64), set `CPLAN_TEST_DATABASE_URL` to a SQLAlchemy URL for a disposable PostgreSQL server instead — this repository's own `compose.yaml` provides one:
+
+```bash
+CPLAN_DB_PASSWORD=<pick one> docker compose up -d db   # publishes 127.0.0.1:55432, db "cplan", user "cplan" (superuser)
+CPLAN_TEST_DATABASE_URL=postgresql+psycopg://cplan:<password>@127.0.0.1:55432/cplan \
+    PYTHONPATH=. .venv/bin/python -m pytest tests/test_setup_roles.py tests/test_setup_portal.py tests/test_rbac_matrix.py tests/test_portal_api.py tests/test_session.py tests/test_api_auth.py -q
+```
+
+Each affected module's fixture then creates its own freshly named database on that server (and drops it afterwards, along with every role it created), so it is safe to point the whole suite at the same server and run it more than once in a row — see `tests/conftest.py` for the isolation approach. `test_postgres_embedded.py` itself is the one exception: it tests the embedded `pgserver` backend's own start/stop mechanics, which have no external-database equivalent, so it keeps skipping without `pgserver` regardless of `CPLAN_TEST_DATABASE_URL`.

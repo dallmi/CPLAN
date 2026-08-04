@@ -2,28 +2,23 @@
 
 from __future__ import annotations
 
-import importlib.util
-
 import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import ProgrammingError
 
 from pipeline.api.app import Base
-from pipeline.api.database import create_cplan_engine, embedded_database_url
+from pipeline.api.database import create_cplan_engine
 from pipeline.api.setup_portal import PORTAL_OWNER, apply_portal, register_project
 from pipeline.api.setup_roles import apply_roles, create_user
-from pipeline.scripts.cplan_db import stop
+from tests.conftest import postgres_required, postgres_test_database
 
-pytestmark = pytest.mark.skipif(
-    importlib.util.find_spec("pgserver") is None,
-    reason="pgserver is not installed; the postgres-embedded backend is optional (pip install pgserver)",
-)
+pytestmark = postgres_required
 
 
 @pytest.fixture(scope="module")
 def engine(tmp_path_factory):
-    pgdata = tmp_path_factory.mktemp("portal") / "pgdata"
-    engine = create_cplan_engine(embedded_database_url(pgdata))
+    url, teardown = postgres_test_database(tmp_path_factory, "portal")
+    engine = create_cplan_engine(url)
     Base.metadata.create_all(engine)
     apply_roles(engine)
     apply_portal(engine)
@@ -31,7 +26,7 @@ def engine(tmp_path_factory):
     create_user(engine, "p_viewer", "pw-viewer", "viewer")
     yield engine
     engine.dispose()
-    stop(pgdata)
+    teardown()
 
 
 def _as(engine, username):

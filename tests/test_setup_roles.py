@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import importlib.util
-
 import pytest
 from sqlalchemy import text
 
 from pipeline.api.app import Base
-from pipeline.api.database import create_cplan_engine, embedded_database_url
+from pipeline.api.database import create_cplan_engine
 from pipeline.api.setup_roles import (
     ASSIGNABLE_ROLES,
     AUTHENTICATOR,
@@ -19,22 +17,19 @@ from pipeline.api.setup_roles import (
     set_user_password,
     set_user_role,
 )
-from pipeline.scripts.cplan_db import stop
+from tests.conftest import postgres_required, postgres_test_database
 
-pytestmark = pytest.mark.skipif(
-    importlib.util.find_spec("pgserver") is None,
-    reason="pgserver is not installed; the postgres-embedded backend is optional (pip install pgserver)",
-)
+pytestmark = postgres_required
 
 
 @pytest.fixture(scope="module")
 def engine(tmp_path_factory):
-    pgdata = tmp_path_factory.mktemp("roles") / "pgdata"
-    engine = create_cplan_engine(embedded_database_url(pgdata))
+    url, teardown = postgres_test_database(tmp_path_factory, "roles")
+    engine = create_cplan_engine(url)
     Base.metadata.create_all(engine)
     yield engine
     engine.dispose()
-    stop(pgdata)
+    teardown()
 
 
 def _role_exists(connection, name):

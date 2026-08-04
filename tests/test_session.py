@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import importlib.util
-
 import pytest
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
@@ -12,29 +10,26 @@ from sqlalchemy.orm import Session
 
 from pipeline.api.app import Base
 from pipeline.api.auth import AuthSettings, create_session_token
-from pipeline.api.database import create_cplan_engine, embedded_database_url
+from pipeline.api.database import create_cplan_engine
 from pipeline.api.session import CurrentUser, build_session_dependencies
 from pipeline.api.setup_roles import apply_roles, create_user
-from pipeline.scripts.cplan_db import stop
+from tests.conftest import postgres_required, postgres_test_database
 
-pytestmark = pytest.mark.skipif(
-    importlib.util.find_spec("pgserver") is None,
-    reason="pgserver is not installed; the postgres-embedded backend is optional (pip install pgserver)",
-)
+pytestmark = postgres_required
 
 SETTINGS = AuthSettings(secret="sess-secret")
 
 
 @pytest.fixture(scope="module")
 def engine(tmp_path_factory):
-    pgdata = tmp_path_factory.mktemp("session") / "pgdata"
-    engine = create_cplan_engine(embedded_database_url(pgdata))
+    url, teardown = postgres_test_database(tmp_path_factory, "session")
+    engine = create_cplan_engine(url)
     Base.metadata.create_all(engine)
     apply_roles(engine)
     create_user(engine, "s_editor", "pw-e", "editor")
     yield engine
     engine.dispose()
-    stop(pgdata)
+    teardown()
 
 
 def _probe_app(engine, auth):

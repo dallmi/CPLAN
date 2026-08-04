@@ -10,7 +10,6 @@ without a matching policy row silently affects 0 rows.
 from __future__ import annotations
 
 import contextlib
-import importlib.util
 import uuid
 
 import pytest
@@ -18,14 +17,11 @@ from sqlalchemy import text
 from sqlalchemy.exc import ProgrammingError
 
 from pipeline.api.app import Base
-from pipeline.api.database import create_cplan_engine, embedded_database_url
+from pipeline.api.database import create_cplan_engine
 from pipeline.api.setup_roles import apply_roles, create_user
-from pipeline.scripts.cplan_db import stop
+from tests.conftest import postgres_required, postgres_test_database
 
-pytestmark = pytest.mark.skipif(
-    importlib.util.find_spec("pgserver") is None,
-    reason="pgserver is not installed; the postgres-embedded backend is optional (pip install pgserver)",
-)
+pytestmark = postgres_required
 
 OWN_ID = uuid.uuid4()
 FOREIGN_ID = uuid.uuid4()  # owned by cplan_sync (a mirrored row)
@@ -33,8 +29,8 @@ FOREIGN_ID = uuid.uuid4()  # owned by cplan_sync (a mirrored row)
 
 @pytest.fixture(scope="module")
 def engine(tmp_path_factory):
-    pgdata = tmp_path_factory.mktemp("matrix") / "pgdata"
-    engine = create_cplan_engine(embedded_database_url(pgdata))
+    url, teardown = postgres_test_database(tmp_path_factory, "matrix")
+    engine = create_cplan_engine(url)
     Base.metadata.create_all(engine)
     apply_roles(engine)
     for name, role in (("m_viewer", "viewer"), ("m_contrib", "contributor"), ("m_editor", "editor"), ("m_admin", "admin")):
@@ -50,7 +46,7 @@ def engine(tmp_path_factory):
         )
     yield engine
     engine.dispose()
-    stop(pgdata)
+    teardown()
 
 
 @contextlib.contextmanager
