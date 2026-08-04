@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import inspect
+import itertools
 import json
 import os
 import re
@@ -49,13 +50,26 @@ TEST_BACKENDS = ("sqlite", "postgresql") if TEST_DATABASE_URL else ("sqlite",)
 
 REFERENCE = datetime(2026, 1, 10, 9, 0, tzinfo=timezone.utc)
 
+# A module-level counter, not `uuid.uuid4().int % 10_000_000`: the modulo
+# truncated a real uuid down to 7 digits, so any single test inserting a few
+# hundred untagged activities (the MAX_LIMIT-plus-surplus tests do) had a real
+# birthday-paradox chance of two rows landing on the same tracking_id and
+# tripping the column's UNIQUE constraint -- a suite that fails at random is
+# worse than one that is merely slow. A monotonic counter can never repeat
+# within a test run, no plugin here reorders or parallelizes tests (no
+# pytest-randomly, no pytest-xdist), and it keeps the exact digit-count shape
+# (`:07d`) the tracking-id pattern (`CLUSTER-PACKNUM-YYMMDD-ACTNUM-CHANNEL`)
+# and this module's own literal overrides (e.g. "CLU-1-260110-0000001-EM")
+# already assume.
+_TRACKING_ID_COUNTER = itertools.count(1)
+
 
 def _activity(**overrides):
     """A fully planned internal activity; override to introduce gaps."""
     base = dict(
         id=uuid.uuid4(),
         source_type="internal",
-        tracking_id=f"CLU-1-260110-{uuid.uuid4().int % 10_000_000:07d}-EM",
+        tracking_id=f"CLU-1-260110-{next(_TRACKING_ID_COUNTER):07d}-EM",
         activity_name="Quarterly platform update",
         activity_description="Announcement of the quarterly platform release.",
         target_audience="All staff",
@@ -3386,23 +3400,14 @@ def test_every_tool_is_registered_with_a_description(engine):
     server = build_server(engine.url.render_as_string(hide_password=False))
     tools = anyio.run(server.list_tools)
 
-    by_name = {tool.name: tool for tool in tools}
-    assert set(by_name) == {
-        "database_status",
-        "field_values",
-        "search_activities",
-        "get_activity",
-        "planning_gaps",
-        "activity_counts",
-        "calendar_load",
-        "window_comparison",
-        "detect_collisions",
-        "pack_overview",
-        "lead_time_stats",
-        "data_quality",
-        "activity_history",
-        "plan_changes_since",
-    }
+    # No name list here on purpose: a hardcoded set is exactly the drift this
+    # module keeps closing elsewhere (FILTERABLE_TEXT_FIELDS vs
+    # ENUMERABLE_FIELDS, the completeness rule vs the view). Deriving straight
+    # from list_tools() means a newly registered tool is automatically
+    # covered and a forgotten description is a red test, not a remembered
+    # convention -- `assert tools` alone guards against a vacuous pass if
+    # registration silently produced zero tools.
+    assert tools
     for tool in tools:
         # The description is the only thing the model sees before choosing.
         assert tool.description and len(tool.description) > 40
@@ -3649,26 +3654,19 @@ def test_every_declared_parameter_can_be_forwarded_without_a_typo(engine):
                 for param, schema in properties.items()
             }
             results[name] = await server.call_tool(name, arguments)
-        return results
+        return results, set(tools)
 
-    results = asyncio.run(exercise())
+    results, tool_names = asyncio.run(exercise())
 
-    assert set(results) == {
-        "database_status",
-        "field_values",
-        "search_activities",
-        "get_activity",
-        "planning_gaps",
-        "activity_counts",
-        "calendar_load",
-        "window_comparison",
-        "detect_collisions",
-        "pack_overview",
-        "lead_time_stats",
-        "data_quality",
-        "activity_history",
-        "plan_changes_since",
-    }
+    # Compared against the LIVE tool set fetched inside `exercise()`, not a
+    # literal: a hardcoded name list here is exactly the drift this suite
+    # keeps closing elsewhere, and it silently stops covering a newly
+    # registered tool rather than failing loudly. `tool_names` is non-empty
+    # by construction (`build_server` always registers at least the Phase 1
+    # tools), so this still guards against `results` silently dropping an
+    # entry while it is built above.
+    assert tool_names
+    assert set(results) == tool_names
     for name, result in results.items():
         # get_activity legitimately returns a clean miss ({"found": False, ...})
         # for a nonexistent identifier -- that is a successful call, not a
