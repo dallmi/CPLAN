@@ -1433,11 +1433,20 @@ def pack_overview(
     already rejected that.
 
     `label` mirrors the studio's own `group.campaign = row.campaign ||
-    row.communication_pack || key`, taken from the first activity that opens
-    the pack (campaignScorecards sets it once, at group creation, and never
-    revisits it): `campaign` if present, else `communication_pack`, else the
-    resolved pack id itself. Each per-field check is `is_blank`, for the same
-    sentinel-safety reason `_pack_key` uses it.
+    row.communication_pack || key`: `campaign` if present, else
+    `communication_pack`, else the resolved pack id itself (each check is
+    `is_blank`, for the same sentinel-safety reason `_pack_key` uses it).
+    `campaignScorecards` picks the ROW that supplies this from whichever
+    happens to be first in its input array -- a rule this function does
+    NOT inherit, deliberately: relying on `_filtered_activities`' incidental
+    `(start_date, id)` return order would make the label silently follow
+    that other function's ordering choice rather than a rule of this
+    function's own. Instead, the source row is chosen explicitly by
+    `(start_date is None, start_date, id)` ascending -- the earliest-starting
+    activity in the pack wins regardless of scan order, undated activities
+    lose to any dated one, and among an all-undated pack the lowest `id`
+    wins. `test_pack_overview_label_picks_the_earliest_starting_row_when_campaigns_disagree`
+    pins exactly this.
 
     `internal` / `external` come straight from `source_type`, which is a
     required, non-blank column (`Literal["internal", "external"]"` on
@@ -1464,15 +1473,16 @@ def pack_overview(
             continue
         pack = packs.get(key)
         if pack is None:
-            if not is_blank(activity.campaign):
-                label = activity.campaign
-            elif not is_blank(activity.communication_pack):
-                label = activity.communication_pack
-            else:
-                label = key
             pack = {
                 "pack_id": key,
-                "label": label,
+                "label": key,
+                # The (start_date is None, start_date, id) of whichever
+                # activity currently supplies `label` -- see the docstring
+                # paragraph on `label` for why this is an explicit rule of
+                # this function rather than inherited scan order. `None`
+                # start_date sorts after any real one; `id` is the final,
+                # always-available tie-break.
+                "label_sort_key": None,
                 "key_source": key_source,
                 "activities": 0,
                 "channels": {},  # insertion-ordered set: dict keys, values unused
@@ -1484,6 +1494,15 @@ def pack_overview(
                 "incomplete": 0,
             }
             packs[key] = pack
+        label_sort_key = (activity.start_date is None, activity.start_date, activity.id)
+        if pack["label_sort_key"] is None or label_sort_key < pack["label_sort_key"]:
+            pack["label_sort_key"] = label_sort_key
+            if not is_blank(activity.campaign):
+                pack["label"] = activity.campaign
+            elif not is_blank(activity.communication_pack):
+                pack["label"] = activity.communication_pack
+            else:
+                pack["label"] = key
         pack["activities"] += 1
         for member in _normalize_multi(activity.channel):
             pack["channels"].setdefault(member, None)

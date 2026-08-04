@@ -1032,6 +1032,56 @@ def test_pack_overview_falls_back_down_the_key_chain(
         assert result["packs"][0]["key_source"] == expected_key_source
 
 
+def test_pack_overview_label_picks_the_earliest_starting_row_when_campaigns_disagree(
+    writable_session,
+):
+    """`label` is a deterministic rule of `pack_overview`'s own, not an
+    accident of whatever order `_filtered_activities` happens to return rows
+    in. Two rows in one pack disagree on `campaign`; the later-starting row
+    is inserted FIRST, so a "first encountered" rule would pick the wrong
+    one -- only "earliest start_date wins" gives the right answer here.
+    """
+    writable_session.add_all([
+        _activity(
+            communication_pack_cpid="CP-1",
+            campaign="Later campaign name",
+            start_date=REFERENCE + timedelta(days=60),
+            end_date=REFERENCE + timedelta(days=60, hours=1),
+        ),
+        _activity(
+            communication_pack_cpid="CP-1",
+            campaign="Earliest campaign name",
+            start_date=REFERENCE + timedelta(days=10),
+            end_date=REFERENCE + timedelta(days=10, hours=1),
+        ),
+    ])
+    writable_session.flush()
+
+    result = queries.pack_overview(writable_session)
+
+    assert result["packs"][0]["label"] == "Earliest campaign name"
+
+
+def test_pack_overview_keeps_an_undated_pack_with_a_null_span(writable_session):
+    """An all-undated pack must still appear -- with its real activity count,
+    not zero, and a `None` span rather than a fabricated one -- instead of
+    being silently dropped from the overview."""
+    writable_session.add_all([
+        _activity(communication_pack_cpid="CP-1", start_date=None, end_date=None),
+        _activity(communication_pack_cpid="CP-1", start_date=None, end_date=None),
+    ])
+    writable_session.flush()
+
+    result = queries.pack_overview(writable_session)
+
+    assert result["pack_count"] == 1
+    pack = result["packs"][0]
+    assert pack["activities"] == 2
+    assert pack["first_date"] is None
+    assert pack["last_date"] is None
+    assert pack["span_days"] is None
+
+
 def test_pack_overview_counts_distinct_members_not_strings(writable_session):
     writable_session.add(
         _activity(communication_pack_cpid="CP-1", channel="Email, Intranet")
