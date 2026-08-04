@@ -1090,6 +1090,169 @@ def activity_counts(
     }
 
 
+# `channel` and `target_audience` are genuinely multi-valued in the source data
+# (`process_cplan.py` runs both through `parse_sp_lookup`, the same ", "-joining
+# lookup path as `strategic_objectives`), but they are deliberately absent from
+# MULTI_VALUE_SEPARATORS: Phase 1 treats them as scalar for filtering
+# (`search_activities`'s exact-match `text` filter) and for grouping
+# (`activity_counts`'s SQL-eligible branch, `counts_memberships`), and two tests
+# pin that on purpose -- test_split_multi_returns_a_single_member_for_a_scalar_column
+# and test_cross_tab_buckets_a_derived_time_axis (`channel x month` must stay
+# `counts_memberships: False`). Reusing `split_multi` for collision detection
+# would either silently fail to split (today) or flip those two columns to
+# multi-valued everywhere the moment they were added to the shared dict
+# (tomorrow) -- exactly the kind of change this function must NOT make as a
+# side effect of getting its own rule right. `_normalize_multi` is therefore a
+# second, narrower split -- scoped to this one rule -- that mirrors
+# analytics.js::normalizeMulti exactly (splits on EITHER [;,] unconditionally,
+# unlike split_multi's per-column allowlist).
+_MULTI_SPLIT_ANY = re.compile(r"[;,]")
+
+
+def _normalize_multi(value: Any) -> list[str]:
+    """The member values of `value`, splitting on `;` OR `,` unconditionally.
+
+    Mirrors analytics.js::normalizeMulti for exactly the two columns
+    `detect_collisions` needs it for (`channel`, `target_audience`). See the
+    comment above this function for why it is not `split_multi`.
+    """
+    if is_blank(value):
+        return []
+    return [member.strip() for member in _MULTI_SPLIT_ANY.split(str(value)) if not is_blank(member)]
+
+
+def _shares_dimension(left: Activity, right: Activity, field: str) -> bool:
+    """True when `left` and `right` have at least one `field` member in common.
+
+    Mirrors analytics.js::sharesDimension: a case-insensitive set intersection
+    over `_normalize_multi`, not a substring or exact-string match -- "Email"
+    must not "share" with "Email Blast".
+    """
+    right_members = {member.lower() for member in _normalize_multi(getattr(right, field))}
+    if not right_members:
+        return False
+    return any(
+        member.lower() in right_members for member in _normalize_multi(getattr(left, field))
+    )
+
+
+def _epoch_day(value: datetime) -> int:
+    """Whole days between the UTC epoch and `value`'s UTC calendar date.
+
+    Mirrors analytics.js::detectCollisions' `Date.UTC(y, m, d) / 86400000`:
+    the gap between two activities is measured in calendar days, not elapsed
+    seconds.
+    """
+    normalized = as_utc(value)
+    return (normalized.date() - date(1970, 1, 1)).days
+
+
+def detect_collisions(
+    session: Session,
+    *,
+    proximity_days: int = 0,
+    limit: int | None = None,
+    **filter_kwargs: Any,
+) -> dict[str, Any]:
+    """Activity pairs that would compete for the same audience's attention.
+
+    Ports `analytics.js::detectCollisions` -- the studio's own collision
+    view -- rather than inventing a new rule, because a naive port is worse
+    than no tool at all here:
+
+    * A pair collides only when it shares BOTH a `channel` member AND a
+      `target_audience` member (`_shares_dimension`, case-insensitively).
+      Either alone is not a collision -- that would flag most of the
+      portfolio, since sharing a single channel or a single audience with
+      SOMETHING is the common case, not the exceptional one.
+    * `kind` is `"orchestration"`, not `"conflict"`, when both activities
+      carry the same non-blank `tracking_pack_id` (the `CLUSTER-PACKNUM`
+      prefix of `tracking_id`, from `ActivityRead`) -- two activities in one
+      communication pack landing on the same audience is what a pack IS, not
+      a problem. Severity is `"info"` for those pairs regardless of
+      priority. For a genuine cross-pack collision, severity is the higher
+      of the pair's two `priority_rank` values: `>= 4` critical, `>= 3`
+      high, else medium.
+    * Rows with no `start_date` cannot be paired and are dropped before
+      sorting -- silently, like the studio does (`parseDate` returning
+      `null` drops the row out of `sortedIdx`).
+
+    Like the studio, this sorts the dated candidates by calendar day once and
+    slides a window over them (bounded by `proximity_days`, default 0 -- same
+    calendar day) rather than comparing every pair: O(n log n + n*k) instead
+    of O(n^2), which matters once the portfolio runs into the thousands.
+
+    Ordered worst first: severity descending (critical > high > medium >
+    info), then `gap_days` ascending -- the closest, highest-severity
+    collisions lead.
+
+    The response has a count and a list that would otherwise collide on the
+    same name (`collisions`): `total` is the true pair count across the
+    WHOLE filtered set, `collisions` is the (possibly capped) list, and
+    `returned` is that list's length -- the same shape `search_activities`
+    uses for `total_matches` / `activities`.
+    """
+    capped = _clamp_limit(limit)
+    proximity = max(0, int(proximity_days))
+    filters = _build_filters(**filter_kwargs)
+    candidates = _filtered_activities(session, filters)
+
+    dated = sorted(
+        (
+            (
+                activity,
+                _epoch_day(activity.start_date),
+                ActivityRead.model_validate(activity).tracking_pack_id,
+            )
+            for activity in candidates
+            if activity.start_date is not None
+        ),
+        key=lambda entry: entry[1],
+    )
+
+    severity_order = {"critical": 4, "high": 3, "medium": 2, "info": 1}
+    pairs: list[dict[str, Any]] = []
+    for i in range(len(dated)):
+        left, left_day, left_pack = dated[i]
+        for j in range(i + 1, len(dated)):
+            right, right_day, right_pack = dated[j]
+            gap = right_day - left_day
+            if gap > proximity:
+                # `dated` is sorted by day, so every later `j` only widens the
+                # gap further -- safe to stop scanning this window entirely.
+                break
+            if not _shares_dimension(left, right, "channel"):
+                continue
+            if not _shares_dimension(left, right, "target_audience"):
+                continue
+            same_pack = bool(left_pack) and left_pack == right_pack
+            if same_pack:
+                severity = "info"
+            else:
+                rank = max(priority_rank(left.priority), priority_rank(right.priority))
+                severity = "critical" if rank >= 4 else "high" if rank >= 3 else "medium"
+            pairs.append(
+                {
+                    "left": _summarize(left),
+                    "right": _summarize(right),
+                    "gap_days": gap,
+                    "kind": "orchestration" if same_pack else "conflict",
+                    "severity": severity,
+                }
+            )
+
+    pairs.sort(key=lambda pair: (-severity_order[pair["severity"]], pair["gap_days"]))
+    shown = pairs[:capped]
+    return {
+        "checked": len(candidates),
+        "total": len(pairs),
+        "returned": len(shown),
+        "truncated": len(shown) < len(pairs),
+        "note": _truncation_note(len(pairs), len(shown), capped, subject="collisions"),
+        "collisions": shown,
+    }
+
+
 def _resolve_anchor(
     session: Session,
     explicit: str | date | datetime | None,

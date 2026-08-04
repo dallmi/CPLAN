@@ -1731,6 +1731,7 @@ def test_query_results_are_json_serializable(session, engine):
         queries.database_status(session, engine),
         queries.calendar_load(session),
         queries.window_comparison(session),
+        queries.detect_collisions(session),
     ]
 
     for payload in payloads:
@@ -2027,6 +2028,414 @@ def test_search_activities_builds_an_empty_contains_filter_when_unused(writable_
     assert captured["filters"].contains == {"strategic_objectives": "Objective A"}
     assert captured["result"] is True
     assert filtered_result["total_matches"] == 3  # every fixture row carries "Objective A"
+
+
+# --------------------------------------------------------------------------
+# Collision detection
+# --------------------------------------------------------------------------
+#
+# `detect_collisions` closes the two highest risk-premium questions in the
+# catalogue and is the thing a human at the studio can see today that an
+# agent could not. The fixtures below give every activity its own
+# `tracking_id` so its `tracking_pack_id` is under test control -- the
+# `_activity()` default template shares one constant pack ("CLU-1") across
+# every row unless overridden, which would silently turn "conflict" fixtures
+# into "orchestration" ones.
+
+
+def test_collision_needs_both_a_shared_channel_and_a_shared_audience(writable_session):
+    """The single most important test in this task.
+
+    Three pairs, each isolated on its own day so cross-pair proximity never
+    matters at the default `proximity_days=0`: shares both channel and
+    audience (collides), shares channel only (must not), shares audience
+    only (must not). Either-not-both would flag two of these three pairs
+    instead of one, which is exactly the defect rule 1 exists to catch.
+    """
+    day_both = REFERENCE + timedelta(days=10)
+    day_channel_only = REFERENCE + timedelta(days=20)
+    day_audience_only = REFERENCE + timedelta(days=30)
+    writable_session.add_all(
+        [
+            _activity(
+                activity_name="Shares both A",
+                tracking_id="CLU-1-260110-0000001-EM",
+                channel="Email",
+                target_audience="Staff",
+                start_date=day_both,
+                end_date=day_both,
+            ),
+            _activity(
+                activity_name="Shares both B",
+                tracking_id="CLU-2-260110-0000002-EM",
+                channel="Email",
+                target_audience="Staff",
+                start_date=day_both,
+                end_date=day_both,
+            ),
+            _activity(
+                activity_name="Shares channel only A",
+                tracking_id="CLU-3-260110-0000003-EM",
+                channel="Email",
+                target_audience="Retail",
+                start_date=day_channel_only,
+                end_date=day_channel_only,
+            ),
+            _activity(
+                activity_name="Shares channel only B",
+                tracking_id="CLU-4-260110-0000004-EM",
+                channel="Email",
+                target_audience="Corporate",
+                start_date=day_channel_only,
+                end_date=day_channel_only,
+            ),
+            _activity(
+                activity_name="Shares audience only A",
+                tracking_id="CLU-5-260110-0000005-EM",
+                channel="Email",
+                target_audience="Staff",
+                start_date=day_audience_only,
+                end_date=day_audience_only,
+            ),
+            _activity(
+                activity_name="Shares audience only B",
+                tracking_id="CLU-6-260110-0000006-SM",
+                channel="SMS",
+                target_audience="Staff",
+                start_date=day_audience_only,
+                end_date=day_audience_only,
+            ),
+        ]
+    )
+    writable_session.flush()
+
+    result = queries.detect_collisions(writable_session)
+
+    assert result["total"] == 1
+    names = {
+        result["collisions"][0]["left"]["activity_name"],
+        result["collisions"][0]["right"]["activity_name"],
+    }
+    assert names == {"Shares both A", "Shares both B"}
+
+
+def test_same_pack_is_orchestration_not_conflict(writable_session):
+    """Two activities in the same pack, top priority on both -- still info.
+
+    This is the whole value of the tool: a naive port that skips the
+    same-pack check would call this pair a "critical conflict" and flag
+    every well-orchestrated campaign as a problem.
+    """
+    day = REFERENCE + timedelta(days=15)
+    writable_session.add_all(
+        [
+            _activity(
+                activity_name="Pack member A",
+                tracking_id="CLU-9-260110-0000001-EM",
+                channel="Email",
+                target_audience="Staff",
+                priority="Critical",
+                start_date=day,
+                end_date=day,
+            ),
+            _activity(
+                activity_name="Pack member B",
+                tracking_id="CLU-9-260110-0000002-SM",
+                channel="Email",
+                target_audience="Staff",
+                priority="Critical",
+                start_date=day,
+                end_date=day,
+            ),
+        ]
+    )
+    writable_session.flush()
+
+    result = queries.detect_collisions(writable_session)
+
+    assert result["total"] == 1
+    pair = result["collisions"][0]
+    assert pair["kind"] == "orchestration"
+    assert pair["severity"] == "info"
+
+
+@pytest.mark.parametrize(
+    "priority_a, priority_b, expected_severity",
+    [
+        ("Critical", "Low", "critical"),
+        ("1 - most urgent label", "4 - lowest label", "critical"),
+        ("High", "Low", "high"),
+        ("2 - next label", "4 - lowest label", "high"),
+        ("Medium", "Normal", "medium"),
+        ("Low", "Normal", "medium"),
+    ],
+)
+def test_severity_comes_from_the_higher_priority_of_the_pair(
+    writable_session, priority_a, priority_b, expected_severity
+):
+    """Both live priority vocabularies feed the same `max(rank(left), rank(right))` rule."""
+    day = REFERENCE + timedelta(days=40)
+    writable_session.add_all(
+        [
+            _activity(
+                activity_name="Left",
+                tracking_id="CLU-11-260110-0000001-EM",
+                channel="Email",
+                target_audience="Staff",
+                priority=priority_a,
+                start_date=day,
+                end_date=day,
+            ),
+            _activity(
+                activity_name="Right",
+                tracking_id="CLU-12-260110-0000002-EM",
+                channel="Email",
+                target_audience="Staff",
+                priority=priority_b,
+                start_date=day,
+                end_date=day,
+            ),
+        ]
+    )
+    writable_session.flush()
+
+    result = queries.detect_collisions(writable_session)
+
+    assert result["total"] == 1
+    assert result["collisions"][0]["kind"] == "conflict"
+    assert result["collisions"][0]["severity"] == expected_severity
+
+
+def test_collisions_respect_the_proximity_window(writable_session):
+    """A pair 3 days apart is found at proximity_days=3 and not at proximity_days=1."""
+    day_left = REFERENCE + timedelta(days=50)
+    day_right = day_left + timedelta(days=3)
+    writable_session.add_all(
+        [
+            _activity(
+                activity_name="Proximity left",
+                tracking_id="CLU-21-260110-0000001-EM",
+                channel="Email",
+                target_audience="Staff",
+                start_date=day_left,
+                end_date=day_left,
+            ),
+            _activity(
+                activity_name="Proximity right",
+                tracking_id="CLU-22-260110-0000002-EM",
+                channel="Email",
+                target_audience="Staff",
+                start_date=day_right,
+                end_date=day_right,
+            ),
+        ]
+    )
+    writable_session.flush()
+
+    within_window = queries.detect_collisions(writable_session, proximity_days=3)
+    outside_window = queries.detect_collisions(writable_session, proximity_days=1)
+
+    assert within_window["total"] == 1
+    assert within_window["collisions"][0]["gap_days"] == 3
+    assert outside_window["total"] == 0
+    assert outside_window["collisions"] == []
+
+
+def test_collisions_are_ordered_worst_first(writable_session):
+    """Severity descending (critical > high > medium > info), then gap_days ascending.
+
+    Five pairs, one per severity bucket plus a second critical pair at a
+    wider gap -- each pair uses its own channel/audience combination so no
+    pair can accidentally collide with another pair's activities even
+    though every pair sits inside the shared `proximity_days=5` window.
+    """
+    base = REFERENCE + timedelta(days=100)
+    writable_session.add_all(
+        [
+            # Critical, gap 0.
+            _activity(
+                activity_name="Critical close A",
+                tracking_id="CLU-31-260110-0000001-EM",
+                channel="Channel A",
+                target_audience="Audience A",
+                priority="Critical",
+                start_date=base,
+                end_date=base,
+            ),
+            _activity(
+                activity_name="Critical close B",
+                tracking_id="CLU-32-260110-0000002-EM",
+                channel="Channel A",
+                target_audience="Audience A",
+                priority="Critical",
+                start_date=base,
+                end_date=base,
+            ),
+            # Critical, gap 2 -- same severity as above, worse (larger) gap.
+            _activity(
+                activity_name="Critical far A",
+                tracking_id="CLU-33-260110-0000003-EM",
+                channel="Channel B",
+                target_audience="Audience B",
+                priority="Critical",
+                start_date=base + timedelta(days=20),
+                end_date=base + timedelta(days=20),
+            ),
+            _activity(
+                activity_name="Critical far B",
+                tracking_id="CLU-34-260110-0000004-EM",
+                channel="Channel B",
+                target_audience="Audience B",
+                priority="Critical",
+                start_date=base + timedelta(days=22),
+                end_date=base + timedelta(days=22),
+            ),
+            # High.
+            _activity(
+                activity_name="High A",
+                tracking_id="CLU-35-260110-0000005-EM",
+                channel="Channel C",
+                target_audience="Audience C",
+                priority="High",
+                start_date=base + timedelta(days=40),
+                end_date=base + timedelta(days=40),
+            ),
+            _activity(
+                activity_name="High B",
+                tracking_id="CLU-36-260110-0000006-EM",
+                channel="Channel C",
+                target_audience="Audience C",
+                priority="Low",
+                start_date=base + timedelta(days=40),
+                end_date=base + timedelta(days=40),
+            ),
+            # Medium.
+            _activity(
+                activity_name="Medium A",
+                tracking_id="CLU-37-260110-0000007-EM",
+                channel="Channel D",
+                target_audience="Audience D",
+                priority="Medium",
+                start_date=base + timedelta(days=60),
+                end_date=base + timedelta(days=60),
+            ),
+            _activity(
+                activity_name="Medium B",
+                tracking_id="CLU-38-260110-0000008-EM",
+                channel="Channel D",
+                target_audience="Audience D",
+                priority="Normal",
+                start_date=base + timedelta(days=60),
+                end_date=base + timedelta(days=60),
+            ),
+            # Info -- same pack, top priority, must still sort last.
+            _activity(
+                activity_name="Info A",
+                tracking_id="CLU-39-260110-0000009-EM",
+                channel="Channel E",
+                target_audience="Audience E",
+                priority="Critical",
+                start_date=base + timedelta(days=80),
+                end_date=base + timedelta(days=80),
+            ),
+            _activity(
+                activity_name="Info B",
+                tracking_id="CLU-39-260110-0000010-EM",
+                channel="Channel E",
+                target_audience="Audience E",
+                priority="Critical",
+                start_date=base + timedelta(days=80),
+                end_date=base + timedelta(days=80),
+            ),
+        ]
+    )
+    writable_session.flush()
+
+    result = queries.detect_collisions(writable_session, proximity_days=5)
+
+    assert result["total"] == 5
+    severities = [pair["severity"] for pair in result["collisions"]]
+    assert severities == ["critical", "critical", "high", "medium", "info"]
+    # The tie-break: both critical pairs sort by gap_days ascending.
+    gaps = [pair["gap_days"] for pair in result["collisions"][:2]]
+    assert gaps == [0, 2]
+
+
+def test_collisions_ignore_activities_without_a_start_date(writable_session):
+    """A pair that would otherwise collide is not paired when one side is undated."""
+    day = REFERENCE + timedelta(days=90)
+    writable_session.add_all(
+        [
+            _activity(
+                activity_name="Dated",
+                tracking_id="CLU-41-260110-0000001-EM",
+                channel="Email",
+                target_audience="Staff",
+                start_date=day,
+                end_date=day,
+            ),
+            _activity(
+                activity_name="Undated",
+                tracking_id="CLU-42-260110-0000002-EM",
+                channel="Email",
+                target_audience="Staff",
+                start_date=None,
+                end_date=None,
+            ),
+        ]
+    )
+    writable_session.flush()
+
+    result = queries.detect_collisions(writable_session)
+
+    assert result["total"] == 0
+    assert result["collisions"] == []
+
+
+def test_collisions_report_their_own_truncation(writable_session):
+    """The count is the TRUE total across all pairs, the list is capped."""
+    day = REFERENCE + timedelta(days=110)
+    writable_session.add_all(
+        [
+            _activity(
+                activity_name=f"Crowd {index}",
+                tracking_id=f"CLU-{50 + index}-260110-000000{index}-EM",
+                channel="Email",
+                target_audience="Staff",
+                start_date=day,
+                end_date=day,
+            )
+            for index in range(4)
+        ]
+    )
+    writable_session.flush()
+
+    result = queries.detect_collisions(writable_session, limit=2)
+
+    assert result["total"] == 6  # C(4, 2): every pair of the 4 activities collides
+    assert result["returned"] == 2
+    assert len(result["collisions"]) == 2
+    assert result["truncated"] is True
+    assert result["note"] is not None
+    assert "collisions" in result["note"]
+
+
+def test_collision_rule_matches_the_studio_implementation():
+    """Pinned against analytics.js so neither collision rule can silently drift.
+
+    Same technique as test_priority_rank_matches_the_studio_implementation:
+    read the studio's own source for the two `sharesDimension` calls (channel
+    AND target_audience -- rule 1) and the `samePack` severity branch (rule
+    2), so a change on either side of the port fails the suite instead of
+    quietly diverging.
+    """
+    studio = (REPO_ROOT / "pipeline" / "studio" / "analytics.js").read_text()
+    match = re.search(r"function detectCollisions\([^)]*\)\s*\{(.*?)\n  \}", studio, re.DOTALL)
+    assert match, "detectCollisions not found in analytics.js"
+    body = match.group(1)
+    assert "sharesDimension(left, right, 'channel')" in body
+    assert "sharesDimension(left, right, 'target_audience')" in body
+    assert "samePack ? 'info'" in body
 
 
 # --------------------------------------------------------------------------
