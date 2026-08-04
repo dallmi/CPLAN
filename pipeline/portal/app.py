@@ -34,6 +34,36 @@ from pipeline.portal.resolvers import RESOLVERS
 from pipeline.portal.resources import PROJECTS_ROOT, load_manifest, manifest_path, resolve_tiles
 
 
+# Most-privileged first: `PROJECT_ROLE` reports the first arm that matches, and
+# the four groups are nested (viewer <- contributor <- editor <- admin), so an
+# admin matches all four and must be reported as admin.
+ROLES = ("admin", "editor", "contributor", "viewer")
+
+
+def _holds(role: str) -> str:
+    """SQL: does the caller hold this project's `<prefix>_<role>` group?
+
+    One definition of the rule, used by the list endpoint and the detail query
+    alike. It was written out twice, and the copies drifted: the detail query
+    was given `to_regrole` while the list endpoint kept bare role names, so a
+    project registered before its group roles existed took the landing page
+    down for every caller with SQLSTATE 42704 — `pg_has_role` raises on a name
+    that is not a role. `to_regrole` yields NULL for an unknown name instead,
+    which makes this expression NULL: it falls out of a WHERE on its own and
+    falls through a CASE to the next arm. Whatever this rule becomes next, it
+    can now only be learned, and changed, in one place.
+    """
+    return f"pg_has_role(current_user, to_regrole(p.role_prefix || '_{role}'), 'member')"
+
+
+# "The caller holds some role on p" — for filtering the project list.
+PROJECT_VISIBLE = " OR ".join(_holds(role) for role in ROLES)
+# "…and it is this one" — for naming it on a single project.
+PROJECT_ROLE = (
+    "CASE " + " ".join(f"WHEN {_holds(role)} THEN '{role}'" for role in ROLES) + " END"
+)
+
+
 class LoginPayload(BaseModel):
     username: str = Field(min_length=1, max_length=63)
     password: str
@@ -130,34 +160,18 @@ def create_portal_app(database_url: str | URL | None = None, auth_settings: Auth
 
     @app.get("/api/portal/projects")
     def projects(session: Session = Depends(db_session)):
-        # to_regrole, same as project_detail below: a project registered
-        # before its group roles exist must not take the whole list down for
-        # every caller. A NULL from to_regrole makes pg_has_role's argument
-        # NULL, which makes that OR arm NULL (not TRUE) and falls out of the
-        # WHERE on its own -- no CASE/COALESCE needed here.
         rows = session.execute(
             text(
                 "SELECT slug, name, url FROM portal.projects p "
-                "WHERE pg_has_role(current_user, to_regrole(p.role_prefix || '_viewer'), 'member') "
-                "   OR pg_has_role(current_user, to_regrole(p.role_prefix || '_contributor'), 'member') "
-                "   OR pg_has_role(current_user, to_regrole(p.role_prefix || '_editor'), 'member') "
-                "   OR pg_has_role(current_user, to_regrole(p.role_prefix || '_admin'), 'member') "
+                f"WHERE {PROJECT_VISIBLE} "
                 "ORDER BY name"
             )
         ).all()
         return {"projects": [{"slug": r.slug, "name": r.name, "url": r.url} for r in rows]}
 
-    # `to_regrole` rather than a bare name: pg_has_role raises 42704 for a name
-    # that is not a role, so a project registered before its group roles were
-    # created would take down the request. NULL simply falls through the CASE,
-    # leaving role NULL, which this endpoint reports as "no such project".
     PROJECT_SQL = text(
         "SELECT p.slug, p.name, p.url, p.role_prefix, "
-        "  CASE WHEN pg_has_role(current_user, to_regrole(p.role_prefix || '_admin'), 'member') THEN 'admin' "
-        "       WHEN pg_has_role(current_user, to_regrole(p.role_prefix || '_editor'), 'member') THEN 'editor' "
-        "       WHEN pg_has_role(current_user, to_regrole(p.role_prefix || '_contributor'), 'member') THEN 'contributor' "
-        "       WHEN pg_has_role(current_user, to_regrole(p.role_prefix || '_viewer'), 'member') THEN 'viewer' "
-        "  END AS role "
+        f"  {PROJECT_ROLE} AS role "
         "FROM portal.projects p WHERE p.slug = :slug"
     )
 
@@ -201,11 +215,11 @@ def create_portal_app(database_url: str | URL | None = None, auth_settings: Auth
             return None
 
     def tile_context(session: Session, row, manifest: dict | None = None) -> dict:
-        # `manifest` is optional so this keeps working, just at the cost of a
-        # reload, for a caller that only has the row (e.g. a future page
-        # route reached from app.state.tile_context); project_detail below
-        # always has the manifest already and passes it, so the three
-        # manifest_path lookups below don't each re-read and re-parse it.
+        # `manifest` is optional so a caller holding only the row keeps
+        # working, at the cost of a reload — the access page reaches this
+        # through register_pages that way. project_detail below always has the
+        # manifest already and passes it, so the three manifest_path lookups
+        # don't each re-read and re-parse the same file.
         if manifest is None:
             manifest = load_manifest(row.slug, root=PROJECTS_ROOT)
         return {
@@ -238,9 +252,6 @@ def create_portal_app(database_url: str | URL | None = None, auth_settings: Auth
             "url": row.url,
             "tiles": [t.as_dict() for t in tiles],
         }
-
-    app.state.project_row = project_row
-    app.state.tile_context = tile_context
 
     @app.get("/api/portal/users")
     def list_users(session: Session = Depends(db_session)):
