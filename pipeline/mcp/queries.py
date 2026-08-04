@@ -92,6 +92,16 @@ DATE_FIELDS = frozenset({"start_date", "end_date"})
 # Hazard, documented rather than solved: splitting a lookup value on "," is lossy
 # -- a single objective whose own name contains a comma is indistinguishable from
 # two objectives. Validate any published pillar tally against real values.
+#
+# `channel` and `target_audience` go through the same ", "-joining ETL path
+# (`parse_sp_lookup`) and are just as genuinely multi-valued in the source
+# data, but stay OUT of this dict on purpose: it feeds MULTI_VALUE_DIMENSIONS,
+# which drives activity_counts's SQL-eligibility gate and `counts_memberships`,
+# field_values's splitting, and the groupable/enumerable vocabularies -- for
+# every column here, not only the one a future editor is thinking about.
+# `detect_collisions` needs real membership semantics for exactly those two
+# columns and forks its own separator set for it (`_normalize_multi`, near
+# that function) rather than widening this one.
 MULTI_VALUE_SEPARATORS: dict[str, tuple[str, ...]] = {
     "strategic_objectives": (",", ";"),
     "bod_geb": (";",),
@@ -208,6 +218,15 @@ SUMMARY_FIELDS: tuple[str, ...] = (
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 200
 
+# `detect_collisions`'s sliding window has no cap of its own: the inner loop's
+# `break` only fires once the gap exceeds `proximity_days`, so an unbounded
+# value lets it accumulate (and `_summarize`) every pair in the filtered set
+# BEFORE `_clamp_limit` ever runs -- exactly the unbounded intermediate list
+# this module's own docstring promises never to build. 90 days already spans
+# a full planning quarter, well past what "activities near each other" means
+# for this question.
+MAX_PROXIMITY_DAYS = 90
+
 # A cross-tab multiplies two dimensions together (32 packs x 15 channels is 480
 # cells), and the flat MAX_LIMIT cap is the wrong shape for that: sorting the
 # flat cell list by count and slicing drops whole rows/columns of the table
@@ -233,12 +252,30 @@ def is_blank(value: Any) -> bool:
     return stripped == "" or stripped in BLANK_TEXT_SENTINELS
 
 
+def _split_on(text: str, separators: tuple[str, ...]) -> list[str]:
+    """The trimmed, non-blank members of `text` split on any of `separators`.
+
+    The one splitting algorithm shared by every multi-value fork in this
+    module: `split_multi` (separator set chosen per column, via
+    MULTI_VALUE_SEPARATORS) and `_normalize_multi` (separator set fixed at
+    "," and ";" for every call, for `detect_collisions`). Only the separator
+    *configuration* forks between the two; the trim-and-drop-blanks rule
+    stays written once so it cannot drift between them.
+    """
+    pattern = "[" + re.escape("".join(separators)) + "]"
+    return [member.strip() for member in re.split(pattern, text) if not is_blank(member)]
+
+
 def split_multi(value: Any, field: str) -> list[str]:
     """The individual members of a possibly multi-valued column.
 
     Returns [] for a blank value (same rule as `is_blank`), and a single-member
     list for a column that is not multi-valued -- so callers can treat every
-    column uniformly.
+    column uniformly. `channel` and `target_audience` deliberately land on
+    this scalar branch: they are declared multi-valued in the real data but
+    not in MULTI_VALUE_SEPARATORS (see the comment above that dict). Do not
+    "fix" this without reading `_normalize_multi` near `detect_collisions`
+    first -- two tests pin the scalar behaviour on purpose.
 
     Individual members are held to the same blank rule as whole values: a
     "Objective A; None" mix drops the sentinel rather than offering it as a
@@ -251,10 +288,7 @@ def split_multi(value: Any, field: str) -> list[str]:
     separators = MULTI_VALUE_SEPARATORS.get(field)
     if not separators:
         return [text.strip()]
-    pattern = "[" + re.escape("".join(separators)) + "]"
-    return [
-        member.strip() for member in re.split(pattern, text) if not is_blank(member)
-    ]
+    return _split_on(text, separators)
 
 
 def priority_rank(value: Any) -> int:
@@ -1104,13 +1138,14 @@ def activity_counts(
 # (tomorrow) -- exactly the kind of change this function must NOT make as a
 # side effect of getting its own rule right. `_normalize_multi` is therefore a
 # second, narrower split -- scoped to this one rule -- that mirrors
-# analytics.js::normalizeMulti exactly (splits on EITHER [;,] unconditionally,
-# unlike split_multi's per-column allowlist).
-_MULTI_SPLIT_ANY = re.compile(r"[;,]")
+# analytics.js::normalizeMulti exactly (splits on EITHER "," or ";"
+# unconditionally, unlike split_multi's per-column allowlist). It shares
+# `_split_on`'s algorithm with `split_multi`; only the separator set forks.
+_COLLISION_SEPARATORS: tuple[str, ...] = (",", ";")
 
 
 def _normalize_multi(value: Any) -> list[str]:
-    """The member values of `value`, splitting on `;` OR `,` unconditionally.
+    """The member values of `value`, splitting on `,` OR `;` unconditionally.
 
     Mirrors analytics.js::normalizeMulti for exactly the two columns
     `detect_collisions` needs it for (`channel`, `target_audience`). See the
@@ -1118,22 +1153,31 @@ def _normalize_multi(value: Any) -> list[str]:
     """
     if is_blank(value):
         return []
-    return [member.strip() for member in _MULTI_SPLIT_ANY.split(str(value)) if not is_blank(member)]
+    return _split_on(str(value), _COLLISION_SEPARATORS)
 
 
-def _shares_dimension(left: Activity, right: Activity, field: str) -> bool:
-    """True when `left` and `right` have at least one `field` member in common.
+def _shared_members(left: Activity, right: Activity, field: str) -> list[str]:
+    """The `field` members `left` and `right` have in common, case-insensitively.
 
-    Mirrors analytics.js::sharesDimension: a case-insensitive set intersection
-    over `_normalize_multi`, not a substring or exact-string match -- "Email"
-    must not "share" with "Email Blast".
+    Mirrors analytics.js::sharesDimension's set intersection, but returns the
+    members themselves rather than a bare boolean: `detect_collisions` reports
+    these as `shared_channels` / `shared_audiences` so an agent can say WHY a
+    pair collided, not only that it did. Casing is preserved from `left`'s
+    spelling when the two sides disagree ("Email" vs "email") -- an arbitrary
+    but deterministic choice, matching `_shares_dimension`'s old left-anchored
+    comparison order.
     """
     right_members = {member.lower() for member in _normalize_multi(getattr(right, field))}
     if not right_members:
-        return False
-    return any(
-        member.lower() in right_members for member in _normalize_multi(getattr(left, field))
-    )
+        return []
+    seen: set[str] = set()
+    shared: list[str] = []
+    for member in _normalize_multi(getattr(left, field)):
+        key = member.lower()
+        if key in right_members and key not in seen:
+            seen.add(key)
+            shared.append(member)
+    return shared
 
 
 def _epoch_day(value: datetime) -> int:
@@ -1161,10 +1205,14 @@ def detect_collisions(
     than no tool at all here:
 
     * A pair collides only when it shares BOTH a `channel` member AND a
-      `target_audience` member (`_shares_dimension`, case-insensitively).
+      `target_audience` member (`_shared_members`, case-insensitively).
       Either alone is not a collision -- that would flag most of the
       portfolio, since sharing a single channel or a single audience with
-      SOMETHING is the common case, not the exceptional one.
+      SOMETHING is the common case, not the exceptional one. Each entry
+      carries the intersections themselves as `shared_channels` /
+      `shared_audiences`, so an agent can say WHY a pair collided rather than
+      only that it did, without widening `SUMMARY_FIELDS` (shared by every
+      other tool) to carry columns only this one needs.
     * `kind` is `"orchestration"`, not `"conflict"`, when both activities
       carry the same non-blank `tracking_pack_id` (the `CLUSTER-PACKNUM`
       prefix of `tracking_id`, from `ActivityRead`) -- two activities in one
@@ -1181,6 +1229,26 @@ def detect_collisions(
     slides a window over them (bounded by `proximity_days`, default 0 -- same
     calendar day) rather than comparing every pair: O(n log n + n*k) instead
     of O(n^2), which matters once the portfolio runs into the thousands.
+    `proximity_days` is clamped to `[0, MAX_PROXIMITY_DAYS]` -- an unbounded
+    window means the inner loop's `break` never fires, and every pair in the
+    filtered set gets compared and `_summarize`d before `_clamp_limit` ever
+    runs, which is exactly the unbounded intermediate result this module's
+    docstring promises never to build.
+
+    `channel` and `target_audience` narrow membership-aware here, NOT via the
+    exact-equality `text` filter every other tool uses (`_apply_filters`
+    would drop a row storing `"Email, Intranet"` when asked for `"Email"`,
+    then this function's own rule would have called it a match on the
+    unfiltered set -- a silent, narrower-than-expected answer). Both keywords
+    are pulled out of `filter_kwargs` before `_build_filters` sees them and
+    applied afterwards with the same `_normalize_multi` membership test the
+    pairing rule itself uses, so a filter and the rule it feeds never
+    disagree. This is local to `detect_collisions`; `_apply_filters` and
+    `_build_filters` stay exact-match for every other caller.
+
+    `left`/`right` are chronological (`left` starts no later than `right`),
+    not the studio's original-row-order convention -- an arbitrary choice
+    either way, but the chronological one reads better standalone.
 
     Ordered worst first: severity descending (critical > high > medium >
     info), then `gap_days` ascending -- the closest, highest-severity
@@ -1193,9 +1261,28 @@ def detect_collisions(
     uses for `total_matches` / `activities`.
     """
     capped = _clamp_limit(limit)
-    proximity = max(0, int(proximity_days))
+    proximity = max(0, min(int(proximity_days), MAX_PROXIMITY_DAYS))
+    # Pulled out before `_build_filters` sees them: these two narrow by
+    # membership below, not by the exact-equality `text` filter every other
+    # keyword still goes through (see the docstring's filter/rule paragraph).
+    channel_filter = filter_kwargs.pop("channel", None)
+    audience_filter = filter_kwargs.pop("target_audience", None)
     filters = _build_filters(**filter_kwargs)
     candidates = _filtered_activities(session, filters)
+    if channel_filter:
+        wanted = channel_filter.strip().lower()
+        candidates = [
+            activity
+            for activity in candidates
+            if wanted in {member.lower() for member in _normalize_multi(activity.channel)}
+        ]
+    if audience_filter:
+        wanted = audience_filter.strip().lower()
+        candidates = [
+            activity
+            for activity in candidates
+            if wanted in {member.lower() for member in _normalize_multi(activity.target_audience)}
+        ]
 
     dated = sorted(
         (
@@ -1221,9 +1308,11 @@ def detect_collisions(
                 # `dated` is sorted by day, so every later `j` only widens the
                 # gap further -- safe to stop scanning this window entirely.
                 break
-            if not _shares_dimension(left, right, "channel"):
+            shared_channels = _shared_members(left, right, "channel")
+            if not shared_channels:
                 continue
-            if not _shares_dimension(left, right, "target_audience"):
+            shared_audiences = _shared_members(left, right, "target_audience")
+            if not shared_audiences:
                 continue
             same_pack = bool(left_pack) and left_pack == right_pack
             if same_pack:
@@ -1238,6 +1327,8 @@ def detect_collisions(
                     "gap_days": gap,
                     "kind": "orchestration" if same_pack else "conflict",
                     "severity": severity,
+                    "shared_channels": shared_channels,
+                    "shared_audiences": shared_audiences,
                 }
             )
 

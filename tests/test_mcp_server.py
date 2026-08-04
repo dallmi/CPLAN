@@ -2112,11 +2112,189 @@ def test_collision_needs_both_a_shared_channel_and_a_shared_audience(writable_se
     result = queries.detect_collisions(writable_session)
 
     assert result["total"] == 1
-    names = {
-        result["collisions"][0]["left"]["activity_name"],
-        result["collisions"][0]["right"]["activity_name"],
-    }
+    pair = result["collisions"][0]
+    names = {pair["left"]["activity_name"], pair["right"]["activity_name"]}
     assert names == {"Shares both A", "Shares both B"}
+    assert pair["shared_channels"] == ["Email"]
+    assert pair["shared_audiences"] == ["Staff"]
+
+
+def test_collision_matches_when_one_side_lists_several_channels(writable_session):
+    """A pair still collides when one side's `channel` carries more than one
+    value ("Email, Intranet") and only one of them matches the other side.
+
+    This is the finding that made the earlier version of this suite
+    misleading: every fixture up to this point used single-valued channel and
+    audience strings, so swapping `_normalize_multi` for `split_multi` at both
+    call sites in `detect_collisions` -- which would silently stop splitting
+    `channel`/`target_audience` at all, since neither is declared in
+    MULTI_VALUE_SEPARATORS -- passed the whole suite while breaking real
+    collision detection on real multi-valued data. This test would fail
+    under that swap: `split_multi("Email, Intranet", "channel")` returns the
+    whole string as ONE member, which does not intersect `{"email"}`.
+
+    The second assertion pins the fork itself, the same technique
+    `test_required_fields_match_the_planning_completeness_view` uses for the
+    completeness rule: `split_multi` must keep NOT splitting `channel`, so a
+    future "unification" of the two splitters fails loudly here instead of
+    only showing up as a silent behaviour change in `detect_collisions`.
+    """
+    day = REFERENCE + timedelta(days=12)
+    writable_session.add_all(
+        [
+            _activity(
+                activity_name="Multi-channel",
+                tracking_id="CLU-61-260110-0000001-EM",
+                channel="Email, Intranet",
+                target_audience="Staff",
+                start_date=day,
+                end_date=day,
+            ),
+            _activity(
+                activity_name="Single-channel",
+                tracking_id="CLU-62-260110-0000002-EM",
+                channel="Email",
+                target_audience="Staff",
+                start_date=day,
+                end_date=day,
+            ),
+        ]
+    )
+    writable_session.flush()
+
+    result = queries.detect_collisions(writable_session)
+
+    assert result["total"] == 1
+    assert result["collisions"][0]["shared_channels"] == ["Email"]
+
+    # Pins the fork: `channel` stays scalar in `split_multi` on purpose (see
+    # the comment above MULTI_VALUE_SEPARATORS and above `_normalize_multi`).
+    assert queries.split_multi("Email, Intranet", "channel") == ["Email, Intranet"]
+
+
+def test_collision_matching_is_case_insensitive(writable_session):
+    """Differing casing on both dimensions must still collide.
+
+    Every other collision fixture in this suite happens to match casing
+    exactly, which would let a regression to exact-string (rather than
+    case-folded) intersection pass unnoticed.
+    """
+    day = REFERENCE + timedelta(days=13)
+    writable_session.add_all(
+        [
+            _activity(
+                activity_name="Upper",
+                tracking_id="CLU-63-260110-0000001-EM",
+                channel="EMAIL",
+                target_audience="STAFF",
+                start_date=day,
+                end_date=day,
+            ),
+            _activity(
+                activity_name="Lower",
+                tracking_id="CLU-64-260110-0000002-EM",
+                channel="email",
+                target_audience="staff",
+                start_date=day,
+                end_date=day,
+            ),
+        ]
+    )
+    writable_session.flush()
+
+    result = queries.detect_collisions(writable_session)
+
+    assert result["total"] == 1
+
+
+def test_collision_channel_filter_is_membership_aware_not_exact_match(writable_session):
+    """`channel="Email"` must still find a row stored as "Email, Intranet".
+
+    `search_activities(channel="Email")` would NOT find that row -- its
+    `text` filter is exact-string equality (`_apply_filters`). Narrowing
+    `detect_collisions` the same way would silently drop rows the pairing
+    rule itself would still call a match on the unfiltered set. This pins
+    that `detect_collisions` narrows `channel` / `target_audience` by
+    membership instead, without touching `_apply_filters`/`_build_filters`
+    (`search_activities` on the same row, asserted here too, proves the
+    shared filter machinery was NOT widened to do it).
+    """
+    day = REFERENCE + timedelta(days=14)
+    writable_session.add_all(
+        [
+            _activity(
+                activity_name="Multi-channel filter target",
+                tracking_id="CLU-65-260110-0000001-EM",
+                channel="Email, Intranet",
+                target_audience="Staff",
+                start_date=day,
+                end_date=day,
+            ),
+            _activity(
+                activity_name="Plain match",
+                tracking_id="CLU-66-260110-0000002-EM",
+                channel="Email",
+                target_audience="Staff",
+                start_date=day,
+                end_date=day,
+            ),
+        ]
+    )
+    writable_session.flush()
+
+    narrowed = queries.detect_collisions(writable_session, channel="Email")
+    assert narrowed["checked"] == 2  # both rows carry "Email" as a member
+    assert narrowed["total"] == 1
+
+    # The shared filter machinery stays exact-match for every other caller.
+    exact_match_only = queries.search_activities(writable_session, channel="Email")
+    assert exact_match_only["total_matches"] == 1  # only "Plain match"
+
+
+def test_proximity_days_is_clamped_to_a_ceiling(writable_session):
+    """An unbounded `proximity_days` would let the sliding window's `break`
+    never fire, comparing and summarizing every pair before `_clamp_limit`
+    ever runs. `MAX_PROXIMITY_DAYS` caps the window regardless of what the
+    caller asks for.
+    """
+    day_zero = REFERENCE + timedelta(days=200)
+    within_ceiling = day_zero + timedelta(days=queries.MAX_PROXIMITY_DAYS)
+    beyond_ceiling = day_zero + timedelta(days=queries.MAX_PROXIMITY_DAYS + 5)
+    writable_session.add_all(
+        [
+            _activity(
+                activity_name="Anchor",
+                tracking_id="CLU-67-260110-0000001-EM",
+                channel="Email",
+                target_audience="Staff",
+                start_date=day_zero,
+                end_date=day_zero,
+            ),
+            _activity(
+                activity_name="At the ceiling",
+                tracking_id="CLU-68-260110-0000002-EM",
+                channel="Email",
+                target_audience="Staff",
+                start_date=within_ceiling,
+                end_date=within_ceiling,
+            ),
+            _activity(
+                activity_name="Past the ceiling",
+                tracking_id="CLU-69-260110-0000003-EM",
+                channel="Email",
+                target_audience="Staff",
+                start_date=beyond_ceiling,
+                end_date=beyond_ceiling,
+            ),
+        ]
+    )
+    writable_session.flush()
+
+    result = queries.detect_collisions(writable_session, proximity_days=1_000_000)
+
+    gaps = {pair["gap_days"] for pair in result["collisions"]}
+    assert queries.MAX_PROXIMITY_DAYS in gaps
+    assert queries.MAX_PROXIMITY_DAYS + 5 not in gaps
 
 
 def test_same_pack_is_orchestration_not_conflict(writable_session):
@@ -2424,17 +2602,24 @@ def test_collision_rule_matches_the_studio_implementation():
     """Pinned against analytics.js so neither collision rule can silently drift.
 
     Same technique as test_priority_rank_matches_the_studio_implementation:
-    read the studio's own source for the two `sharesDimension` calls (channel
-    AND target_audience -- rule 1) and the `samePack` severity branch (rule
-    2), so a change on either side of the port fails the suite instead of
-    quietly diverging.
+    read the studio's own source for the full guard line (rule 1) and the
+    `samePack` severity branch (rule 2), so a change on either side of the
+    port fails the suite instead of quietly diverging.
+
+    The guard is asserted as the WHOLE line, `if (!A || !B) continue`, not as
+    two separate substring checks: asserting only that both
+    `sharesDimension(...)` calls are present would still pass if the `||`
+    drifted to `&&` -- either-not-both, the exact regression rule 1 exists to
+    catch -- because both call strings would still be there.
     """
     studio = (REPO_ROOT / "pipeline" / "studio" / "analytics.js").read_text()
     match = re.search(r"function detectCollisions\([^)]*\)\s*\{(.*?)\n  \}", studio, re.DOTALL)
     assert match, "detectCollisions not found in analytics.js"
     body = match.group(1)
-    assert "sharesDimension(left, right, 'channel')" in body
-    assert "sharesDimension(left, right, 'target_audience')" in body
+    assert (
+        "if (!sharesDimension(left, right, 'channel') || "
+        "!sharesDimension(left, right, 'target_audience')) continue;"
+    ) in body
     assert "samePack ? 'info'" in body
 
 
