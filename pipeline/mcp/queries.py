@@ -139,6 +139,18 @@ FILTERABLE_TEXT_FIELDS: tuple[str, ...] = (
     "lead",
     "lead_team",
     "partner_team",
+    # Three keys describe "which campaign is this part of", at different
+    # granularities, and picking the wrong one silently answers a different
+    # question. `communication_pack_cpid` is the pack -- the planning unit a
+    # planner actually owns. `campaign` is coarser: measured against the same
+    # 400-row portfolio the studio's campaignScorecards comment cites, the pack
+    # id resolved 32 packs of 2-11 activities while `campaign` collapsed the same
+    # rows into 4 buckets of ~60. A bucket of 60 is a category, not a campaign,
+    # so every roll-up built on `campaign` describes the portfolio instead of a
+    # planning unit. Both stay exposed and the domain-model resource explains
+    # the difference; the pack id is the one to group by.
+    "communication_pack_cpid",
+    "communication_pack",
     "campaign",
     "region",
     "business_division",
@@ -631,6 +643,8 @@ def search_activities(
     target_audience: str | None = None,
     audience: str | None = None,
     time_zone: str | None = None,
+    communication_pack_cpid: str | None = None,
+    communication_pack: str | None = None,
     campaign: str | None = None,
     start_after: str | None = None,
     start_before: str | None = None,
@@ -657,6 +671,8 @@ def search_activities(
         lead=lead,
         lead_team=lead_team,
         partner_team=partner_team,
+        communication_pack_cpid=communication_pack_cpid,
+        communication_pack=communication_pack,
         campaign=campaign,
         region=region,
         business_division=business_division,

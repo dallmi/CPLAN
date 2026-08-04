@@ -260,7 +260,7 @@ data is not in CPLAN at all.
 | 52 | 23 | Which required field is missing most often across the plan? | P3 P8 | Points at the form or the guidance rather than at individual records | 7 | A |
 | 53 | 28 | How ready is one specific campaign, activity by activity? | P3 | The pre-launch checklist | 7 | P |
 | 54 | 36 | Which activities have a lead but no lead team, or the reverse? | P3 P8 | A specific, fixable data defect that breaks team-level views | 7 | P |
-| 55 | 38 | Which campaigns consist of a single activity and are probably mislabelled? | P3 P8 | Keeps campaign-level analysis honest | 7 | A |
+| 55 | 38 | Which campaigns consist of a single activity and are probably mislabelled? | P3 P8 | Keeps campaign-level analysis honest | 7 | T |
 | 56 | 46 | Is our priority mix credible, or is nearly everything the lowest level? | P1 P8 | If priority carries no information, every prioritised view is theatre | 7 | A |
 | 57 | 8 | What is planned for my division next quarter? | P5 | **The** question that makes the tool useful to P5 — low score is an artefact of the method, see the caveat above | 5 | T |
 | 58 | 26 | Which activities carry no tracking ID and cannot be measured? | P6 P8 | Every one of these is permanently lost to measurement | 5 | T |
@@ -297,10 +297,19 @@ unqueryable executive fields — the two personas the current server serves wors
 
 ## What the catalogue shows
 
-**Tally.** Of the 63 questions: 16 answerable today (**A**), 9 partial (**P**), 27
+**Tally.** Of the 63 questions: 15 answerable today (**A**), 9 partial (**P**), 28
 blocked by a missing tool over data CPLAN already holds (**T**), 11 blocked by
 data CPLAN does not hold (**D**). More questions are blocked by a missing tool
-over data already present (27) than work today (16).
+over data already present (28) than work today (15) — by nearly two to one.
+
+**Correction, 2026-08-04.** Q38 was originally scored **A**, reasoning that
+`activity_counts(campaign)` returns bucket counts so the agent could spot a count
+of one. That was wrong: `campaign` is not the pack. On a real 400-activity
+portfolio it collapses into four buckets of about sixty, so "which campaigns
+consist of a single activity" returns nothing meaningful from it. The baseline is
+corrected rather than left standing — a mis-scoring is the one kind of edit the
+frozen column accepts, because freezing it is meant to preserve the measurement,
+not the mistake.
 
 **Ranking makes the gap worse, not better.** Of the 14 Tier 1 questions, **3 work
 today** (Q1, Q2, Q5 — and Q5 is rank 17, so really 2 of the top 14). Nine are

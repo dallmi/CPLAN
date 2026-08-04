@@ -27,11 +27,11 @@ host at that command with `cwd` set to the repository root.
 | Tool | Answers |
 |---|---|
 | `database_status` | How big is the plan, what date range, when did the last sync run |
-| `field_values` | Distinct stored values (with row counts) of any of the 13 free-text filter columns (`source_type`, `channel`, `priority`, `lead`, `lead_team`, `partner_team`, `campaign`, `region`, `business_division`, `business_area`, `target_audience`, `audience`, `time_zone`), or the individual members of the 3 multi-value columns (`strategic_objectives`, `bod_geb`, `other_executives`) |
+| `field_values` | Distinct stored values (with row counts) of any filterable column, or the individual members of the three multi-value columns (`strategic_objectives`, `bod_geb`, `other_executives`). The tool's own description generates the current list from `queries.ENUMERABLE_FIELDS`, so it cannot go stale — do not restate it here |
 | `search_activities` | Find activities by free-text `query` plus every filterable and multi-value column above, `min_priority_rank`, `executive` (OR across both executive columns), start/end date windows, `max_lead_days`, the boolean flags `news_digest` / `has_tracking_id` / `has_executive` / `locally_modified`, and archive handling via `include_archived` / `archived_only`; returns compact summaries |
 | `get_activity` | Full record of one activity by tracking id or UUID |
-| `planning_gaps` | Which activities are not fully planned and what is missing, narrowable by `source_type`, `lead_team`, `lead`, `channel`, `region`, `business_division`, `campaign`, `executive`, `min_priority_rank`, `start_after`/`start_before` and `include_archived`, and groupable with `group_by` (any enumerable column) to show which team/channel is behind |
-| `activity_counts` | Volume grouped by `dimension` — any filterable or multi-value column, plus `priority_rank` and `month` — filterable by `source_type`, `channel`, `lead_team`, `region`, `business_division`, `campaign`, `executive`, `min_priority_rank`, `start_after`/`start_before` and `include_archived` (a subset of `planning_gaps`'s filters: no `lead`) |
+| `planning_gaps` | Which activities are not fully planned and what is missing, narrowable by `source_type`, `lead_team`, `lead`, `channel`, `region`, `business_division`, `communication_pack_cpid`, `campaign`, `executive`, `min_priority_rank`, `start_after`/`start_before` and `include_archived`, and groupable with `group_by` (any enumerable column) to show which team/channel is behind |
+| `activity_counts` | Volume grouped by `dimension` — any filterable or multi-value column, plus `priority_rank` and `month` — filterable by `source_type`, `channel`, `lead_team`, `region`, `business_division`, `communication_pack_cpid`, `campaign`, `executive`, `min_priority_rank`, `start_after`/`start_before` and `include_archived` (a subset of `planning_gaps`'s filters: no `lead`) |
 
 ## Resources
 
@@ -116,6 +116,15 @@ Python branch, and the SQL branch's label is trimmed to match — otherwise `" E
 `trim()` removes spaces only, so a tab-padded value can still differ from the
 Python label; documented rather than solved, because there is no portable
 whitespace trim.
+
+**The pack key is `communication_pack_cpid`, not `campaign`.** Both columns
+answer "which campaign is this part of", at different granularities, and grouping
+by the coarser one makes pack size, channel breadth and readiness describe the
+portfolio instead of a planning unit. This is the lesson
+`analytics.js::campaignScorecards` already records in a comment. Both columns stay
+filterable and groupable; the `cplan://domain-model` resource carries the measured
+figures and tells the agent which one is the planning unit — they are stated there
+once rather than repeated here.
 
 **Multi-value columns split on the separator the ETL actually wrote.** Lookup
 values join with `", "`, person values with `"; "`. Person columns are split on

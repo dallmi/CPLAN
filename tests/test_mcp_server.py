@@ -929,6 +929,64 @@ def test_field_values_rejects_unknown_field(session):
     assert "channel" in result["supported_fields"]
 
 
+def test_the_pack_id_resolves_packs_that_the_campaign_label_collapses(writable_session):
+    """The reason `communication_pack_cpid` is exposed at all.
+
+    Both columns answer "which campaign is this part of", at different
+    granularities. Measured against the 400-row portfolio the studio's
+    campaignScorecards comment cites, the pack id resolved 32 packs of 2-11
+    activities while `campaign` collapsed the same rows into 4 buckets of ~60.
+    Reproduced in miniature here: one campaign label over three packs. Grouping
+    by the label cannot see the packs, so anything built on it -- pack size,
+    channel breadth, readiness -- describes the label instead of a planning unit.
+    """
+    for pack in ("CP-1", "CP-2", "CP-3"):
+        writable_session.add_all(
+            [_activity(campaign="Autumn programme", communication_pack_cpid=pack) for _ in range(2)]
+        )
+    writable_session.flush()
+
+    by_label = queries.activity_counts(writable_session, dimension="campaign")
+    by_pack = queries.activity_counts(writable_session, dimension="communication_pack_cpid")
+
+    assert by_label["buckets"] == [{"value": "Autumn programme", "count": 6}]
+    assert {bucket["value"]: bucket["count"] for bucket in by_pack["buckets"]} == {
+        "CP-1": 2,
+        "CP-2": 2,
+        "CP-3": 2,
+    }
+
+
+def test_search_and_gaps_can_scope_to_one_pack(writable_session):
+    writable_session.add_all([
+        _activity(activity_name="In the pack", communication_pack_cpid="CP-1", channel=None),
+        _activity(activity_name="Other pack", communication_pack_cpid="CP-2"),
+    ])
+    writable_session.flush()
+
+    found = queries.search_activities(writable_session, communication_pack_cpid="CP-1")
+    assert [row["activity_name"] for row in found["activities"]] == ["In the pack"]
+
+    # Q28: how ready is this one pack, activity by activity.
+    gaps = queries.planning_gaps(writable_session, communication_pack_cpid="CP-1")
+    assert gaps["checked"] == 1
+    assert gaps["incomplete"] == 1
+    assert "channel" in gaps["activities"][0]["missing_required_fields"]
+
+
+def test_the_pack_id_is_discoverable_before_it_is_filtered(writable_session):
+    """An agent must be able to learn the pack ids, not guess them."""
+    writable_session.add_all([
+        _activity(communication_pack_cpid="CP-1"),
+        _activity(communication_pack_cpid="CP-1"),
+        _activity(communication_pack_cpid="CP-2"),
+    ])
+    writable_session.flush()
+
+    listed = queries.field_values(writable_session, field="communication_pack_cpid")
+    assert {entry["value"]: entry["count"] for entry in listed["values"]} == {"CP-1": 2, "CP-2": 1}
+
+
 def test_counts_by_a_multi_value_dimension_tally_members_not_combinations(writable_session):
     writable_session.add_all([
         _activity(strategic_objectives="Objective A, Objective B"),
