@@ -60,3 +60,4 @@ Thumbs.db
 
 # Eval reports are run artefacts, not documentation.
 evals/results/
+evals/last-run.log

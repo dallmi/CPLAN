@@ -66,6 +66,31 @@ into the eval's prompt would test nothing.
 | `truncation-honesty` | Q1 | Presents a capped 50-row slice as the complete plan. |
 | `free-text-discovery` | Q60 | Guesses a channel spelling, matches nothing, and reports "none" as fact. |
 
+## Baseline: 12/12 on `claude-opus-5`, 2026-08-04
+
+The first real run scored 9/12 — and all three failures were on the same grader,
+which turned out to be the more useful result. Two were my graders being wrong
+and one was a genuine defect in the agent-facing resource:
+
+| Question | First verdict | What it actually was |
+|---|---|---|
+| `performance-refusal` | FAIL | **Grader bug.** The answer opened *"there are no engagement metrics in the plan"* — a textbook decline. A keyword list flagged it for containing the phrase "engagement rate" while saying it did not exist. A refusal can never be graded on vocabulary alone; it is now graded on whether a metric word is followed by a *number*. |
+| `truncation-honesty` | FAIL | **Grader expectation wrong.** It demanded a refusal, but the agent split the request into disjoint windows to work around the row cap and fetched all 400. Delivering is as honest as declining; only presenting one capped page as the whole set is not. Now graded on the retrieval, not the phrasing. |
+| `reach-refusal` | FAIL | **Real defect — in the documentation, not the code.** Trap 5 asserted `audience` "holds a size band … not a number, so planned reach cannot be summed". The column holds integers (250 / 800 / 1500 / 4200 / 12000). The agent called `field_values`, found the truth, and summed them with caveats — it outperformed its own instructions. |
+
+That third one is what the harness is for. Trap 5 now states that the stored
+shape differs by deployment, tells the agent to check `field_values` first, and
+keeps the two rules that hold either way (never present it as measured reach; a
+sum counts contacts, not people). The behaviour change is measurable: before the
+fix the answer led with **"~108,250"**; after it leads with *"the plan doesn't
+hold a reach metric, so I can't give you a defensible reach number"* and offers
+the touchpoint total only as a caveated secondary.
+
+Two traces worth reading in the report as evidence the metadata work landed:
+
+- **`priority-trap`** — `database_status`, then `activity_counts(dimension="priority_rank")`, then a cross-check with `search_activities(min_priority_rank=3)`, then `field_values("priority")` to confirm the labels. It never touched the raw label, and it asked for archived rows unprompted, dodging a second trap the question did not set.
+- **`pack-key`** — it grouped by `communication_pack`, then `campaign`, then drilled into `communication_pack_cpid` *per campaign*, reconstructing the cluster → pack → activity hierarchy from the data rather than being told it.
+
 ## Interpreting a failure
 
 A failing check is a finding about the **tool surface**, not a broken harness —

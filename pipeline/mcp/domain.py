@@ -122,12 +122,23 @@ Executive involvement is split across **two** columns — `bod_geb` (executive-b
 members) and `other_executives` (senior leaders who are not on that board) — and
 they are counted separately everywhere. The `executive=` filter searches both.
 
-## Trap 5 — `audience` is a band label, and its meaning is unverified
+## Trap 5 — `audience` is an estimate whose shape you must check, not assume
 
-`audience` holds a size band (`< 1000`, `1-10k`, `10-50k`, `50-100k`, `> 100k`),
-not a number, so planned reach cannot be summed. The mapping from the source
-system's "estimated audience size" field to this column is a documented
-assumption, not a confirmed fact. Do not present it as measured reach.
+`audience` carries an estimated audience size, but **its stored shape is not
+guaranteed and differs by deployment**. The source system presents it as a band
+selector (`< 1000`, `1-10k`, `10-50k`, `50-100k`, `> 100k`), while the mirrored
+column has been observed holding a bare integer headcount. Call `field_values`
+on it before assuming either — an eval run caught this resource asserting the
+band shape against a database that stored integers.
+
+Two rules hold whichever shape you find:
+
+- **Never present it as measured reach.** It is a planning estimate entered by
+  whoever created the activity, and CPLAN holds no measured reach at all.
+- **A sum counts contacts, not people.** One employee inside six activities is
+  counted six times, so a total far above the headcount of the largest single
+  audience is double-counting, not scale. Say so alongside any figure you give,
+  and prefer the largest single audience as the unique-people ceiling.
 
 ## Planning completeness
 
