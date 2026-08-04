@@ -924,6 +924,210 @@ def get_activity(session: Session, identifier: str) -> dict[str, Any]:
     return {"found": True, "activity": record}
 
 
+def _change_row(change: ActivityChange) -> dict[str, Any]:
+    """One `ActivityChange` row, shaped for the model.
+
+    `old_value`/`new_value` are free text mirrored straight from the source
+    system (the same untrusted-input hazard the domain resource already
+    warns about) -- reported exactly as stored, never stripped or escaped.
+    """
+    return {
+        "changed_at": _iso(change.changed_at),
+        "actor": change.actor,
+        "change_type": change.change_type,
+        "field": change.field,
+        "old_value": change.old_value,
+        "new_value": change.new_value,
+        "version_from": change.version_from,
+        "version_to": change.version_to,
+    }
+
+
+def activity_history(
+    session: Session, identifier: str, *, limit: int | None = None
+) -> dict[str, Any]:
+    """The change rows for one activity, newest first.
+
+    Resolves `identifier` exactly like `get_activity` -- reuses `_lookup`
+    rather than re-deriving tracking-id-or-UUID resolution a second time.
+    `activity_changes` carries no FK to `activities` (see `ActivityChange`'s
+    docstring), but that only matters for `plan_changes_since`'s cross-table
+    join: here the activity is already resolved from `activities` itself, so
+    every row this returns is guaranteed to belong to it.
+    """
+    activity = _lookup(session, identifier)
+    if activity is None:
+        return {
+            "found": False,
+            "identifier": identifier,
+            "note": "No activity with that id or tracking_id. Use search_activities to find one.",
+        }
+    capped = _clamp_limit(limit)
+    total = int(
+        session.scalar(
+            select(func.count())
+            .select_from(ActivityChange)
+            .where(ActivityChange.activity_id == activity.id)
+        )
+        or 0
+    )
+    rows = session.scalars(
+        select(ActivityChange)
+        .where(ActivityChange.activity_id == activity.id)
+        .order_by(ActivityChange.changed_at.desc(), ActivityChange.id.desc())
+        .limit(capped)
+    ).all()
+    changes = [_change_row(change) for change in rows]
+    return {
+        "found": True,
+        "identifier": identifier,
+        "activity_id": str(activity.id),
+        "tracking_id": activity.tracking_id,
+        "activity_name": activity.activity_name,
+        "total": total,
+        "returned": len(changes),
+        "truncated": len(changes) < total,
+        "note": _truncation_note(total, len(changes), capped, subject="changes"),
+        "changes": changes,
+    }
+
+
+def plan_changes_since(
+    session: Session,
+    *,
+    since: str | date | datetime,
+    limit: int | None = None,
+    **filter_kwargs: Any,
+) -> dict[str, Any]:
+    """Change rows since `since`, grouped per activity -- "what moved this week".
+
+    Grouped, not a flat field-level log: `activity_changes` itself already IS
+    the flat log, so the value this tool adds is reading it as a list of
+    activities, each carrying the changes that landed on it.
+
+    `since` is parsed by `_parse_boundary` (`'YYYY-MM-DD'` or a full ISO
+    timestamp), the same boundary parser every date filter here already uses.
+    `limit` and `since` are consumed by this signature before `filter_kwargs`
+    ever reaches `_build_filters`, which raises on an unrecognised keyword --
+    same shape as every other `**filter_kwargs` tool in this module.
+
+    Orphan handling: `activity_changes` has no FK to `activities` (see
+    `ActivityChange`'s docstring) -- a change row can outlive the activity it
+    describes. Dropping such a row would make the change log silently lose
+    entries, which is worse than not having one, so it is joined with an
+    OUTER join and reported under a null activity (`tracking_id` /
+    `activity_name` both `None`, `activity_found: False`) rather than
+    excluded -- UNLESS a real activity filter is active. An activity filter
+    (`lead_team=...`, `region=...`, ...) narrows by columns an orphan cannot
+    have -- there is no activity left to test the predicate against -- so
+    once any filter narrows the activity set, an orphan cannot possibly be a
+    member of it and is excluded, exactly as any other non-matching row
+    would be. "Any filter active" is judged by comparing the built
+    `ActivityFilters` against a bare default instance, so the same rule
+    silently covers the default `is_archive` exclusion too: an activity that
+    exists but was filtered out (including by that default) is excluded
+    here exactly like everywhere else, and only a TRUE orphan is exempt, and
+    only when nothing is actually filtering.
+
+    `by_field` tallies every kept change's `field`, but a `created` (and
+    also a `deleted`) row has `field IS NULL` -- silently dropping those
+    from the tally is the exact failure mode this module keeps guarding
+    against, so a null field is bucketed as `"({change_type})"`
+    (`"(created)"` for the common case) instead of vanishing.
+
+    `by_actor` and `by_change_type` tally whatever string is actually
+    stored -- `actor` is free text (`studio`, `seed`, `sync`, ... -- not an
+    enum), so this deliberately does not hardcode a vocabulary.
+
+    All three tallies, and the true `changes` total, are computed over every
+    kept change -- not only the ones inside the capped `activities` list --
+    so a truncated answer still reports the right volumes (same contract as
+    `_capped_by_count` elsewhere in this module).
+
+    Groups are ordered newest-first by their own most recent change: `rows`
+    is fetched newest-first overall, so the first change appended to any
+    group is already that group's most recent -- reused directly rather than
+    re-sorting. `limit` caps the number of activity GROUPS returned, not the
+    changes within one group (an activity accumulating enough history to
+    need its own cap is a job for `activity_history`, not this tool).
+    """
+    boundary = _parse_boundary(since)
+    capped = _clamp_limit(limit)
+    filters = _build_filters(**filter_kwargs)
+    filters_active = filters != ActivityFilters()
+    candidates_by_id = {activity.id: activity for activity in _filtered_activities(session, filters)}
+
+    statement = select(ActivityChange, Activity).outerjoin(
+        Activity, ActivityChange.activity_id == Activity.id
+    )
+    if boundary is not None:
+        statement = statement.where(ActivityChange.changed_at >= boundary)
+    statement = statement.order_by(ActivityChange.changed_at.desc(), ActivityChange.id.desc())
+
+    groups: dict[uuid.UUID, dict[str, Any]] = {}
+    by_actor: dict[str, int] = {}
+    by_change_type: dict[str, int] = {}
+    by_field: dict[str, int] = {}
+    total_changes = 0
+
+    for change, joined_activity in session.execute(statement).all():
+        activity = candidates_by_id.get(change.activity_id)
+        if activity is None:
+            if joined_activity is not None:
+                # The activity exists but did not pass the filter (including
+                # the default is_archive exclusion) -- excluded exactly like
+                # any other filtered-out row.
+                continue
+            if filters_active:
+                # A true orphan, but a real filter is narrowing the activity
+                # set -- there is no activity left to test that filter
+                # against, so it cannot be a member of the filtered set.
+                continue
+
+        total_changes += 1
+        by_actor[change.actor] = by_actor.get(change.actor, 0) + 1
+        by_change_type[change.change_type] = by_change_type.get(change.change_type, 0) + 1
+        field_key = change.field if change.field is not None else f"({change.change_type})"
+        by_field[field_key] = by_field.get(field_key, 0) + 1
+
+        group = groups.setdefault(
+            change.activity_id,
+            {
+                "activity_id": str(change.activity_id),
+                "tracking_id": activity.tracking_id if activity else None,
+                "activity_name": activity.activity_name if activity else None,
+                "activity_found": activity is not None,
+                "changes": [],
+            },
+        )
+        group["changes"].append(_change_row(change))
+
+    for group in groups.values():
+        group["change_count"] = len(group["changes"])
+    # `rows` was already newest-first, so each group's own `changes[0]` is
+    # its most recent entry -- reused as the group sort key rather than
+    # tracking a second, redundant "latest" value.
+    ordered_groups = sorted(
+        groups.values(), key=lambda group: group["changes"][0]["changed_at"], reverse=True
+    )
+    total_groups = len(ordered_groups)
+    shown_groups = ordered_groups[:capped]
+
+    return {
+        "since": _iso(boundary),
+        "changes": total_changes,
+        "returned": len(shown_groups),
+        "truncated": len(shown_groups) < total_groups,
+        "note": _truncation_note(total_groups, len(shown_groups), capped, subject="activities"),
+        "by_actor": dict(sorted(by_actor.items(), key=lambda item: (-item[1], item[0]))),
+        "by_change_type": dict(
+            sorted(by_change_type.items(), key=lambda item: (-item[1], item[0]))
+        ),
+        "by_field": dict(sorted(by_field.items(), key=lambda item: (-item[1], item[0]))),
+        "activities": shown_groups,
+    }
+
+
 def planning_gaps(
     session: Session,
     *,

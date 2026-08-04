@@ -2980,6 +2980,300 @@ def test_lead_time_and_quality_pin_against_the_studio():
 
 
 # --------------------------------------------------------------------------
+# Change history
+# --------------------------------------------------------------------------
+
+
+def test_activity_history_returns_changes_newest_first(writable_session):
+    activity = _activity()
+    writable_session.add(activity)
+    writable_session.flush()
+    writable_session.add_all(
+        [
+            ActivityChange(
+                activity_id=activity.id,
+                actor="studio",
+                change_type="created",
+                changed_at=REFERENCE,
+                version_to=1,
+            ),
+            ActivityChange(
+                activity_id=activity.id,
+                actor="studio",
+                change_type="updated",
+                field="channel",
+                old_value="Email",
+                new_value="Intranet",
+                changed_at=REFERENCE + timedelta(days=1),
+                version_from=1,
+                version_to=2,
+            ),
+        ]
+    )
+    writable_session.flush()
+
+    history = queries.activity_history(writable_session, str(activity.id))
+
+    assert history["found"] is True
+    assert history["tracking_id"] == activity.tracking_id
+    assert history["activity_name"] == activity.activity_name
+    assert [change["change_type"] for change in history["changes"]] == ["updated", "created"]
+    assert history["changes"][0]["field"] == "channel"
+    assert history["changes"][0]["old_value"] == "Email"
+    assert history["changes"][0]["new_value"] == "Intranet"
+    assert history["total"] == 2
+    assert history["returned"] == 2
+    assert history["truncated"] is False
+
+
+def test_activity_history_resolves_by_tracking_id_and_uuid(writable_session):
+    activity = _activity()
+    writable_session.add(activity)
+    writable_session.flush()
+    writable_session.add(
+        ActivityChange(activity_id=activity.id, actor="seed", change_type="created", version_to=1)
+    )
+    writable_session.flush()
+
+    by_uuid = queries.activity_history(writable_session, str(activity.id))
+    by_tracking_id = queries.activity_history(writable_session, activity.tracking_id)
+
+    assert by_uuid["found"] is True
+    assert by_tracking_id["found"] is True
+    assert by_uuid["changes"] == by_tracking_id["changes"]
+    assert by_tracking_id["activity_id"] == str(activity.id)
+
+
+def test_activity_history_reports_a_clean_miss_for_an_unknown_identifier(session):
+    result = queries.activity_history(session, "NOPE-1-000000-0000000-XX")
+
+    assert result["found"] is False
+    assert "search_activities" in result["note"]
+
+
+def test_activity_history_reports_its_own_truncation(writable_session):
+    activity = _activity()
+    writable_session.add(activity)
+    writable_session.flush()
+    writable_session.add_all(
+        [
+            ActivityChange(
+                activity_id=activity.id,
+                actor="studio",
+                change_type="updated",
+                field="channel",
+                changed_at=REFERENCE + timedelta(days=index),
+                version_from=index,
+                version_to=index + 1,
+            )
+            for index in range(3)
+        ]
+    )
+    writable_session.flush()
+
+    history = queries.activity_history(writable_session, str(activity.id), limit=2)
+
+    assert history["total"] == 3
+    assert history["returned"] == 2
+    assert history["truncated"] is True
+    assert history["note"] is not None
+
+
+def test_plan_changes_since_groups_by_activity_and_tallies_actors(writable_session):
+    first = _activity(activity_name="First activity")
+    second = _activity(activity_name="Second activity")
+    writable_session.add_all([first, second])
+    writable_session.flush()
+    writable_session.add_all(
+        [
+            ActivityChange(
+                activity_id=first.id,
+                actor="studio",
+                change_type="created",
+                changed_at=REFERENCE,
+                version_to=1,
+            ),
+            ActivityChange(
+                activity_id=first.id,
+                actor="studio",
+                change_type="updated",
+                field="channel",
+                old_value="Email",
+                new_value="Intranet",
+                changed_at=REFERENCE + timedelta(hours=1),
+                version_from=1,
+                version_to=2,
+            ),
+            ActivityChange(
+                activity_id=second.id,
+                actor="sync",
+                change_type="updated",
+                field="priority",
+                old_value="Low",
+                new_value="High",
+                changed_at=REFERENCE + timedelta(hours=2),
+                version_from=1,
+                version_to=2,
+            ),
+        ]
+    )
+    writable_session.flush()
+
+    result = queries.plan_changes_since(writable_session, since="2026-01-01")
+
+    assert result["changes"] == 3
+    assert result["returned"] == 2
+    assert result["by_actor"] == {"studio": 2, "sync": 1}
+    assert result["by_change_type"] == {"updated": 2, "created": 1}
+    groups_by_id = {group["activity_id"]: group for group in result["activities"]}
+    assert groups_by_id[str(first.id)]["change_count"] == 2
+    assert groups_by_id[str(first.id)]["tracking_id"] == first.tracking_id
+    assert groups_by_id[str(second.id)]["change_count"] == 1
+
+
+def test_plan_changes_since_buckets_created_rows_without_a_field(writable_session):
+    activity = _activity()
+    writable_session.add(activity)
+    writable_session.flush()
+    writable_session.add(
+        ActivityChange(
+            activity_id=activity.id,
+            actor="seed",
+            change_type="created",
+            changed_at=REFERENCE,
+            version_to=1,
+        )
+    )
+    writable_session.flush()
+
+    result = queries.plan_changes_since(writable_session, since="2026-01-01")
+
+    # A naive `by_field[change.field]` tally would key this on the literal
+    # `None` instead -- silently invisible to anyone reading `by_field` for
+    # "which fields moved", which is exactly the failure this bucket exists
+    # to prevent.
+    assert result["by_field"] == {"(created)": 1}
+
+
+def test_plan_changes_survive_a_missing_activity(writable_session):
+    """A change row whose activity_id matches no activity is reported, not
+    dropped -- `activity_changes` has no FK, so this is a real, expected shape,
+    not a data-integrity bug the tool should hide from the caller."""
+    orphan_id = uuid.uuid4()
+    writable_session.add(
+        ActivityChange(
+            activity_id=orphan_id,
+            actor="sync",
+            change_type="updated",
+            field="channel",
+            old_value="Email",
+            new_value="Intranet",
+            changed_at=REFERENCE,
+            version_from=1,
+            version_to=2,
+        )
+    )
+    writable_session.flush()
+
+    result = queries.plan_changes_since(writable_session, since="2026-01-01")
+
+    assert result["changes"] == 1
+    assert len(result["activities"]) == 1
+    orphan_group = result["activities"][0]
+    assert orphan_group["activity_id"] == str(orphan_id)
+    assert orphan_group["tracking_id"] is None
+    assert orphan_group["activity_name"] is None
+    assert orphan_group["activity_found"] is False
+
+
+def test_plan_changes_since_excludes_orphans_once_a_filter_narrows_the_activities(
+    writable_session,
+):
+    """An orphan has no activity to test a filter against, so once a real
+    filter is narrowing the activity set, the orphan cannot be a member of
+    it -- unlike the no-filter case above, where it is reported under a null
+    activity rather than silently dropped."""
+    orphan_id = uuid.uuid4()
+    writable_session.add(
+        ActivityChange(
+            activity_id=orphan_id,
+            actor="sync",
+            change_type="updated",
+            field="channel",
+            changed_at=REFERENCE,
+            version_from=1,
+            version_to=2,
+        )
+    )
+    writable_session.flush()
+
+    result = queries.plan_changes_since(
+        writable_session, since="2026-01-01", lead_team="Team One"
+    )
+
+    assert result["changes"] == 0
+    assert result["activities"] == []
+
+
+def test_plan_changes_since_reports_truncation(writable_session):
+    activities = [_activity(activity_name=f"Activity {index}") for index in range(3)]
+    writable_session.add_all(activities)
+    writable_session.flush()
+    writable_session.add_all(
+        [
+            ActivityChange(
+                activity_id=activity.id,
+                actor="studio",
+                change_type="created",
+                changed_at=REFERENCE + timedelta(hours=index),
+                version_to=1,
+            )
+            for index, activity in enumerate(activities)
+        ]
+    )
+    writable_session.flush()
+
+    result = queries.plan_changes_since(writable_session, since="2026-01-01", limit=2)
+
+    assert result["changes"] == 3
+    assert result["returned"] == 2
+    assert result["truncated"] is True
+    assert result["note"] is not None
+
+
+def test_plan_changes_since_excludes_changes_before_the_boundary(writable_session):
+    activity = _activity()
+    writable_session.add(activity)
+    writable_session.flush()
+    writable_session.add_all(
+        [
+            ActivityChange(
+                activity_id=activity.id,
+                actor="studio",
+                change_type="created",
+                changed_at=REFERENCE - timedelta(days=365),
+                version_to=1,
+            ),
+            ActivityChange(
+                activity_id=activity.id,
+                actor="studio",
+                change_type="updated",
+                field="channel",
+                changed_at=REFERENCE,
+                version_from=1,
+                version_to=2,
+            ),
+        ]
+    )
+    writable_session.flush()
+
+    result = queries.plan_changes_since(writable_session, since="2026-01-01")
+
+    assert result["changes"] == 1
+    assert result["by_change_type"] == {"updated": 1}
+
+
+# --------------------------------------------------------------------------
 # Domain model resource -- pure text generation, no session, no MCP SDK
 # --------------------------------------------------------------------------
 
