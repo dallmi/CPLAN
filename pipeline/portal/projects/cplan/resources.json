@@ -1,0 +1,27 @@
+{
+  "purpose": "Plan and track internal and external communication activity across the year.",
+  "app_title": "Open the planning studio",
+  "tiles": [
+    {
+      "kind": "manual",
+      "title": "User manual",
+      "path": "pipeline/portal/projects/cplan/manual.html",
+      "steps": 9
+    },
+    {
+      "kind": "docs",
+      "title": "Technical documentation",
+      "documents": [
+        {"key": "data-model", "title": "Data model", "path": "pipeline/docs/data-model.md"},
+        {"key": "planning-process", "title": "Planning process", "path": "pipeline/docs/planning-process.md"},
+        {"key": "tracking-id", "title": "Tracking IDs", "path": "pipeline/docs/tracking-id.md"},
+        {"key": "cross-channel-matching", "title": "Cross-channel matching", "path": "pipeline/docs/cross-channel-matching.md"},
+        {"key": "communication-structure", "title": "Communication structure", "path": "pipeline/docs/communication-structure.md"}
+      ]
+    },
+    {"kind": "data", "title": "Data & freshness"},
+    {"kind": "changelog", "title": "What's new", "path": "pipeline/portal/projects/cplan/CHANGELOG.md"},
+    {"kind": "access", "title": "Access & support"},
+    {"kind": "reports", "title": "Reports & downloads", "path": "pipeline/output/reports"}
+  ]
+}
