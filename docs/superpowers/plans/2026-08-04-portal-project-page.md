@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- **No employer brand name anywhere in the repository** — not in code, identifiers, CSS classes, comments, docs, test data, commit messages or committed images. Use "the organisation", "internal platform", `--primary`, `--corp-*`. Verify before every commit with `git grep -Inwi $BRAND -- . ':!*.lock'`.
+- **No employer brand name anywhere in the repository** — not in code, identifiers, CSS classes, comments, docs, test data, commit messages or committed images. Use "the organisation", "internal platform", `--primary`, `--corp-*`. Verify before every commit with `git grep -Inwi "$BRAND" -- . ':!*.lock'`, where `BRAND` is the employer's abbreviation exported in your shell. The literal is deliberately not written down here: a check that spells the name defeats the rule it enforces, and this file is committed.
 - **No absolute local paths in committed files.** Resolve from the project root via `Path(__file__).resolve().parents[N]`.
 - **`pictures/` stays git-ignored.** Manual screenshots go to `pipeline/portal/static/docs/img/`, never to `pictures/`.
 - **The portal must not gain a runtime browser dependency.** Playwright belongs in `requirements-dev.txt` only; a checkout without it must still serve the manual from committed images.
@@ -1686,8 +1686,8 @@ Expected: PASS, no new failures against the pre-change baseline
 - [ ] **Step 4: Run the brand check over tree and history**
 
 ```bash
-git grep -Inwi $BRAND -- . ':!*.lock' ':!pnpm-lock.yaml'
-git log --oneline -20 | grep -iw $BRAND
+git grep -Inwi "$BRAND" -- . ':!*.lock' ':!pnpm-lock.yaml'
+git log --oneline -20 | grep -iw "$BRAND"
 grep -rn "/Users/" --include=*.py --include=*.md --include=*.html --include=*.json pipeline/ docs/ README.md
 ```
 Expected: no output from any of the three.
