@@ -216,13 +216,17 @@ def apply_portal(engine: Engine) -> None:
         c.exec_driver_sql("GRANT USAGE ON SCHEMA portal TO PUBLIC")
         c.exec_driver_sql(
             "CREATE TABLE IF NOT EXISTS portal.projects ("
-            "slug text PRIMARY KEY, name text NOT NULL, url text NOT NULL, role_prefix text NOT NULL)"
+            "slug text PRIMARY KEY, name text NOT NULL, url text NOT NULL, role_prefix text NOT NULL UNIQUE)"
         )
-        # role_prefix was UNIQUE; a second project sharing a first project's
-        # role group (so it needs no roles or users of its own) is a
-        # legitimate registration, not a data error, so the constraint is
-        # dropped here for databases that already applied the old DDL.
-        c.exec_driver_sql("ALTER TABLE portal.projects DROP CONSTRAINT IF EXISTS projects_role_prefix_key")
+        # UNIQUE is load-bearing, not incidental: portal.users and the
+        # create_user/set_project_role functions resolve a project's group
+        # roles by SELECTing role_prefix from this table. Two rows sharing a
+        # prefix would make a grant on one project silently apply to the
+        # other, and portal.users would emit a duplicate row per shared user.
+        # A previous revision of this function briefly dropped the
+        # constraint on this branch to let a test reuse another project's
+        # prefix; that was wrong and never reached a pushed commit or a
+        # database older than this branch, so there is nothing to migrate.
         c.exec_driver_sql("GRANT SELECT ON portal.projects TO PUBLIC")
         # Registry & view are owned by portal_owner so the SECURITY DEFINER
         # functions (also owned by it) can read them under their own privileges.

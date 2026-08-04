@@ -202,11 +202,27 @@ def test_a_project_whose_group_roles_were_never_created_is_404_not_500(portal):
 
 
 def test_a_second_project_needs_no_portal_code(portal, tmp_path):
-    # The measure of the whole design: registering a project and dropping a
-    # manifest beside it must produce a working page.
+    # The measure of the whole design: registering a real second project --
+    # its own role group, a registry row, and a manifest beside it -- must
+    # produce a working page, with zero changes to pipeline/portal itself.
+    # "Its own role group" is not optional set dressing: portal.projects.role_prefix
+    # is UNIQUE precisely so a grant on one project can never silently apply
+    # to another, so this project gets its own four roles, wired the same way
+    # apply_roles wires cplan's (viewer subset of contributor subset of editor
+    # subset of admin), rather than borrowing cplan's.
     from pipeline.portal import app as portal_app
 
-    register_project(portal.state.engine, "secondproj", "Second Project", "http://second/", "cplan")
+    prefix = "secondproj"
+    groups = [f"{prefix}_{role}" for role in ("viewer", "contributor", "editor", "admin")]
+    with portal.state.engine.begin() as c:
+        for group in groups:
+            c.exec_driver_sql(f"CREATE ROLE {group} NOLOGIN")
+        c.exec_driver_sql(f"GRANT {prefix}_viewer TO {prefix}_contributor")
+        c.exec_driver_sql(f"GRANT {prefix}_contributor TO {prefix}_editor")
+        c.exec_driver_sql(f"GRANT {prefix}_editor TO {prefix}_admin")
+        c.exec_driver_sql(f"GRANT {prefix}_admin TO pa_admin")
+
+    register_project(portal.state.engine, "secondproj", "Second Project", "http://second/", prefix)
     projects_root = tmp_path / "projects"
     (projects_root / "secondproj").mkdir(parents=True)
     (projects_root / "secondproj" / "resources.json").write_text(
@@ -225,3 +241,5 @@ def test_a_second_project_needs_no_portal_code(portal, tmp_path):
         portal_app.PROJECTS_ROOT = original
         with portal.state.engine.begin() as c:
             c.exec_driver_sql("DELETE FROM portal.projects WHERE slug = 'secondproj'")
+            for group in groups:
+                c.exec_driver_sql(f"DROP ROLE IF EXISTS {group}")
