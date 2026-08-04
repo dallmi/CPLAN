@@ -2800,6 +2800,49 @@ def test_collisions_report_their_own_truncation(writable_session):
     assert "collisions" in result["note"]
 
 
+def test_collisions_summarize_only_the_pairs_they_return(writable_session, monkeypatch):
+    """`_summarize` runs after the cap, not before it.
+
+    `MAX_PROXIMITY_DAYS` bounds how many pairs are CONSIDERED, not how much
+    each considered pair costs: a 90-day window over a real portfolio still
+    collides far more pairs than any answer returns, and building two full
+    activity dicts for each of them before `_clamp_limit` is the unbounded
+    intermediate this module's docstring promises never to build.
+    """
+    day = REFERENCE + timedelta(days=130)
+    writable_session.add_all(
+        [
+            _activity(
+                activity_name=f"Crowd {index}",
+                tracking_id=f"CLU-{70 + index}-260110-000000{index}-EM",
+                channel="Email",
+                target_audience="Staff",
+                start_date=day,
+                end_date=day,
+            )
+            for index in range(6)
+        ]
+    )
+    writable_session.flush()
+
+    calls = 0
+    real_summarize = queries._summarize
+
+    def counting_summarize(activity):
+        nonlocal calls
+        calls += 1
+        return real_summarize(activity)
+
+    monkeypatch.setattr(queries, "_summarize", counting_summarize)
+    result = queries.detect_collisions(writable_session, limit=2)
+
+    # C(6, 2) == 15 pairs all collide; only 2 are returned.
+    assert result["total"] == 15
+    assert result["returned"] == 2
+    # Two activities per returned pair, and not one dict more.
+    assert calls == 4
+
+
 def test_collision_rule_matches_the_studio_implementation():
     """Pinned against analytics.js so neither collision rule can silently drift.
 

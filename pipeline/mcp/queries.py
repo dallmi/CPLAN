@@ -139,6 +139,8 @@ DEFAULT_PRIORITY_RANK = 1
 
 HIGH_PRIORITY_RANK = 3
 
+CRITICAL_PRIORITY_RANK = 4
+
 _LEADING_INTEGER = re.compile(r"^(\d+)")
 
 # Every case-insensitive equality filter an agent may apply. Free text in the
@@ -231,11 +233,12 @@ MAX_CHANGES_PER_ACTIVITY = 20
 
 # `detect_collisions`'s sliding window has no cap of its own: the inner loop's
 # `break` only fires once the gap exceeds `proximity_days`, so an unbounded
-# value lets it accumulate (and `_summarize`) every pair in the filtered set
-# BEFORE `_clamp_limit` ever runs -- exactly the unbounded intermediate list
-# this module's own docstring promises never to build. 90 days already spans
-# a full planning quarter, well past what "activities near each other" means
-# for this question.
+# value lets it compare every pair in the filtered set before `_clamp_limit`
+# ever runs. 90 days already spans a full planning quarter, well past what
+# "activities near each other" means for this question. This bounds the number
+# of PAIRS considered, not the size of what each considered pair costs -- that
+# is `detect_collisions`' own job, and it defers `_summarize` until after the
+# cap for exactly that reason.
 MAX_PROXIMITY_DAYS = 90
 
 # A cross-tab multiplies two dimensions together (32 packs x 15 channels is 480
@@ -1504,6 +1507,23 @@ def _shared_members(left: Activity, right: Activity, field: str) -> list[str]:
     return shared
 
 
+# Collision severity borrows the priority vocabulary's own ordering rather
+# than restating it: a cross-pack pair takes the higher of the pair's two
+# `priority_rank` values, so "critical" and "high" MUST mean the same numbers
+# here as they do in `priority_rank`. `info` sits below every real severity --
+# an orchestration pair is not a problem at all, so it can never outrank one.
+COLLISION_SEVERITY_ORDER: dict[str, int] = {
+    "critical": CRITICAL_PRIORITY_RANK,
+    "high": HIGH_PRIORITY_RANK,
+    "medium": PRIORITY_WORD_RANKS["medium"],
+    "info": -1,
+}
+
+_SEVERITY_BY_ORDER: dict[int, str] = {
+    order: name for name, order in COLLISION_SEVERITY_ORDER.items()
+}
+
+
 def _epoch_day(value: datetime) -> int:
     """Whole days between the UTC epoch and `value`'s UTC calendar date.
 
@@ -1543,8 +1563,10 @@ def detect_collisions(
       communication pack landing on the same audience is what a pack IS, not
       a problem. Severity is `"info"` for those pairs regardless of
       priority. For a genuine cross-pack collision, severity is the higher
-      of the pair's two `priority_rank` values: `>= 4` critical, `>= 3`
-      high, else medium.
+      of the pair's two `priority_rank` values: `CRITICAL_PRIORITY_RANK`
+      critical, `HIGH_PRIORITY_RANK` high, else medium -- the same constants
+      `priority_rank` itself is read through, so the two orderings cannot
+      drift (`COLLISION_SEVERITY_ORDER` names them once).
     * Rows with no `start_date` cannot be paired and are dropped before
       sorting -- silently, like the studio does (`parseDate` returning
       `null` drops the row out of `sortedIdx`).
@@ -1554,10 +1576,14 @@ def detect_collisions(
     calendar day) rather than comparing every pair: O(n log n + n*k) instead
     of O(n^2), which matters once the portfolio runs into the thousands.
     `proximity_days` is clamped to `[0, MAX_PROXIMITY_DAYS]` -- an unbounded
-    window means the inner loop's `break` never fires, and every pair in the
-    filtered set gets compared and `_summarize`d before `_clamp_limit` ever
-    runs, which is exactly the unbounded intermediate result this module's
-    docstring promises never to build.
+    window means the inner loop's `break` never fires and every pair in the
+    filtered set gets compared. That clamp bounds the number of pairs
+    CONSIDERED; it does not make the intermediate result small, because 90
+    days over a few thousand dated activities still collides a great many
+    pairs. So the per-pair cost is kept minimal instead: a colliding pair
+    accumulates a lightweight tuple of (severity order, gap, the two indices
+    into `dated`, the two shared-member lists), and `_summarize` -- two full
+    activity dicts -- runs only on the pairs that survive `_clamp_limit`.
 
     `channel` and `target_audience` narrow membership-aware here, NOT via the
     exact-equality `text` filter every other tool uses (`_apply_filters`
@@ -1621,8 +1647,14 @@ def detect_collisions(
         key=lambda entry: entry[1],
     )
 
-    severity_order = {"critical": 4, "high": 3, "medium": 2, "info": 1}
-    pairs: list[dict[str, Any]] = []
+    # One lightweight tuple per colliding pair -- (severity order, gap, left
+    # index, right index, shared channels, shared audiences) -- NOT the
+    # response dict. Building the response eagerly meant two full `_summarize`
+    # dicts per pair before the cap, and `MAX_PROXIMITY_DAYS` does not save
+    # that: at 90 days over a few thousand dated activities the pair count is
+    # bounded but large, and `_clamp_limit` then throws away all but `capped`
+    # of them. The indices are enough to summarize the survivors afterwards.
+    found: list[tuple[int, int, int, int, list[str], list[str]]] = []
     for i in range(len(dated)):
         left, left_day, left_pack = dated[i]
         for j in range(i + 1, len(dated)):
@@ -1638,32 +1670,54 @@ def detect_collisions(
             shared_audiences = _shared_members(left, right, "target_audience")
             if not shared_audiences:
                 continue
-            same_pack = bool(left_pack) and left_pack == right_pack
-            if same_pack:
+            if bool(left_pack) and left_pack == right_pack:
                 severity = "info"
             else:
                 rank = max(priority_rank(left.priority), priority_rank(right.priority))
-                severity = "critical" if rank >= 4 else "high" if rank >= 3 else "medium"
-            pairs.append(
-                {
-                    "left": _summarize(left),
-                    "right": _summarize(right),
-                    "gap_days": gap,
-                    "kind": "orchestration" if same_pack else "conflict",
-                    "severity": severity,
-                    "shared_channels": shared_channels,
-                    "shared_audiences": shared_audiences,
-                }
+                severity = (
+                    "critical"
+                    if rank >= CRITICAL_PRIORITY_RANK
+                    else "high"
+                    if rank >= HIGH_PRIORITY_RANK
+                    else "medium"
+                )
+            found.append(
+                (
+                    COLLISION_SEVERITY_ORDER[severity],
+                    gap,
+                    i,
+                    j,
+                    shared_channels,
+                    shared_audiences,
+                )
             )
 
-    pairs.sort(key=lambda pair: (-severity_order[pair["severity"]], pair["gap_days"]))
-    shown = pairs[:capped]
+    # Worst first, closest first within a severity. Python's sort is stable, so
+    # equal (severity, gap) pairs keep the scan order the nested loops produced
+    # -- the same tie-break the eager version inherited from list order.
+    found.sort(key=lambda entry: (-entry[0], entry[1]))
+    shown = [
+        {
+            "left": _summarize(dated[i][0]),
+            "right": _summarize(dated[j][0]),
+            "gap_days": gap,
+            "kind": (
+                "orchestration"
+                if _SEVERITY_BY_ORDER[order] == "info"
+                else "conflict"
+            ),
+            "severity": _SEVERITY_BY_ORDER[order],
+            "shared_channels": shared_channels,
+            "shared_audiences": shared_audiences,
+        }
+        for order, gap, i, j, shared_channels, shared_audiences in found[:capped]
+    ]
     return {
         "checked": len(candidates),
-        "total": len(pairs),
+        "total": len(found),
         "returned": len(shown),
-        "truncated": len(shown) < len(pairs),
-        "note": _truncation_note(len(pairs), len(shown), capped, subject="collisions"),
+        "truncated": len(shown) < len(found),
+        "note": _truncation_note(len(found), len(shown), capped, subject="collisions"),
         "collisions": shown,
     }
 
