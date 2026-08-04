@@ -39,6 +39,16 @@ body { margin: 0; font-family: system-ui, sans-serif; background: var(--bg); col
 
 .page-head h1 { font-size: 26px; font-weight: 600; margin: 0; }
 
+/* ---------- Full-width prose sections (project pages: access & support) ----------
+   A hairline rule above the heading, no box, no shadow: this is a portal
+   shell page reading like a sentence, not a document or a data table in a
+   card. A direct child of .content, same reasoning as .crumbs above. */
+.section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding-bottom: 8px; border-bottom: 1px solid #000; margin-bottom: 14px; }
+.section-head h2 { font-size: 18px; font-weight: 600; margin: 0; }
+.footnote { font-size: 11px; color: var(--grey-4); margin: 0; }
+.prose p { font-size: 14px; line-height: 1.6; margin: 0 0 10px; max-width: 62em; }
+.prose p:last-child { margin-bottom: 0; }
+
 .user-table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .user-table th, .user-table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--surface); }
 /* kit-pass: sentence-case headers */ .user-table th { font-size: 11px; letter-spacing: 0.02em; color: var(--grey-4); }

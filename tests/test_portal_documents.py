@@ -86,6 +86,12 @@ def test_every_declared_document_renders_without_corruption():
         html = render_document("cplan", document["key"], "Communication Planning", documents)
         assert html is not None
         assert "<pre><code" in html or "<p>" in html
+        # Every one of these documents opens with its own top-level heading
+        # in the source; the template supplies a second <h1> from the
+        # manifest title. Exactly one must survive, or the page shows its
+        # title twice (e.g. "Data model" from the manifest, then "Data
+        # Model" from the source, one under the other).
+        assert html.count("<h1") == 1, f"{document['key']!r} rendered {html.count('<h1')} <h1> elements"
 
     data_model_html = render_document("cplan", "data-model", "Communication Planning", documents)
     assert "<table>" in data_model_html

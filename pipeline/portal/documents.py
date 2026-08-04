@@ -32,6 +32,7 @@ vulnerability this module exists to prevent.
 from __future__ import annotations
 
 import html as html_escape
+import re
 from typing import Any
 
 import markdown
@@ -39,6 +40,10 @@ import markdown
 from pipeline.portal.resources import load_manifest, manifest_path
 
 _EXTENSIONS = ["tables", "fenced_code", "sane_lists"]
+
+# Matches the rendered body's own leading <h1>, if it has one, so it can be
+# dropped in favour of the template's single <h1> (see _strip_leading_h1).
+_LEADING_H1 = re.compile(r"\A\s*<h1[^>]*>.*?</h1>\s*", re.DOTALL)
 
 
 def _render_markdown(source: str) -> str:
@@ -53,6 +58,29 @@ def _render_markdown(source: str) -> str:
     converter.preprocessors.deregister("html_block")
     converter.inlinePatterns.deregister("html")
     return converter.convert(source)
+
+
+def _strip_leading_h1(body: str) -> str:
+    """Drop the source document's own top-level heading, if it starts with one.
+
+    `_PAGE` already renders exactly one <h1>, from the manifest's title — the
+    same sentence-case copy already shown in the <title> element, the
+    breadcrumb and the rail, so the page stays internally consistent. Before
+    this, a document whose source begins with `# Some Heading` rendered that
+    heading a second time as the body's own <h1>, immediately under the
+    template's — visible on every one of this project's documents, since all
+    of them open with a top-level heading, and in at least one case wrong
+    even as a duplicate: the manifest says "Data model", the source's own
+    heading says "Data Model", and the two are never reconciled.
+
+    A document is edited for its own sake in `pipeline/docs/`, not for the
+    portal's chrome, so the fix lives here, in the renderer, not in the
+    markdown: only the source's *leading* heading is removed (a non-greedy,
+    start-anchored match), and only when there is one — a document with no
+    top-level heading of its own is untouched, and the template's <h1>
+    quietly does double duty as its only title, exactly as before.
+    """
+    return _LEADING_H1.sub("", body, count=1)
 
 
 def published_documents(slug: str) -> list[dict[str, Any]]:
@@ -76,7 +104,7 @@ def render_document(
         source_note = ""
     else:
         source = path.read_text(encoding="utf-8")
-        body = _render_markdown(source)
+        body = _strip_leading_h1(_render_markdown(source))
         source_note = f"Source: <code>{html_escape.escape(str(path.relative_to(path.parents[2])))}</code>"
     return _PAGE.format(
         title=html_escape.escape(entry.get("title", key)),

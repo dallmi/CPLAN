@@ -78,8 +78,15 @@ def _count_people(n: int) -> str:
     return "1 person" if n == 1 else f"{n} people"
 
 
-def _people_section(row, session: Session, member_count: int | None) -> str:
-    """Who else has access, read from `portal.users` when the caller may see it.
+def _people_section(row, session: Session, member_count: int | None) -> tuple[str, str]:
+    """Who else has access: a (heading, body) pair of HTML fragments.
+
+    Returned as a pair rather than one blob so the caller can build the
+    section heading itself and skip the summary line entirely when there is
+    none to show — emitting an empty `<p class="footnote"></p>` placeholder
+    for that case previously left a stray empty element (and, depending on
+    surrounding rules, a visible rule with nothing on it) between the
+    heading and the content.
 
     `portal.users` grants SELECT to the studio's admin group alone (see
     pipeline/api/setup_portal.py's `_USERS_VIEW` grant); a non-admin's query
@@ -109,8 +116,10 @@ def _people_section(row, session: Session, member_count: int | None) -> str:
         if getattr(exc.orig, "sqlstate", None) != "42501":
             raise
         if member_count:
-            return f"<p>{_count_people(member_count)} have access to this project.</p>"
-        return "<p>Nobody else has been given access to this project yet.</p>"
+            body = f'<div class="prose"><p>{_count_people(member_count)} have access to this project.</p></div>'
+        else:
+            body = '<div class="prose"><p>Nobody else has been given access to this project yet.</p></div>'
+        return "", body
 
     people_rows = "\n".join(
         f"<tr><td>{html_escape.escape(u.username)}</td>"
@@ -118,13 +127,19 @@ def _people_section(row, session: Session, member_count: int | None) -> str:
         f"<td>{'Active' if u.active else 'Disabled'}</td></tr>"
         for u in rows
     )
-    return (
-        f'<p class="footnote">{_count_people(len(rows))} in total.</p>'
-        '<table>\n'
+    heading = f"{_count_people(len(rows))} in total"
+    body = (
+        '<table class="user-table">\n'
         "<thead><tr><th>Name</th><th>Role on this project</th><th>Status</th></tr></thead>\n"
         f"<tbody>{people_rows}</tbody>\n"
         "</table>"
     )
+    return heading, body
+
+
+def _section_head(title: str, footnote: str = "") -> str:
+    aside = f'<p class="footnote">{footnote}</p>' if footnote else ""
+    return f'<div class="section-head"><h2>{title}</h2>{aside}</div>'
 
 
 def _access_page(row, context: dict) -> str:
@@ -133,40 +148,85 @@ def _access_page(row, context: dict) -> str:
     role_desc = html_escape.escape(ROLE_DESC.get(role, ""))
     project = html_escape.escape(row.name)
     slug = html_escape.escape(row.slug)
-    people_section = _people_section(row, context["session"], context.get("member_count"))
+    people_heading, people_body = _people_section(row, context["session"], context.get("member_count"))
     return _ACCESS_PAGE.format(
         project=project,
         slug=slug,
         role_label=role_label,
         role_desc=role_desc,
-        people_section=people_section,
+        your_access_head=_section_head("Your access"),
+        people_head=_section_head("Who else has access", people_heading),
+        people_body=people_body,
+        asking_head=_section_head("Asking for more"),
     )
 
 
+# The portal shell (styles.css), not the document chrome (document.css): this
+# is a portal page reading like Home and the project page, not a document.
+# Matches the topbar/breadcrumb/page-head idiom of project.html, with the
+# same client-side touch for the top bar as project.js -- fetch /api/me and
+# show the username only, no role label. Roles are per project, so a role
+# shown next to the username would contradict the sentence in "Your access"
+# below it whenever they happen to differ; the page's own sentence is the
+# only statement of this project's role.
 _ACCESS_PAGE = """<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Access — {project}</title>
-<link rel="stylesheet" href="/document.css">
+<link rel="stylesheet" href="/styles.css">
 </head><body>
-<header class="top no-print">
-  <a class="brand" href="/project/{slug}"><span class="brand-mark"></span>{project}</a>
+<header class="topbar">
+  <div class="brand"><span class="brand-mark"></span><h1>CPLAN Portal</h1></div>
+  <div id="user-chip" class="user-chip hidden">
+    <span id="user-chip-name"></span>
+    <button id="user-chip-logout" class="btn-ghost" type="button">Sign out</button>
+  </div>
 </header>
-<nav class="crumb no-print"><a href="/">Portal</a> › <a href="/project/{slug}">{project}</a> › Access</nav>
-<main class="doc-layout solo">
-  <article class="doc">
+<main class="content">
+  <nav class="crumbs" aria-label="Breadcrumb">
+    <a href="/">Portal</a>
+    <span class="crumb-sep" aria-hidden="true">&rsaquo;</span>
+    <a href="/project/{slug}">{project}</a>
+    <span class="crumb-sep" aria-hidden="true">&rsaquo;</span>
+    <span class="crumb-here" aria-current="page">Access &amp; support</span>
+  </nav>
+
+  <div class="page-head">
     <h1>Access &amp; support</h1>
+    <p class="subtitle">What you may do in {project}, who else is here, and who to ask for more.</p>
+  </div>
 
-    <h2>Your access</h2>
-    <p>You are <strong>{role_label}</strong> on this project.</p>
-    <p>{role_desc}</p>
+  <div class="section">
+    {your_access_head}
+    <div class="prose">
+      <p>You are <strong>{role_label}</strong> on this project.</p>
+      <p>{role_desc}</p>
+    </div>
+  </div>
 
-    <h2>Who else has access</h2>
-    {people_section}
+  <div class="section">
+    {people_head}
+    {people_body}
+  </div>
 
-    <h2>Asking for more</h2>
-    <p>Roles are changed by a person, not by a form. Ask a project administrator to change your role — the portal team does not hand out project roles.</p>
-  </article>
+  <div class="section">
+    {asking_head}
+    <div class="prose">
+      <p>Roles are changed by a person, not by a form. Ask a project administrator to change your role — the portal team does not hand out project roles.</p>
+    </div>
+  </div>
 </main>
+<script>
+(function () {{
+  fetch('/api/me').then(function (r) {{ return r.ok ? r.json() : null; }}).then(function (user) {{
+    if (!user) return;
+    document.getElementById('user-chip-name').textContent = user.username;
+    document.getElementById('user-chip').classList.remove('hidden');
+  }});
+  document.getElementById('user-chip-logout').addEventListener('click', function () {{
+    fetch('/api/logout', {{ method: 'POST' }}).then(function () {{ window.location.href = '/'; }});
+  }});
+}})();
+</script>
 </body></html>
 """
