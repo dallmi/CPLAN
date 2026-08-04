@@ -1097,8 +1097,21 @@ def test_pack_overview_keeps_an_undated_pack_with_a_null_span(writable_session):
 
 
 def test_pack_overview_counts_distinct_members_not_strings(writable_session):
+    """Both `channels` and `audiences` split on the studio's rule, not `split_multi`.
+
+    `channel` and `target_audience` are absent from `MULTI_VALUE_SEPARATORS`,
+    so `split_multi` returns the whole string as one member for either of
+    them. `pack_overview` ports `campaignScorecards`, which uses
+    `normalizeMulti` for all three counts -- so both call sites must use
+    `_normalize_multi`, and this asserts the audience one too: swapping it to
+    `split_multi` would report 1 audience here and pass every other test.
+    """
     writable_session.add(
-        _activity(communication_pack_cpid="CP-1", channel="Email, Intranet")
+        _activity(
+            communication_pack_cpid="CP-1",
+            channel="Email, Intranet",
+            target_audience="All staff, Line managers",
+        )
     )
     writable_session.flush()
 
@@ -1107,6 +1120,7 @@ def test_pack_overview_counts_distinct_members_not_strings(writable_session):
     pack = result["packs"][0]
     assert pack["channels"] == 2
     assert set(pack["channel_names"]) == {"Email", "Intranet"}
+    assert pack["audiences"] == 2
 
 
 def test_pack_overview_readiness_agrees_with_planning_gaps(writable_session):
@@ -1758,8 +1772,9 @@ def test_calendar_load_matches_the_studio_week_math():
     """Pinned against analytics.js so the week math cannot silently drift.
 
     Same technique as test_priority_rank_matches_the_studio_implementation:
-    read the studio's own source for the 7-day step and the half-open
-    comparison rather than re-deriving the rule independently.
+    read the studio's own source for the 7-day step, the half-open comparison
+    and the midnight truncation rather than re-deriving any of them
+    independently.
     """
     studio = (REPO_ROOT / "pipeline" / "studio" / "analytics.js").read_text()
     match = re.search(r"function weeklyCoverage\([^)]*\)\s*\{(.*?)\n  \}", studio, re.DOTALL)
@@ -1768,6 +1783,12 @@ def test_calendar_load_matches_the_studio_week_math():
     assert "from.getDate() + i * 7" in body
     assert "to.getDate() + 7" in body
     assert "date >= from && date < to" in body
+    # The truncation `_truncate_to_midnight` mirrors, and the whole reason
+    # calendar_load and window_comparison disagree about their anchor:
+    # `weeklyCoverage` floors the anchor to midnight, `comparisonWindow` uses
+    # the raw instant. Drop this line on either side and the two tools quietly
+    # agree again -- which is the bug, not the fix.
+    assert "start.setHours(0, 0, 0, 0);" in body
 
 
 def test_window_comparison_counts_both_windows_and_the_delta(writable_session):
@@ -2964,12 +2985,17 @@ def test_data_quality_incomplete_agrees_with_planning_gaps(writable_session):
 
 
 def test_lead_time_and_quality_pin_against_the_studio():
-    """Pins two studio formulas so this port cannot silently drift.
+    """Pins three studio formulas so this port cannot silently drift.
 
     Same technique as test_priority_rank_matches_the_studio_implementation:
-    read analytics.js's own source for the quantile arithmetic and for the
-    `hasCampaignOrPack` exclusion of `tracking_pack_id`, rather than
-    re-deriving either rule independently.
+    read analytics.js's own source for the quantile arithmetic, the
+    `leadTimeStats` value filter and the `hasCampaignOrPack` exclusion of
+    `tracking_pack_id`, rather than re-deriving any of them independently.
+
+    Each rule is asserted as its WHOLE line, the way
+    test_collision_rule_matches_the_studio_implementation asserts its guard:
+    a set of substring checks passes even when the operator between them
+    flips, which is exactly the drift these pins exist to catch.
     """
     studio = (REPO_ROOT / "pipeline" / "studio" / "analytics.js").read_text()
 
@@ -2978,6 +3004,18 @@ def test_lead_time_and_quality_pin_against_the_studio():
     quantile_body = quantile_match.group(1)
     assert "const index = (sorted.length - 1) * p;" in quantile_body
     assert "return Math.round(value * 10) / 10;" in quantile_body
+    # The single-element quirk `_quantile` deliberately keeps rather than
+    # "fixes": one value is returned raw and unrounded, bypassing the
+    # interpolation and the one-decimal rounding entirely.
+    assert "if (sorted.length === 1) return sorted[0];" in quantile_body
+
+    lead_match = re.search(r"function leadTimeStats\([^)]*\)\s*\{(.*?)\n  \}", studio, re.DOTALL)
+    assert lead_match, "leadTimeStats not found in analytics.js"
+    lead_body = lead_match.group(1)
+    # A negative lead time is DROPPED, not clamped to zero. Asserted as the
+    # whole filter: `>= 0` alone would still pass if the studio started
+    # clamping, and `Number.isFinite` alone says nothing about the sign.
+    assert ".filter(v => Number.isFinite(v) && v >= 0)" in lead_body
 
     pack_match = re.search(
         r"function hasCampaignOrPack\([^)]*\)\s*\{(.*?)\n  \}", studio, re.DOTALL
@@ -2988,9 +3026,13 @@ def test_lead_time_and_quality_pin_against_the_studio():
     # name; only the live code -- a `row.tracking_pack_id` access -- would
     # indicate the exclusion was dropped.
     assert "row.tracking_pack_id" not in pack_body
-    assert "row.communication_pack_cpid" in pack_body
-    assert "row.communication_pack" in pack_body
-    assert "row.campaign" in pack_body
+    # The whole return line, not three presence checks: flipping `||` to `&&`
+    # inverts the metric (a row would need all three links to count as
+    # pack-linked) while every presence check still passes.
+    assert (
+        "return !empty(row.communication_pack_cpid) || "
+        "!empty(row.communication_pack) || !empty(row.campaign);"
+    ) in pack_body
 
 
 # --------------------------------------------------------------------------
