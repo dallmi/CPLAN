@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CPLAN Portal — Project</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%3E%3Crect%20width='24'%20height='24'%20fill='%23FFFFFF'/%3E%3Crect%20x='9'%20width='6'%20height='24'%20fill='%23E60000'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark"></span><h1>CPLAN Portal</h1></div>
+    <div id="user-chip" class="user-chip hidden">
+      <span id="user-chip-name"></span>
+      <button id="user-chip-logout" class="btn-ghost" type="button">Sign out</button>
+    </div>
+  </header>
+
+  <main class="content">
+    <nav class="crumbs" aria-label="Breadcrumb">
+      <a href="/">Portal</a>
+      <span class="crumb-sep" aria-hidden="true">&rsaquo;</span>
+      <span class="crumb-here" id="project-crumb" aria-current="page"></span>
+    </nav>
+
+    <div class="page-head">
+      <h1 id="project-name"></h1>
+      <p id="project-purpose" class="subtitle"></p>
+      <p id="project-role" class="subtitle"></p>
+    </div>
+
+    <section class="panel">
+      <div class="panel-head"><h2>Everything about this project</h2></div>
+      <div id="project-tiles" class="tiles"></div>
+    </section>
+  </main>
+
+  <script src="project.js"></script>
+</body>
+</html>

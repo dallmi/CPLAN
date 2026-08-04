@@ -301,6 +301,10 @@ def create_portal_app(database_url: str | URL | None = None, auth_settings: Auth
         _call(session, "SELECT portal.set_active(:n, :a)", {"n": username, "a": payload.active})
         return {"status": "ok"}
 
+    from pipeline.portal.pages import register_pages
+
+    register_pages(app, db_session, project_row, tile_context)
+
     static_dir = Path(__file__).resolve().parent / "static"
     app.mount("/", StaticFiles(directory=static_dir, html=True), name="portal")
     return app

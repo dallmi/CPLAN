@@ -22,7 +22,22 @@ body { margin: 0; font-family: system-ui, sans-serif; background: var(--bg); col
 .tile { display: block; padding: 16px; border: 1px solid var(--surface); border-left: 3px solid var(--primary); border-radius: var(--radius); text-decoration: none; color: #000; }
 .tile:hover { background: var(--bg); }
 .tile-name { font-weight: 600; }
-.tile-url { font-size: 12px; color: var(--grey-4); margin-top: 4px; word-break: break-all; }
+.tile-status { font-size: 12px; color: var(--grey-4); margin-top: 6px; }
+/* The application tile on a project page: same idiom, more weight, no red
+   fill — it earns prominence from size and being first, not from decoration. */
+.tile-primary { grid-column: 1 / -1; padding: 20px; }
+.tile-primary .tile-name { font-size: 18px; }
+
+/* ---------- Breadcrumb (project page) ----------
+   A direct child of .content, which already supplies the page's horizontal
+   padding and the 24px gap between sections — no margin duplicated here. */
+.crumbs { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 12px; color: var(--grey-4); }
+.crumbs a { color: #000; font-weight: 600; text-decoration: none; }
+.crumbs a:hover { color: var(--primary-dark); }
+.crumbs .crumb-sep { color: var(--grey-4); }
+.crumbs .crumb-here { color: var(--grey-4); }
+
+.page-head h1 { font-size: 26px; font-weight: 600; margin: 0; }
 
 .user-table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .user-table th, .user-table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--surface); }
