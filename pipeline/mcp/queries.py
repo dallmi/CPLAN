@@ -23,6 +23,7 @@ to the studio.
 
 from __future__ import annotations
 
+import math
 import re
 import uuid
 from dataclasses import dataclass, field as dataclass_field
@@ -305,6 +306,45 @@ def is_high_priority(value: Any) -> bool:
     return priority_rank(value) >= HIGH_PRIORITY_RANK
 
 
+def _js_round(value: float) -> int:
+    """`Math.round()` semantics for a non-negative value: half rounds up, not
+    to even.
+
+    Every caller here only ever rounds a non-negative ratio scaled by 10 or
+    1000 (a quantile, a rate, a percentage), so "non-negative" is the whole
+    domain this needs to cover. Python's builtin `round()` rounds half-to-even
+    (round(42.5) == 42), which disagrees with JavaScript's `Math.round()`
+    (Math.round(42.5) === 43) on an exact half -- the same class of
+    backend-vs-language mismatch `lead_days`' docstring already documents for
+    PostgreSQL's `round()`. `analytics.js::quantile`, `leadTimeStats` and
+    `dataQuality` all divide by 10 after this rounding step, so getting the
+    halfway case wrong here silently ports a wrong figure.
+    """
+    return math.floor(value + 0.5)
+
+
+def _quantile(values: list[float], p: float) -> float | None:
+    """Linear-interpolation quantile, mirroring `analytics.js::quantile` exactly.
+
+    NOT a nearest-rank percentile and NOT numpy's default `interpolation`
+    setting: `values` must already be sorted ascending. Interpolates between
+    the two bracketing values at fractional rank `(len(values) - 1) * p`, then
+    rounds to one decimal via `_js_round` -- except for a single-element
+    input, which the studio returns raw and unrounded (`if (sorted.length ===
+    1) return sorted[0];`), a quirk this port keeps rather than "fixes".
+    `None` for an empty input, matching the studio's `null`.
+    """
+    if not values:
+        return None
+    if len(values) == 1:
+        return values[0]
+    index = (len(values) - 1) * p
+    lower = math.floor(index)
+    upper = math.ceil(index)
+    value = values[lower] + (values[upper] - values[lower]) * (index - lower)
+    return _js_round(value * 10) / 10
+
+
 def lead_days(activity: Activity) -> int | None:
     """Whole days between the reference timestamp and start_date.
 
@@ -409,6 +449,26 @@ def missing_fields(activity: Activity) -> list[str]:
         elif is_blank(value):
             missing.append(field)
     return missing
+
+
+def _has_campaign_or_pack(activity: Activity) -> bool:
+    """Mirrors `analytics.js::hasCampaignOrPack` exactly -- and its exclusion.
+
+    Deliberately does NOT check `tracking_pack_id`: that field is derived from
+    the first two `-`-separated segments of `tracking_id` (see
+    `ActivityRead.tracking_pack_id` / `_pack_key`), so every activity that has
+    any tracking id at all would produce one, making this predicate true
+    unconditionally and pinning `missing_pack_ids` to zero regardless of the
+    real data -- the exact regression the studio's own comment on
+    `hasCampaignOrPack` describes. Membership is judged only by the fields
+    that actually record it: `communication_pack_cpid`, `communication_pack`,
+    `campaign`.
+    """
+    return not (
+        is_blank(activity.communication_pack_cpid)
+        and is_blank(activity.communication_pack)
+        and is_blank(activity.campaign)
+    )
 
 
 def _bucket_keys(activity: Activity, field: str) -> list[str]:
@@ -1746,6 +1806,129 @@ def window_comparison(
         },
         "change": change,
         "change_pct": change_pct,
+    }
+
+
+def lead_time_stats(
+    session: Session,
+    *,
+    threshold_days: int = 7,
+    **filter_kwargs: Any,
+) -> dict[str, Any]:
+    """Planning lead-time distribution, mirroring `analytics.js::leadTimeStats`.
+
+    Reuses `lead_days` (Phase 1) for every value rather than reimplementing
+    the day count -- see that function's docstring for why it must stay a
+    Python computation rather than a SQL `round()`.
+
+    A row enters the distribution only when `lead_days` is computable AND
+    `>= 0`: a negative lead time (the activity's start date is before its
+    planning reference) is DROPPED, not clamped to zero, matching the
+    studio's `.filter(v => Number.isFinite(v) && v >= 0)`. `excluded` counts
+    every row that fails either test -- no computable value, or negative --
+    against the whole filtered candidate set, not just the ones with a value
+    at all.
+
+    Returns no scalar to cap: this reports summary statistics over the
+    filtered set, not a list, so `_clamp_limit` has nothing to apply to.
+
+    `median`/`p25`/`p75` use `_quantile`, the same linear-interpolation
+    arithmetic as the studio's `quantile` -- not a nearest-rank percentile,
+    not numpy's default -- rounded to one decimal exactly as the studio
+    rounds it. `threshold_days` is consumed by this signature before
+    `**filter_kwargs` ever reaches `_build_filters`, which raises on an
+    unrecognised keyword.
+    """
+    filters = _build_filters(**filter_kwargs)
+    candidates = _filtered_activities(session, filters)
+    values = sorted(
+        day
+        for day in (lead_days(activity) for activity in candidates)
+        if day is not None and day >= 0
+    )
+    valid = len(values)
+    short_notice = sum(1 for value in values if value < threshold_days)
+    return {
+        "valid": valid,
+        "excluded": len(candidates) - valid,
+        "short_notice": short_notice,
+        "short_notice_rate": (
+            _js_round((short_notice / valid) * 1000) / 10 if valid else 0
+        ),
+        "median": _quantile(values, 0.5),
+        "p25": _quantile(values, 0.25),
+        "p75": _quantile(values, 0.75),
+        "threshold_days": threshold_days,
+    }
+
+
+def data_quality(session: Session, **filter_kwargs: Any) -> dict[str, Any]:
+    """Portfolio-wide data-quality tally, mirroring `analytics.js::dataQuality`.
+
+    `duplicate_tracking_ids` counts tracking ids that occur MORE THAN ONCE --
+    the number of ids, not the number of duplicate rows. Three rows sharing
+    one tracking id count as `1`, not `2` and not `3`: the studio counts
+    groups (`Array.from(counts.values()).filter(n => n > 1).length`), and a
+    data steward reading "duplicates: 1" investigates one id, while reading
+    "duplicates: 3" would send them looking for three.
+
+    `missing_pack_ids` uses `_has_campaign_or_pack`, the studio's
+    `hasCampaignOrPack` rule, which DELIBERATELY EXCLUDES `tracking_pack_id`
+    -- see that function's docstring for why counting it would pin this
+    metric to zero regardless of the real data.
+
+    `invalid_date_ranges` is `end_date < start_date`, counted only when BOTH
+    dates are present (an activity missing either date cannot have a
+    "reversed" range; that gap is `missing_fields`' concern, not this one's).
+
+    `incomplete` reuses `missing_fields` unchanged -- the same rule
+    `planning_gaps` reports against, so the two figures cannot drift apart.
+
+    `completeness_rate` is a percentage to one decimal, `_js_round`ed exactly
+    as the studio's `completenessRate` is, over the filtered candidate set
+    (`total`), not the whole table.
+
+    Returns no scalar to cap: this reports summary counts, not a list.
+    """
+    filters = _build_filters(**filter_kwargs)
+    candidates = _filtered_activities(session, filters)
+
+    tracking_id_counts: dict[str, int] = {}
+    missing_tracking_ids = 0
+    invalid_date_ranges = 0
+    missing_pack_ids = 0
+    incomplete = 0
+    for activity in candidates:
+        if is_blank(activity.tracking_id):
+            missing_tracking_ids += 1
+        else:
+            tracking_id_counts[activity.tracking_id] = (
+                tracking_id_counts.get(activity.tracking_id, 0) + 1
+            )
+        if (
+            activity.start_date is not None
+            and activity.end_date is not None
+            and activity.end_date < activity.start_date
+        ):
+            invalid_date_ranges += 1
+        if not _has_campaign_or_pack(activity):
+            missing_pack_ids += 1
+        if missing_fields(activity):
+            incomplete += 1
+
+    total = len(candidates)
+    duplicate_tracking_ids = sum(1 for count in tracking_id_counts.values() if count > 1)
+    completeness_rate = (
+        _js_round(((total - incomplete) / total) * 1000) / 10 if total else 0
+    )
+    return {
+        "total": total,
+        "missing_tracking_ids": missing_tracking_ids,
+        "duplicate_tracking_ids": duplicate_tracking_ids,
+        "invalid_date_ranges": invalid_date_ranges,
+        "missing_pack_ids": missing_pack_ids,
+        "incomplete": incomplete,
+        "completeness_rate": completeness_rate,
     }
 
 

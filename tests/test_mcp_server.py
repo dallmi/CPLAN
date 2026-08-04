@@ -2791,6 +2791,195 @@ def test_collision_rule_matches_the_studio_implementation():
 
 
 # --------------------------------------------------------------------------
+# Lead-time statistics and data quality (Task 5)
+# --------------------------------------------------------------------------
+
+
+def test_lead_time_quantiles_match_the_studio_math(writable_session):
+    """Hand-computed against the studio's own interpolation formula.
+
+    Lead times 2, 5, 9, 20 (four activities, `source_created_at=REFERENCE`,
+    `start_date` offset to land on exactly those day counts). Verified against
+    `analytics.js::quantile` directly (not re-derived independently):
+
+        median = quantile([2, 5, 9, 20], 0.5)
+                = 5 + (9 - 5) * (1.5 - 1)      = 7.0
+        p25     = quantile([2, 5, 9, 20], 0.25)
+                = 2 + (5 - 2) * (0.75 - 0)     = 4.25 -> rounds to 4.3
+        p75     = quantile([2, 5, 9, 20], 0.75)
+                = 9 + (20 - 9) * (2.25 - 2)    = 11.75 -> rounds to 11.8
+
+    p25's 4.25 is the case that actually exercises `Math.round`'s
+    round-half-away-from-zero: 4.25 * 10 = 42.5, and `Math.round(42.5) ===
+    43`, while Python's builtin `round(42.5)` rounds to the nearest EVEN
+    integer and returns 42 (4.2) -- a naive port using `round()` instead of
+    `_js_round` would report 4.2 here and this assertion would catch it.
+    """
+    for days in (2, 5, 9, 20):
+        writable_session.add(
+            _activity(
+                source_created_at=REFERENCE,
+                start_date=REFERENCE + timedelta(days=days),
+            )
+        )
+    writable_session.flush()
+
+    result = queries.lead_time_stats(writable_session)
+
+    assert result["valid"] == 4
+    assert result["excluded"] == 0
+    assert result["median"] == 7.0
+    assert result["p25"] == 4.3
+    assert result["p75"] == 11.8
+
+
+def test_lead_time_excludes_negative_and_unknown_values(writable_session):
+    """Negative lead times are DROPPED, not clamped -- and count as excluded.
+
+    An unknown (no `start_date`) value is excluded the same way. Neither
+    enters the quantiles: only the single remaining positive value does, so
+    every quantile falls back to that lone value (`_quantile`'s
+    single-element branch).
+    """
+    writable_session.add_all(
+        [
+            _activity(source_created_at=REFERENCE, start_date=REFERENCE + timedelta(days=10)),
+            # Negative lead time: starts before its own planning reference.
+            _activity(source_created_at=REFERENCE, start_date=REFERENCE - timedelta(days=5)),
+            # Unknown: no start_date at all, so lead_days() is None.
+            _activity(source_created_at=REFERENCE, start_date=None),
+        ]
+    )
+    writable_session.flush()
+
+    result = queries.lead_time_stats(writable_session)
+
+    assert result["valid"] == 1
+    assert result["excluded"] == 2
+    assert result["median"] == 10
+    assert result["p25"] == 10
+    assert result["p75"] == 10
+
+
+def test_data_quality_counts_duplicate_ids_as_groups_not_rows(writable_session):
+    """Three rows sharing one tracking id count as ONE duplicate, not three.
+
+    The studio counts groups (`Array.from(counts.values()).filter(n => n >
+    1).length`); counting rows instead would report `3` here (or `2`, the row
+    count minus one), either of which would send a data steward looking for
+    the wrong number of ids to fix.
+
+    `legacy_sp_id` is set on all four rows: the schema's own unique index on
+    `tracking_id` (`ix_activities_tracking_id_v6_unique`) only applies to
+    studio-generated rows (`legacy_sp_id IS NULL`) -- legacy-imported rows are
+    exempt because the source system genuinely contains duplicate tracking
+    ids, which is exactly the case this metric exists to surface.
+    """
+    writable_session.add_all(
+        [
+            _activity(legacy_sp_id=1, tracking_id="CLU-1-260110-0000001-EM"),
+            _activity(legacy_sp_id=2, tracking_id="CLU-1-260110-0000001-EM"),
+            _activity(legacy_sp_id=3, tracking_id="CLU-1-260110-0000001-EM"),
+            _activity(legacy_sp_id=4, tracking_id="CLU-1-260110-0000002-EM"),
+        ]
+    )
+    writable_session.flush()
+
+    result = queries.data_quality(writable_session)
+
+    assert result["duplicate_tracking_ids"] == 1
+
+
+def test_data_quality_flags_reversed_date_ranges(writable_session):
+    writable_session.add_all(
+        [
+            _activity(start_date=REFERENCE, end_date=REFERENCE + timedelta(days=1)),
+            # Reversed: end before start.
+            _activity(start_date=REFERENCE + timedelta(days=5), end_date=REFERENCE),
+        ]
+    )
+    writable_session.flush()
+
+    result = queries.data_quality(writable_session)
+
+    assert result["invalid_date_ranges"] == 1
+
+
+def test_data_quality_pack_ids_ignore_tracking_pack_id(writable_session):
+    """`missing_pack_ids` must NOT treat a derived `tracking_pack_id` as a pack.
+
+    Every default `_activity()` carries a `tracking_id`, which derives a
+    non-blank `tracking_pack_id` (`ActivityRead.tracking_pack_id`). If that
+    field counted, this activity -- which has no `communication_pack_cpid`,
+    `communication_pack`, or `campaign` -- would wrongly read as pack-linked
+    and `missing_pack_ids` would be `0` here instead of `1`.
+    """
+    writable_session.add_all(
+        [
+            _activity(communication_pack_cpid=None, communication_pack=None, campaign=None),
+            _activity(communication_pack_cpid="CP-1"),
+        ]
+    )
+    writable_session.flush()
+
+    result = queries.data_quality(writable_session)
+
+    assert result["missing_pack_ids"] == 1
+
+
+def test_data_quality_incomplete_agrees_with_planning_gaps(writable_session):
+    """`incomplete` reuses `missing_fields`, the same rule `planning_gaps`
+    reports against -- the two figures must not drift apart."""
+    writable_session.add_all(
+        [
+            _activity(channel=None),  # incomplete
+            _activity(lead_team=None),  # incomplete
+            _activity(),  # complete
+        ]
+    )
+    writable_session.flush()
+
+    quality = queries.data_quality(writable_session)
+    gaps = queries.planning_gaps(writable_session)
+
+    assert quality["incomplete"] == gaps["incomplete"]
+    assert quality["total"] == gaps["checked"]
+    assert quality["completeness_rate"] == round(
+        (quality["total"] - quality["incomplete"]) / quality["total"] * 100, 1
+    )
+
+
+def test_lead_time_and_quality_pin_against_the_studio():
+    """Pins two studio formulas so this port cannot silently drift.
+
+    Same technique as test_priority_rank_matches_the_studio_implementation:
+    read analytics.js's own source for the quantile arithmetic and for the
+    `hasCampaignOrPack` exclusion of `tracking_pack_id`, rather than
+    re-deriving either rule independently.
+    """
+    studio = (REPO_ROOT / "pipeline" / "studio" / "analytics.js").read_text()
+
+    quantile_match = re.search(r"function quantile\([^)]*\)\s*\{(.*?)\n  \}", studio, re.DOTALL)
+    assert quantile_match, "quantile not found in analytics.js"
+    quantile_body = quantile_match.group(1)
+    assert "const index = (sorted.length - 1) * p;" in quantile_body
+    assert "return Math.round(value * 10) / 10;" in quantile_body
+
+    pack_match = re.search(
+        r"function hasCampaignOrPack\([^)]*\)\s*\{(.*?)\n  \}", studio, re.DOTALL
+    )
+    assert pack_match, "hasCampaignOrPack not found in analytics.js"
+    pack_body = pack_match.group(1)
+    # The comment explaining the exclusion mentions "tracking_pack_id" by
+    # name; only the live code -- a `row.tracking_pack_id` access -- would
+    # indicate the exclusion was dropped.
+    assert "row.tracking_pack_id" not in pack_body
+    assert "row.communication_pack_cpid" in pack_body
+    assert "row.communication_pack" in pack_body
+    assert "row.campaign" in pack_body
+
+
+# --------------------------------------------------------------------------
 # Domain model resource -- pure text generation, no session, no MCP SDK
 # --------------------------------------------------------------------------
 
