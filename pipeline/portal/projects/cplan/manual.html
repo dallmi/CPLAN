@@ -145,7 +145,16 @@ dl.gloss > div { scroll-margin-top: 5.5rem; }
      letting it break only pushes it whole onto the next page and clips the
      overflow — the bottom of the capture was being lost. Scale it to fit one
      page instead; the PDF still embeds it at full resolution, so it stays
-     sharp when the reader zooms. */
+     sharp when the reader zooms.
+     Known limitation: at 3200x6754px this scales to roughly 118mm wide, well
+     under the ~180mm a portrait page offers — legible on screen (zoom) but
+     small on paper, the tradeoff against clipping made above. The better fix
+     is not a bigger max-height, it's not shipping one tall capture at all:
+     re-split the "health" shot in capture_manual_shots.py into two or three
+     shorter ones (e.g. Planning health / Coverage / Data health, the same
+     three sections the manual's own prose already breaks Health into), each
+     printing at a normal size. Left as-is here; re-capturing is a bigger
+     change than this fix should carry. */
   .shot.tall img { width: auto; max-width: 100%; max-height: 245mm; }
   .guide-cover { break-after: avoid; }
   h2, .gloss-h, .gloss-group { break-after: avoid; }
@@ -453,7 +462,7 @@ dl.gloss > div { scroll-margin-top: 5.5rem; }
 
   <div class="gloss-group">Fields and classification</div>
   <dl class="gloss">
-    <div id="g-channel"><dt>Channel</dt><dd>Where the activity is published. Channels are managed centrally, and each carries the abbreviation used in the tracking ID — for example <span class="f">EMA</span> for email. <span class="f">channels.channel_abbr</span></dd></div>
+    <div id="g-channel"><dt>Channel</dt><dd>Where the activity is published. Channels are managed centrally, and each carries the abbreviation used in the tracking ID — <span class="f">channels.channel_abbr</span>. The letters themselves are data, not a fixed convention: they are configured per installation, so the abbreviation for a given channel can differ from one deployment to the next (the technical documentation's own worked example uses <span class="f">EMI</span> for email).</dd></div>
     <div id="g-priority"><dt>Priority</dt><dd>Critical, High, Medium or Low. Records arriving from the source system carry numbered labels, which the studio ranks onto the same four.</dd></div>
     <div id="g-pillar"><dt>Communications pillar</dt><dd>The strategic objective an activity serves. Required, and reported on in the coverage view. <span class="f">strategic_objectives</span></dd></div>
     <div id="g-target-audience"><dt>Target audience</dt><dd>Who the activity is aimed at — for example Managers or All Employees. Required on internal activities. <span class="f">target_audience</span></dd></div>

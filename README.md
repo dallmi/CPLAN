@@ -25,7 +25,15 @@ PYTHONPATH=. .venv/bin/python pipeline/scripts/start_cplan.py
 
 Multi-user access control (login, viewer/contributor/editor/admin) is documented in [`pipeline/api/README.md`](pipeline/api/README.md#authentication--roles).
 
-A portal (landing page with project tiles and browser-based user administration) is available — see [`pipeline/api/README.md`](pipeline/api/README.md#portal).
+A portal (landing page with project tiles and browser-based user administration) is available — see [`pipeline/api/README.md`](pipeline/api/README.md#portal). Its project page carries a hand-authored user manual illustrated with real screenshots; after a portal or studio UI change, refresh them with:
+
+```bash
+CPLAN_DB_PASSWORD=<password> docker compose up -d db
+CPLAN_TEST_DATABASE_URL=postgresql+psycopg://cplan:<password>@127.0.0.1:55432/cplan \
+    PYTHONPATH=. .venv/bin/python pipeline/scripts/capture_manual_shots.py
+```
+
+`pipeline/scripts/capture_manual_shots.py` provisions a disposable PostgreSQL database (schema, roles, seed data), drives the studio and the portal through Playwright, saves nine PNGs to `pipeline/portal/static/docs/img/`, and drops the database again — repeatable, and safe on a shared server. Playwright is a development-only dependency (`requirements-dev.txt`, `pip install -r requirements-dev.txt` then `playwright install chromium`); it is never imported by the portal itself. The captured PNGs are committed, so a checkout with no Playwright installed still serves a working manual with its existing pictures — only regenerating them needs the dev dependency. Inspect every PNG by hand before committing: the seed data is organisation-neutral by construction, but a screenshot is still a screenshot.
 
 `--backend postgres-embedded` is the recommended corp default: a real PostgreSQL 16, run as an unprivileged local process via [`pgserver`](https://pypi.org/project/pgserver/) — no admin rights, no installer, no external service. SQLite (`--backend sqlite`) remains the zero-dependency fallback when even that is not wanted. See [`pipeline/api/README.md`](pipeline/api/README.md#embedded-postgresql---backend-postgres-embedded) for the data-directory story, `cplan_db.py --status`/`--stop`, and the pg_dump-to-production path.
 

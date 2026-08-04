@@ -68,6 +68,23 @@ def test_access_page_states_the_callers_role(portal):
     assert "Viewer" in page.text
 
 
+def test_access_page_top_bar_carries_the_username_and_no_role_label(portal):
+    # Carried over from the project-page decision this page's own comment
+    # documents: "username only, no role label" -- a role shown in the top
+    # bar would contradict the sentence "Your access" states below it
+    # whenever the two happen to differ, which is exactly the contradiction
+    # this decision exists to avoid; the role stays a one-place fact. The
+    # username is populated client-side (same /api/me fetch project pages
+    # use), so the assertion is on the markup and script the client runs,
+    # not on rendered text.
+    page = login(portal, "pa_viewer").get("/project/cplan/access")
+    assert page.status_code == 200
+    assert 'id="user-chip-name"' in page.text
+    assert "/api/me" in page.text
+    assert "user.username" in page.text
+    assert "user.role" not in page.text
+
+
 def test_pages_of_an_unentitled_project_are_404(portal):
     assert login(portal, "pa_admin").get("/project/nosuchproject").status_code == 404
 
