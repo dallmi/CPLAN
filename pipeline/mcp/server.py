@@ -171,6 +171,11 @@ def build_server(database_url: str) -> MCPServer:
         finds every activity involving any executive at all, without needing a
         name.
 
+        `channel` and `target_audience` often hold several values in one string
+        and are matched as the WHOLE string, so `channel="Email"` will not match
+        a row storing "Email, Intranet" -- call field_values first and filter on
+        the combination the data actually holds.
+
         Windows: `start_after`/`start_before` filter start_date,
         `end_after`/`end_before` filter end_date; both take 'YYYY-MM-DD' or a
         full ISO timestamp. `max_lead_days` finds short-notice activities (days
@@ -323,6 +328,14 @@ def build_server(database_url: str) -> MCPServer:
         Grouping a multi-value column (strategic_objectives, the executive
         columns) tallies individual members, so the total counts memberships and
         can exceed the activity count -- `counts_memberships` says when.
+
+        `channel` and `target_audience` are NOT among those: they often hold
+        several values in one string and are bucketed as the whole string, so
+        `dimension="channel"` can return a bucket literally named
+        "Email, Intranet" while `counts_memberships` stays false. detect_collisions
+        and pack_overview do split them, so their channel and audience counts
+        legitimately exceed these buckets -- two different questions, not a
+        contradiction.
 
         `executive=` narrows to the activities one executive is involved in
         (either executive column), so "how does one executive's involvement split

@@ -3346,6 +3346,35 @@ def test_domain_model_states_the_real_multi_value_separators():
         assert name in text, name
 
 
+def test_domain_model_discloses_the_unsplit_multi_value_columns():
+    """`channel` and `target_audience` are multi-valued in the data but scalar
+    to the filter and group tools -- the resource must say so.
+
+    Trap 4 is generated from `MULTI_VALUE_SEPARATORS`, so it names exactly the
+    three columns the tools DO split. Left at that, the resource asserts a data
+    shape the database contradicts: a live plan holds `channel="Email,
+    Intranet"` alongside `channel="Email"`, so `activity_counts` returns a
+    bucket named for the combination, `search_activities(channel="Email")`
+    silently misses it, and `pack_overview` counts two channels for the same
+    row. Three tools, three answers about one column -- the agent can only
+    reconcile them if the resource discloses the fork. This is the same failure
+    class an eval run already caught on `audience`: a resource asserting a
+    shape the data does not have.
+    """
+    from pipeline.mcp.domain import domain_model
+
+    text = domain_model()
+    trap = text.split("## Trap 4")[1].split("## Trap 5")[0]
+    for name in ("channel", "target_audience"):
+        assert name in trap, name
+    # The three tools that answer differently must all be named, so the agent
+    # can tell a genuine contradiction from two different questions.
+    for tool in ("search_activities", "activity_counts", "field_values"):
+        assert tool in trap, tool
+    for tool in ("detect_collisions", "pack_overview"):
+        assert tool in trap, tool
+
+
 def test_domain_model_uses_the_generic_organisation_vocabulary():
     """The resource text reaches an external model -- it must stay brand-neutral.
 

@@ -111,13 +111,26 @@ matches nothing and returns zero — which looks like a real answer. Call
 `field_values` for a column before filtering on it. Filters compare
 case-insensitively, so only the spelling has to be right.
 
-## Trap 4 — three columns hold several values in one string
+## Trap 4 — several columns hold several values in one string
+
+Three of them are split for you everywhere:
 
 {separators}
 
 Grouping the raw strings yields combinations, not individual objectives or people.
 The tools split them for you: group by the column name, or filter with
 `strategic_objective=` / `executive=` for exact membership.
+
+**`channel` and `target_audience` also hold several values in one string, but
+the filter and group tools treat the whole string as one value.**
+`activity_counts(dimension="channel")` can return a bucket literally named
+`"Email, Intranet"`, and `search_activities(channel="Email")` will not match
+it. Call `field_values("channel")` to see the real combinations before you
+filter, and read a channel or audience bucket as the combination it names, not
+as a single channel. `detect_collisions` and `pack_overview` DO split them into
+members, so their channel and audience counts legitimately exceed what
+`activity_counts` shows — that is not a contradiction, it is two different
+questions.
 
 Executive involvement is split across **two** columns — `bod_geb` (executive-board
 members) and `other_executives` (senior leaders who are not on that board) — and
