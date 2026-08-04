@@ -1630,6 +1630,59 @@ def test_window_comparison_reports_no_percentage_when_the_previous_window_is_emp
     assert result["change_pct"] is None
 
 
+def test_calendar_load_reports_no_anchor_rather_than_inventing_one(writable_session):
+    """No SyncRun row and no dated activity: nothing in the data can anchor a
+    calendar window. An earlier draft fell back to a fixed 1970-01-01 instant
+    labelled `anchor_source: "latest_start_date"` -- a fabricated provenance,
+    since there is no latest start date. The honest answer is `anchor: None`,
+    `anchor_source: "none"`, and no invented date range.
+    """
+    writable_session.add(_activity(start_date=None))  # undated, so still no anchor
+    writable_session.flush()
+
+    result = queries.calendar_load(writable_session, weeks=8)
+
+    assert result["anchor"] is None
+    assert result["anchor_source"] == "none"
+    assert result["buckets"] == []
+    assert result["empty_weeks"] == []
+    assert result["busiest"] is None
+    assert result["quietest"] is None
+    # No invented date ever shows up as if it were real.
+    assert "1970" not in json.dumps(result)
+
+
+def test_window_comparison_reports_no_anchor_rather_than_inventing_one(writable_session):
+    """Same honesty requirement as calendar_load, for the comparison tool."""
+    result = queries.window_comparison(writable_session, days=30)
+
+    assert result["anchor"] is None
+    assert result["anchor_source"] == "none"
+    assert result["current"] is None
+    assert result["previous"] is None
+    assert result["change"] is None
+    assert result["change_pct"] is None
+    assert "1970" not in json.dumps(result)
+
+
+def test_calendar_load_truncates_its_anchor_but_window_comparison_does_not(writable_session):
+    """The two tools mirror two different studio functions, and the studio
+    functions disagree on this: `weeklyCoverage` truncates its start to
+    midnight (`setHours(0, 0, 0, 0)`), `comparisonWindow` uses the raw
+    instant. Both query functions route through the same `_resolve_anchor`,
+    so this asymmetry reads as a bug unless it is pinned explicitly -- a
+    future edit that "fixes" one to match the other would silently break
+    whichever studio parity it broke.
+    """
+    timestamped = "2026-01-05T15:30:00Z"
+
+    calendar_result = queries.calendar_load(writable_session, weeks=1, start_date=timestamped)
+    comparison_result = queries.window_comparison(writable_session, days=30, reference=timestamped)
+
+    assert calendar_result["anchor"] == "2026-01-05T00:00:00Z"
+    assert comparison_result["anchor"] == "2026-01-05T15:30:00Z"
+
+
 @pytest.mark.parametrize(
     "field", ["partner_team", "business_area", "target_audience", "audience", "time_zone"]
 )

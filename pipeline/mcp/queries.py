@@ -1094,7 +1094,7 @@ def _resolve_anchor(
     session: Session,
     explicit: str | date | datetime | None,
     candidates: list[Activity],
-) -> tuple[datetime, str]:
+) -> tuple[datetime | None, str]:
     """The deterministic "now" for a time-relative question.
 
     Resolution order, each stage cheaper to trust than the next: the caller's
@@ -1106,6 +1106,14 @@ def _resolve_anchor(
     "next month" meant without knowing what the database considers "now" to
     be. The caller gets the choice back as `anchor_source` for exactly that
     reason.
+
+    Returns `(None, "none")` when none of the three stages produced anything
+    -- no explicit argument, no `SyncRun` row, no dated candidate. There is
+    deliberately no fourth, fabricated stage (a fixed epoch, say): that would
+    hand back an `anchor_source` claiming a provenance ("latest_start_date")
+    that does not exist, which is exactly the confidently-wrong-answer shape
+    this whole module exists to avoid. Callers must check for `None` and
+    report that they could not anchor rather than inventing a window.
     """
     parsed = _parse_boundary(explicit)
     if parsed is not None:
@@ -1121,10 +1129,7 @@ def _resolve_anchor(
     )
     if latest_start is not None:
         return as_utc(latest_start), "latest_start_date"
-    # Nothing in the data can anchor the question either: no sync run and no
-    # dated activity in the candidate set. A fixed, documented instant --
-    # never the wall clock -- keeps this branch deterministic too.
-    return datetime(1970, 1, 1, tzinfo=timezone.utc), "latest_start_date"
+    return None, "none"
 
 
 def calendar_load(
@@ -1145,12 +1150,29 @@ def calendar_load(
     `start_date` resolves via `_resolve_anchor` -- the explicit argument, else
     the latest sync run, else the latest `start_date` among the filtered
     activities -- and is echoed back as `anchor` / `anchor_source` so the
-    agent can say what the window actually anchored on.
+    agent can say what the window actually anchored on. When none of those
+    three produce anything (`anchor_source == "none"`), there is nothing in
+    the data to anchor a calendar on: the response reports `anchor: None`
+    and empty `buckets` / `empty_weeks` rather than inventing a window.
     """
     span_weeks = max(1, min(int(weeks), 52))
     filters = _build_filters(**filter_kwargs)
     candidates = _filtered_activities(session, filters)
     anchor, anchor_source = _resolve_anchor(session, start_date, candidates)
+    if anchor is None:
+        return {
+            "anchor": None,
+            "anchor_source": anchor_source,
+            "weeks": span_weeks,
+            "buckets": [],
+            "busiest": None,
+            "quietest": None,
+            "empty_weeks": [],
+            "note": (
+                "No sync run and no dated activity in this filtered set -- "
+                "there is nothing to anchor a calendar window on."
+            ),
+        }
     anchor = _truncate_to_midnight(anchor)
 
     dated = [
@@ -1199,11 +1221,31 @@ def window_comparison(
     window has no activity to compare against -- either of those numbers
     would read to an agent as a real answer about a comparison that cannot be
     made.
+
+    `reference` resolves via the same `_resolve_anchor` as `calendar_load`.
+    When it comes back `None` (`anchor_source == "none"`: no sync run, no
+    dated activity in this filtered set), `current` and `previous` are also
+    `None` rather than a fabricated pair of windows -- there is nothing to
+    compare.
     """
     span_days = max(1, int(days))
     filters = _build_filters(**filter_kwargs)
     candidates = _filtered_activities(session, filters)
     anchor, anchor_source = _resolve_anchor(session, reference, candidates)
+    if anchor is None:
+        return {
+            "anchor": None,
+            "anchor_source": anchor_source,
+            "days": span_days,
+            "current": None,
+            "previous": None,
+            "change": None,
+            "change_pct": None,
+            "note": (
+                "No sync run and no dated activity in this filtered set -- "
+                "there is nothing to anchor a comparison window on."
+            ),
+        }
 
     dated = [
         as_utc(activity.start_date) for activity in candidates if activity.start_date is not None
