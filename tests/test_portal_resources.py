@@ -131,3 +131,82 @@ def test_shipped_cplan_manifest_publishes_five_documents_and_not_the_review(tmp_
     assert "design-review-v2" not in keys
     for document in docs:
         assert (PROJECTS_ROOT.parents[2] / document["path"]).is_file()
+
+
+from datetime import datetime, timedelta, timezone
+
+from pipeline.portal.resolvers import RESOLVERS, humanise_age
+
+
+def test_humanise_age_reads_as_a_person_would():
+    now = datetime(2026, 8, 4, 12, 0, tzinfo=timezone.utc)
+    assert humanise_age(now - timedelta(minutes=3), now=now) == "just now"
+    assert humanise_age(now - timedelta(hours=2), now=now) == "2 hours ago"
+    assert humanise_age(now - timedelta(days=1), now=now) == "yesterday"
+    assert humanise_age(now - timedelta(days=9), now=now) == "26 Jul"
+    assert humanise_age(None, now=now) is None
+
+
+def test_app_resolver_states_the_role():
+    assert RESOLVERS["app"]({}, {"role": "editor"}) == "Your role: Editor"
+
+
+def test_manual_resolver_counts_steps_and_dates_the_file(tmp_path):
+    manual = tmp_path / "manual.html"
+    manual.write_text("<div class='step'></div>" * 9, encoding="utf-8")
+    status = RESOLVERS["manual"]({"steps": 9}, {"manual_path": manual})
+    assert status is not None and status.startswith("9 steps · updated ")
+
+
+def test_manual_resolver_without_a_file_says_nothing():
+    assert RESOLVERS["manual"]({"steps": 9}, {"manual_path": None}) is None
+
+
+def test_docs_resolver_counts_and_names():
+    spec = {"documents": [
+        {"key": "a", "title": "Data model"},
+        {"key": "b", "title": "Tracking IDs"},
+        {"key": "c", "title": "Cross-channel matching"},
+    ]}
+    assert RESOLVERS["docs"](spec, {}) == "3 documents · Data model, Tracking IDs, Cross-channel matching"
+
+
+def test_docs_resolver_with_no_documents_says_none_yet():
+    assert RESOLVERS["docs"]({"documents": []}, {}) == "None yet"
+
+
+def test_reports_resolver_counts_files_and_dates_the_newest(tmp_path):
+    (tmp_path / "a.xlsx").write_bytes(b"x")
+    (tmp_path / "b.xlsx").write_bytes(b"y")
+    (tmp_path / "notes.txt").write_bytes(b"z")
+    status = RESOLVERS["reports"]({}, {"reports_dir": tmp_path})
+    assert status is not None and status.startswith("2 files · latest ")
+
+
+def test_reports_resolver_on_an_empty_directory_says_none_yet(tmp_path):
+    assert RESOLVERS["reports"]({}, {"reports_dir": tmp_path}) == "None yet"
+
+
+def test_reports_resolver_on_a_missing_directory_says_none_yet(tmp_path):
+    assert RESOLVERS["reports"]({}, {"reports_dir": tmp_path / "absent"}) == "None yet"
+
+
+def test_changelog_resolver_counts_dated_entries(tmp_path):
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "# What's new\n\n## 4 August 2026\n\n- one\n- two\n\n## 1 July 2026\n\n- three\n",
+        encoding="utf-8",
+    )
+    assert RESOLVERS["changelog"]({}, {"changelog_path": changelog}) == "2 entries · latest 4 August 2026"
+
+
+def test_changelog_resolver_without_a_file_says_nothing():
+    assert RESOLVERS["changelog"]({}, {"changelog_path": None}) is None
+
+
+def test_access_resolver_states_role_and_headcount():
+    assert RESOLVERS["access"]({}, {"role": "viewer", "member_count": 7}) == "You are Viewer · 7 people have access"
+
+
+def test_access_resolver_survives_an_unknown_headcount():
+    assert RESOLVERS["access"]({}, {"role": "viewer", "member_count": None}) == "You are Viewer"
