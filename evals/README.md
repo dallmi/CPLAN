@@ -30,6 +30,24 @@ with the answer text, the full tool-call trace, and every check's verdict.
 reads, stores, or logs a credential; set one in your own environment before
 running. `--dry-run` needs none.
 
+**`--base-url`.** Points the model calls at any Anthropic-compatible endpoint
+instead of the hosted API, defaulting to the `ANTHROPIC_BASE_URL` environment
+variable when it is set. This is not a convenience flag: production CPLAN data
+must not leave the corporate environment, so the hosted API can never be
+pointed at it, and this harness would otherwise be permanently unable to run
+against real data. A locally hosted model reachable over an Anthropic-compatible
+endpoint, inside the same environment as the production database, is the only
+way this harness will ever run against production data --
+
+```bash
+PYTHONPATH=. .venv/bin/python -m evals.run_eval --base-url http://localhost:8080 \
+  --settings path/to/prod-settings.json
+```
+
+-- and `--base-url` is the seam for it. Credentials for that endpoint still go
+through the same environment-variable mechanism above; nothing about the
+endpoint changes how the harness handles them.
+
 **Cost.** Roughly $5–15 for the full 12-question set on `claude-opus-5`, well
 under a dollar for a single question. Start with `--only` to confirm the
 plumbing before spending the full amount. `--model claude-sonnet-5` is cheaper if

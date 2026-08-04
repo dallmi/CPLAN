@@ -31,7 +31,15 @@ host at that command with `cwd` set to the repository root.
 | `search_activities` | Find activities by free-text `query` plus every filterable and multi-value column above, `min_priority_rank`, `executive` (OR across both executive columns), start/end date windows, `max_lead_days`, the boolean flags `news_digest` / `has_tracking_id` / `has_executive` / `locally_modified`, and archive handling via `include_archived` / `archived_only`; returns compact summaries |
 | `get_activity` | Full record of one activity by tracking id or UUID |
 | `planning_gaps` | Which activities are not fully planned and what is missing, narrowable by `source_type`, `lead_team`, `lead`, `channel`, `region`, `business_division`, `communication_pack_cpid`, `campaign`, `executive`, `min_priority_rank`, `start_after`/`start_before` and `include_archived`, and groupable with `group_by` (any enumerable column) to show which team/channel is behind |
-| `activity_counts` | Volume grouped by `dimension` — any filterable or multi-value column, plus `priority_rank` and `month` — filterable by `source_type`, `channel`, `lead_team`, `region`, `business_division`, `communication_pack_cpid`, `campaign`, `executive`, `min_priority_rank`, `start_after`/`start_before` and `include_archived` (a subset of `planning_gaps`'s filters: no `lead`) |
+| `activity_counts` | Volume grouped by `dimension` — any filterable or multi-value column, plus `priority_rank` and `month` — filterable by `source_type`, `channel`, `lead_team`, `region`, `business_division`, `communication_pack_cpid`, `campaign`, `executive`, `min_priority_rank`, `start_after`/`start_before` and `include_archived` (a subset of `planning_gaps`'s filters: no `lead`). `second_dimension` turns it into a cross-tab |
+| `calendar_load` | Activity volume over `weeks` consecutive 7-day windows, anchored on `start_date` if given, else the latest sync run, else the latest scheduled activity in the filtered set — never today's wall clock. Reports `anchor`/`anchor_source`, `busiest`/`quietest` and an `empty_weeks` list; accepts every `search_activities` filter |
+| `window_comparison` | The current `days`-length window against the immediately preceding one of equal length, anchored the same way as `calendar_load`; `change_pct` comes back `null` (never `inf` or `0`) when there is no prior window to compare against |
+| `detect_collisions` | Activity pairs sharing both a `channel` member and a `target_audience` member within `proximity_days`; pairs in the same communication pack are labelled `orchestration` (`severity: "info"`), pairs spanning different packs are labelled `conflict` (severity from the pair's priority ranks), each carrying `shared_channels`/`shared_audiences` |
+| `pack_overview` | Per-communication-pack rollup — size, channel/objective/audience breadth, date span, readiness — keyed by `communication_pack_cpid`, falling back to `tracking_pack_id`, `communication_pack`, then `campaign`; `key_source` on each row names which link resolved it |
+| `lead_time_stats` | Planning lead-time distribution (median/p25/p75 days) over activities with a valid, non-negative lead time, plus `short_notice_rate` against `threshold_days`; `excluded` counts everything left out and why |
+| `data_quality` | Portfolio-wide health tally: duplicate and missing tracking ids, reversed date ranges, missing pack linkage, `completeness_rate` — `incomplete` reuses `planning_gaps`'s own rule so the two figures cannot disagree |
+| `activity_history` | The change log for one activity, newest first, resolved by tracking id or UUID like `get_activity` |
+| `plan_changes_since` | Change rows since `since`, grouped per activity, with `by_actor`/`by_change_type`/`by_field` tallies; changes whose activity no longer resolves are still reported (unless an activity filter is active) rather than silently dropped |
 
 ## Resources
 
@@ -65,6 +73,32 @@ flag alongside), and `field_values` reports `distinct_values` so a truncated val
 list can never be mistaken for the column's whole vocabulary — a model that
 filters on a value it never saw and then reports "no activities" as fact is the
 failure this prevents.
+
+**A cross-tab caps each axis independently, not the flat cell count.**
+`activity_counts(second_dimension=...)` multiplies two dimensions together --
+32 packs x 15 channels is 480 cells -- and the flat 200-row cap the other
+tools use is the wrong shape for that: sorting the flat cell list by count and
+slicing off the tail drops whole rows or columns of the table rather than
+shrinking it, which reads to an agent as a full cross-tab that is quietly
+missing data. Each axis is instead capped independently to its own top 20
+values by total count (`MAX_CROSS_AXIS`), so the result stays a smaller but
+COMPLETE cross-tab rather than an arbitrary, incomplete slice of a bigger one.
+`axis_truncated` (keyed `dimension` / `second_dimension`) and
+`distinct_values` say which axis, if any, was cut -- check them before reading
+the table as exhaustive.
+
+**`detect_collisions` distinguishes orchestration from conflict by pack, not
+by severity.** Two activities sharing both a `channel` member and a
+`target_audience` member within `proximity_days` are a candidate pair. If they
+also carry the same non-blank `tracking_pack_id`, that is what a communication
+pack IS -- the planner put them there on purpose -- and the pair is labelled
+`orchestration` with `severity: "info"` regardless of priority. Only a pair
+spanning two different packs is a genuine `conflict`, and its severity is the
+higher of the pair's two priority ranks (critical/high/medium). Reporting an
+orchestration pair as a problem is the fastest way to make this tool stop
+being trusted, which is why the distinction is load-bearing rather than
+cosmetic; each pair also carries `shared_channels` / `shared_audiences` so an
+agent can say *why* it collided, not only that it did.
 
 **Not built on the `v_*` analysis views.** Those are PostgreSQL-only by design
 and a documented no-op on SQLite (`pipeline/api/views.py`), so building on them
@@ -126,12 +160,51 @@ filterable and groupable; the `cplan://domain-model` resource carries the measur
 figures and tells the agent which one is the planning unit — they are stated there
 once rather than repeated here.
 
+`pack_overview` walks the full chain rather than the single column:
+`communication_pack_cpid`, then `tracking_pack_id` (the `CLUSTER-PACKNUM`
+prefix `ActivityRead` derives from `tracking_id`), then `communication_pack`,
+then `campaign`, taking the first non-blank link. It reports which one
+resolved each row as `key_source`, so a genuine pack id can be told apart from
+a campaign-label fallback. The order matters more than any other choice in
+that tool: on the local snapshot, grouping by `tracking_pack_id` alone
+collapses everything into two buckets of 273 and 125 activities, and grouping
+by `campaign` alone collapses it into 4 buckets of about 60 -- only
+`communication_pack_cpid` resolves the 32 real packs of 2-11 activities a
+planner actually owns. The chain order is pinned against
+`analytics.js::campaignScorecards`'s own preference order (see below), so it
+cannot drift on either side of the port without failing the suite.
+
 **Multi-value columns split on the separator the ETL actually wrote.** Lookup
 values join with `", "`, person values with `"; "`. Person columns are split on
 `;` only — deliberately unlike `analytics.js::normalizeMulti`, which splits both
 on `/[;,]/`: a person name may contain a comma, and splitting it would invent a
 person. Splitting a lookup value on `","` remains lossy for a value whose own
 name contains a comma.
+
+**`_normalize_multi` is a deliberate second fork of `split_multi`, not a
+duplicate of it.** `detect_collisions` needs `channel` and `target_audience`
+treated as multi-valued for exactly one purpose -- deciding whether two
+activities share a member -- even though neither column is in
+`MULTI_VALUE_SEPARATORS` and `split_multi` treats both as scalars everywhere
+else in this server. `_normalize_multi` mirrors `analytics.js::normalizeMulti`
+instead: it splits on `,` OR `;` unconditionally, sharing `_split_on`'s
+trim-and-drop-blanks algorithm with `split_multi` but forking the separator
+choice. Each function carries a comment pointing at the other so neither can
+be "fixed" into matching the other by someone who has only read one of them:
+`split_multi` explains why `channel` / `target_audience` land on its scalar
+branch and says to check `_normalize_multi` first before changing that;
+`_normalize_multi` names the two columns and the one tool it exists for, and
+says why it is not simply a call to `split_multi`.
+
+**Five tools are pinned against `pipeline/studio/analytics.js`, not
+re-derived independently.** `pack_overview`'s key chain against
+`campaignScorecards`, `calendar_load`'s week math against `weeklyCoverage`,
+`detect_collisions`'s channel/audience guard and same-pack severity branch
+against `detectCollisions`, and `lead_time_stats` / `data_quality` against
+`quantile` and `hasCampaignOrPack` respectively. Each pin test reads the
+studio's own source text with a regex rather than hand-copying the formula
+into the test, so a change on either side of the port -- the studio or the
+MCP query -- fails the suite instead of quietly diverging.
 
 ## Known limits
 

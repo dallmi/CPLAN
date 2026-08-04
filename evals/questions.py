@@ -90,6 +90,41 @@ def _incomplete_count(session: Session) -> int:
     return sum(1 for row in rows if queries.missing_fields(row))
 
 
+_TRACKING_ID_RE = re.compile(r"^[A-Z]{2,4}-\d{4}-\d+-[A-Z]{2,3}$")
+
+
+def _looks_like_tracking_id(value: str | None) -> bool:
+    """Excludes the free-text-injection trap row (`not-a-tracking-id`) from the
+    pair this eval quotes in its prompt -- that row exists to test a different
+    thing (untrusted free text) and would make a confusing example here."""
+    return bool(value) and bool(_TRACKING_ID_RE.match(value))
+
+
+def _collision_examples(session: Session) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """One real cross-pack conflict pair and one real same-pack orchestration
+    pair, picked from `detect_collisions`' own default (same-day) window
+    rather than fabricated -- so the grader checks the agent against pairs
+    that actually exist in whatever database this runs against.
+
+    Widening the window an agent might choose (`proximity_days` > 0) can only
+    ADD pairs to the list, never remove one found at 0, so a pair found here
+    is still present in a broader real trace.
+    """
+    result = queries.detect_collisions(session, proximity_days=0, limit=200)
+    conflict = next(
+        (
+            c
+            for c in result["collisions"]
+            if c["kind"] == "conflict"
+            and _looks_like_tracking_id(c["left"]["tracking_id"])
+            and _looks_like_tracking_id(c["right"]["tracking_id"])
+        ),
+        None,
+    )
+    orchestration = next((c for c in result["collisions"] if c["kind"] == "orchestration"), None)
+    return conflict, orchestration
+
+
 # --------------------------------------------------------------------------
 # Grader factories
 # --------------------------------------------------------------------------
@@ -152,6 +187,27 @@ def never_called_with(tool: str, key: str, label: str):
 
     def grade(answer: str, trace: Trace, session: Session) -> Check:
         offenders = [args for args in trace.calls_to(tool) if args.get(key) is not None]
+        return Check(
+            name=label,
+            passed=not offenders,
+            detail=f"offending calls: {offenders}" if offenders else "clean",
+        )
+
+    return grade
+
+
+def never_called_with_value(tool: str, key: str, value: Any, label: str):
+    """The trap check: a tool was NOT called with `key` set to this exact `value`.
+
+    Unlike `never_called_with`, which flags the key being set at all, this
+    flags one specific value -- `activity_counts(dimension="campaign")` is a
+    legitimate call in general (the column stays groupable); it is only wrong
+    for the one question where `pack_overview` exists precisely to avoid the
+    coarse campaign bucket.
+    """
+
+    def grade(answer: str, trace: Trace, session: Session) -> Check:
+        offenders = [args for args in trace.calls_to(tool) if args.get(key) == value]
         return Check(
             name=label,
             passed=not offenders,
@@ -244,6 +300,103 @@ def paginated_or_declined():
             detail=(
                 f"{len(searches)} search call(s), {len(distinct)} distinct narrowing(s)"
                 + ("; declined" if declined else "")
+            ),
+        )
+
+    return grade
+
+
+# A pair reads as "flagged" when a conflict word sits near its identifying
+# tokens and that word is not itself negated. Negation on the CONFLICT word is
+# what matters, not the presence of "orchestration" elsewhere in the window --
+# a correct answer for the cross-pack pair may legitimately say "a genuine
+# conflict, not orchestration", and an early version of this check rejected
+# exactly that correct answer because it keyword-matched "orchestration"
+# without asking what was negated. Checking the word next to the negator
+# fixes that: "not a problem" fails the same-pack grader that "not a
+# conflict" should pass, only because it is the CONFLICT word being negated.
+_CONFLICT_WORDS = re.compile(r"\b(conflict\w*|collid\w*|compet\w*|clash\w*|problem\w*)\b", re.IGNORECASE)
+_NEGATED_CONFLICT_WORD = re.compile(
+    r"\b(not|no|n't|isn't|never)\b[\w\s,'-]{0,25}?"
+    r"\b(conflict\w*|collid\w*|compet\w*|clash\w*|problem\w*)\b",
+    re.IGNORECASE,
+)
+
+
+def _has_unnegated_conflict_language(window: str) -> bool:
+    return bool(_CONFLICT_WORDS.search(window)) and not _NEGATED_CONFLICT_WORD.search(window)
+
+
+def _pair_window(text: str, pair: dict[str, Any], radius: int = 250) -> str | None:
+    """The slice of `text` around wherever this pair's tracking ids appear.
+
+    Returns None if neither id is mentioned at all -- that is itself a graded
+    outcome (see the two collision graders), not an error.
+    """
+    left_id = pair["left"]["tracking_id"]
+    right_id = pair["right"]["tracking_id"]
+    low = text.lower()
+    positions = [i for i in (low.find(left_id.lower()), low.find(right_id.lower())) if i != -1]
+    if not positions:
+        return None
+    start = max(0, min(positions) - radius)
+    end = min(len(text), max(positions) + radius)
+    return text[start:end]
+
+
+def flags_cross_pack_as_conflict():
+    """The pair the eval knows is a genuine cross-pack collision must be
+    reported as one -- conflict language must appear near its mention."""
+
+    def grade(answer: str, trace: Trace, session: Session) -> Check:
+        conflict, _ = _collision_examples(session)
+        if conflict is None:
+            return Check(
+                name="flags the cross-pack pair as a conflict",
+                passed=False,
+                detail="no cross-pack conflict pair exists in this database to grade against",
+            )
+        pair_desc = f"{conflict['left']['tracking_id']} / {conflict['right']['tracking_id']}"
+        window = _pair_window(answer, conflict)
+        hit = window is not None and _has_unnegated_conflict_language(window)
+        return Check(
+            name="flags the cross-pack pair as a conflict",
+            passed=hit,
+            detail=(
+                f"pair {pair_desc}; "
+                + (f"window: {window!r}" if window else "pair not mentioned in the answer")
+            ),
+        )
+
+    return grade
+
+
+def does_not_flag_same_pack_as_problem():
+    """The pair the eval knows is planner-intended orchestration must NOT be
+    described with conflict language -- that is the trap this tool exists to
+    avoid (see `queries.detect_collisions`'s `kind` docstring)."""
+
+    def grade(answer: str, trace: Trace, session: Session) -> Check:
+        _, orchestration = _collision_examples(session)
+        if orchestration is None:
+            return Check(
+                name="does not call the same-pack pair a problem",
+                passed=False,
+                detail="no same-pack orchestration pair exists in this database to grade against",
+            )
+        pair_desc = f"{orchestration['left']['tracking_id']} / {orchestration['right']['tracking_id']}"
+        window = _pair_window(answer, orchestration)
+        offending = window is not None and _has_unnegated_conflict_language(window)
+        return Check(
+            name="does not call the same-pack pair a problem",
+            passed=not offending,
+            detail=(
+                f"pair {pair_desc}; "
+                + (
+                    f"window: {window!r}"
+                    if window
+                    else "pair not mentioned in the answer (treated as clean)"
+                )
             ),
         )
 
@@ -426,6 +579,79 @@ QUESTIONS: list[EvalQuestion] = [
         why=(
             "Phase 1 added grouping to planning_gaps precisely for this. Without it "
             "the agent has to fetch rows and tally them itself."
+        ),
+    ),
+    EvalQuestion(
+        id="collision-orchestration",
+        catalogue="Q11",
+        persona="P1 P3",
+        prompt=(
+            "Which two high-priority activities hit the same audience within a few "
+            "days of each other? For every pair you find, say plainly whether it is "
+            "a genuine scheduling conflict or expected orchestration within one "
+            "communication pack."
+        ),
+        graders=[
+            used_tool("detect_collisions"),
+            flags_cross_pack_as_conflict(),
+            does_not_flag_same_pack_as_problem(),
+        ],
+        why=(
+            "The distinction the whole tool turns on. Two activities in the same "
+            "pack landing on the same channel and audience are what a pack IS, not "
+            "a problem; only a pair spanning different packs is a genuine conflict. "
+            "Reporting orchestration as a problem is the fastest way to make this "
+            "tool stop being trusted, so this grades both directions against a real "
+            "same-pack pair and a real cross-pack pair rather than the tool call alone."
+        ),
+    ),
+    EvalQuestion(
+        id="pack-overview",
+        catalogue="Q37",
+        persona="P1 P2 P3 P6",
+        prompt="Which campaigns are live now, how large is each, and over what period do they run?",
+        graders=[
+            used_tool("pack_overview"),
+            never_called_with_value(
+                "activity_counts",
+                "dimension",
+                "campaign",
+                "did not group by the coarse campaign label instead of using pack_overview",
+            ),
+        ],
+        why=(
+            "The question this tool exists to close: a raw activity_counts grouped "
+            "count cannot report channel/objective/audience breadth or per-pack "
+            "readiness, and grouping by campaign collapses 32 real packs into 4 "
+            "portfolio-sized buckets -- the same trap `pack-key` grades on the "
+            "narrower `activity_counts(dimension=...)` question."
+        ),
+    ),
+    EvalQuestion(
+        id="weekly-load",
+        catalogue="Q4",
+        persona="P1 P3 P4",
+        prompt="Which weeks next quarter are overloaded, and which are empty?",
+        graders=[used_tool("calendar_load")],
+        why=(
+            "calendar_load exists precisely so the agent does not hand-roll this "
+            "with several search_activities date-window calls and a manual tally -- "
+            "which would also anchor on today's wall clock rather than the plan's "
+            "own timeline, the exact non-determinism calendar_load's anchor "
+            "resolution avoids."
+        ),
+    ),
+    EvalQuestion(
+        id="changed-since",
+        catalogue="Q62",
+        persona="P1 P3 P4 P8",
+        prompt="What changed across the plan since last week -- new, moved, cancelled?",
+        graders=[used_tool("plan_changes_since")],
+        why=(
+            "The standing agenda item for every weekly review, and the reason "
+            "plan_changes_since groups per activity with by_actor/by_change_type/"
+            "by_field tallies instead of leaving the agent to reassemble "
+            "activity_history's flat log across the whole plan by hand."
         ),
     ),
 ]

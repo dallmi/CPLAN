@@ -122,6 +122,18 @@ async def main_async(argv: list[str] | None = None) -> int:
     parser.add_argument("--only", action="append", help="question id; repeatable")
     parser.add_argument("--settings", type=Path, default=None)
     parser.add_argument(
+        "--base-url",
+        default=os.environ.get("ANTHROPIC_BASE_URL"),
+        help=(
+            "Anthropic-compatible endpoint to send model calls to (default: the "
+            "ANTHROPIC_BASE_URL environment variable, else the SDK's own default, "
+            "the hosted API). The seam for pointing this harness at a locally "
+            "hosted model: production data must not leave the corporate "
+            "environment, so the hosted API can never be run against it -- a "
+            "local endpoint is the only way this harness runs against real data."
+        ),
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="verify the harness end to end without calling the model",
@@ -167,7 +179,7 @@ async def main_async(argv: list[str] | None = None) -> int:
                 from anthropic import AsyncAnthropic
                 from anthropic.lib.tools.mcp import async_mcp_tool
 
-                client = AsyncAnthropic()
+                client = AsyncAnthropic(base_url=args.base_url)
                 tools = [async_mcp_tool(tool, mcp_session) for tool in listed.tools]
 
             with Session(engine) as session:
