@@ -106,6 +106,61 @@ def test_every_declared_document_renders_without_corruption():
 
 def test_rendered_page_carries_no_sticky_positioning():
     # The document pages are printable; Safari's PDF writer can emit an empty
-    # content stream when `position: sticky` exists anywhere in the DOM.
+    # content stream when `position: sticky` exists anywhere in the DOM. The
+    # page carries no inline CSS, so this asserts the absence outright rather
+    # than the un-failable "or '@media screen' in html" it used to. The
+    # stylesheet it links is checked properly in tests/test_portal_frontend.py.
     html = render_document("cplan", "data-model", "Communication Planning", published_documents("cplan"))
-    assert "position: sticky" not in html or "@media screen" in html
+    assert "position: sticky" not in html
+    assert "<style" not in html
+
+
+def test_the_source_note_is_relative_to_the_repository_root():
+    # It used to be computed as path.relative_to(path.parents[2]), which is the
+    # repository root only for a path exactly three levels deep: a document
+    # declared at the root rendered two directory names from ABOVE the root --
+    # local, machine-specific ones -- into a published page.
+    html = render_document("cplan", "data-model", "Communication Planning", published_documents("cplan"))
+    assert "Source: <code>pipeline/docs/data-model.md</code>" in html
+
+
+def test_a_document_declared_at_the_repository_root_names_itself_correctly(tmp_path, monkeypatch):
+    from pipeline.portal.resources import REPO_ROOT
+
+    monkeypatch.setattr("pipeline.portal.documents.manifest_path", lambda *a, **k: REPO_ROOT / "README.md")
+    html = render_document("cplan", "readme", "Project", [{"key": "readme", "title": "Readme"}])
+    assert "Source: <code>README.md</code>" in html
+
+
+def test_changelog_style_markdown_gets_the_document_chrome_without_a_rail(tmp_path):
+    from pipeline.portal.documents import render_markdown_file
+
+    source = tmp_path / "CHANGELOG.md"
+    source.write_text("# What's new\n\n## 4 August 2026\n\n- A thing changed.\n", encoding="utf-8")
+    html = render_markdown_file(source, "What's new", "Communication Planning", "cplan")
+    assert html.startswith("<!DOCTYPE html>")
+    assert "/document.css" in html
+    assert "window.print()" in html
+    assert "doc-layout solo" in html
+    assert "doc-rail" not in html  # nothing to switch between
+    assert html.count("<h1") == 1  # the source's own leading heading is dropped
+    assert "4 August 2026" in html
+
+
+def test_a_declared_but_unwritten_changelog_is_a_page_not_an_error(tmp_path):
+    from pipeline.portal.documents import render_markdown_file
+
+    html = render_markdown_file(tmp_path / "absent.md", "What's new", "Project", "cplan")
+    assert "Nothing has been recorded here yet." in html
+    html = render_markdown_file(None, "What's new", "Project", "cplan")
+    assert "Nothing has been recorded here yet." in html
+
+
+def test_markdown_in_a_project_changelog_cannot_inject_markup(tmp_path):
+    from pipeline.portal.documents import render_markdown_file
+
+    source = tmp_path / "CHANGELOG.md"
+    source.write_text("## 2026\n\n<script>alert(1)</script>\n", encoding="utf-8")
+    html = render_markdown_file(source, "What's new", "Project", "cplan")
+    assert "<script>" not in html
+    assert "&lt;script&gt;" in html

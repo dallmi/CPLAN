@@ -33,11 +33,19 @@ from __future__ import annotations
 
 import html as html_escape
 import re
+from pathlib import Path
 from typing import Any
 
 import markdown
 
-from pipeline.portal.resources import load_manifest, manifest_path
+from pipeline.portal.resources import (
+    PROJECTS_ROOT,
+    REPO_ROOT,
+    load_manifest,
+    manifest_path,
+    tile_documents,
+    tile_specs,
+)
 
 _EXTENSIONS = ["tables", "fenced_code", "sane_lists"]
 
@@ -83,36 +91,92 @@ def _strip_leading_h1(body: str) -> str:
     return _LEADING_H1.sub("", body, count=1)
 
 
-def published_documents(slug: str) -> list[dict[str, Any]]:
-    """The documents this project publishes — an allow-list, not a directory scan."""
-    for spec in load_manifest(slug).get("tiles", []):
+def published_documents(
+    slug: str, root: Path = PROJECTS_ROOT, manifest: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
+    """The documents this project publishes — an allow-list, not a directory scan.
+
+    `root` is passed explicitly by every request handler, matching how app.py
+    and pages.py address the project tree; the default is only for callers that
+    have nothing else to say (tests, a shell). `manifest` is accepted for the
+    same reason `manifest_path` accepts one: a handler that already loaded it
+    should not read and parse the same file again a frame later.
+    """
+    if manifest is None:
+        manifest = load_manifest(slug, root=root)
+    for spec in tile_specs(manifest):
         if spec.get("kind") == "docs":
-            return spec.get("documents", [])
+            return tile_documents(spec)
     return []
 
 
+def _source_note(path: Path) -> str:
+    """"Source: pipeline/docs/data-model.md" — the path a reader could open.
+
+    Relative to `REPO_ROOT`, not to `path.parents[2]`: the latter is the
+    repository root only for a file exactly three levels down, so a document
+    declared at the repository root used to render two directory names from
+    *above* the root — local, machine-specific ones — into a published page.
+
+    `manifest_path` already refuses any declared path outside `REPO_ROOT`, so
+    the fallback is unreachable through a route; it exists so that a caller
+    handing this module a path of its own (a test, a script) gets a bare file
+    name rather than an exception, and never a local absolute path.
+    """
+    shown = path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path.name
+    return f"Source: <code>{html_escape.escape(str(shown))}</code>"
+
+
 def render_document(
-    slug: str, key: str, project_name: str, documents: list[dict[str, Any]]
+    slug: str,
+    key: str,
+    project_name: str,
+    documents: list[dict[str, Any]],
+    root: Path = PROJECTS_ROOT,
+    manifest: dict[str, Any] | None = None,
 ) -> str | None:
     """A complete HTML page for one declared document, or None if undeclared."""
     entry = next((d for d in documents if d.get("key") == key), None)
     if entry is None:
         return None
-    path = manifest_path(slug, "docs", key)
+    path = manifest_path(slug, "docs", key, root=root, manifest=manifest)
     if path is None or not path.is_file():
         body = "<p class='missing'>This document is not available in this installation.</p>"
         source_note = ""
     else:
-        source = path.read_text(encoding="utf-8")
-        body = _strip_leading_h1(_render_markdown(source))
-        source_note = f"Source: <code>{html_escape.escape(str(path.relative_to(path.parents[2])))}</code>"
-    return _PAGE.format(
-        title=html_escape.escape(entry.get("title", key)),
-        project=html_escape.escape(project_name),
-        slug=html_escape.escape(slug),
-        rail=_rail(slug, key, documents),
+        body = _strip_leading_h1(_render_markdown(path.read_text(encoding="utf-8")))
+        source_note = _source_note(path)
+    return _page(
+        title=entry.get("title", key),
+        project_name=project_name,
+        slug=slug,
         body=body,
         source_note=source_note,
+        rail=_rail(slug, key, documents),
+    )
+
+
+def render_markdown_file(path: Path | None, title: str, project_name: str, slug: str) -> str:
+    """The same chrome and the same renderer, for a project's own markdown.
+
+    The changelog is a document — it is read top to bottom and it is printed —
+    so it gets the document chrome and the print path rather than the portal
+    shell, and it goes through this module rather than through a second
+    markdown renderer written next to a route. It carries no switcher rail:
+    there is nothing to switch between.
+
+    A missing or undeclared file is not an error here either. A project that
+    declares a changelog it has not written yet gets the page with a sentence
+    saying so, exactly like an undeclared document.
+    """
+    if path is None or not path.is_file():
+        body = "<p class='missing'>Nothing has been recorded here yet.</p>"
+        source_note = ""
+    else:
+        body = _strip_leading_h1(_render_markdown(path.read_text(encoding="utf-8")))
+        source_note = _source_note(path)
+    return _page(
+        title=title, project_name=project_name, slug=slug, body=body, source_note=source_note
     )
 
 
@@ -126,6 +190,28 @@ def _rail(slug: str, current: str, documents: list[dict[str, Any]]) -> str:
     return "\n".join(items)
 
 
+def _page(
+    title: str, project_name: str, slug: str, body: str, source_note: str, rail: str = ""
+) -> str:
+    """The document chrome around an already-rendered body.
+
+    Without a `rail` the layout goes single-column (`doc-layout solo`) and the
+    switcher aside is omitted entirely rather than emitted empty — an empty
+    `<aside>` still takes its 220px grid column and leaves the document
+    hanging off-centre beside nothing.
+    """
+    aside = f'<aside class="doc-rail no-print"><ul>{rail}</ul></aside>' if rail else ""
+    return _PAGE.format(
+        title=html_escape.escape(title),
+        project=html_escape.escape(project_name),
+        slug=html_escape.escape(slug),
+        layout="doc-layout" if rail else "doc-layout solo",
+        aside=aside,
+        body=body,
+        source_note=source_note,
+    )
+
+
 _PAGE = """<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -137,8 +223,8 @@ _PAGE = """<!DOCTYPE html>
   <button class="btn" onclick="window.print()">Print / PDF</button>
 </header>
 <nav class="crumb no-print"><a href="/">Portal</a> › <a href="/project/{slug}">{project}</a> › {title}</nav>
-<main class="doc-layout">
-  <aside class="doc-rail no-print"><ul>{rail}</ul></aside>
+<main class="{layout}">
+  {aside}
   <article class="doc"><h1>{title}</h1>{body}<p class="footnote">{source_note}</p></article>
 </main>
 </body></html>
