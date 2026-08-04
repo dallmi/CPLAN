@@ -57,3 +57,6 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Eval reports are run artefacts, not documentation.
+evals/results/
