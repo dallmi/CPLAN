@@ -3394,11 +3394,78 @@ def test_every_tool_is_registered_with_a_description(engine):
         "get_activity",
         "planning_gaps",
         "activity_counts",
+        "calendar_load",
+        "window_comparison",
+        "detect_collisions",
+        "pack_overview",
+        "lead_time_stats",
+        "data_quality",
+        "activity_history",
+        "plan_changes_since",
     }
     for tool in tools:
         # The description is the only thing the model sees before choosing.
         assert tool.description and len(tool.description) > 40
         assert tool.input_schema["type"] == "object"
+
+
+@pytest.mark.skipif(MCP_SDK_MISSING, reason="the mcp SDK is optional (pip install mcp)")
+def test_every_new_tool_is_registered_with_a_description(engine):
+    """The eight Phase 2 tools specifically, so a rename or omission in the
+    protocol layer fails here rather than only in the broader set check above."""
+    from pipeline.mcp.server import build_server
+
+    server = build_server(engine.url.render_as_string(hide_password=False))
+    tools = asyncio.run(server.list_tools())
+    by_name = {tool.name: tool for tool in tools}
+
+    for name in (
+        "calendar_load",
+        "window_comparison",
+        "detect_collisions",
+        "pack_overview",
+        "lead_time_stats",
+        "data_quality",
+        "activity_history",
+        "plan_changes_since",
+    ):
+        assert name in by_name, name
+        assert by_name[name].description and len(by_name[name].description) > 40
+
+
+@pytest.mark.skipif(MCP_SDK_MISSING, reason="the mcp SDK is optional (pip install mcp)")
+def test_cross_tab_is_exposed_on_activity_counts(engine):
+    from pipeline.mcp.server import build_server
+
+    server = build_server(engine.url.render_as_string(hide_password=False))
+    tools = {tool.name: tool for tool in asyncio.run(server.list_tools())}
+    assert "second_dimension" in tools["activity_counts"].input_schema["properties"]
+
+
+@pytest.mark.skipif(MCP_SDK_MISSING, reason="the mcp SDK is optional (pip install mcp)")
+def test_collision_description_explains_orchestration_versus_conflict(engine):
+    """An agent that cannot tell orchestration from conflict reports well-run
+    campaigns as problems, and stops trusting the tool. Both words must be in
+    the description the model actually reads before calling it."""
+    from pipeline.mcp.server import build_server
+
+    server = build_server(engine.url.render_as_string(hide_password=False))
+    tools = {tool.name: tool for tool in asyncio.run(server.list_tools())}
+    description = tools["detect_collisions"].description.lower()
+    assert "orchestration" in description
+    assert "conflict" in description
+
+
+@pytest.mark.skipif(MCP_SDK_MISSING, reason="the mcp SDK is optional (pip install mcp)")
+def test_pack_overview_description_names_the_pack_key(engine):
+    """Grouping by the coarse `campaign` label instead of the pack id makes
+    every figure describe the portfolio rather than a planning unit -- the
+    description must name the real key so an agent does not guess wrong."""
+    from pipeline.mcp.server import build_server
+
+    server = build_server(engine.url.render_as_string(hide_password=False))
+    tools = {tool.name: tool for tool in asyncio.run(server.list_tools())}
+    assert "communication_pack_cpid" in tools["pack_overview"].description
 
 
 @pytest.mark.skipif(MCP_SDK_MISSING, reason="the mcp SDK is optional (pip install mcp)")
@@ -3514,13 +3581,28 @@ def _plausible_value(name: str, schema: dict) -> object:
     exercising the forwarding path) -- not off a hardcoded parameter list, so
     this keeps working when a later task widens a tool's signature.
     """
-    if name in ("dimension", "field"):
+    if name in ("dimension", "field", "second_dimension"):
+        # `second_dimension` must be a real dimension too: an invalid value
+        # trips activity_counts' own validation and returns before its
+        # filter_kwargs ever reach `_build_filters`, which would silently
+        # stop this probe from exercising every OTHER forwarded keyword.
         return "channel"
     if name == "group_by":
         return "lead_team"
     if name == "identifier":
         return "does-not-exist"  # a clean miss is still a non-error result
-    if name in ("start_after", "start_before", "end_after", "end_before"):
+    if name in (
+        "start_after",
+        "start_before",
+        "end_after",
+        "end_before",
+        "since",
+        "reference",
+        "start_date",
+    ):
+        # Each of these reaches `_parse_boundary` before `_build_filters` ever
+        # runs (`since` is required with no default), so an unparseable probe
+        # value would raise before the forwarding path is even exercised.
         return "2020-01-01"
     schema_type = schema.get("type")
     if schema_type is None:
@@ -3578,6 +3660,14 @@ def test_every_declared_parameter_can_be_forwarded_without_a_typo(engine):
         "get_activity",
         "planning_gaps",
         "activity_counts",
+        "calendar_load",
+        "window_comparison",
+        "detect_collisions",
+        "pack_overview",
+        "lead_time_stats",
+        "data_quality",
+        "activity_history",
+        "plan_changes_since",
     }
     for name, result in results.items():
         # get_activity legitimately returns a clean miss ({"found": False, ...})
