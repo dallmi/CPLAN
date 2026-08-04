@@ -1305,6 +1305,177 @@ def test_counts_rejects_an_unknown_second_dimension(session):
     assert "channel" in result["supported_dimensions"]
 
 
+def test_cross_tab_can_truncate_both_axes_at_once(writable_session):
+    """Both axes can be truncated in the same answer, independently.
+
+    The other cap test only ever drives `axis_truncated["dimension"]`, with
+    the second axis pinned to a single value -- this drives both past
+    MAX_CROSS_AXIS at once and checks both flags and both distinct_values.
+    """
+    surplus = 3
+    rows = queries.MAX_CROSS_AXIS + surplus
+    writable_session.add_all([
+        _activity(channel=f"Channel {index:03d}", region=f"Region {index:03d}")
+        for index in range(rows)
+    ])
+    writable_session.flush()
+
+    result = queries.activity_counts(writable_session, dimension="channel", second_dimension="region")
+
+    assert result["axis_truncated"] == {"dimension": True, "second_dimension": True}
+    assert result["distinct_values"] == {"dimension": rows, "second_dimension": rows}
+    assert len({bucket["value"] for bucket in result["buckets"]}) <= queries.MAX_CROSS_AXIS
+    assert len({bucket["second_value"] for bucket in result["buckets"]}) <= queries.MAX_CROSS_AXIS
+    assert result["truncated"] is True
+    assert result["total"] == rows
+
+
+def test_cross_tab_python_branch_matches_sql_branch_for_two_stored_dimensions(writable_session):
+    """The Python cross-tab branch must agree with the SQL one on the same data.
+
+    `min_priority_rank=3` excludes nothing here (every row is 'Critical', rank
+    4) -- it only forces `activity_counts` through the Python nested-loop
+    branch instead of the two-column SQL `GROUP BY`, for channel x
+    source_type, both of which are plain stored scalars. Same pattern as
+    `test_counts_python_branch_matches_sql_branch_for_a_stored_dimension`, one
+    dimension over.
+    """
+    writable_session.add_all([
+        _activity(channel="Email", source_type="internal", priority="Critical"),
+        _activity(channel="Email", source_type="external", priority="Critical"),
+        _activity(channel="Intranet", source_type="internal", priority="Critical"),
+    ])
+    writable_session.flush()
+
+    via_python = queries.activity_counts(
+        writable_session, dimension="channel", second_dimension="source_type", min_priority_rank=3
+    )
+    via_sql = queries.activity_counts(
+        writable_session, dimension="channel", second_dimension="source_type"
+    )
+
+    assert via_python["buckets"] == via_sql["buckets"]
+    assert via_python["total"] == via_sql["total"] == 3
+
+
+def test_cross_tab_buckets_a_derived_time_axis(writable_session):
+    """The Python branch also has to run when either axis is derived.
+
+    `month` has no stored column, so `channel x month` can never take the SQL
+    `GROUP BY` path -- this is the case the brief's own headline example
+    ("channel by month") actually exercises.
+    """
+    writable_session.add_all([
+        _activity(channel="Email", start_date=datetime(2026, 2, 1, tzinfo=timezone.utc)),
+        _activity(channel="Email", start_date=datetime(2026, 3, 1, tzinfo=timezone.utc)),
+        _activity(channel="Intranet", start_date=datetime(2026, 2, 15, tzinfo=timezone.utc)),
+    ])
+    writable_session.flush()
+
+    result = queries.activity_counts(writable_session, dimension="channel", second_dimension="month")
+
+    cells = {
+        (bucket["value"], bucket["second_value"]): bucket["count"] for bucket in result["buckets"]
+    }
+    assert cells == {
+        ("Email", "2026-02"): 1,
+        ("Email", "2026-03"): 1,
+        ("Intranet", "2026-02"): 1,
+    }
+    assert result["counts_memberships"] is False
+
+
+def test_cross_tab_tallies_multi_value_members_on_the_first_axis(writable_session):
+    writable_session.add_all([
+        _activity(strategic_objectives="Objective A, Objective B", channel="Email"),
+        _activity(strategic_objectives="Objective A", channel="Intranet"),
+    ])
+    writable_session.flush()
+
+    result = queries.activity_counts(
+        writable_session, dimension="strategic_objectives", second_dimension="channel"
+    )
+
+    cells = {
+        (bucket["value"], bucket["second_value"]): bucket["count"] for bucket in result["buckets"]
+    }
+    assert cells == {
+        ("Objective A", "Email"): 1,
+        ("Objective B", "Email"): 1,
+        ("Objective A", "Intranet"): 1,
+    }
+    assert result["counts_memberships"] is True
+
+
+def test_cross_tab_tallies_multi_value_members_on_the_second_axis_only(writable_session):
+    """The 'either axis' half of the rule that is easy to get backwards.
+
+    Mirrors the previous test with the multi-value column moved to the SECOND
+    axis and a plain stored scalar on the first -- `counts_memberships` must
+    still be True.
+    """
+    writable_session.add_all([
+        _activity(channel="Email", strategic_objectives="Objective A, Objective B"),
+        _activity(channel="Intranet", strategic_objectives="Objective A"),
+    ])
+    writable_session.flush()
+
+    result = queries.activity_counts(
+        writable_session, dimension="channel", second_dimension="strategic_objectives"
+    )
+
+    cells = {
+        (bucket["value"], bucket["second_value"]): bucket["count"] for bucket in result["buckets"]
+    }
+    assert cells == {
+        ("Email", "Objective A"): 1,
+        ("Email", "Objective B"): 1,
+        ("Intranet", "Objective A"): 1,
+    }
+    assert result["counts_memberships"] is True
+
+
+def test_cross_tab_tallies_multi_value_members_on_both_axes(writable_session):
+    """Both axes multi-valued: one activity fans out into every combination.
+
+    A single activity with two objectives and two board members contributes
+    to all four (objective, board member) cells -- the cross product, not the
+    pairwise zip -- so `total` across the cross-tab is 4 for one row.
+    """
+    writable_session.add(
+        _activity(strategic_objectives="Objective A, Objective B", bod_geb="Exec X; Exec Y")
+    )
+    writable_session.flush()
+
+    result = queries.activity_counts(
+        writable_session, dimension="strategic_objectives", second_dimension="bod_geb"
+    )
+
+    cells = {
+        (bucket["value"], bucket["second_value"]): bucket["count"] for bucket in result["buckets"]
+    }
+    assert cells == {
+        ("Objective A", "Exec X"): 1,
+        ("Objective A", "Exec Y"): 1,
+        ("Objective B", "Exec X"): 1,
+        ("Objective B", "Exec Y"): 1,
+    }
+    assert result["counts_memberships"] is True
+    assert result["total"] == 4
+
+
+def test_time_bucket_key_week_carries_the_iso_year_at_the_boundary():
+    """29-31 Dec can fall in ISO week 1 of the FOLLOWING year -- pin it.
+
+    2029-12-31 is a Monday whose ISO calendar places it in week 1 of 2030
+    (`date(2029, 12, 31).isocalendar() == (2030, 1, 1)`). The key must carry
+    the ISO year (2030), not the calendar year (2029) -- that mismatch is the
+    classic off-by-one-year bug this pins against.
+    """
+    value = datetime(2029, 12, 31, tzinfo=timezone.utc)
+    assert queries._time_bucket_key(value, "week") == "2030-W01"
+
+
 @pytest.mark.parametrize(
     "field", ["partner_team", "business_area", "target_audience", "audience", "time_zone"]
 )
