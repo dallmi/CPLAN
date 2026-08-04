@@ -427,27 +427,25 @@ def _truncate_to_midnight(value: datetime) -> datetime:
     return normalized.replace(hour=0, minute=0, second=0, microsecond=0)
 
 
-def _month_key(value: datetime | None) -> str:
-    normalized = as_utc(value)
-    if normalized is None:
-        return "unscheduled"
-    return f"{normalized.year:04d}-{normalized.month:02d}"
-
-
 def _time_bucket_key(value: datetime | None, bucket: str) -> str:
     """The bucket label for `value` at `bucket` grain -- one of TIME_BUCKETS.
 
     `day` -> 'YYYY-MM-DD', `week` -> ISO 'YYYY-Www' (via `date.isocalendar()`,
     so the ISO year can differ from the calendar year in late December -- by
     design, not a bug: that is the week the day actually belongs to), `month`
-    -> `_month_key`'s existing shape. `None` -> 'unscheduled' on every grain,
-    matching `_month_key`.
+    -> 'YYYY-MM'. `None` -> 'unscheduled' on every grain, so an undated
+    activity lands in one bucket rather than three differently-named ones.
+
+    Every grain's label sorts chronologically as a plain string, which is what
+    lets `_capped_by_count(chronological=True)` and the cross-tab's own
+    `_bucket_order` put a timeline in time order without parsing the label
+    back into a date. 'unscheduled' sorts after all of them, also by design.
     """
-    if bucket == "month":
-        return _month_key(value)
     normalized = as_utc(value)
     if normalized is None:
         return "unscheduled"
+    if bucket == "month":
+        return f"{normalized.year:04d}-{normalized.month:02d}"
     if bucket == "day":
         return f"{normalized.year:04d}-{normalized.month:02d}-{normalized.day:02d}"
     if bucket == "week":
@@ -567,9 +565,9 @@ def _summarize(activity: Activity) -> dict[str, Any]:
     return row
 
 
-def _truncation_note(
-    total: int, returned: int, limit: int, subject: str = "matching activities"
-) -> str | None:
+def _truncation_note(total: int, returned: int, limit: int, subject: str) -> str | None:
+    """The note text for one truncated list. Reached only through `_capped_list`,
+    which is what guarantees the note and the `truncated` flag agree."""
     if returned >= total:
         return None
     return (
@@ -577,6 +575,45 @@ def _truncation_note(
         "Narrow the filters rather than raising the limit -- this tool never "
         "returns the whole table."
     )
+
+
+def _capped_list(
+    items: list[Any],
+    total: int,
+    limit: int,
+    *,
+    subject: str,
+    total_key: str,
+    prefix: str = "",
+) -> dict[str, Any]:
+    """The four keys every capped list-shaped answer here reports, in one place.
+
+    Spread into a response (`**_capped_list(...)`) alongside the list itself.
+    `items` is the already-sliced list; `total` is the TRUE total it was sliced
+    out of, which is often not `len(items)` and sometimes never materialises as
+    a list at all (`search_activities` gets it from a `SELECT COUNT`).
+
+    Every tool here promises the same invariant -- `truncated` is exactly
+    `returned < total`, and a `note` exists precisely when it is truncated --
+    but each names its total differently (`total_matches`, `incomplete`,
+    `pack_count`, ...), which is how seven hand-rolled copies came to exist and
+    how the one place that quietly broke the invariant went unnoticed. So the
+    total's key is a parameter and the other three are not, except for `prefix`:
+    `planning_gaps` reports two capped lists in one response and its groups take
+    the `groups_` prefix to keep them apart from its activities.
+    """
+
+    def key(name: str) -> str:
+        return f"{prefix}_{name}" if prefix else name
+
+    returned = len(items)
+    total = int(total)
+    return {
+        total_key: total,
+        key("returned"): returned,
+        key("truncated"): returned < total,
+        key("note"): _truncation_note(total, returned, limit, subject=subject),
+    }
 
 
 def _value_truncation_note(distinct: int, returned: int, limit: int) -> str | None:
@@ -896,10 +933,9 @@ def search_activities(
         ).all()
     items = [_summarize(activity) for activity in rows]
     return {
-        "total_matches": int(total),
-        "returned": len(items),
-        "truncated": len(items) < int(total),
-        "note": _truncation_note(int(total), len(items), capped),
+        **_capped_list(
+            items, total, capped, subject="matching activities", total_key="total_matches"
+        ),
         "activities": items,
     }
 
@@ -1005,10 +1041,7 @@ def activity_history(
         "activity_id": str(activity.id),
         "tracking_id": activity.tracking_id,
         "activity_name": activity.activity_name,
-        "total": total,
-        "returned": len(changes),
-        "truncated": len(changes) < total,
-        "note": _truncation_note(total, len(changes), capped, subject="changes"),
+        **_capped_list(changes, total, capped, subject="changes", total_key="total"),
         "changes": changes,
     }
 
@@ -1183,10 +1216,13 @@ def plan_changes_since(
     return {
         "since": _iso(boundary),
         "changes": total_changes,
-        "activity_count": total_groups,
-        "returned": len(shown_groups),
-        "truncated": len(shown_groups) < total_groups,
-        "note": _truncation_note(total_groups, len(shown_groups), capped, subject="activities"),
+        **_capped_list(
+            shown_groups,
+            total_groups,
+            capped,
+            subject="activities",
+            total_key="activity_count",
+        ),
         "by_actor": actors,
         "by_change_type": change_types,
         "by_field": fields,
@@ -1246,9 +1282,13 @@ def planning_gaps(
     answer: dict[str, Any] = {
         "checked": len(candidates),
         "complete": len(candidates) - len(incomplete),
-        "incomplete": len(incomplete),
-        "returned": len(shown),
-        "truncated": len(shown) < len(incomplete),
+        **_capped_list(
+            shown,
+            len(incomplete),
+            capped,
+            subject="incomplete activities",
+            total_key="incomplete",
+        ),
         "missing_field_counts": dict(
             sorted(field_tally.items(), key=lambda item: (-item[1], item[0]))
         ),
@@ -1270,14 +1310,19 @@ def planning_gaps(
             ({"value": key, **counts} for key, counts in groups.items()),
             key=lambda group: (-group["incomplete"], -group["checked"], group["value"]),
         )
+        shown_groups = ordered_groups[:MAX_LIMIT]
         answer["group_by"] = group_by
-        answer["group_count"] = len(ordered_groups)
-        answer["groups"] = ordered_groups[:MAX_LIMIT]
-        answer["groups_truncated"] = len(answer["groups"]) < len(ordered_groups)
-        if answer["groups_truncated"]:
-            answer["groups_note"] = _truncation_note(
-                len(ordered_groups), len(answer["groups"]), MAX_LIMIT, subject=f"{group_by} groups"
+        answer.update(
+            _capped_list(
+                shown_groups,
+                len(ordered_groups),
+                MAX_LIMIT,
+                subject=f"{group_by} groups",
+                total_key="group_count",
+                prefix="groups",
             )
+        )
+        answer["groups"] = shown_groups
     return answer
 
 
@@ -1349,14 +1394,19 @@ def activity_counts(
             buckets, total, bucket_count = _capped_by_count(tally)
         return {
             "dimension": dimension,
+            # The row total, not the list total: `_capped_list`'s `bucket_count`
+            # below is how many buckets exist, `total` is how many activities
+            # (or memberships) they add up to across ALL of them.
             "total": total,
             "counts_memberships": counts_memberships,
-            "bucket_count": bucket_count,
-            "truncated": len(buckets) < bucket_count,
-            "buckets": buckets,
-            "note": _truncation_note(
-                bucket_count, len(buckets), MAX_LIMIT, subject=f"{dimension} buckets"
+            **_capped_list(
+                buckets,
+                bucket_count,
+                MAX_LIMIT,
+                subject=f"{dimension} buckets",
+                total_key="bucket_count",
             ),
+            "buckets": buckets,
         }
 
     # --- Cross-tab: two dimensions -------------------------------------
@@ -1742,10 +1792,7 @@ def detect_collisions(
     ]
     return {
         "checked": len(candidates),
-        "total": len(found),
-        "returned": len(shown),
-        "truncated": len(shown) < len(found),
-        "note": _truncation_note(len(found), len(shown), capped, subject="collisions"),
+        **_capped_list(shown, len(found), capped, subject="collisions", total_key="total"),
         "collisions": shown,
     }
 
@@ -1956,10 +2003,7 @@ def pack_overview(
     total_packs = len(rows)
     shown = rows[:capped]
     return {
-        "pack_count": total_packs,
-        "returned": len(shown),
-        "truncated": len(shown) < total_packs,
-        "note": _truncation_note(total_packs, len(shown), capped, subject="packs"),
+        **_capped_list(shown, total_packs, capped, subject="packs", total_key="pack_count"),
         "packs": shown,
     }
 

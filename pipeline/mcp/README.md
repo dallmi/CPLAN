@@ -74,6 +74,19 @@ list can never be mistaken for the column's whole vocabulary — a model that
 filters on a value it never saw and then reports "no activities" as fact is the
 failure this prevents.
 
+**The cap invariant lives in one function, not in every tool.**
+`queries._capped_list` returns the four keys — the total, `returned`,
+`truncated`, `note` — that every capped answer here reports, and each tool
+spreads it into its response. Only the total's key varies (`total_matches`,
+`incomplete`, `pack_count`, `bucket_count`, …), which is precisely why the
+invariant used to be hand-rolled seven times: seven near-identical blocks that
+looked different enough to read as intentional. One of them then quietly broke
+it — `plan_changes_since` capped activity groups but inlined every change row
+inside each group, so a nightly-synced activity produced `returned: 1` with
+hundreds of changes underneath and no truncation flag anywhere.
+`test_every_capped_answer_reports_the_same_truncation_invariant` now checks all
+of them against the one rule.
+
 **A cross-tab caps each axis independently, not the flat cell count.**
 `activity_counts(second_dimension=...)` multiplies two dimensions together --
 32 packs x 15 channels is 480 cells -- and the flat 200-row cap the other

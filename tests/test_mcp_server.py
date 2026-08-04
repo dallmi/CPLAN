@@ -1270,6 +1270,91 @@ def test_activity_counts_caps_its_buckets_and_says_so(writable_session, extra):
     assert "campaign buckets" in counted["note"]
 
 
+@pytest.mark.parametrize("truncating", [True, False])
+def test_every_capped_answer_reports_the_same_truncation_invariant(
+    writable_session, truncating
+):
+    """One invariant, checked across every tool that returns a capped list.
+
+    `truncated` is exactly `returned < total`, `note` exists exactly when
+    truncated, and `returned` is exactly the length of the list it describes --
+    for every tool, under both a truncating and a non-truncating limit. The
+    invariant was hand-rolled in seven places, each naming its total
+    differently, which is how one of them (`plan_changes_since`'s per-group
+    `changes`) came to break it unnoticed; `_capped_list` is what makes it one
+    rule, and this is what keeps it one rule.
+    """
+    activities = [
+        _activity(
+            activity_name=f"Row {index}",
+            communication_pack_cpid=f"CP-{index}",
+            campaign=f"Campaign {index}",
+            channel="Email",
+            target_audience="Staff",
+            start_date=REFERENCE,
+            end_date=REFERENCE,
+            lead_team=None,  # incomplete, so planning_gaps has rows to cap
+        )
+        for index in range(4)
+    ]
+    writable_session.add_all(activities)
+    writable_session.flush()
+    writable_session.add_all([
+        ActivityChange(
+            activity_id=activity.id,
+            actor="sync",
+            change_type="created",
+            changed_at=REFERENCE + timedelta(minutes=index),
+            version_to=1,
+        )
+        for index, activity in enumerate(activities)
+    ])
+    writable_session.flush()
+
+    limit = 2 if truncating else queries.MAX_LIMIT
+    answers = [
+        (queries.search_activities(writable_session, limit=limit), "total_matches", "activities", ""),
+        (queries.planning_gaps(writable_session, limit=limit), "incomplete", "activities", ""),
+        (
+            queries.planning_gaps(writable_session, group_by="campaign", limit=limit),
+            "group_count",
+            "groups",
+            "groups",
+        ),
+        (
+            queries.detect_collisions(writable_session, limit=limit),
+            "total",
+            "collisions",
+            "",
+        ),
+        (queries.pack_overview(writable_session, limit=limit), "pack_count", "packs", ""),
+        (
+            queries.activity_history(writable_session, activities[0].tracking_id, limit=limit),
+            "total",
+            "changes",
+            "",
+        ),
+        (
+            queries.plan_changes_since(writable_session, since="2026-01-01", limit=limit),
+            "activity_count",
+            "activities",
+            "",
+        ),
+        (queries.activity_counts(writable_session, dimension="campaign"), "bucket_count", "buckets", ""),
+    ]
+
+    for answer, total_key, list_key, prefix in answers:
+        def key(name: str) -> str:
+            return f"{prefix}_{name}" if prefix else name
+
+        label = f"{total_key}/{list_key}"
+        assert answer[key("returned")] == len(answer[list_key]), label
+        assert answer[key("truncated")] is (
+            answer[key("returned")] < answer[total_key]
+        ), label
+        assert (answer[key("note")] is not None) is answer[key("truncated")], label
+
+
 def test_activity_counts_reports_no_truncation_when_it_fits(session):
     counted = queries.activity_counts(session, dimension="channel")
 
@@ -1302,8 +1387,12 @@ def test_planning_gaps_reports_no_group_truncation_when_it_fits(writable_session
     gaps = queries.planning_gaps(writable_session, group_by="lead_team")
 
     assert gaps["group_count"] == 1
+    assert gaps["groups_returned"] == 1
     assert gaps["groups_truncated"] is False
-    assert "groups_note" not in gaps
+    # Present and null, not absent: every capped list here reports the same
+    # four keys through `_capped_list`, so an untruncated answer says so
+    # explicitly rather than by the absence of a key nobody thinks to check.
+    assert gaps["groups_note"] is None
 
 
 def test_counts_by_priority_rank_collapses_both_vocabularies(writable_session):
@@ -1418,11 +1507,18 @@ def test_counts_without_second_dimension_keeps_the_flat_shape(session):
         "dimension",
         "total",
         "counts_memberships",
+        # `bucket_count` / `returned` / `truncated` / `note` are the four keys
+        # `_capped_list` reports for every capped list in this module; the
+        # bucket list is capped like any other, so it reports them like any
+        # other. `total` stays the activity (or membership) total across ALL
+        # buckets, which is a different number from `bucket_count`.
         "bucket_count",
+        "returned",
         "truncated",
-        "buckets",
         "note",
+        "buckets",
     }
+    assert result["returned"] == len(result["buckets"])
 
 
 def test_counts_by_week_buckets_iso_weeks(writable_session):
