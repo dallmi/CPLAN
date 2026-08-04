@@ -1123,6 +1123,61 @@ def test_pack_overview_counts_distinct_members_not_strings(writable_session):
     assert pack["audiences"] == 2
 
 
+def test_pack_overview_splits_channels_for_the_counts_but_not_for_the_filter(
+    writable_session,
+):
+    """The three answers one column gives, and the sentence that has to say so.
+
+    `pack_overview` counts channel MEMBERS (`_normalize_multi`) but filters on
+    the whole stored string (`_apply_filters`), while `detect_collisions`
+    filters by member on both columns. Left undisclosed, an agent reading
+    "`detect_collisions` and `pack_overview` DO split them into members" asks
+    "which packs run on Email", gets zero packs on a portfolio where every
+    pack does, and reports that absence as a fact about the plan.
+
+    Behaviour first, then the prose: the resource is the only place the agent
+    can learn this, so a rewording that drops the qualification has to fail
+    here too.
+    """
+    writable_session.add_all([
+        _activity(communication_pack_cpid="CP-1", channel="Email, Intranet"),
+        _activity(communication_pack_cpid="CP-1", channel="Email, Intranet"),
+        _activity(communication_pack_cpid="CP-1", channel="Email, Intranet"),
+    ])
+    writable_session.flush()
+
+    unfiltered = queries.pack_overview(writable_session)
+    filtered = queries.pack_overview(writable_session, channel="Email")
+    collisions = queries.detect_collisions(writable_session, channel="Email")
+
+    # Counting splits: one pack, two channels.
+    assert unfiltered["pack_count"] == 1
+    assert unfiltered["packs"][0]["channels"] == 2
+    # Filtering does not: the same portfolio answers "no packs at all".
+    assert filtered["pack_count"] == 0
+    # detect_collisions' own filter DOES match a member, on the same rows.
+    assert collisions["total"] > 0
+
+    from pipeline.mcp.domain import domain_model
+
+    trap = domain_model().split("## Trap 4")[1].split("## Trap 5")[0]
+    # One bullet = its own '- ' line plus any indented continuation lines, up
+    # to the next bullet or the next blank line. Splitting on '- ' alone lets
+    # the final bullet swallow the rest of the section, which then satisfies
+    # both assertions below no matter what the prose says.
+    bullets = [
+        " ".join(match.group(0).split())
+        for match in re.finditer(r"(?m)^- .*(?:\n(?![-\s]*$|- ).*)*", trap)
+    ]
+    pack_bullet = next(bullet for bullet in bullets if "pack_overview" in bullet)
+    collision_bullet = next(
+        bullet for bullet in bullets if "detect_collisions" in bullet
+    )
+    assert pack_bullet != collision_bullet
+    assert "whole string" in pack_bullet.lower()
+    assert "member" in collision_bullet.lower()
+
+
 def test_pack_overview_readiness_agrees_with_planning_gaps(writable_session):
     """The reason `incomplete` reuses `missing_fields` rather than its own rule."""
     writable_session.add_all([
@@ -1715,6 +1770,96 @@ def test_cross_tab_orders_a_time_axis_chronologically(writable_session):
     assert [bucket["second_value"] for bucket in trailing["buckets"]] == months
     # The same order the single-dimension path has always produced.
     assert [bucket["value"] for bucket in flat["buckets"]] == months
+
+
+def test_cross_tab_caps_a_time_axis_as_a_contiguous_recent_window(writable_session):
+    """A capped time axis must be a window, not a volume-ranked sample.
+
+    36 months alternating 10 activities and 1. Capped by count -- the rule
+    every categorical axis uses -- the 20 survivors are all 18 busy months
+    plus 2 quiet ones, and printing them in date order yields
+    `2026-01, 2026-02, 2026-03, 2026-05, 2026-07, ...`: sixteen months missing
+    from the MIDDLE of something that reads as a timeline, with nothing in the
+    response naming them. The 1-D path caps at MAX_LIMIT chronologically and
+    never produced this shape; the cross-tab's tighter MAX_CROSS_AXIS made it
+    reachable on any real portfolio.
+
+    So a TIME_BUCKETS axis is capped as a contiguous window of the most recent
+    MAX_CROSS_AXIS buckets instead. Asserted as consecutive months ending at
+    the latest, which is the one property a count-ranked cap can never have.
+    """
+    months = 36
+    for index in range(months):
+        year = 2026 + index // 12
+        month = index % 12 + 1
+        start = datetime(year, month, 5, tzinfo=timezone.utc)
+        writable_session.add_all([
+            _activity(channel="Email", start_date=start)
+            # Alternating volumes: a count-ranked cap keeps the busy months.
+            for _ in range(10 if index % 2 == 0 else 1)
+        ])
+    writable_session.flush()
+
+    result = queries.activity_counts(
+        writable_session, dimension="month", second_dimension="channel"
+    )
+
+    kept = [bucket["value"] for bucket in result["buckets"]]
+    assert len(kept) == queries.MAX_CROSS_AXIS
+    expected = [
+        f"{2026 + index // 12:04d}-{index % 12 + 1:02d}"
+        for index in range(months - queries.MAX_CROSS_AXIS, months)
+    ]
+    assert kept == expected
+    # Consecutive by construction above; asserted directly so a future
+    # reordering cannot satisfy the list comparison by accident.
+    assert kept == sorted(kept)
+    assert result["axis_truncated"] == {"dimension": True, "second_dimension": False}
+    assert result["distinct_values"]["dimension"] == months
+    assert result["truncated"] is True
+    # The cut months still count towards the total, as on every other axis.
+    assert result["total"] == 18 * 10 + 18 * 1
+    # The note has to name the SHAPE, not just the fact of a cap: "top 20 by
+    # count" would be a lie about this axis.
+    note = " ".join(result["note"].split())
+    assert "most recent" in note
+    assert "contiguous" in note
+
+
+def test_cross_tab_note_names_the_shape_each_cut_axis_got(writable_session):
+    """A categorical axis is still capped by count, and says so separately.
+
+    The time-axis fix must not turn every axis into a window: a channel axis
+    keeps its busiest values, and the note has to distinguish the two shapes
+    when both axes are cut in the same answer -- they hide different data
+    (rarest values on one, everything before the window on the other).
+    """
+    surplus = 3
+    for index in range(queries.MAX_CROSS_AXIS + surplus):
+        writable_session.add_all([
+            _activity(
+                channel=f"Channel {index:03d}",
+                start_date=datetime(2026, 1, 1, tzinfo=timezone.utc)
+                + timedelta(days=index),
+            )
+            for _ in range(index + 1)
+        ])
+    writable_session.flush()
+
+    result = queries.activity_counts(
+        writable_session, dimension="channel", second_dimension="day"
+    )
+
+    note = " ".join(result["note"].split())
+    assert result["axis_truncated"] == {"dimension": True, "second_dimension": True}
+    assert f"channel: the top {queries.MAX_CROSS_AXIS}" in note
+    assert "by total count" in note
+    assert f"day: the {queries.MAX_CROSS_AXIS} most recent" in note
+    # The categorical axis keeps the busiest channels, which here are the last
+    # ones created -- proof it was NOT switched to a chronological window.
+    kept_channels = {bucket["value"] for bucket in result["buckets"]}
+    assert "Channel 000" not in kept_channels
+    assert f"Channel {queries.MAX_CROSS_AXIS + surplus - 1:03d}" in kept_channels
 
 
 def test_cross_tab_tallies_multi_value_members_on_the_first_axis(writable_session):
@@ -3627,6 +3772,109 @@ def test_plan_changes_since_refuses_a_blank_boundary(writable_session, since):
     assert "activities" not in result
 
 
+@pytest.mark.parametrize("since", ["last week", "2026-13-45"])
+def test_plan_changes_since_refuses_an_unparseable_boundary(writable_session, since):
+    """An unreadable date must be an ANSWER, not a traceback.
+
+    Both spellings used to escape `datetime.fromisoformat` as a raw
+    `ValueError` ("Invalid isoformat string", "month must be in 1..12") and
+    crash the tool call, while the tool description and the docstring both
+    promised "a blank or unparseable value returns an error". `"last week"` is
+    exactly what a model reaches for when the argument is named `since`, and a
+    crashed call teaches it nothing about what to pass instead.
+    """
+    activity = _activity()
+    writable_session.add(activity)
+    writable_session.flush()
+
+    result = queries.plan_changes_since(writable_session, since=since)
+
+    assert "error" in result
+    assert since in result["error"]
+    assert list(queries.ACCEPTED_BOUNDARY_FORMATS) == result["accepted_formats"]
+    assert "activities" not in result
+    # The note has to point at a real source of dates, because this server has
+    # no wall clock to resolve "last week" against.
+    assert "database_status" in result["note"]
+
+
+def test_every_tool_taking_a_date_argument_reports_a_bad_one(writable_session):
+    """The rule is the module's, not `plan_changes_since`'s alone.
+
+    `_parse_boundary` backs four filter windows (`start_after`,
+    `start_before`, `end_after`, `end_before`) reaching every filtered tool,
+    plus the `calendar_load` / `window_comparison` anchors -- all of which
+    raised the same way `since` did. Fixing only `since` would have left the
+    inconsistency where a model is likeliest to meet it: a date filter on a
+    search. Every public tool accepting `**filter_kwargs` is walked here, so a
+    tool added without `@_reports_invalid_boundary` fails this test rather
+    than crashing an agent.
+    """
+    # The four filter windows reach `_apply_filters` through `**filter_kwargs`
+    # on most tools and are spelled out one by one on `search_activities`, so
+    # the walk has to recognise both shapes -- looking only for `**kwargs`
+    # silently skips the tool a model is likeliest to pass a date to.
+    forwarded = ("start_after", "start_before", "end_after", "end_before")
+    date_arguments = (*forwarded, "start_date", "reference", "since")
+    # Whatever else a tool demands before it will run at all. Valid values --
+    # this test is about the date argument, not about these.
+    required = {"since": "2026-01-01", "dimension": "channel"}
+
+    checked: dict[str, list[str]] = {}
+    for name, tool in sorted(vars(queries).items()):
+        if name.startswith("_") or not inspect.isfunction(tool):
+            continue
+        if tool.__module__ != queries.__name__:
+            continue
+        parameters = inspect.signature(tool).parameters
+        takes = set(argument for argument in date_arguments if argument in parameters)
+        if any(
+            parameter.kind is inspect.Parameter.VAR_KEYWORD
+            for parameter in parameters.values()
+        ):
+            takes.update(forwarded)
+        if not takes:
+            continue
+        unsupplied = [
+            parameter.name
+            for parameter in parameters.values()
+            if parameter.kind is inspect.Parameter.KEYWORD_ONLY
+            and parameter.default is inspect.Parameter.empty
+            and parameter.name not in required
+        ]
+        assert not unsupplied, f"{name} needs {unsupplied} before it can be called"
+        checked[name] = sorted(takes)
+        for argument in sorted(takes):
+            kwargs = {
+                key: value
+                for key, value in required.items()
+                if key in parameters and key != argument
+            }
+            result = tool(writable_session, **kwargs, **{argument: "last week"})
+            assert isinstance(result, dict), f"{name}({argument}=...)"
+            assert "error" in result, f"{name}({argument}=...)"
+            assert argument in result["error"], f"{name}({argument}=...)"
+            assert result["accepted_formats"] == list(queries.ACCEPTED_BOUNDARY_FORMATS)
+
+    # A guard against the walk quietly matching nothing, and against a tool
+    # dropping off it by losing the argument rather than by handling it.
+    assert {
+        "search_activities",
+        "planning_gaps",
+        "activity_counts",
+        "detect_collisions",
+        "pack_overview",
+        "lead_time_stats",
+        "data_quality",
+        "calendar_load",
+        "window_comparison",
+        "plan_changes_since",
+    } <= set(checked)
+    assert "start_date" in checked["calendar_load"]
+    assert "reference" in checked["window_comparison"]
+    assert "since" in checked["plan_changes_since"]
+
+
 def test_plan_changes_since_excludes_changes_before_the_boundary(writable_session):
     activity = _activity()
     writable_session.add(activity)
@@ -3716,6 +3964,29 @@ def test_domain_model_states_the_real_multi_value_separators():
     text = domain_model()
     for name in queries.MULTI_VALUE_SEPARATORS:
         assert name in text, name
+
+
+def test_domain_model_counts_the_split_columns_instead_of_restating_the_number(
+    monkeypatch,
+):
+    """"Three of them are split for you" must be a count, not a claim.
+
+    Every field list in this resource is generated from `queries.py` precisely
+    so it cannot drift; the sentence introducing the generated separator list
+    was still spelling its length out by hand, one line above the list itself.
+    Add a fourth multi-value column and the list grows while the sentence goes
+    on saying three -- a resource contradicting its own next line.
+    """
+    from pipeline.mcp.domain import domain_model
+
+    assert "three of them" in domain_model().lower()
+
+    monkeypatch.setitem(queries.MULTI_VALUE_SEPARATORS, "partner_team", (",",))
+    grown = domain_model()
+
+    assert "four of them" in grown.lower()
+    assert "three of them" not in grown.lower()
+    assert "`partner_team` splits on" in grown
 
 
 def test_domain_model_discloses_the_unsplit_multi_value_columns():

@@ -17,6 +17,22 @@ def _bullets(names: tuple[str, ...]) -> str:
     return ", ".join(f"`{name}`" for name in names)
 
 
+# Small enough to spell out; anything larger reads fine as a numeral.
+_COUNT_WORDS = ("no", "one", "two", "three", "four", "five", "six", "seven")
+
+
+def count_word(count: int) -> str:
+    """`count` as an English word where prose wants one.
+
+    Exists so a sentence can COUNT a generated list instead of restating its
+    length -- "Three of them are split for you" was written by hand one line
+    above the generated list itself and would have survived a fourth column
+    being added, which is the exact drift every other figure in this file is
+    generated to avoid.
+    """
+    return _COUNT_WORDS[count] if count < len(_COUNT_WORDS) else str(count)
+
+
 def domain_model() -> str:
     """The domain model, vocabularies and traps, as Markdown."""
     word_ranks = ", ".join(
@@ -113,7 +129,7 @@ case-insensitively, so only the spelling has to be right.
 
 ## Trap 4 — several columns hold several values in one string
 
-Three of them are split for you everywhere:
+{count_word(len(queries.MULTI_VALUE_SEPARATORS)).capitalize()} of them are split for you everywhere:
 
 {separators}
 
@@ -127,10 +143,24 @@ the filter and group tools treat the whole string as one value.**
 `"Email, Intranet"`, and `search_activities(channel="Email")` will not match
 it. Call `field_values("channel")` to see the real combinations before you
 filter, and read a channel or audience bucket as the combination it names, not
-as a single channel. `detect_collisions` and `pack_overview` DO split them into
-members, so their channel and audience counts legitimately exceed what
-`activity_counts` shows — that is not a contradiction, it is two different
-questions.
+as a single channel.
+
+`detect_collisions` and `pack_overview` DO split them into members **when they
+count** — collision pairing tests channel and audience membership, and a pack's
+channel/audience breadth counts members — so their channel and audience figures
+legitimately exceed what `activity_counts` shows. That is not a contradiction,
+it is two different questions. Their FILTERS are a separate matter, and the two
+tools do not agree:
+
+- `detect_collisions(channel=…, target_audience=…)` filters by MEMBER, so
+  `channel="Email"` does find an activity stored as `"Email, Intranet"`.
+- `pack_overview(channel=…, target_audience=…)` filters by the WHOLE STRING,
+  like `search_activities` — so `pack_overview(channel="Email")` can return
+  zero packs on a portfolio where `pack_overview()` reports every pack running
+  on Email. Splitting for the counts does not mean splitting for the filter.
+
+So: filter these two columns on a combination `field_values` actually lists, or
+do not filter them at all and read the split counts instead.
 
 Executive involvement is split across **two** columns — `bod_geb` (executive-board
 members) and `other_executives` (senior leaders who are not on that board) — and
@@ -210,11 +240,23 @@ activities for X" from a list that says it is truncated.
 
 **A cross-tab is capped differently, and reports differently.**
 `activity_counts(second_dimension=…)` has no `bucket_count` at all. Each axis is
-capped independently to its own top {queries.MAX_CROSS_AXIS} values by total
-count, so what comes back is a smaller but COMPLETE table rather than a
-truncated prefix of a bigger one. Read `distinct_values` and `axis_truncated`
-instead — both keyed `dimension` / `second_dimension` — to see how many values
-each axis really has and which one, if either, was cut.
+capped independently to {queries.MAX_CROSS_AXIS} values of its own, and how those values are chosen
+depends on the axis:
+
+- A **categorical** axis (channel, pack, lead team, …) keeps its {queries.MAX_CROSS_AXIS} busiest
+  values by total count. The table is complete for the values it names; the
+  rarer ones are absent.
+- A **time** axis (`day` / `week` / `month`) keeps a contiguous window of its
+  {queries.MAX_CROSS_AXIS} most recent buckets, in date order. The timeline has no holes in it, but
+  it does not reach back to the start of the data — everything before the
+  window is absent. It is never the busiest buckets: a timeline sampled by
+  volume looks continuous and is not.
+
+That ceiling is far tighter than the one-dimensional path's {queries.MAX_LIMIT}, so `day`
+crossed with anything covers {queries.MAX_CROSS_AXIS} days. Read `distinct_values`,
+`axis_truncated` — both keyed `dimension` / `second_dimension` — and the `note`,
+which names the shape each cut axis got. For a longer reach on a time axis, ask
+for it without a second dimension.
 
 `plan_changes_since` caps three things at once, each reported separately: the
 activity groups (`activity_count` / `truncated`), each group's own `changes`

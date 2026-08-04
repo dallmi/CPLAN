@@ -23,6 +23,7 @@ to the studio.
 
 from __future__ import annotations
 
+import functools
 import math
 import re
 import uuid
@@ -245,9 +246,18 @@ MAX_PROXIMITY_DAYS = 90
 # cells), and the flat MAX_LIMIT cap is the wrong shape for that: sorting the
 # flat cell list by count and slicing drops whole rows/columns of the table
 # rather than showing a smaller-but-complete one, which reads to an agent as
-# a full cross-tab that is quietly missing data. Capping each axis to its top
-# MAX_CROSS_AXIS values by total count keeps a coherent (if smaller) table
-# instead, and `axis_truncated` says which axis, if any, was cut.
+# a full cross-tab that is quietly missing data. Each axis is capped to
+# MAX_CROSS_AXIS values of its own instead, and `axis_truncated` says which
+# axis, if any, was cut.
+#
+# HOW those values are chosen depends on the axis (`_axis_keys`): a categorical
+# axis keeps its busiest MAX_CROSS_AXIS values, a time axis keeps a CONTIGUOUS
+# window of its most recent MAX_CROSS_AXIS buckets. Ranking a time axis by
+# volume produced a timeline with holes punched through the middle -- 20 months
+# scattered across 36, printed in date order, with nothing saying which were
+# dropped. Note that this is a much tighter ceiling than the 1-D path's
+# MAX_LIMIT (200 chronological buckets, some 17 years of months): a `day x
+# channel` cross-tab covers 20 days, not 200.
 MAX_CROSS_AXIS = 20
 
 # `calendar_load` clamps `weeks` to a year of them; `window_comparison`'s `days`
@@ -258,10 +268,72 @@ MAX_CROSS_AXIS = 20
 # previous one" means.
 MAX_WINDOW_DAYS = 366
 
+# The only two spellings `_parse_boundary` accepts, named once so the blank
+# case and the unparseable case cannot advertise different vocabularies.
+ACCEPTED_BOUNDARY_FORMATS: tuple[str, ...] = (
+    "YYYY-MM-DD",
+    "a full ISO 8601 timestamp",
+)
+
 
 # ------------------------------------------------------------------------
 # Value helpers -- pure, no session, no SQL
 # ------------------------------------------------------------------------
+
+
+class InvalidBoundary(ValueError):
+    """A date-ish argument this module could not read as a date.
+
+    Raised by `_parse_boundary`, caught by `_reports_invalid_boundary` on
+    every public tool that takes such an argument, and reported as the same
+    error dict shape a blank `since` already returns. It exists because
+    `datetime.fromisoformat` raises on `"last week"` and on `"2026-13-45"`,
+    and an uncaught exception crossing the MCP boundary is a tool that
+    "failed" rather than a tool that told the model what to pass instead --
+    and `"last week"` is exactly what a model passes to an argument named
+    `since`.
+    """
+
+    def __init__(self, argument: str, value: Any) -> None:
+        self.argument = argument
+        self.value = value
+        super().__init__(f"Could not read {argument}={value!r} as a date.")
+
+    def as_error(self) -> dict[str, Any]:
+        """The JSON-ready error dict a tool returns instead of raising."""
+        return {
+            "error": str(self),
+            "accepted_formats": list(ACCEPTED_BOUNDARY_FORMATS),
+            "note": (
+                f"`{self.argument}` takes a calendar date or an ISO timestamp, "
+                "never a relative phrase like 'last week' or 'yesterday'. This "
+                "server has no wall clock of its own -- read the plan's real "
+                "date range from `database_status` (or an anchor from "
+                "`calendar_load`) and pass an explicit date."
+            ),
+        }
+
+
+def _reports_invalid_boundary(func):
+    """Turn an `InvalidBoundary` raised anywhere inside a tool into its error dict.
+
+    Applied to every public function here that accepts a date-ish argument --
+    the four `ActivityFilters` date windows that reach `_apply_filters`, the
+    `calendar_load` / `window_comparison` anchors, and `plan_changes_since`'s
+    `since`. Written once as a decorator rather than a `try` inside each tool
+    so a tool cannot be added with a date filter and without the handler:
+    `test_every_tool_taking_a_date_argument_reports_a_bad_one` walks the
+    module and fails if one is missing.
+    """
+
+    @functools.wraps(func)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        try:
+            return func(*args, **kwargs)
+        except InvalidBoundary as invalid:
+            return invalid.as_error()
+
+    return wrapper
 
 
 def is_blank(value: Any) -> bool:
@@ -402,8 +474,19 @@ def _iso(value: datetime | None) -> str | None:
     return normalized.isoformat().replace("+00:00", "Z")
 
 
-def _parse_boundary(value: str | date | datetime | None) -> datetime | None:
-    """Accept 'YYYY-MM-DD' or a full ISO timestamp; always return UTC-aware."""
+def _parse_boundary(
+    value: str | date | datetime | None, *, argument: str
+) -> datetime | None:
+    """Accept 'YYYY-MM-DD' or a full ISO timestamp; always return UTC-aware.
+
+    `None` and a blank string return `None` -- "no boundary" -- which each
+    caller reads on its own terms (an unset filter is ignored; a blank
+    required `since` is an error). Anything else that is not a date raises
+    `InvalidBoundary` naming `argument`, rather than letting
+    `datetime.fromisoformat`'s own `ValueError` ("Invalid isoformat string",
+    "month must be in 1..12") escape the tool: the caller is a language model
+    that needs to be told what to pass, not a stack trace.
+    """
     if value is None:
         return None
     if isinstance(value, datetime):
@@ -414,7 +497,10 @@ def _parse_boundary(value: str | date | datetime | None) -> datetime | None:
         text = value.strip()
         if not text:
             return None
-        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        try:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError as error:
+            raise InvalidBoundary(argument, value) from error
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
@@ -716,13 +802,15 @@ def _apply_filters(statement, filters: ActivityFilters):
                 )
             )
         )
-    for column, raw, lower_bound in (
-        (Activity.start_date, filters.start_after, True),
-        (Activity.start_date, filters.start_before, False),
-        (Activity.end_date, filters.end_after, True),
-        (Activity.end_date, filters.end_before, False),
+    for column, argument, raw, lower_bound in (
+        (Activity.start_date, "start_after", filters.start_after, True),
+        (Activity.start_date, "start_before", filters.start_before, False),
+        (Activity.end_date, "end_after", filters.end_after, True),
+        (Activity.end_date, "end_before", filters.end_before, False),
     ):
-        boundary = _parse_boundary(raw)
+        # Named, because the model has to be told WHICH argument it mis-spelled
+        # when `_parse_boundary` refuses one (see `InvalidBoundary`).
+        boundary = _parse_boundary(raw, argument=argument)
         if boundary is None:
             continue
         statement = statement.where(column >= boundary if lower_bound else column <= boundary)
@@ -848,6 +936,7 @@ def _filtered_activities(session: Session, filters: ActivityFilters) -> list[Act
 # ------------------------------------------------------------------------
 
 
+@_reports_invalid_boundary
 def search_activities(
     session: Session,
     *,
@@ -1046,6 +1135,7 @@ def activity_history(
     }
 
 
+@_reports_invalid_boundary
 def plan_changes_since(
     session: Session,
     *,
@@ -1114,11 +1204,16 @@ def plan_changes_since(
     one activity's full log with `activity_history`, which pages it properly.
 
     `since` is required, so a blank or unparseable value is a caller slip, not
-    a request for "everything": it returns an error naming the accepted
+    a request for "everything": both return an error naming the accepted
     formats rather than silently falling through to the whole change log with
-    no boundary at all.
+    no boundary at all. Blank is caught right here; unparseable (`"last week"`,
+    `"2026-13-45"` -- the first is exactly what a model reaches for when the
+    argument is called `since`) raises `InvalidBoundary` out of
+    `_parse_boundary` and is turned into the same error shape by
+    `_reports_invalid_boundary`, the handler every date-taking tool in this
+    module wears.
     """
-    boundary = _parse_boundary(since)
+    boundary = _parse_boundary(since, argument="since")
     if boundary is None:
         return {
             "error": (
@@ -1235,6 +1330,7 @@ def plan_changes_since(
     }
 
 
+@_reports_invalid_boundary
 def planning_gaps(
     session: Session,
     *,
@@ -1342,6 +1438,7 @@ def _sql_label(column) -> Any:
     return case((_blank_sql(column), "Unassigned"), else_=func.trim(column)).cast(String)
 
 
+@_reports_invalid_boundary
 def activity_counts(
     session: Session,
     *,
@@ -1356,6 +1453,14 @@ def activity_counts(
     one-dimensional shape this tool has always returned -- no `second_value`
     key anywhere, so a caller that never asked for a second dimension sees no
     difference at all.
+
+    The two paths also cap differently, and by different amounts. One
+    dimension: MAX_LIMIT buckets, largest first (chronological for a time
+    grain, but still the largest that survive). Cross-tab: MAX_CROSS_AXIS
+    values per axis, chosen by count on a categorical axis and as a contiguous
+    recent window on a time axis -- see `_axis_keys` for why a time axis
+    cannot be sampled by volume, and `MAX_CROSS_AXIS` for how much tighter
+    that ceiling is.
     """
     if dimension not in GROUPABLE_FIELDS:
         return {
@@ -1459,28 +1564,53 @@ def activity_counts(
         first_totals[first_key] = first_totals.get(first_key, 0) + count
         second_totals[second_key] = second_totals.get(second_key, 0) + count
 
-    def _top_keys(totals: dict[str, int]) -> set[str]:
-        ordered = sorted(totals.items(), key=lambda item: (-item[1], str(item[0])))
-        return {key for key, _ in ordered[:MAX_CROSS_AXIS]}
+    # A time axis reads in chronological order, exactly as the single-dimension
+    # path already orders one (`_capped_by_count(chronological=...)`): a
+    # `month x channel` table sorted largest-bucket-first is a timeline shuffled
+    # by volume, which is not a table anyone can read as a trend.
+    first_is_time = dimension in TIME_BUCKETS
+    second_is_time = second_dimension in TIME_BUCKETS
 
-    kept_first = _top_keys(first_totals)
-    kept_second = _top_keys(second_totals)
+    def _axis_keys(totals: dict[str, int], *, chronological: bool) -> set[str]:
+        """The values one axis keeps -- by count, or as a recent time window.
+
+        A categorical axis keeps its top MAX_CROSS_AXIS values by total count:
+        the values that are missing are the rarest ones, which is what "top N"
+        already tells the reader.
+
+        A TIME_BUCKETS axis is capped as a CONTIGUOUS window of the most recent
+        MAX_CROSS_AXIS buckets instead, matching `_capped_by_count(
+        chronological=True)` on the 1-D path. Ranking a timeline by volume and
+        then printing the survivors in date order produces the worst answer
+        this module can produce: `2026-01, 2026-02, 2026-04, 2026-09, ...`
+        looks like a timeline and is a volume-ranked sample with holes punched
+        through the middle, and nothing in the response says which buckets are
+        missing. A recent window can be described truthfully in one sentence --
+        "the last 20 months" -- and reads as the trend it is.
+
+        `'unscheduled'` sorts after every dated label by construction (see
+        `_time_bucket_key`), so when undated rows exist it takes the newest
+        slot and the dated part of the window is one bucket shorter. It stays
+        contiguous and still ends at the latest dated bucket.
+        """
+        if chronological:
+            ordered = sorted(totals, key=str)
+            return set(ordered[-MAX_CROSS_AXIS:])
+        ranked = sorted(totals.items(), key=lambda item: (-item[1], str(item[0])))
+        return {key for key, _ in ranked[:MAX_CROSS_AXIS]}
+
+    kept_first = _axis_keys(first_totals, chronological=first_is_time)
+    kept_second = _axis_keys(second_totals, chronological=second_is_time)
+    # Derived from what was actually kept, not from a second comparison against
+    # MAX_CROSS_AXIS: the two must agree whichever shape the axis was capped in.
     axis_truncated = {
-        "dimension": len(first_totals) > MAX_CROSS_AXIS,
-        "second_dimension": len(second_totals) > MAX_CROSS_AXIS,
+        "dimension": len(kept_first) < len(first_totals),
+        "second_dimension": len(kept_second) < len(second_totals),
     }
     distinct_values = {
         "dimension": len(first_totals),
         "second_dimension": len(second_totals),
     }
-    # A time axis reads in chronological order, exactly as the single-dimension
-    # path already orders one (`_capped_by_count(chronological=...)`): a
-    # `month x channel` table sorted largest-bucket-first is a timeline shuffled
-    # by volume, which is not a table anyone can read as a trend. The CAP is
-    # still by count on both axes, so the months that survive are the busiest
-    # ones -- only the reading order changes, same as in the 1-D path.
-    first_is_time = dimension in TIME_BUCKETS
-    second_is_time = second_dimension in TIME_BUCKETS
 
     def _bucket_order(bucket: dict[str, Any]) -> tuple[Any, ...]:
         first = str(bucket["value"])
@@ -1504,17 +1634,34 @@ def activity_counts(
     truncated = axis_truncated["dimension"] or axis_truncated["second_dimension"]
     note = None
     if truncated:
+        # Each clause names the SHAPE its axis got, because the two shapes hide
+        # different data: a categorical axis is missing its rarest values, a
+        # time axis is missing everything before the window. Saying only
+        # "capped" would leave an agent to assume the wrong one.
         clauses = []
-        if axis_truncated["dimension"]:
-            clauses.append(f"top {MAX_CROSS_AXIS} of {distinct_values['dimension']} {dimension} values")
-        if axis_truncated["second_dimension"]:
-            clauses.append(
-                f"top {MAX_CROSS_AXIS} of {distinct_values['second_dimension']} {second_dimension} values"
-            )
+        for axis_key, name, is_time, kept in (
+            ("dimension", dimension, first_is_time, kept_first),
+            ("second_dimension", second_dimension, second_is_time, kept_second),
+        ):
+            if not axis_truncated[axis_key]:
+                continue
+            distinct = distinct_values[axis_key]
+            if is_time:
+                clauses.append(
+                    f"{name}: the {len(kept)} most recent of {distinct} buckets -- a "
+                    "contiguous window ending at the latest one, with everything "
+                    "before it absent"
+                )
+            else:
+                clauses.append(
+                    f"{name}: the top {len(kept)} of {distinct} values by total count, "
+                    "with the rarer ones absent"
+                )
         note = (
-            "Showing the " + " by the ".join(clauses) + " (ranked by total count). "
-            "Narrow the filters to bring the rest of the table into view -- this is "
-            "a smaller, complete cross-tab, not a truncated prefix of a larger one."
+            "Axis capped -- " + "; ".join(clauses) + ". Every cell shown is a complete "
+            "count for the pair it names, and `total` still counts every row, including "
+            "the rows behind a cut axis. Narrow the filters to bring the rest of the "
+            "table into view; do not read a capped axis as the column's whole range."
         )
     return {
         "dimension": dimension,
@@ -1613,6 +1760,7 @@ def _epoch_day(value: datetime) -> int:
     return (normalized.date() - date(1970, 1, 1)).days
 
 
+@_reports_invalid_boundary
 def detect_collisions(
     session: Session,
     *,
@@ -1852,6 +2000,7 @@ def _pack_key(activity: Activity) -> tuple[str | None, str | None]:
     return None, None
 
 
+@_reports_invalid_boundary
 def pack_overview(
     session: Session,
     *,
@@ -2012,6 +2161,8 @@ def _resolve_anchor(
     session: Session,
     explicit: str | date | datetime | None,
     candidates: list[Activity],
+    *,
+    argument: str,
 ) -> tuple[datetime | None, str]:
     """The deterministic "now" for a time-relative question.
 
@@ -2032,8 +2183,12 @@ def _resolve_anchor(
     that does not exist, which is exactly the confidently-wrong-answer shape
     this whole module exists to avoid. Callers must check for `None` and
     report that they could not anchor rather than inventing a window.
+
+    `argument` is the caller's own keyword name (`start_date` here,
+    `reference` there), so an unreadable explicit anchor names the argument
+    the model actually passed rather than this function's internal one.
     """
-    parsed = _parse_boundary(explicit)
+    parsed = _parse_boundary(explicit, argument=argument)
     if parsed is not None:
         return parsed, "argument"
     latest_sync = session.scalars(
@@ -2050,6 +2205,7 @@ def _resolve_anchor(
     return None, "none"
 
 
+@_reports_invalid_boundary
 def calendar_load(
     session: Session,
     *,
@@ -2076,7 +2232,7 @@ def calendar_load(
     span_weeks = max(1, min(int(weeks), 52))
     filters = _build_filters(**filter_kwargs)
     candidates = _filtered_activities(session, filters)
-    anchor, anchor_source = _resolve_anchor(session, start_date, candidates)
+    anchor, anchor_source = _resolve_anchor(session, start_date, candidates, argument="start_date")
     if anchor is None:
         return {
             "anchor": None,
@@ -2118,6 +2274,7 @@ def calendar_load(
     }
 
 
+@_reports_invalid_boundary
 def window_comparison(
     session: Session,
     *,
@@ -2155,7 +2312,7 @@ def window_comparison(
     span_days = max(1, min(int(days), MAX_WINDOW_DAYS))
     filters = _build_filters(**filter_kwargs)
     candidates = _filtered_activities(session, filters)
-    anchor, anchor_source = _resolve_anchor(session, reference, candidates)
+    anchor, anchor_source = _resolve_anchor(session, reference, candidates, argument="reference")
     if anchor is None:
         return {
             "anchor": None,
@@ -2205,6 +2362,7 @@ def window_comparison(
     }
 
 
+@_reports_invalid_boundary
 def lead_time_stats(
     session: Session,
     *,
@@ -2258,6 +2416,7 @@ def lead_time_stats(
     }
 
 
+@_reports_invalid_boundary
 def data_quality(session: Session, **filter_kwargs: Any) -> dict[str, Any]:
     """Portfolio-wide data-quality tally, mirroring `analytics.js::dataQuality`.
 

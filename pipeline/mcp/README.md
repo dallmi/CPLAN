@@ -35,11 +35,11 @@ host at that command with `cwd` set to the repository root.
 | `calendar_load` | Activity volume over `weeks` consecutive 7-day windows, anchored on `start_date` if given, else the latest sync run, else the latest scheduled activity in the filtered set — never today's wall clock. Reports `anchor`/`anchor_source`, `busiest`/`quietest` and an `empty_weeks` list; accepts every `search_activities` filter |
 | `window_comparison` | The current `days`-length window against the immediately preceding one of equal length, anchored the same way as `calendar_load`; `change_pct` comes back `null` (never `inf` or `0`) when there is no prior window to compare against |
 | `detect_collisions` | Activity pairs sharing both a `channel` member and a `target_audience` member within `proximity_days`; pairs in the same communication pack are labelled `orchestration` (`severity: "info"`), pairs spanning different packs are labelled `conflict` (severity from the pair's priority ranks), each carrying `shared_channels`/`shared_audiences` |
-| `pack_overview` | Per-communication-pack rollup — size, channel/objective/audience breadth, date span, readiness — keyed by `communication_pack_cpid`, falling back to `tracking_pack_id`, `communication_pack`, then `campaign`; `key_source` on each row names which link resolved it |
+| `pack_overview` | Per-communication-pack rollup — size, channel/objective/audience breadth, date span, readiness — keyed by `communication_pack_cpid`, falling back to `tracking_pack_id`, `communication_pack`, then `campaign`; `key_source` on each row names which link resolved it. Breadth counts channel/audience MEMBERS, but its own `channel=` / `target_audience=` filters still match the whole stored string |
 | `lead_time_stats` | Planning lead-time distribution (median/p25/p75 days) over activities with a valid, non-negative lead time, plus `short_notice_rate` against `threshold_days`; `excluded` counts everything left out and why |
 | `data_quality` | Portfolio-wide health tally: duplicate and missing tracking ids, reversed date ranges, missing pack linkage, `completeness_rate` — `incomplete` reuses `planning_gaps`'s own rule so the two figures cannot disagree |
 | `activity_history` | The change log for one activity, newest first, resolved by tracking id or UUID like `get_activity` |
-| `plan_changes_since` | Change rows since `since`, grouped per activity, with `by_actor`/`by_change_type`/`by_field` tallies; changes whose activity no longer resolves are still reported (unless an activity filter is active) rather than silently dropped. A blank `since` is an error, not "everything"; groups, each group's own `changes` list and all three tallies are capped independently |
+| `plan_changes_since` | Change rows since `since`, grouped per activity, with `by_actor`/`by_change_type`/`by_field` tallies; changes whose activity no longer resolves are still reported (unless an activity filter is active) rather than silently dropped. A blank or unparseable `since` is an error, not "everything"; groups, each group's own `changes` list and all three tallies are capped independently |
 
 ## Resources
 
@@ -93,18 +93,31 @@ of them against the one rule.
 tools use is the wrong shape for that: sorting the flat cell list by count and
 slicing off the tail drops whole rows or columns of the table rather than
 shrinking it, which reads to an agent as a full cross-tab that is quietly
-missing data. Each axis is instead capped independently to its own top 20
-values by total count (`MAX_CROSS_AXIS`), so the result stays a smaller but
-COMPLETE cross-tab rather than an arbitrary, incomplete slice of a bigger one.
-`axis_truncated` (keyed `dimension` / `second_dimension`) and
-`distinct_values` say which axis, if any, was cut -- check them before reading
-the table as exhaustive. There is deliberately no `bucket_count` on a cross-tab:
-the flat cell count is not the number the caps are about, and the domain-model
-resource says so rather than letting an agent look for a key that is not there.
-A `TIME_BUCKETS` axis is ordered chronologically on either side of the table,
-matching the single-dimension path -- a timeline sorted by volume is not a
-timeline. The cap itself stays by count on both axes, so the buckets that
-survive are still the busiest ones.
+missing data. Each axis is instead capped independently to 20 values of its
+own (`MAX_CROSS_AXIS`). `axis_truncated` (keyed `dimension` /
+`second_dimension`) and `distinct_values` say which axis, if any, was cut --
+check them before reading the table as exhaustive. There is deliberately no
+`bucket_count` on a cross-tab: the flat cell count is not the number the caps
+are about, and the domain-model resource says so rather than letting an agent
+look for a key that is not there.
+
+**The two axis shapes are capped by different rules, because "complete" means
+different things to them.** A categorical axis keeps its 20 busiest values:
+what is missing is the rarest values, which is what "top 20" already says. A
+`TIME_BUCKETS` axis instead keeps a CONTIGUOUS window of its 20 most recent
+buckets (`_axis_keys`), ordered chronologically, matching what
+`_capped_by_count(chronological=True)` already does on the single-dimension
+path. Capping a time axis by volume and then printing the survivors in date
+order was the worse failure: 36 months alternating busy and quiet came back as
+`2026-01, 2026-02, 2026-03, 2026-05, 2026-07, ...`, a volume-ranked sample that
+reads exactly like a timeline, with sixteen months absent from the middle and
+nothing in the response naming them. A recent window can be described
+truthfully in one sentence; a sample cannot. The cross-tab `note` names which
+of the two shapes each cut axis got, rather than calling both "complete".
+The ceiling is also far tighter than the 1-D path's `MAX_LIMIT` of 200
+chronological buckets, so `day x channel` reaches back 20 days, not 200 --
+stated in the tool description and the domain-model resource, because an agent
+that needs a longer reach should drop the second dimension.
 
 **`detect_collisions` distinguishes orchestration from conflict by pack, not
 by severity.** Two activities sharing both a `channel` member and a
@@ -118,6 +131,32 @@ orchestration pair as a problem is the fastest way to make this tool stop
 being trusted, which is why the distinction is load-bearing rather than
 cosmetic; each pair also carries `shared_channels` / `shared_audiences` so an
 agent can say *why* it collided, not only that it did.
+
+**Splitting a column for the COUNTS is not splitting it for the FILTERS.**
+`channel` and `target_audience` hold several values in one string, and three
+tools answer differently about them: `activity_counts` buckets the whole
+string, `pack_overview` counts members but filters on the whole string, and
+`detect_collisions` both pairs and filters by member. Only the last one is
+membership-aware end to end, and it says so in its own docstring. The
+domain-model resource used to compress all of that into "`detect_collisions`
+and `pack_overview` DO split them into members", which is true of the counts
+and false of `pack_overview`'s filters -- an agent following it asks "which
+packs run on Email", gets zero packs on a portfolio where every pack does, and
+reports that as fact. Trap 4 now states the counts and the filters separately,
+per tool, and a test pins both the behaviour and the prose.
+
+**An unreadable date is an answer, not a traceback.** `_parse_boundary` accepts
+`YYYY-MM-DD` or a full ISO timestamp; anything else -- `"last week"`,
+`"2026-13-45"` -- used to escape as `datetime.fromisoformat`'s own `ValueError`
+and crash the tool call, and `"last week"` is exactly what a model passes to an
+argument named `since`. It now raises `InvalidBoundary`, naming the argument,
+and every tool taking a date-ish argument wears `@_reports_invalid_boundary`,
+which turns it into the same `error` / `accepted_formats` / `note` dict a blank
+`since` already returned. The decorator rather than a `try` per tool is what
+lets `test_every_tool_taking_a_date_argument_reports_a_bad_one` walk the module
+and fail on a tool that grew a date filter without the handler. The note tells
+the model to take a real date from `database_status` instead of a relative
+phrase, because this server deliberately has no wall clock.
 
 **Not built on the `v_*` analysis views.** Those are PostgreSQL-only by design
 and a documented no-op on SQLite (`pipeline/api/views.py`), so building on them
