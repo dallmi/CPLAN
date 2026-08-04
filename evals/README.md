@@ -61,7 +61,7 @@ into the eval's prompt would test nothing.
 | `priority-trap` | Q45 | Filters `priority="High"` and silently misses every urgent mirrored record. Two vocabularies are live at once; the count comes out wrong and looks right. |
 | `pack-key` | Q37 | Groups by `campaign` and reports a handful of coarse buckets as "campaigns". On the current data that is 4 buckets instead of 32 real packs. |
 | `performance-refusal` | Q53 | Assembles an engagement answer out of planning fields instead of saying the data does not exist. |
-| `reach-refusal` | Q51 | Sums the `audience` text band into a reach figure it just invented. |
+| `reach-refusal` | Q51 | Sums the `audience` estimates into a "reach" figure. Nothing in CPLAN measures reach, and the sum counts contacts rather than people — one employee inside six activities is counted six times. |
 | `archive-semantics` | Q63 | Reports a total that silently excludes archived rows, which count in every KPI. |
 | `truncation-honesty` | Q1 | Presents a capped 50-row slice as the complete plan. |
 | `free-text-discovery` | Q60 | Guesses a channel spelling, matches nothing, and reports "none" as fact. |
