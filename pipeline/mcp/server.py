@@ -350,10 +350,13 @@ def build_server(database_url: str) -> MCPServer:
         `distinct_values` before treating the table as exhaustive: a truncated
         axis is still the top values by volume, but values outside it exist and
         reading the table as the whole split gives a confidently wrong answer.
+        A cross-tab reports no `bucket_count`; read `distinct_values` instead.
+        A time axis ('day'/'week'/'month') comes back in chronological order on
+        either side of the cross-tab, as it does without one.
 
-        At most 200 buckets come back, largest first; `bucket_count` and
-        `truncated` report whether more exist, while `total` is always the true
-        total across all of them.
+        Without `second_dimension`, at most 200 buckets come back, largest
+        first; `bucket_count` and `truncated` report whether more exist, while
+        `total` is always the true total across all of them.
         """
         return read(
             lambda session: queries.activity_counts(

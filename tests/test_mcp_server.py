@@ -1578,6 +1578,47 @@ def test_cross_tab_buckets_a_derived_time_axis(writable_session):
         ("Intranet", "2026-02"): 1,
     }
     assert result["counts_memberships"] is False
+    # A cross-tab reports its axis cardinalities, not a flat `bucket_count`.
+    assert "bucket_count" not in result
+    assert result["distinct_values"] == {"dimension": 2, "second_dimension": 2}
+
+
+def test_cross_tab_orders_a_time_axis_chronologically(writable_session):
+    """A `month` axis reads in time order on either side, as it does in 1-D.
+
+    Sorted largest-bucket-first, a `month x channel` table is a timeline
+    shuffled by volume -- unreadable as the trend it is meant to show, and
+    inconsistent with the single-dimension path, which already orders a time
+    dimension chronologically. The cap stays by count; only the order changes.
+    """
+    writable_session.add_all([
+        # March is the busiest month, January the quietest -- so a count-first
+        # order would put March first and January last.
+        _activity(channel="Email", start_date=datetime(2026, 1, 5, tzinfo=timezone.utc)),
+        *[
+            _activity(channel="Email", start_date=datetime(2026, 2, 5, tzinfo=timezone.utc))
+            for _ in range(2)
+        ],
+        *[
+            _activity(channel="Email", start_date=datetime(2026, 3, 5, tzinfo=timezone.utc))
+            for _ in range(3)
+        ],
+    ])
+    writable_session.flush()
+
+    leading = queries.activity_counts(
+        writable_session, dimension="month", second_dimension="channel"
+    )
+    trailing = queries.activity_counts(
+        writable_session, dimension="channel", second_dimension="month"
+    )
+    flat = queries.activity_counts(writable_session, dimension="month")
+
+    months = ["2026-01", "2026-02", "2026-03"]
+    assert [bucket["value"] for bucket in leading["buckets"]] == months
+    assert [bucket["second_value"] for bucket in trailing["buckets"]] == months
+    # The same order the single-dimension path has always produced.
+    assert [bucket["value"] for bucket in flat["buckets"]] == months
 
 
 def test_cross_tab_tallies_multi_value_members_on_the_first_axis(writable_session):
@@ -1766,6 +1807,25 @@ def test_calendar_load_clamps_the_week_count(writable_session):
     assert len(too_few["buckets"]) == 1
     assert too_many["weeks"] == 52
     assert len(too_many["buckets"]) == 52
+
+
+def test_window_comparison_clamps_the_day_count(writable_session):
+    """`days` is clamped like `calendar_load`'s `weeks` -- and must be.
+
+    `timedelta` raises OverflowError past roughly 2.7 million days, so an
+    unclamped `days` turned an out-of-range argument into a crash out of a
+    read-only query tool rather than an answer. The echoed `days` reports what
+    was actually used, so the caller can see the clamp rather than guess at it.
+    """
+    writable_session.add(_activity(start_date=datetime(2026, 1, 5, tzinfo=timezone.utc)))
+    writable_session.flush()
+
+    too_few = queries.window_comparison(writable_session, days=0, reference="2026-01-05")
+    too_many = queries.window_comparison(writable_session, days=3_000_000, reference="2026-01-05")
+
+    assert too_few["days"] == 1
+    assert too_many["days"] == queries.MAX_WINDOW_DAYS
+    assert too_many["current"] is not None
 
 
 def test_calendar_load_matches_the_studio_week_math():

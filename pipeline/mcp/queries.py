@@ -250,6 +250,14 @@ MAX_PROXIMITY_DAYS = 90
 # instead, and `axis_truncated` says which axis, if any, was cut.
 MAX_CROSS_AXIS = 20
 
+# `calendar_load` clamps `weeks` to a year of them; `window_comparison`'s `days`
+# is the same argument at a finer grain and needs the same ceiling, for a harder
+# reason than tidiness: `timedelta(days=...)` raises OverflowError past roughly
+# 2.7 million days, so an unclamped `days=3000000` crashed the tool instead of
+# answering it. A year is already far past what "the current window versus the
+# previous one" means.
+MAX_WINDOW_DAYS = 366
+
 
 # ------------------------------------------------------------------------
 # Value helpers -- pure, no session, no SQL
@@ -1415,13 +1423,33 @@ def activity_counts(
         "dimension": len(first_totals),
         "second_dimension": len(second_totals),
     }
+    # A time axis reads in chronological order, exactly as the single-dimension
+    # path already orders one (`_capped_by_count(chronological=...)`): a
+    # `month x channel` table sorted largest-bucket-first is a timeline shuffled
+    # by volume, which is not a table anyone can read as a trend. The CAP is
+    # still by count on both axes, so the months that survive are the busiest
+    # ones -- only the reading order changes, same as in the 1-D path.
+    first_is_time = dimension in TIME_BUCKETS
+    second_is_time = second_dimension in TIME_BUCKETS
+
+    def _bucket_order(bucket: dict[str, Any]) -> tuple[Any, ...]:
+        first = str(bucket["value"])
+        second = str(bucket["second_value"])
+        if first_is_time and second_is_time:
+            return (first, second)
+        if first_is_time:
+            return (first, -bucket["count"], second)
+        if second_is_time:
+            return (second, -bucket["count"], first)
+        return (-bucket["count"], first, second)
+
     buckets = sorted(
         (
             {"value": first_key, "second_value": second_key, "count": count}
             for (first_key, second_key), count in cross_tally.items()
             if first_key in kept_first and second_key in kept_second
         ),
-        key=lambda bucket: (-bucket["count"], str(bucket["value"]), str(bucket["second_value"])),
+        key=_bucket_order,
     )
     truncated = axis_truncated["dimension"] or axis_truncated["second_dimension"]
     note = None
@@ -2073,8 +2101,14 @@ def window_comparison(
     dated activity in this filtered set), `current` and `previous` are also
     `None` rather than a fabricated pair of windows -- there is nothing to
     compare.
+
+    `days` is clamped to `[1, MAX_WINDOW_DAYS]`, exactly as `calendar_load`
+    clamps `weeks`, and the echoed `days` reports what was actually used. The
+    upper bound is not cosmetic: `timedelta` overflows past roughly 2.7 million
+    days, so an unclamped argument raised `OverflowError` out of a read-only
+    query tool instead of answering.
     """
-    span_days = max(1, int(days))
+    span_days = max(1, min(int(days), MAX_WINDOW_DAYS))
     filters = _build_filters(**filter_kwargs)
     candidates = _filtered_activities(session, filters)
     anchor, anchor_source = _resolve_anchor(session, reference, candidates)

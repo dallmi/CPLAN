@@ -207,6 +207,21 @@ groups (`group_count` / `groups_truncated`), and `field_values` at most its own
 limit of the most common values (`distinct_values` / `truncated`). A value missing
 from a truncated `field_values` answer still exists — never conclude "there are no
 activities for X" from a list that says it is truncated.
+
+**A cross-tab is capped differently, and reports differently.**
+`activity_counts(second_dimension=…)` has no `bucket_count` at all. Each axis is
+capped independently to its own top {queries.MAX_CROSS_AXIS} values by total
+count, so what comes back is a smaller but COMPLETE table rather than a
+truncated prefix of a bigger one. Read `distinct_values` and `axis_truncated`
+instead — both keyed `dimension` / `second_dimension` — to see how many values
+each axis really has and which one, if either, was cut.
+
+`plan_changes_since` caps three things at once, each reported separately: the
+activity groups (`activity_count` / `truncated`), each group's own `changes`
+list ({queries.MAX_CHANGES_PER_ACTIVITY} entries, `changes_truncated` on the
+group while `change_count` stays the true total), and the `by_actor` /
+`by_change_type` / `by_field` tallies (`tallies_truncated`). Read one activity's
+full log with `activity_history`, not by raising this tool's limit.
 """
 
 

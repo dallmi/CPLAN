@@ -85,7 +85,13 @@ values by total count (`MAX_CROSS_AXIS`), so the result stays a smaller but
 COMPLETE cross-tab rather than an arbitrary, incomplete slice of a bigger one.
 `axis_truncated` (keyed `dimension` / `second_dimension`) and
 `distinct_values` say which axis, if any, was cut -- check them before reading
-the table as exhaustive.
+the table as exhaustive. There is deliberately no `bucket_count` on a cross-tab:
+the flat cell count is not the number the caps are about, and the domain-model
+resource says so rather than letting an agent look for a key that is not there.
+A `TIME_BUCKETS` axis is ordered chronologically on either side of the table,
+matching the single-dimension path -- a timeline sorted by volume is not a
+timeline. The cap itself stays by count on both axes, so the buckets that
+survive are still the busiest ones.
 
 **`detect_collisions` distinguishes orchestration from conflict by pack, not
 by severity.** Two activities sharing both a `channel` member and a
