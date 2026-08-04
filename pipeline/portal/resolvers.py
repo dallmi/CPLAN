@@ -20,6 +20,17 @@ from sqlalchemy import text
 ROLE_LABEL = {"admin": "Admin", "editor": "Editor", "contributor": "Contributor", "viewer": "Viewer"}
 
 
+def _count(n: int, singular: str, plural: str | None = None) -> str:
+    """"1 file", "4 files" — every status line in this module counts something."""
+    if n == 1:
+        return f"{n} {singular}"
+    if plural:
+        return f"{n} {plural}"
+    if singular.endswith("y"):
+        return f"{n} {singular[:-1]}ies"
+    return f"{n} {singular}s"
+
+
 def humanise_age(moment: datetime | None, now: datetime | None = None) -> str | None:
     """"2 hours ago" up to a week, an absolute date beyond it."""
     if moment is None:
@@ -53,7 +64,7 @@ def _manual(spec: dict[str, Any], context: dict[str, Any]) -> str | None:
         return None
     steps = spec.get("steps") or path.read_text(encoding="utf-8").count('class="step"')
     updated = humanise_age(datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc))
-    return f"{steps} steps · updated {updated}"
+    return f"{_count(steps, 'step')} · updated {updated}"
 
 
 def _docs(spec: dict[str, Any], context: dict[str, Any]) -> str | None:
@@ -61,7 +72,7 @@ def _docs(spec: dict[str, Any], context: dict[str, Any]) -> str | None:
     if not documents:
         return "None yet"
     titles = ", ".join(d.get("title", d.get("key", "")) for d in documents[:3])
-    return f"{len(documents)} documents · {titles}"
+    return f"{_count(len(documents), 'document')} · {titles}"
 
 
 def _data(spec: dict[str, Any], context: dict[str, Any]) -> str | None:
@@ -70,7 +81,7 @@ def _data(spec: dict[str, Any], context: dict[str, Any]) -> str | None:
         return None
     activities = session.execute(text("SELECT count(*) FROM activities")).scalar_one()
     ran_at = session.execute(text("SELECT max(ran_at) FROM sync_runs")).scalar_one_or_none()
-    count = f"{activities:,} activities".replace(",", " ")
+    count = f"{activities:,} {_count(activities, 'activity')}".replace(",", " ")
     refreshed = humanise_age(ran_at)
     return f"Refreshed {refreshed} · {count}" if refreshed else f"Never synced · {count}"
 
@@ -86,7 +97,7 @@ def _changelog(spec: dict[str, Any], context: dict[str, Any]) -> str | None:
     ]
     if not headings:
         return "None yet"
-    return f"{len(headings)} entries · latest {headings[0]}"
+    return f"{_count(len(headings), 'entry')} · latest {headings[0]}"
 
 
 def _access(spec: dict[str, Any], context: dict[str, Any]) -> str | None:
@@ -94,7 +105,11 @@ def _access(spec: dict[str, Any], context: dict[str, Any]) -> str | None:
     if role is None:
         return None
     members = context.get("member_count")
-    return f"You are {role} · {members} people have access" if members else f"You are {role}"
+    if members:
+        count_str = _count(members, "person", "people")
+        verb = "has" if members == 1 else "have"
+        return f"You are {role} · {count_str} {verb} access"
+    return f"You are {role}"
 
 
 def _reports(spec: dict[str, Any], context: dict[str, Any]) -> str | None:
@@ -105,7 +120,7 @@ def _reports(spec: dict[str, Any], context: dict[str, Any]) -> str | None:
     if not files:
         return "None yet"
     newest = datetime.fromtimestamp(files[0].stat().st_mtime, tz=timezone.utc).strftime("%-d %b")
-    return f"{len(files)} files · latest {newest}"
+    return f"{_count(len(files), 'file')} · latest {newest}"
 
 
 RESOLVERS = {

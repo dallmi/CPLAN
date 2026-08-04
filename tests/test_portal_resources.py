@@ -210,3 +210,36 @@ def test_access_resolver_states_role_and_headcount():
 
 def test_access_resolver_survives_an_unknown_headcount():
     assert RESOLVERS["access"]({}, {"role": "viewer", "member_count": None}) == "You are Viewer"
+
+
+def test_manual_resolver_with_singular_step(tmp_path):
+    manual = tmp_path / "manual.html"
+    manual.write_text("<div class='step'></div>", encoding="utf-8")
+    status = RESOLVERS["manual"]({"steps": 1}, {"manual_path": manual})
+    assert status is not None and status.startswith("1 step · updated ")
+
+
+def test_docs_resolver_with_singular_document():
+    spec = {"documents": [
+        {"key": "a", "title": "Data model"},
+    ]}
+    assert RESOLVERS["docs"](spec, {}) == "1 document · Data model"
+
+
+def test_reports_resolver_with_singular_file(tmp_path):
+    (tmp_path / "a.xlsx").write_bytes(b"x")
+    status = RESOLVERS["reports"]({}, {"reports_dir": tmp_path})
+    assert status is not None and status.startswith("1 file · latest ")
+
+
+def test_changelog_resolver_with_singular_entry(tmp_path):
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "# What's new\n\n## 4 August 2026\n\n- one\n",
+        encoding="utf-8",
+    )
+    assert RESOLVERS["changelog"]({}, {"changelog_path": changelog}) == "1 entry · latest 4 August 2026"
+
+
+def test_access_resolver_with_singular_member():
+    assert RESOLVERS["access"]({}, {"role": "viewer", "member_count": 1}) == "You are Viewer · 1 person has access"
