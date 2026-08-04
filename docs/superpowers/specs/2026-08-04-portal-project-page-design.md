@@ -1,7 +1,7 @@
 # The portal as a multi-project shell: project pages with resource tiles
 
 **Date:** 2026-08-04
-**Status:** draft
+**Status:** approved
 
 ## Problem
 
@@ -94,7 +94,7 @@ carries one status line, and that line is the reason the page is worth opening:
 | User manual | `manual` | step count, last updated |
 | Technical documentation | `docs` | document count, subject list |
 | Data & freshness | `data` | last refresh, activity count |
-| What's new | `changelog` | entries since your last visit |
+| What's new | `changelog` | entry count, date of the newest |
 | Access & support | `access` | your role, number of people with access |
 | Reports & downloads | `reports` | file count, newest file date |
 
