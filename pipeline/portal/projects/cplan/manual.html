@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CPLAN — User manual</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%3E%3Crect%20width='24'%20height='24'%20fill='%23FFFFFF'/%3E%3Crect%20x='9'%20width='6'%20height='24'%20fill='%23E60000'/%3E%3C/svg%3E">
+<style>/* CPLAN user manual — document chrome, not portal chrome.
+   Corporate Design System v1.0. Hard constraints observed:
+   no gradients, no tints of brand red, no drop shadows on layout surfaces,
+   no rounded corners beyond the 2px token, no ALL CAPS, no underlines
+   outside the glossary term links, left-aligned throughout, white dominant,
+   red as a small accent only. */
+
+/* Token block taken verbatim from the portal prototype set, so the manual
+   and the portal shell cannot drift apart. */
+:root {
+  --primary: #E60000; --primary-dark: #8A000A; --white: #FFFFFF; --black: #000000;
+  --grey-1: #CCCABC; --grey-2: #B8B3A2; --grey-3: #8E8D83;
+  --grey-4: #7A7870; --grey-5: #5A5D5C; --grey-6: #404040;
+  --bordeaux-1: #BD000C; --bordeaux-2: #8A000A; --bordeaux-3: #620004;
+  --bronze-1: #B98E2C; --bronze-2: #946F29; --bronze-3: #6C5312;
+  --bg: #F7F7F5; --surface: #ECEBE4; --surface-alt: #F5F0E1; --row-alt: #F8F7F2;
+  --success: #6F7A1A; --warning: #E4A911; --danger: #BD000C;
+  --info: #0C7EC6; --info-dark: #07476F;
+  --font: "Frutiger 45 Light", "Frutiger", "Helvetica Neue", Arial, "Segoe UI", system-ui, sans-serif;
+  --radius: 2px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font); background: var(--bg); color: var(--grey-6); font-size: 16px; line-height: 1.5; }
+button { font: inherit; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--info); outline-offset: 1px; }
+
+/* ---------- Document chrome ----------
+   A manual is a document, so it carries a document top bar: brand mark,
+   the project it belongs to, and the three things a reader of a manual
+   wants. The portal's section nav belongs to portal shell pages only. */
+.top {
+  display: flex; align-items: center; justify-content: space-between; gap: 24px;
+  background: var(--white); border-bottom: 2px solid var(--primary);
+  padding: 0.7rem 2rem;
+}
+/* position:sticky is screen-only: Safari's real "Save as PDF" writer can silently
+   emit an empty content stream when a sticky element exists anywhere in the DOM. */
+@media screen {
+  .top { position: sticky; top: 0; z-index: 10; }
+}
+.top .brand { display: flex; align-items: center; gap: 0.85rem; text-decoration: none; color: var(--black); }
+.top .brand::before { content: ""; display: block; width: 4px; height: 30px; background: var(--primary); flex: none; }
+.top .brand b { display: block; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+.top .brand span { display: block; font-size: 11px; font-weight: 400; color: var(--grey-4); margin-top: 1px; }
+.top-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+/* One button treatment only. A page meant for reading must not have its
+   loudest element be a utility control, so Print / PDF is an ordinary
+   button like its neighbours; red stays on the step numbers and the mark. */
+.btn {
+  display: inline-block; border: 1px solid var(--grey-1); border-radius: var(--radius);
+  background: var(--white); color: var(--black); padding: 8px 14px;
+  font-size: 13px; font-weight: 500; text-decoration: none;
+}
+.btn:hover { background: var(--surface); }
+
+.crumbs { background: var(--white); border-bottom: 1px solid var(--surface); padding: 9px 2rem; font-size: 11px; color: var(--grey-4); }
+.crumbs a { color: var(--grey-5); text-decoration: none; }
+.crumbs a:hover { color: var(--black); }
+.crumbs .sep { color: var(--grey-2); margin: 0 7px; }
+.crumbs .here { color: var(--black); font-weight: 600; }
+
+main { background: var(--white); }
+.guide { max-width: 880px; margin: 0; padding: 2rem 1.5rem 4rem 2rem; }
+
+/* ---------- Cover ---------- */
+.guide-cover { padding: 1.25rem 0 1.9rem; border-bottom: 2px solid var(--primary); margin-bottom: 2.25rem; }
+.kicker { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; color: var(--grey-4); }
+.guide-cover h1 { font-size: 2.5rem; font-weight: 300; line-height: 1.12; color: var(--black); margin: 0.4rem 0 0.8rem; letter-spacing: -0.015em; }
+.guide-cover p { font-size: 1rem; color: var(--grey-5); max-width: 48rem; }
+.guide-meta { margin-top: 1rem; font-size: 0.85rem; color: var(--grey-4); }
+.guide-meta b { color: var(--grey-6); }
+
+/* ---------- Steps ---------- */
+.step { display: grid; grid-template-columns: 2.4rem 1fr; gap: 0 1.1rem; margin-bottom: 2.75rem; align-items: start; }
+.step-num {
+  width: 2.4rem; height: 2.4rem; display: flex; align-items: center; justify-content: center;
+  background: var(--primary); color: var(--white); border-radius: var(--radius);
+  font-size: 1.15rem; font-weight: 700; font-variant-numeric: tabular-nums;
+}
+.step-body h2 { font-size: 1.3rem; font-weight: 600; color: var(--black); margin: 0.15rem 0 0.55rem; line-height: 1.25; }
+.step-body p { font-size: 0.95rem; color: var(--grey-6); margin: 0 0 0.6rem; }
+.step-body ul { margin: 0.2rem 0 0.7rem; padding-left: 1.15rem; }
+.step-body li { font-size: 0.92rem; color: var(--grey-6); margin-bottom: 0.25rem; }
+.step-body b { color: var(--black); font-weight: 600; }
+.step-body code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.85em; color: var(--grey-5); }
+
+/* ---------- Screenshot frames ----------
+   Real captures of a demo dataset. No shadow: the frame is a layout surface
+   and carries a hairline border instead. Paths are absolute because this file
+   is served at /project/cplan/manual, where a relative path would resolve
+   against /project/cplan/ and miss. */
+.shot { margin-top: 0.5rem; border: 1px solid var(--grey-1); border-radius: var(--radius); overflow: hidden; background: var(--white); }
+.shot img { display: block; width: 100%; height: auto; }
+.cap { font-size: 0.78rem; color: var(--grey-4); margin-top: 0.45rem; margin-bottom: 0.9rem; }
+
+/* Glossary term links inside the manual text — the only underline in the file,
+   and dotted, because it means "there is a definition", not "this is a link". */
+a.term { color: inherit; text-decoration: none; border-bottom: 1px dotted var(--grey-3); cursor: help; }
+a.term:hover { color: var(--black); border-bottom-color: var(--primary); }
+
+.tip { background: var(--surface-alt); border-left: 3px solid var(--primary); border-radius: var(--radius); padding: 0.95rem 1.15rem; margin: 2rem 0 0; font-size: 0.9rem; color: var(--grey-6); }
+.tip b { color: var(--black); font-weight: 600; }
+
+/* ---------- Glossary ---------- */
+.gloss-h { font-size: 1.6rem; font-weight: 300; color: var(--black); margin: 0.5rem 0 0.3rem; padding-top: 2rem; border-top: 2px solid var(--primary); }
+.gloss-sub { font-size: 0.9rem; color: var(--grey-4); margin-bottom: 1.4rem; }
+.gloss-group { font-size: 1.05rem; font-weight: 600; color: var(--black); margin: 1.6rem 0 0.4rem; }
+dl.gloss { margin: 0; }
+dl.gloss > div { display: grid; grid-template-columns: 200px 1fr; gap: 0 1.25rem; padding: 0.45rem 0.5rem; border-bottom: 1px solid var(--surface); border-radius: var(--radius); }
+dl.gloss > div:nth-child(even) { background: var(--row-alt); }
+dl.gloss dt { font-size: 0.88rem; font-weight: 700; color: var(--black); }
+dl.gloss dd { font-size: 0.88rem; color: var(--grey-6); }
+dl.gloss dd .f { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.8rem; color: var(--grey-5); white-space: nowrap; }
+dl.gloss > div:target { background: var(--surface-alt); outline: 1px solid var(--primary); }
+dl.gloss > div:target dt { color: var(--primary-dark); }
+/* land targets below the sticky header */
+dl.gloss > div { scroll-margin-top: 5.5rem; }
+
+@media (max-width: 700px) {
+  .guide-cover h1 { font-size: 1.9rem; }
+  .top, .crumbs { padding-left: 1.25rem; padding-right: 1.25rem; }
+  .top { flex-wrap: wrap; gap: 12px; }
+  dl.gloss > div { grid-template-columns: 1fr; }
+  dl.gloss dt { margin-bottom: 0.15rem; }
+}
+@media print {
+  .no-print { display: none !important; }
+  body, main { background: var(--white); }
+  .guide { max-width: none; padding: 0; }
+  /* CSS Grid + break-inside:avoid is a known Chromium print bug — fall back to
+     block flow for print only; screen keeps the grid. */
+  .step { display: block; }
+  .step-num { display: inline-flex; margin-bottom: 0.5rem; }
+  dl.gloss > div { break-inside: avoid; page-break-inside: avoid; }
+  .shot, .tip { break-inside: avoid; page-break-inside: avoid; }
+  /* A full-page capture is taller than a printed page. An <img> is atomic, so
+     letting it break only pushes it whole onto the next page and clips the
+     overflow — the bottom of the capture was being lost. Scale it to fit one
+     page instead; the PDF still embeds it at full resolution, so it stays
+     sharp when the reader zooms. */
+  .shot.tall img { width: auto; max-width: 100%; max-height: 245mm; }
+  .guide-cover { break-after: avoid; }
+  h2, .gloss-h, .gloss-group { break-after: avoid; }
+  a { color: inherit; text-decoration: none; }
+  a.term { border-bottom: none; }
+  html { -webkit-print-color-adjust: exact; color-adjust: exact; print-color-adjust: exact; }
+  @page { margin: 12mm 12mm 14mm; }
+}
+</style>
+</head>
+<body>
+
+<header class="top no-print">
+  <a class="brand" href="/project/cplan">
+    <span><b>CPLAN</b><span>Communication Planning · User manual</span></span>
+  </a>
+  <div class="top-actions">
+    <a class="btn" href="#glossary">Glossary</a>
+    <button class="btn" type="button" onclick="window.print()">Print / PDF</button>
+    <a class="btn" href="/project/cplan">Back to the project</a>
+  </div>
+</header>
+
+<nav class="crumbs no-print" aria-label="Breadcrumb">
+  <a href="/">Portal</a><span class="sep">›</span><a href="/project/cplan">Communication Planning</a><span class="sep">›</span><span class="here">User manual</span>
+</nav>
+
+<main>
+<div class="guide">
+
+  <section class="guide-cover">
+    <div class="kicker">Communication Planning · Planning studio · User manual</div>
+    <h1>Plan a communication activity — in nine steps</h1>
+    <p>CPLAN is where communication activity across the organisation is planned, kept complete and
+    handed on to reporting. This manual walks through what a new user does in the planning studio, from
+    signing in to exporting what they are looking at, and ends with a glossary of every term the studio uses.</p>
+    <div class="guide-meta">Updated <b>4 August 2026</b>. Every dotted-underlined term links to its
+    definition in the <a class="term" href="#glossary">Glossary</a> at the end. Save this manual as a PDF
+    with <b>Print / PDF</b> in the top right.</div>
+  </section>
+
+  <div class="step">
+    <div class="step-num">1</div>
+    <div class="step-body">
+      <h2>Sign in and open the project</h2>
+      <p>You sign in to the portal with a CPLAN account. The home page lists, under <b>Your projects</b>,
+      one tile per project you have access to, carrying the project name. Selecting
+      <b>Communication Planning</b> opens the project page, which is where the project's purpose and the
+      <a class="term" href="#g-role">role</a> you hold on it are stated, alongside the tiles for this manual,
+      the technical documentation and the reports. The <a class="term" href="#g-studio">planning studio</a>
+      itself opens from there.</p>
+      <ul>
+        <li>The home page lists only what you can open. A project you have no access to is not shown at all,
+        and a direct link to it answers as if it did not exist — so if you expect a project and cannot see it,
+        that is an access question, not a missing project.</li>
+        <li>Accounts are created by a portal administrator under <b>User administration</b>, which is visible
+        to administrators only. The portal sends no email, so the initial password is passed to you directly.</li>
+        <li>Access is granted per project, with one role per project. An administrator can reset a password or
+        disable an account from the same table.</li>
+      </ul>
+      <div class="shot"><img src="/docs/img/signin.png" alt="The portal home page, showing the Your projects panel with a Communication Planning tile, and below it the User administration table listing accounts with their project, role and status."></div>
+      <div class="cap">The portal home as an administrator. The project tile carries the project name; purpose and your role are stated on the project page behind it.</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-num">2</div>
+    <div class="step-body">
+      <h2>Read the overview</h2>
+      <p>The <b>Overview</b> is a forward view: it answers "what is coming, and what needs me first?".
+      Start with the <a class="term" href="#g-range">range</a> control in the top bar — 30 D, Quarter, YTD,
+      12 M or All, or a custom From / To. It is labelled <b>Range · all tabs</b> because it governs every tab,
+      and while a range narrower than All is active a banner names it, so no figure is ever read out of its
+      window by accident.</p>
+      <p>Four groups of figures sit across the top — <b>Portfolio</b>, <b>In flight</b>, <b>Readiness</b> and
+      <b>Lead time</b> — and beneath them a line names the largest single blank in the data and links
+      straight to data health.</p>
+      <ul>
+        <li><b>Needs you first</b> is the <a class="term" href="#g-attention-queue">attention queue</a>: activities
+        that are <a class="term" href="#g-draft">incomplete</a>, at <a class="term" href="#g-short-notice">short notice</a>,
+        or carrying an end date before their start date. It groups by issue type, carries a <b>Review list</b>
+        action per group, and ends with the nearest deadlines row by row.</li>
+        <li><b>Coming up</b> lists the next seven days.</li>
+      </ul>
+      <p>The <b>View</b> switcher shows the same forward window three ways: <b>List</b>, <b>Timeline</b>
+      (swimlanes by channel, campaign or division over 8 weeks, 12 weeks or 6 months) and <b>Calendar</b>.
+      Nothing is filtered differently between them — only laid out differently. On the timeline an empty
+      stretch is named rather than left blank: a <a class="term" href="#g-planning-gap">planning gap</a> of
+      three weeks or more is called out under the board.</p>
+      <div class="shot"><img src="/docs/img/overview.png" alt="The studio Overview tab: the range control set to All in the top bar, the Portfolio, In flight, Readiness and Lead time figure groups, the List, Timeline and Calendar view switcher, the Needs you first queue and the Coming up list for the next seven days."></div>
+      <div class="cap">The Overview in List view, with the range set to All. The range in the top bar governs all four tabs, not only this one.</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-num">3</div>
+    <div class="step-body">
+      <h2>Find an activity</h2>
+      <p>The <b>Activities</b> tab is the workbench for everything already planned. One search box covers the
+      whole row, and is labelled for the four things people usually paste into it — activity name, campaign,
+      lead and <a class="term" href="#g-tracking-id">tracking ID</a> — so a tracking ID copied out of a report
+      finds its row directly.</p>
+      <ul>
+        <li>Filters: type (internal or external), <a class="term" href="#g-channel">channel</a>,
+        <a class="term" href="#g-priority">priority</a>, campaign or pack, and
+        <a class="term" href="#g-readiness">readiness</a> (Complete or Draft). <b>Clear</b> resets them all,
+        and the count at the end of the filter bar reads <code>401 of 401</code> — how much of the portfolio
+        you are actually looking at, against how much there is.</li>
+        <li>The <b>Issue</b> column names why a row is flagged, always in the same order: a date error first,
+        then short notice, then the missing required fields. A row reads the same wherever it appears.</li>
+        <li>Selecting a row opens the activity drawer with the full detail and a change <b>History</b>.</li>
+      </ul>
+      <div class="shot"><img src="/docs/img/activities.png" alt="The Activities tab: a search box, the type, channel, priority, campaign or pack and readiness filters with a Clear button and a 401 of 401 count, and a results table with Activity, Tracking ID, Channel, Start, Priority, Lead team, Campaign or pack and Issue columns."></div>
+      <div class="cap">Activities. The count at the end of the filter bar tells you how much of the portfolio is in view; the Issue column shows short notice as a lead time in days and missing fields by name.</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-num">4</div>
+    <div class="step-body">
+      <h2>Create a single activity</h2>
+      <p><b>New activity</b> — on the Overview or on Activities — opens the drawer in create mode. Choose the
+      activity type (internal or external), leave the scope on <b>One channel</b>, and fill the form. It comes
+      prefilled from your last activity, with <b>Start blank</b> beside the notice if that is not what you want.
+      Internal activities additionally capture the estimated <a class="term" href="#g-audience">audience size</a>
+      and whether to consider the activity for the news digest.</p>
+      <ul>
+        <li>The drawer is grouped as Identity, Classification, Content, Audience, Organisation, Schedule and
+        Ownership, and the tracking ID line reads <b>Generated on save</b> until it is minted.</li>
+        <li>Required of every activity: name, channel, priority, <a class="term" href="#g-pillar">communications
+        pillars</a>, description, region, start and end date, time zone, lead and lead team. Internal activities
+        additionally require target audience, estimated audience size and business division.</li>
+        <li>Not everything is knowable on the day you plan. The footer counts what is outstanding
+        (<b>9 required fields left</b>), and <b>Save as draft</b> stores what you have and lists each gap with a
+        jump straight to the field. The record is then chased in <b>Needs you first</b> until it is complete.
+        A draft still needs a name.</li>
+        <li>Saves are <a class="term" href="#g-version-check">version-checked</a>. If a colleague saved the same activity
+        while you had it open, the conflict is flagged before anything is overwritten.</li>
+      </ul>
+      <div class="shot"><img src="/docs/img/activity-form.png" alt="The activity drawer in create mode, titled New activity with Tracking ID Generated on save, showing the Internal or External activity type, the One channel or Several channels scope, the Identity, Classification and Content field groups, and a footer reading nine required fields left beside Cancel, Save as draft and Create activity."></div>
+      <div class="cap">The activity drawer in create mode. The footer counts what is still outstanding; Save as draft then names each gap and jumps you to it.</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-num">5</div>
+    <div class="step-body">
+      <h2>Create a pack</h2>
+      <p>A <a class="term" href="#g-pack">communication pack</a> is a set of activities that go out together across
+      several channels. Create one by switching the scope to <b>Several channels</b>, or with <b>New pack</b> on the
+      Packs tab. The shared fields are entered once, then a channel matrix decides which channels are in, then one
+      row per activity carries what differs.</p>
+      <ul>
+        <li>Pick the channels first: each channel you tick becomes one activity with its own tracking ID. Until
+        one is ticked the drawer says so plainly and the button reads <b>Select a channel to continue</b>.</li>
+        <li>A pack start and end can be filled down to every channel at once with <b>Use for all channels</b>, and
+        adjusted on the rows where the dates differ.</li>
+        <li>The whole pack is written in one atomic batch — either every activity is created, or none is.</li>
+        <li>A pack can carry more than one activity on the same channel. The pack drawer therefore shows one card
+        per activity in send order, not one card per channel.</li>
+        <li>The Packs tab lists each pack with its channel breadth, its window and its readiness.</li>
+      </ul>
+      <div class="shot"><img src="/docs/img/pack-form.png" alt="The New communication pack drawer with the scope set to Several channels, the pack name and campaign fields, and a required channel matrix of cards for Digital Signage, Manager Cascade, Email, Intranet and Town Hall each showing its abbreviation and an Add control, above a notice that nothing will be created until a channel is ticked."></div>
+      <div class="cap">Creating a pack. Each channel card carries the abbreviation that will appear in the tracking ID. Channels are managed centrally so tracking IDs and downstream analytics stay consistent — add a new one only if it genuinely does not exist.</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-num">6</div>
+    <div class="step-body">
+      <h2>Understand the tracking ID</h2>
+      <p>Every activity gets a system-generated <a class="term" href="#g-tracking-id">tracking ID</a> that encodes the
+      full hierarchy in five segments. You never type one: the publication date, the sequence number and the channel
+      are minted on save, and pack membership sets the prefix. An activity saved without a pack takes the
+      standalone prefix.</p>
+      <p><code>STA-0000000-260825-0000001-EMA</code></p>
+      <ul>
+        <li><code>STA</code> — the <a class="term" href="#g-cluster">tracking cluster</a> abbreviation.</li>
+        <li><code>0000000</code> — the communication pack sequence number. Together with the cluster this forms the
+        <a class="term" href="#g-pack-id">pack ID</a>, <code>STA-0000000</code>.</li>
+        <li><code>260825</code> — the publication date, in <code>YYMMDD</code>.</li>
+        <li><code>0000001</code> — the activity sequence number.</li>
+        <li><code>EMA</code> — the <a class="term" href="#g-channel">channel</a> abbreviation.</li>
+      </ul>
+      <p>The overall length follows the cluster abbreviation; the canonical documented form is 32 characters,
+      as in <code>QRREP-0000058-240709-0000060-EMI</code>. Read the segments, not the length.</p>
+      <p>This is what lets planning and outcome data meet in one dashboard: the channel abbreviation joins to the
+      channel list, the cluster to the cluster list, and the pack ID to the pack record. It is also what makes a
+      <a class="term" href="#g-cross-channel">cross-channel match</a> reliable, where matching on the campaign
+      name is not.</p>
+      <div class="shot"><img src="/docs/img/tracking-id.png" alt="An activity drawer showing the tracking ID STA-0000000-260825-0000001-EMA beside a Complete badge, with the same ID pasted into the Activities search box narrowing the table to that one row."></div>
+      <div class="cap">The tracking ID as shown on a saved activity, and the same ID pasted into the search box to find its row. Deleting an activity permanently removes its tracking ID as well.</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-num">7</div>
+    <div class="step-body">
+      <h2>Check planning gaps</h2>
+      <p>The <b>Health</b> tab asks whether the portfolio is complete, trustworthy and covering what it should. It is
+      one scrolling page with three anchored sections rather than a set of subpages, because these are questions a
+      reader asks in one sitting.</p>
+      <ul>
+        <li><b>Planning health</b> — planning readiness across the selected portfolio, the
+        <a class="term" href="#g-lead-time">lead-time</a> distribution as P25, median and P75,
+        <a class="term" href="#g-field-coverage">field coverage</a> as a blank count per form field with optional
+        fields marked, and the same completeness and short-notice rate broken out by team.</li>
+        <li><b>Coverage</b> — the weekly load forecast across the next twelve weeks,
+        <a class="term" href="#g-forward-coverage">forward coverage</a> by planning horizon, and coverage by
+        dimension across team, pillar, audience, channel and region. Categories with nothing planned stay listed
+        at zero: an empty row is the finding. A <b>Channel mix</b> cross-tab closes the section, showing which
+        channel carries which audience or pillar — counts, not effectiveness.</li>
+        <li><b>Data health</b> — intake quality measured against the window before it, trust diagnostics, and the
+        refresh and reconciliation state, including the last <a class="term" href="#g-sync-run">sync run</a>.
+        A backlog only shrinks once intake stops adding to it.</li>
+      </ul>
+      <div class="shot tall"><img src="/docs/img/health.png" alt="The full Health tab as one scrolling page: a Planning health section with completeness, short notice, median lead and excluded figures plus planning readiness, lead-time distribution, field coverage and a by-team table; a Coverage section with the weekly load forecast, forward coverage by horizon, coverage by dimension and the channel mix cross-tab; and a Data health section with intake quality, trust diagnostics and refresh and reconciliation."></div>
+      <div class="cap">Health, top to bottom. Read the coverage view for what is missing, not for what is there — the zero rows are the point.</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-num">8</div>
+    <div class="step-body">
+      <h2>Export the view, or run the calendar report</h2>
+      <p>Two different things leave CPLAN as Excel, and it is worth knowing which one you want. One follows what you
+      have on screen. The other is the whole planning year, and it is produced by a reporting run rather than from a
+      button in the studio.</p>
+      <p><b><a class="term" href="#g-export">Export to Excel</a> — what you are looking at.</b> It sits on the
+      Activities tab and on the Packs tab, and writes exactly the current view: the active
+      <a class="term" href="#g-range">range</a> and every filter are carried into the file. If the filters leave
+      nothing in view, the studio says so instead of writing an empty workbook.</p>
+      <ul>
+        <li>The activities export is one sheet, one row per filtered activity, with real dates that sort and a
+        frozen header.</li>
+        <li>The packs export writes one row per pack with its activities one outline level beneath it, so the sheet
+        opens as a list of packs and each expands on click. That grouping is why it is a workbook and not a flat table.</li>
+      </ul>
+      <p><b>The <a class="term" href="#g-calendar-report">calendar report</a> — the whole year.</b> It reads the
+      planning exports directly, so it does not wait for anything else to be running. Its period is the year set in
+      its configuration by default, and a run can also cover one named year, a custom from-and-to span, or every
+      dated activity. Each workbook prints its own period on the Executive Summary and carries it in the filename,
+      so a run is still readable months later from the file alone.</p>
+      <ul>
+        <li>Seven sheets, in reading order: Executive Summary, Calendar, Data Quality, Audience &amp; GEB,
+        Mix &amp; Lead Time, Activities and Glossary.</li>
+        <li>On the Calendar sheet the rows are planning dimensions and the columns are quarters that expand into
+        months and then into ISO weeks. Both axes are Excel outlines, so the sheet opens as a handful of columns
+        and opens up where you click.</li>
+      </ul>
+      <p>Finished workbooks are not fetched from the studio and are not emailed to you. They land in the project's
+      reports directory and appear under <b>Reports &amp; downloads</b> on the project page — the tile beside the one
+      that opened this manual.</p>
+      <div class="shot"><img src="/docs/img/export.png" alt="The Activities tab with the Export to Excel button beside New activity in the page header, above the filter bar and the results table it will write."></div>
+      <div class="cap">Export to Excel on the Activities tab. Two routes, two questions: the export answers "what am I looking at"; the calendar report answers "what does the year look like". Check the range before exporting — that is the commonest cause of a workbook that looks short.</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-num">9</div>
+    <div class="step-body">
+      <h2>Know what your role allows</h2>
+      <p>Your <a class="term" href="#g-role">role</a> is granted per project and decides what the studio offers you.
+      The interface does not hide the plan from anyone — it hides the affordances you cannot use, so nothing is
+      offered that would later be refused.</p>
+      <ul>
+        <li><b>Viewer</b> — read everything, change nothing.</li>
+        <li><b>Contributor</b> — create activities and packs, and edit only the ones they created.</li>
+        <li><b>Editor</b> — create, and edit any activity, including other people's. Editors cannot delete.</li>
+        <li><b>Admin</b> — everything an editor can do, plus deleting activities and managing access to the project.</li>
+      </ul>
+      <p>In practice: an activity drawer opens in read-only mode for everyone, and the edit actions appear above
+      the detail only where you are allowed to use them — <b>Edit activity</b> and <b>Duplicate</b> for those who
+      may edit that particular row, <b>Delete activity</b> for administrators alone. A viewer sees the detail with
+      no actions at all. Effective access is the strongest grant you hold from any source, so a grant can never
+      quietly reduce access you already have.</p>
+      <p>The read-only <a class="term" href="#g-snapshot">snapshot</a> export of the studio works by the same rule:
+      it runs as a viewer, and that single fact is what switches off every write affordance in it. It also carries the
+      complete plan in cleartext, with no access control and no expiry — so treat the file itself as the access decision.</p>
+      <div class="shot"><img src="/docs/img/roles.png" alt="An activity drawer seen with a viewer role: the full activity detail with a Read only badge, and no Edit activity, Duplicate or Delete activity buttons."></div>
+      <div class="cap">The same activity seen with a viewer role. Everything is legible; the edit actions are simply absent.</div>
+    </div>
+  </div>
+
+  <div class="tip"><b>Tip:</b> the fastest route to a stakeholder answer is always the same three moves — set the
+  range, filter the Activities list to the slice you were asked about, then <b>Export to Excel</b>. The workbook
+  mirrors what you see, filters included. <i>Screenshots in this manual show demo data, not the live plan.</i></div>
+
+  <!-- ================= GLOSSARY ================= -->
+  <h2 class="gloss-h" id="glossary">Glossary</h2>
+  <div class="gloss-sub">Definitions match what the planning studio computes and what the exports contain.
+  Dotted-underlined terms throughout the manual link here.</div>
+
+  <div class="gloss-group">Planning objects</div>
+  <dl class="gloss">
+    <div id="g-activity"><dt>Activity</dt><dd>One planned communication — an email, article, banner, event and so on — with its own channel, window, audience and owner. The unit everything else counts.</dd></div>
+    <div id="g-pack"><dt>Communication pack</dt><dd>A set of activities that go out together across several channels. Shared fields are entered once; the pack is saved as one atomic batch. A pack may carry more than one activity on the same channel. <span class="f">packs.cpid</span></dd></div>
+    <div id="g-studio"><dt>Planning studio</dt><dd>The application behind the Communication Planning project, titled CPLAN Studio: Overview, Activities, Packs and Health, plus the drawer in which activities are created and edited.</dd></div>
+    <div id="g-cluster"><dt>Tracking cluster</dt><dd>The top-level grouping a pack belongs to, for example Financial Results. Its abbreviation opens every tracking ID. <span class="f">clusters.cluster_abbreviation</span></dd></div>
+    <div id="g-tracking-id"><dt>Tracking ID</dt><dd>The identifier minted for every activity on save, in five segments. <span class="f">CLUSTER-PACKNUM-YYMMDD-ACTNUM-CHANNEL</span> — it links planning to downstream outcome data.</dd></div>
+    <div id="g-pack-id"><dt>Pack ID</dt><dd>The first two segments of the tracking ID together, for example <span class="f">QRREP-0000058</span>. Joins an activity to its pack record. <span class="f">tracking_pack_id</span></dd></div>
+    <div id="g-cross-channel"><dt>Cross-channel match</dt><dd>Recognising that two activities on different channels belong to the same pack. It is done on the pack ID, never on the campaign name, which is free text and both misses true matches and merges unrelated work.</dd></div>
+    <div id="g-campaign"><dt>Campaign</dt><dd>An optional grouping above the pack, used to hold several packs together under one name.</dd></div>
+  </dl>
+
+  <div class="gloss-group">Fields and classification</div>
+  <dl class="gloss">
+    <div id="g-channel"><dt>Channel</dt><dd>Where the activity is published. Channels are managed centrally, and each carries the abbreviation used in the tracking ID — for example <span class="f">EMA</span> for email. <span class="f">channels.channel_abbr</span></dd></div>
+    <div id="g-priority"><dt>Priority</dt><dd>Critical, High, Medium or Low. Records arriving from the source system carry numbered labels, which the studio ranks onto the same four.</dd></div>
+    <div id="g-pillar"><dt>Communications pillar</dt><dd>The strategic objective an activity serves. Required, and reported on in the coverage view. <span class="f">strategic_objectives</span></dd></div>
+    <div id="g-target-audience"><dt>Target audience</dt><dd>Who the activity is aimed at — for example Managers or All Employees. Required on internal activities. <span class="f">target_audience</span></dd></div>
+    <div id="g-audience"><dt>Audience size</dt><dd>The estimated number of people an internal activity reaches. A separate field from the target audience, and required alongside it. <span class="f">audience</span></dd></div>
+    <div id="g-internal-external"><dt>Internal / external</dt><dd>The activity type. Internal activities additionally capture the estimated audience size, the target audience, the business division and news-digest consideration. <span class="f">source_type</span></dd></div>
+    <div id="g-lead"><dt>Lead and lead team</dt><dd>The person accountable for the activity and the team they sit in. Health reports completeness by lead team.</dd></div>
+    <div id="g-time-zone"><dt>Time zone</dt><dd>Start and end dates are entered in local time with an explicit time zone, so a global plan does not have to be read in one office's clock.</dd></div>
+  </dl>
+
+  <div class="gloss-group">Health and quality</div>
+  <dl class="gloss">
+    <div id="g-readiness"><dt>Readiness</dt><dd>Whether every required field on an activity is filled. Two states in the filters: Complete and Draft.</dd></div>
+    <div id="g-draft"><dt>Draft</dt><dd>An activity saved with required fields still missing. It is a real record and stays in the plan — it is simply chased in the attention queue until it is complete.</dd></div>
+    <div id="g-lead-time"><dt>Lead time</dt><dd>Days between the record being created and the activity starting. Reported as P25, median and P75; invalid values are excluded rather than counted as zero. <span class="f">planning_lead_days</span></dd></div>
+    <div id="g-short-notice"><dt>Short notice</dt><dd>Lead time under seven days. An empty lead time reads as unknown, not as urgent.</dd></div>
+    <div id="g-attention-queue"><dt>Attention queue</dt><dd>Shown as "Needs you first" on the Overview: incomplete records, short-notice records and activities whose end date falls before their start date, grouped by issue type.</dd></div>
+    <div id="g-planning-gap"><dt>Planning gap</dt><dd>A stretch of the forward plan with nothing in it. The timeline names any run of three empty weeks or more, and the coverage view keeps categories with nothing planned listed at zero rather than dropping them.</dd></div>
+    <div id="g-field-coverage"><dt>Field coverage</dt><dd>The blank count per form field across the selected portfolio, with optional fields marked. The first place to look when a breakdown looks implausible.</dd></div>
+    <div id="g-forward-coverage"><dt>Forward coverage</dt><dd>How far ahead the plan actually reaches, by planning horizon — 4 weeks, 8 weeks, 12 weeks and 6 months. Read together with coverage by dimension.</dd></div>
+    <div id="g-sync-run"><dt>Sync run</dt><dd>An import from the source system into CPLAN. Health reports when the last one ran and what it did — new, updated, conflicting and local-only records — and changes it made are attributed to "Source sync" in an activity's history.</dd></div>
+  </dl>
+
+  <div class="gloss-group">Access, saving and exports</div>
+  <dl class="gloss">
+    <div id="g-role"><dt>Role</dt><dd>Granted per project. Viewer reads only; Contributor creates and edits its own records; Editor edits any activity but cannot delete; Admin also deletes activities and manages access.</dd></div>
+    <div id="g-range"><dt>Range</dt><dd>The date window set in the top bar — 30 D, Quarter, YTD, 12 M, All or a custom From / To. It applies to every tab and to every export. A banner names it whenever it is narrower than All.</dd></div>
+    <div id="g-version-check"><dt>Version-checked save</dt><dd>Every save carries the version it was based on. If the record changed in the meantime the save is refused and the conflict is shown, rather than one person's edit silently replacing another's.</dd></div>
+    <div id="g-export"><dt>Export to Excel</dt><dd>Writes the current view as an .xlsx workbook: filtered activities as one sheet, or packs as parent rows with their activities in outline groups beneath. Ad hoc, and driven by your filters.</dd></div>
+    <div id="g-calendar-report"><dt>Calendar report</dt><dd>The planning year as one .xlsx, produced by a reporting run rather than from the studio interface. Seven sheets, led by the Executive Summary and the Calendar matrix. Finished workbooks appear under Reports &amp; downloads on the project page.</dd></div>
+    <div id="g-snapshot"><dt>Snapshot</dt><dd>A read-only copy of the whole studio at a point in time, in a single file that opens without a server. It runs as a viewer, excludes change history, and carries the complete plan in cleartext with no access control and no expiry.</dd></div>
+  </dl>
+
+</div>
+</main>
+
+<footer class="no-print" style="font-size:0.82rem;color:var(--grey-4);padding:1.25rem 2rem 2rem;background:var(--bg);">
+  CPLAN · Communication Planning — user manual · <a href="/project/cplan" style="color:var(--grey-5);text-decoration:none;">Back to the project</a>
+</footer>
+
+</body>
+</html>
