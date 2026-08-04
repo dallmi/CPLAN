@@ -974,6 +974,123 @@ def test_search_and_gaps_can_scope_to_one_pack(writable_session):
     assert "channel" in gaps["activities"][0]["missing_required_fields"]
 
 
+def test_pack_overview_prefers_the_pack_id_over_the_campaign_label(writable_session):
+    """The reason this tool exists.
+
+    One campaign label, three real packs underneath it. A tool that grouped
+    by `campaign` would report one bucket of six; grouping by the pack id
+    (the preference chain's first link) must report three packs of two.
+    """
+    for pack in ("CP-1", "CP-2", "CP-3"):
+        writable_session.add_all(
+            [_activity(campaign="Autumn programme", communication_pack_cpid=pack) for _ in range(2)]
+        )
+    writable_session.flush()
+
+    result = queries.pack_overview(writable_session)
+
+    assert result["pack_count"] == 3
+    assert {row["pack_id"] for row in result["packs"]} == {"CP-1", "CP-2", "CP-3"}
+    for row in result["packs"]:
+        assert row["key_source"] == "communication_pack_cpid"
+        assert row["activities"] == 2
+        # The label still surfaces the human-readable campaign name.
+        assert row["label"] == "Autumn programme"
+
+
+@pytest.mark.parametrize(
+    "overrides, expected_key_source",
+    [
+        ({"communication_pack": "Comms Pack A"}, "communication_pack"),
+        ({"campaign": "Campaign A"}, "campaign"),
+        ({}, None),
+    ],
+)
+def test_pack_overview_falls_back_down_the_key_chain(
+    writable_session, overrides, expected_key_source
+):
+    writable_session.add(
+        _activity(
+            communication_pack_cpid=None,
+            # No '-' at all, so ActivityRead.tracking_pack_id is also None --
+            # every link above `expected_key_source` in the chain is blank.
+            tracking_id="NOPACKPREFIX",
+            **overrides,
+        )
+    )
+    writable_session.flush()
+
+    result = queries.pack_overview(writable_session)
+
+    if expected_key_source is None:
+        # Every key in the chain is blank -- excluded entirely, not folded
+        # into a shared bucket: a standalone activity is not a pack of one.
+        assert result["pack_count"] == 0
+        assert result["packs"] == []
+    else:
+        assert result["pack_count"] == 1
+        assert result["packs"][0]["key_source"] == expected_key_source
+
+
+def test_pack_overview_counts_distinct_members_not_strings(writable_session):
+    writable_session.add(
+        _activity(communication_pack_cpid="CP-1", channel="Email, Intranet")
+    )
+    writable_session.flush()
+
+    result = queries.pack_overview(writable_session)
+
+    pack = result["packs"][0]
+    assert pack["channels"] == 2
+    assert set(pack["channel_names"]) == {"Email", "Intranet"}
+
+
+def test_pack_overview_readiness_agrees_with_planning_gaps(writable_session):
+    """The reason `incomplete` reuses `missing_fields` rather than its own rule."""
+    writable_session.add_all([
+        _activity(communication_pack_cpid="CP-1", channel=None),  # incomplete
+        _activity(communication_pack_cpid="CP-1"),  # complete
+        _activity(communication_pack_cpid="CP-2", lead_team=None),  # incomplete
+    ])
+    writable_session.flush()
+
+    overview = queries.pack_overview(writable_session)
+    gaps = queries.planning_gaps(writable_session)
+
+    assert sum(row["incomplete"] for row in overview["packs"]) == gaps["incomplete"]
+
+
+def test_pack_overview_orders_by_size_and_reports_truncation(writable_session):
+    writable_session.add_all([
+        _activity(communication_pack_cpid="CP-small"),
+        *[_activity(communication_pack_cpid="CP-big") for _ in range(3)],
+        *[_activity(communication_pack_cpid="CP-medium") for _ in range(2)],
+    ])
+    writable_session.flush()
+
+    result = queries.pack_overview(writable_session, limit=2)
+
+    assert result["pack_count"] == 3
+    assert result["returned"] == 2
+    assert result["truncated"] is True
+    assert [row["pack_id"] for row in result["packs"]] == ["CP-big", "CP-medium"]
+    assert "2 of 3" in result["note"]
+
+
+def test_pack_key_chain_matches_the_studio_implementation():
+    """Pinned against analytics.js so the preference order cannot drift.
+
+    Same technique as test_priority_rank_matches_the_studio_implementation:
+    read the chain straight out of `campaignScorecards` rather than
+    re-deriving it independently.
+    """
+    studio = (REPO_ROOT / "pipeline" / "studio" / "analytics.js").read_text()
+    match = re.search(r"const key = (row\.\w+(?:\s*\|\|\s*row\.\w+)*);", studio)
+    assert match, "campaignScorecards' key chain not found in analytics.js"
+    fields = re.findall(r"row\.(\w+)", match.group(1))
+    assert fields == list(queries._PACK_KEY_FIELDS)
+
+
 def test_the_pack_id_is_discoverable_before_it_is_filtered(writable_session):
     """An agent must be able to learn the pack ids, not guess them."""
     writable_session.add_all([

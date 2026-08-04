@@ -1344,6 +1344,201 @@ def detect_collisions(
     }
 
 
+# The pack key chain, in preference order. Mirrors
+# `analytics.js::campaignScorecards` exactly:
+#
+#   row.communication_pack_cpid || row.tracking_pack_id || row.communication_pack || row.campaign
+#
+# `test_pack_key_chain_matches_the_studio_implementation` parses that line out of
+# the studio source and pins this order against it, so the two cannot drift.
+#
+# Order is the entire point of this tool. Measured on the same 400-row
+# portfolio the studio's own comment cites: grouping by `tracking_pack_id`
+# collapses everything into two buckets of 273 and 125 activities, while
+# `communication_pack_cpid` resolves 32 real packs of 2-11. A bucket of 273 is
+# the portfolio, not a planning unit -- every metric this tool reports (size,
+# channel breadth, readiness) would describe the whole book of work instead of
+# the thing a planner actually owns if this order were ever loosened.
+_PACK_KEY_FIELDS: tuple[str, ...] = (
+    "communication_pack_cpid",
+    "tracking_pack_id",
+    "communication_pack",
+    "campaign",
+)
+
+
+def _pack_key(activity: Activity) -> tuple[str | None, str | None]:
+    """The pack `activity` belongs to, and which chain link resolved it.
+
+    `tracking_pack_id` is not a stored column -- it is `ActivityRead`'s own
+    computed property (the first two `-`-separated segments of `tracking_id`;
+    see `ActivityRead.tracking_pack_id`), so it is resolved through the read
+    model exactly like `detect_collisions` already does, rather than
+    reimplementing the split here.
+
+    Every link is checked with `is_blank`, the same rule `missing_fields` and
+    every SQL predicate in this module use, not raw Python/JS truthiness --
+    so a synced 'None' sentinel in `communication_pack_cpid` falls through to
+    the next link instead of becoming a pack named "None".
+
+    Returns `(None, None)` when every link is blank: the caller must exclude
+    the activity entirely, matching `campaignScorecards`' own
+    `if (empty(key)) return;` -- a standalone activity is not a pack of one.
+    """
+    tracking_pack_id = ActivityRead.model_validate(activity).tracking_pack_id
+    values = {
+        "communication_pack_cpid": activity.communication_pack_cpid,
+        "tracking_pack_id": tracking_pack_id,
+        "communication_pack": activity.communication_pack,
+        "campaign": activity.campaign,
+    }
+    for field in _PACK_KEY_FIELDS:
+        value = values[field]
+        if not is_blank(value):
+            return value, field
+    return None, None
+
+
+def pack_overview(
+    session: Session,
+    *,
+    limit: int | None = None,
+    **filter_kwargs: Any,
+) -> dict[str, Any]:
+    """Per-communication-pack rollup: size, channel breadth, span, readiness.
+
+    Closes "which packs are live, how large is each, over what period" --
+    today answerable only as a raw `activity_counts(dimension=...)` grouped
+    count, which cannot report channel/objective/audience breadth, the
+    internal/external split, or per-pack readiness in one shot, and which an
+    agent could just as easily point at the wrong key in the chain below.
+
+    Grouped in Python, like every other multi-value or derived rollup here:
+    `_pack_key` needs `ActivityRead.tracking_pack_id` (a computed property,
+    not a column) and `channels`/`objectives`/`audiences` need every member
+    of a multi-value column split before they can be counted, neither of
+    which a portable SQL GROUP BY can express.
+
+    Splitter choice, deliberately NOT `split_multi`: this tool ports
+    `analytics.js::campaignScorecards`, which tallies channels, objectives and
+    audiences with `normalizeMulti` -- splitting on `,` OR `;` unconditionally,
+    including for `channel` and `target_audience`, which `split_multi` treats
+    as scalar (see the comment on `MULTI_VALUE_SEPARATORS`). `_normalize_multi`
+    (the same helper `detect_collisions` uses) is therefore the faithful
+    choice for all three counts here -- an activity with
+    `channel="Email, Intranet"` contributes 2 channels, matching the studio,
+    not 1. Widening `MULTI_VALUE_SEPARATORS` instead would reshape
+    `activity_counts`, `field_values`, the cross-tab and every filter that
+    already treats `channel`/`target_audience` as scalar; Task 3's review
+    already rejected that.
+
+    `label` mirrors the studio's own `group.campaign = row.campaign ||
+    row.communication_pack || key`, taken from the first activity that opens
+    the pack (campaignScorecards sets it once, at group creation, and never
+    revisits it): `campaign` if present, else `communication_pack`, else the
+    resolved pack id itself. Each per-field check is `is_blank`, for the same
+    sentinel-safety reason `_pack_key` uses it.
+
+    `internal` / `external` come straight from `source_type`, which is a
+    required, non-blank column (`Literal["internal", "external"]"` on
+    `ActivityCreate`) -- every counted activity lands in exactly one of the
+    two. `incomplete` reuses `missing_fields` unchanged, the same rule
+    `planning_gaps` reports against, so the two figures cannot drift apart
+    (`test_pack_overview_readiness_agrees_with_planning_gaps` pins that).
+
+    Ordered by `activities` descending, then `pack_id` for a stable tie-break;
+    capped like every other list-shaped answer here, with the TRUE pack count
+    reported alongside the capped list so truncation is never silent.
+    """
+    capped = _clamp_limit(limit)
+    filters = _build_filters(**filter_kwargs)
+    candidates = _filtered_activities(session, filters)
+
+    packs: dict[str, dict[str, Any]] = {}
+    for activity in candidates:
+        key, key_source = _pack_key(activity)
+        if key is None:
+            # Every link in the chain is blank -- excluded entirely, not
+            # folded into a shared "Unassigned" pack: a standalone activity
+            # is not a pack of one.
+            continue
+        pack = packs.get(key)
+        if pack is None:
+            if not is_blank(activity.campaign):
+                label = activity.campaign
+            elif not is_blank(activity.communication_pack):
+                label = activity.communication_pack
+            else:
+                label = key
+            pack = {
+                "pack_id": key,
+                "label": label,
+                "key_source": key_source,
+                "activities": 0,
+                "channels": {},  # insertion-ordered set: dict keys, values unused
+                "objectives": set(),
+                "audiences": set(),
+                "dates": [],
+                "internal": 0,
+                "external": 0,
+                "incomplete": 0,
+            }
+            packs[key] = pack
+        pack["activities"] += 1
+        for member in _normalize_multi(activity.channel):
+            pack["channels"].setdefault(member, None)
+        pack["objectives"].update(_normalize_multi(activity.strategic_objectives))
+        pack["audiences"].update(_normalize_multi(activity.target_audience))
+        if activity.start_date is not None:
+            pack["dates"].append(as_utc(activity.start_date))
+        if activity.source_type == "internal":
+            pack["internal"] += 1
+        elif activity.source_type == "external":
+            pack["external"] += 1
+        if missing_fields(activity):
+            pack["incomplete"] += 1
+
+    rows: list[dict[str, Any]] = []
+    for pack in packs.values():
+        dates = sorted(pack["dates"])
+        first_date = dates[0] if dates else None
+        last_date = dates[-1] if dates else None
+        span_days = (
+            _epoch_day(last_date) - _epoch_day(first_date)
+            if first_date is not None and last_date is not None
+            else None
+        )
+        rows.append(
+            {
+                "pack_id": pack["pack_id"],
+                "label": pack["label"],
+                "key_source": pack["key_source"],
+                "activities": pack["activities"],
+                "channels": len(pack["channels"]),
+                "channel_names": list(pack["channels"]),
+                "objectives": len(pack["objectives"]),
+                "audiences": len(pack["audiences"]),
+                "first_date": _iso(first_date),
+                "last_date": _iso(last_date),
+                "span_days": span_days,
+                "internal": pack["internal"],
+                "external": pack["external"],
+                "incomplete": pack["incomplete"],
+            }
+        )
+
+    rows.sort(key=lambda row: (-row["activities"], row["pack_id"]))
+    total_packs = len(rows)
+    shown = rows[:capped]
+    return {
+        "pack_count": total_packs,
+        "returned": len(shown),
+        "truncated": len(shown) < total_packs,
+        "note": _truncation_note(total_packs, len(shown), capped, subject="packs"),
+        "packs": shown,
+    }
+
+
 def _resolve_anchor(
     session: Session,
     explicit: str | date | datetime | None,
