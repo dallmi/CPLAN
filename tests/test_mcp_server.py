@@ -1174,6 +1174,137 @@ def test_counts_python_branch_matches_sql_branch_for_a_stored_dimension(writable
     assert {bucket["value"] for bucket in via_sql["buckets"]} == {"Email", "Unassigned"}
 
 
+# --------------------------------------------------------------------------
+# Cross-tabulation and finer time buckets
+# --------------------------------------------------------------------------
+
+
+def test_counts_cross_tabulates_two_dimensions(writable_session):
+    writable_session.add_all([
+        _activity(channel="Email", source_type="internal"),
+        _activity(channel="Email", source_type="external"),
+        _activity(channel="Intranet", source_type="internal"),
+    ])
+    writable_session.flush()
+
+    result = queries.activity_counts(
+        writable_session, dimension="channel", second_dimension="source_type"
+    )
+
+    assert result["dimension"] == "channel"
+    assert result["second_dimension"] == "source_type"
+    cells = {
+        (bucket["value"], bucket["second_value"]): bucket["count"] for bucket in result["buckets"]
+    }
+    assert cells == {
+        ("Email", "internal"): 1,
+        ("Email", "external"): 1,
+        ("Intranet", "internal"): 1,
+    }
+    assert result["total"] == 3
+    assert result["axis_truncated"] == {"dimension": False, "second_dimension": False}
+    assert result["distinct_values"] == {"dimension": 2, "second_dimension": 2}
+    assert result["truncated"] is False
+
+
+def test_counts_without_second_dimension_keeps_the_flat_shape(session):
+    """The one-dimensional contract is unchanged: no `second_value` anywhere.
+
+    Existing callers and a live eval depend on this exact shape -- adding
+    `second_dimension` must be additive-only.
+    """
+    result = queries.activity_counts(session, dimension="channel")
+
+    assert "second_dimension" not in result
+    assert "axis_truncated" not in result
+    assert "distinct_values" not in result
+    assert all("second_value" not in bucket for bucket in result["buckets"])
+    assert set(result) == {
+        "dimension",
+        "total",
+        "counts_memberships",
+        "bucket_count",
+        "truncated",
+        "buckets",
+        "note",
+    }
+
+
+def test_counts_by_week_buckets_iso_weeks(writable_session):
+    # 2026-02-02 (Mon) and 2026-02-05 (Thu) fall in the same ISO week
+    # (2026-W06); 2026-02-09 (Mon) is the next one (2026-W07).
+    writable_session.add_all([
+        _activity(start_date=datetime(2026, 2, 2, tzinfo=timezone.utc)),
+        _activity(start_date=datetime(2026, 2, 5, tzinfo=timezone.utc)),
+        _activity(start_date=datetime(2026, 2, 9, tzinfo=timezone.utc)),
+    ])
+    writable_session.flush()
+
+    result = queries.activity_counts(writable_session, dimension="week")
+    buckets = {bucket["value"]: bucket["count"] for bucket in result["buckets"]}
+    assert buckets == {"2026-W06": 2, "2026-W07": 1}
+
+
+def test_counts_by_day_buckets_dates(writable_session):
+    writable_session.add_all([
+        _activity(start_date=datetime(2026, 2, 2, 9, tzinfo=timezone.utc)),
+        _activity(start_date=datetime(2026, 2, 2, 18, tzinfo=timezone.utc)),
+        _activity(start_date=datetime(2026, 2, 3, 9, tzinfo=timezone.utc)),
+    ])
+    writable_session.flush()
+
+    result = queries.activity_counts(writable_session, dimension="day")
+    buckets = {bucket["value"]: bucket["count"] for bucket in result["buckets"]}
+    assert buckets == {"2026-02-02": 2, "2026-02-03": 1}
+
+
+@pytest.mark.parametrize("bucket", queries.TIME_BUCKETS)
+def test_unscheduled_rows_bucket_together_on_every_time_grain(writable_session, bucket):
+    writable_session.add(_activity(start_date=None))
+    writable_session.flush()
+
+    result = queries.activity_counts(writable_session, dimension=bucket)
+    assert result["buckets"] == [{"value": "unscheduled", "count": 1}]
+
+
+def test_cross_tab_caps_each_axis_and_says_so(writable_session):
+    """The test that would catch a flat cap.
+
+    More than MAX_CROSS_AXIS distinct channels, each paired with the same
+    single source_type. A flat MAX_LIMIT-style cap over the (channel,
+    source_type) cells would keep whatever the sort happened to keep and would
+    never report which axis, if any, was cut -- this asserts the per-axis
+    shape directly: each axis is capped independently, capped, and says so.
+    """
+    surplus = 5
+    writable_session.add_all([
+        _activity(channel=f"Channel {index:03d}", source_type="internal")
+        for index in range(queries.MAX_CROSS_AXIS + surplus)
+    ])
+    writable_session.flush()
+
+    result = queries.activity_counts(
+        writable_session, dimension="channel", second_dimension="source_type"
+    )
+
+    channel_values = {bucket["value"] for bucket in result["buckets"]}
+    assert len(channel_values) <= queries.MAX_CROSS_AXIS
+    assert result["axis_truncated"]["dimension"] is True
+    assert result["axis_truncated"]["second_dimension"] is False
+    assert result["distinct_values"]["dimension"] == queries.MAX_CROSS_AXIS + surplus
+    assert result["distinct_values"]["second_dimension"] == 1
+    assert result["truncated"] is True
+    # The true total spans every row, not just the rows behind the kept axis.
+    assert result["total"] == queries.MAX_CROSS_AXIS + surplus
+
+
+def test_counts_rejects_an_unknown_second_dimension(session):
+    result = queries.activity_counts(session, dimension="channel", second_dimension="colour")
+
+    assert "error" in result
+    assert "channel" in result["supported_dimensions"]
+
+
 @pytest.mark.parametrize(
     "field", ["partner_team", "business_area", "target_audience", "audience", "time_zone"]
 )

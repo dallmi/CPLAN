@@ -166,15 +166,23 @@ FILTERABLE_TEXT_FIELDS: tuple[str, ...] = (
 # here too (pinned by test_every_filterable_column_is_also_discoverable).
 MULTI_VALUE_DIMENSIONS: tuple[str, ...] = tuple(MULTI_VALUE_SEPARATORS)
 
+# The three time grains `activity_counts` can bucket `start_date` into. Ordered
+# fine to coarse; `_time_bucket_key` dispatches on these names, and each has no
+# portable SQL spelling (day/week have none at all; month would need
+# date_trunc on PostgreSQL vs strftime on SQLite), so all three are grouped in
+# Python rather than SQL -- the same reason `month` already was before this
+# tuple existed.
+TIME_BUCKETS: tuple[str, ...] = ("day", "week", "month")
+
 GROUPABLE_FIELDS: tuple[str, ...] = (
     *FILTERABLE_TEXT_FIELDS,
     *MULTI_VALUE_DIMENSIONS,
     "priority_rank",
-    "month",
+    *TIME_BUCKETS,
 )
 
-# 'month' and 'priority_rank' are derived, not stored, so they are groupable but
-# not enumerable.
+# 'day'/'week'/'month' and 'priority_rank' are derived, not stored, so they are
+# groupable but not enumerable.
 ENUMERABLE_FIELDS: tuple[str, ...] = (
     *FILTERABLE_TEXT_FIELDS,
     *MULTI_VALUE_DIMENSIONS,
@@ -199,6 +207,15 @@ SUMMARY_FIELDS: tuple[str, ...] = (
 
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 200
+
+# A cross-tab multiplies two dimensions together (32 packs x 15 channels is 480
+# cells), and the flat MAX_LIMIT cap is the wrong shape for that: sorting the
+# flat cell list by count and slicing drops whole rows/columns of the table
+# rather than showing a smaller-but-complete one, which reads to an agent as
+# a full cross-tab that is quietly missing data. Capping each axis to its top
+# MAX_CROSS_AXIS values by total count keeps a coherent (if smaller) table
+# instead, and `axis_truncated` says which axis, if any, was cut.
+MAX_CROSS_AXIS = 20
 
 
 # ------------------------------------------------------------------------
@@ -315,6 +332,28 @@ def _month_key(value: datetime | None) -> str:
     return f"{normalized.year:04d}-{normalized.month:02d}"
 
 
+def _time_bucket_key(value: datetime | None, bucket: str) -> str:
+    """The bucket label for `value` at `bucket` grain -- one of TIME_BUCKETS.
+
+    `day` -> 'YYYY-MM-DD', `week` -> ISO 'YYYY-Www' (via `date.isocalendar()`,
+    so the ISO year can differ from the calendar year in late December -- by
+    design, not a bug: that is the week the day actually belongs to), `month`
+    -> `_month_key`'s existing shape. `None` -> 'unscheduled' on every grain,
+    matching `_month_key`.
+    """
+    if bucket == "month":
+        return _month_key(value)
+    normalized = as_utc(value)
+    if normalized is None:
+        return "unscheduled"
+    if bucket == "day":
+        return f"{normalized.year:04d}-{normalized.month:02d}-{normalized.day:02d}"
+    if bucket == "week":
+        iso_year, iso_week, _ = normalized.isocalendar()
+        return f"{iso_year:04d}-W{iso_week:02d}"
+    raise ValueError(f"Unknown time bucket {bucket!r}; expected one of {TIME_BUCKETS}")
+
+
 def missing_fields(activity: Activity) -> list[str]:
     """Required fields this activity is still missing, in declaration order."""
     required = list(REQUIRED_COMMON_FIELDS)
@@ -341,6 +380,29 @@ def _bucket_keys(activity: Activity, field: str) -> list[str]:
     rather than being dropped.
     """
     return split_multi(getattr(activity, field), field) or ["Unassigned"]
+
+
+# Dimensions with no stored column to `GROUP BY` on -- each needs a Python rule
+# (a time grain, or the two-vocabulary priority rule) rather than a SQL label.
+# Shared by the single- and two-dimension paths of `activity_counts` so both
+# route the same set of names into the Python-grouped branch.
+DERIVED_DIMENSIONS: tuple[str, ...] = (*TIME_BUCKETS, "priority_rank")
+
+
+def _dimension_keys(activity: Activity, dimension: str) -> list[str]:
+    """The group labels one activity contributes for any GROUPABLE_FIELDS name.
+
+    One dispatch point for every grouping path in this module (single- and
+    two-dimension `activity_counts` alike): a time grain goes through
+    `_time_bucket_key`, `priority_rank` through the two-vocabulary rule, and
+    everything else -- stored scalar or multi-value -- through `_bucket_keys`,
+    exactly as `planning_gaps` labels its groups.
+    """
+    if dimension in TIME_BUCKETS:
+        return [_time_bucket_key(activity.start_date, dimension)]
+    if dimension == "priority_rank":
+        return [str(priority_rank(activity.priority))]
+    return _bucket_keys(activity, dimension)
 
 
 def _capped_by_count(
@@ -843,68 +905,181 @@ def planning_gaps(
     return answer
 
 
+def _sql_label(column) -> Any:
+    """The stored-column SQL label expression shared by both count branches.
+
+    Unassigned rows are surfaced as their own bucket, never dropped. The blank
+    rule is `_blank_sql`, the same one every other SQL predicate here uses -- a
+    plain `coalesce(column, "Unassigned")` only catches NULL, which let
+    identical data land in a literal "None"/"   " bucket here while the Python
+    branch folds it into "Unassigned", so the bucket name an agent saw
+    depended on which branch happened to run rather than on the data itself.
+    Trimmed, because the Python branch's labels are trimmed (`split_multi`
+    strips every member): without this, " Email " is a bucket of its own here
+    and folds into "Email" there.
+    """
+    return case((_blank_sql(column), "Unassigned"), else_=func.trim(column)).cast(String)
+
+
 def activity_counts(
     session: Session,
     *,
     dimension: str,
+    second_dimension: str | None = None,
     **filter_kwargs: Any,
 ) -> dict[str, Any]:
-    """Activity volume grouped by one dimension, honouring every search filter."""
+    """Activity volume grouped by one or two dimensions, honouring every search filter.
+
+    With `second_dimension` this is a cross-tab: each returned bucket carries
+    both `value` and `second_value`. Without it, the response keeps the exact
+    one-dimensional shape this tool has always returned -- no `second_value`
+    key anywhere, so a caller that never asked for a second dimension sees no
+    difference at all.
+    """
     if dimension not in GROUPABLE_FIELDS:
         return {
             "error": f"Unknown dimension {dimension!r}.",
             "supported_dimensions": list(GROUPABLE_FIELDS),
         }
+    if second_dimension is not None and second_dimension not in GROUPABLE_FIELDS:
+        return {
+            "error": f"Unknown dimension {second_dimension!r}.",
+            "supported_dimensions": list(GROUPABLE_FIELDS),
+        }
     filters = _build_filters(**filter_kwargs)
-    counts_memberships = dimension in MULTI_VALUE_DIMENSIONS
-    if dimension in ("month", "priority_rank") or counts_memberships or needs_post_filter(filters):
-        # Grouped in Python: month has no portable SQL spelling (date_trunc vs
-        # strftime), priority_rank needs the two-vocabulary rule, and a
-        # multi-value dimension has to be split before it can be tallied.
-        rows = _filtered_activities(session, filters)
-        tally: dict[str, int] = {}
-        for activity in rows:
-            if dimension == "month":
-                keys = [_month_key(activity.start_date)]
-            elif dimension == "priority_rank":
-                keys = [str(priority_rank(activity.priority))]
-            else:
-                # One labelling rule for stored and multi-value dimensions alike,
-                # shared with `planning_gaps` -- see `_bucket_keys`.
-                keys = _bucket_keys(activity, dimension)
-            for key in keys:
-                tally[key] = tally.get(key, 0) + 1
-        buckets, total, bucket_count = _capped_by_count(
-            tally, chronological=dimension == "month"
-        )
-    else:
-        column = getattr(Activity, dimension)
-        # Unassigned rows are surfaced as their own bucket, never dropped. The
-        # blank rule is `_blank_sql`, the same one every other SQL predicate here
-        # uses -- a plain `coalesce(column, "Unassigned")` only catches NULL,
-        # which let identical data land in a literal "None"/"   " bucket here
-        # while the Python branch above folded it into "Unassigned", so the
-        # bucket name an agent saw depended on which branch happened to run
-        # rather than on the data itself.
-        # Trimmed, because the Python branch's labels are trimmed (`split_multi`
-        # strips every member): without this, " Email " is a bucket of its own
-        # here and folds into "Email" there.
-        label = case((_blank_sql(column), "Unassigned"), else_=func.trim(column)).cast(String)
+
+    if second_dimension is None:
+        counts_memberships = dimension in MULTI_VALUE_DIMENSIONS
+        if dimension in DERIVED_DIMENSIONS or counts_memberships or needs_post_filter(filters):
+            # Grouped in Python: every DERIVED_DIMENSIONS name has no portable
+            # SQL spelling (date grains, or the two-vocabulary priority rule),
+            # and a multi-value dimension has to be split before it can be
+            # tallied.
+            rows = _filtered_activities(session, filters)
+            tally: dict[str, int] = {}
+            for activity in rows:
+                for key in _dimension_keys(activity, dimension):
+                    tally[key] = tally.get(key, 0) + 1
+            buckets, total, bucket_count = _capped_by_count(
+                tally, chronological=dimension in TIME_BUCKETS
+            )
+        else:
+            column = getattr(Activity, dimension)
+            label = _sql_label(column)
+            statement = _apply_filters(
+                select(label.label("value"), func.count().label("count")), filters
+            ).group_by(label)
+            tally = {value: int(count) for value, count in session.execute(statement).all()}
+            buckets, total, bucket_count = _capped_by_count(tally)
+        return {
+            "dimension": dimension,
+            "total": total,
+            "counts_memberships": counts_memberships,
+            "bucket_count": bucket_count,
+            "truncated": len(buckets) < bucket_count,
+            "buckets": buckets,
+            "note": _truncation_note(
+                bucket_count, len(buckets), MAX_LIMIT, subject=f"{dimension} buckets"
+            ),
+        }
+
+    # --- Cross-tab: two dimensions -------------------------------------
+    counts_memberships = (
+        dimension in MULTI_VALUE_DIMENSIONS or second_dimension in MULTI_VALUE_DIMENSIONS
+    )
+    sql_eligible = (
+        dimension not in DERIVED_DIMENSIONS
+        and second_dimension not in DERIVED_DIMENSIONS
+        and not counts_memberships
+        and not needs_post_filter(filters)
+    )
+    cross_tally: dict[tuple[str, str], int] = {}
+    if sql_eligible:
+        # Both axes are stored scalars and no Python post-filter is active, so
+        # a single two-column SQL GROUP BY replaces materialising every row --
+        # the same condition Phase 1's single-dimension branch uses, extended
+        # to both columns at once.
+        first_label = _sql_label(getattr(Activity, dimension))
+        second_label = _sql_label(getattr(Activity, second_dimension))
         statement = _apply_filters(
-            select(label.label("value"), func.count().label("count")), filters
-        ).group_by(label)
-        tally = {value: int(count) for value, count in session.execute(statement).all()}
-        buckets, total, bucket_count = _capped_by_count(tally)
+            select(
+                first_label.label("value"),
+                second_label.label("second_value"),
+                func.count().label("count"),
+            ),
+            filters,
+        ).group_by(first_label, second_label)
+        for first_value, second_value, count in session.execute(statement).all():
+            cross_tally[(first_value, second_value)] = int(count)
+    else:
+        # A derived or multi-value axis (or an active post-filter) forces
+        # Python grouping, same as the single-dimension branch. A multi-value
+        # axis contributes one label per member on EACH side, so a two-member
+        # activity tallies into every (first, second) combination it belongs
+        # to -- matching "counts_memberships becomes true if either axis is
+        # multi-valued".
+        rows = _filtered_activities(session, filters)
+        for activity in rows:
+            first_keys = _dimension_keys(activity, dimension)
+            second_keys = _dimension_keys(activity, second_dimension)
+            for first_key in first_keys:
+                for second_key in second_keys:
+                    pair = (first_key, second_key)
+                    cross_tally[pair] = cross_tally.get(pair, 0) + 1
+
+    first_totals: dict[str, int] = {}
+    second_totals: dict[str, int] = {}
+    for (first_key, second_key), count in cross_tally.items():
+        first_totals[first_key] = first_totals.get(first_key, 0) + count
+        second_totals[second_key] = second_totals.get(second_key, 0) + count
+
+    def _top_keys(totals: dict[str, int]) -> set[str]:
+        ordered = sorted(totals.items(), key=lambda item: (-item[1], str(item[0])))
+        return {key for key, _ in ordered[:MAX_CROSS_AXIS]}
+
+    kept_first = _top_keys(first_totals)
+    kept_second = _top_keys(second_totals)
+    axis_truncated = {
+        "dimension": len(first_totals) > MAX_CROSS_AXIS,
+        "second_dimension": len(second_totals) > MAX_CROSS_AXIS,
+    }
+    distinct_values = {
+        "dimension": len(first_totals),
+        "second_dimension": len(second_totals),
+    }
+    buckets = sorted(
+        (
+            {"value": first_key, "second_value": second_key, "count": count}
+            for (first_key, second_key), count in cross_tally.items()
+            if first_key in kept_first and second_key in kept_second
+        ),
+        key=lambda bucket: (-bucket["count"], str(bucket["value"]), str(bucket["second_value"])),
+    )
+    truncated = axis_truncated["dimension"] or axis_truncated["second_dimension"]
+    note = None
+    if truncated:
+        clauses = []
+        if axis_truncated["dimension"]:
+            clauses.append(f"top {MAX_CROSS_AXIS} of {distinct_values['dimension']} {dimension} values")
+        if axis_truncated["second_dimension"]:
+            clauses.append(
+                f"top {MAX_CROSS_AXIS} of {distinct_values['second_dimension']} {second_dimension} values"
+            )
+        note = (
+            "Showing the " + " by the ".join(clauses) + " (ranked by total count). "
+            "Narrow the filters to bring the rest of the table into view -- this is "
+            "a smaller, complete cross-tab, not a truncated prefix of a larger one."
+        )
     return {
         "dimension": dimension,
-        "total": total,
+        "second_dimension": second_dimension,
+        "total": sum(cross_tally.values()),
         "counts_memberships": counts_memberships,
-        "bucket_count": bucket_count,
-        "truncated": len(buckets) < bucket_count,
+        "distinct_values": distinct_values,
+        "axis_truncated": axis_truncated,
+        "truncated": truncated,
         "buckets": buckets,
-        "note": _truncation_note(
-            bucket_count, len(buckets), MAX_LIMIT, subject=f"{dimension} buckets"
-        ),
+        "note": note,
     }
 
 
