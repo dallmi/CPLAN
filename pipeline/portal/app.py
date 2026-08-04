@@ -130,13 +130,18 @@ def create_portal_app(database_url: str | URL | None = None, auth_settings: Auth
 
     @app.get("/api/portal/projects")
     def projects(session: Session = Depends(db_session)):
+        # to_regrole, same as project_detail below: a project registered
+        # before its group roles exist must not take the whole list down for
+        # every caller. A NULL from to_regrole makes pg_has_role's argument
+        # NULL, which makes that OR arm NULL (not TRUE) and falls out of the
+        # WHERE on its own -- no CASE/COALESCE needed here.
         rows = session.execute(
             text(
                 "SELECT slug, name, url FROM portal.projects p "
-                "WHERE pg_has_role(current_user, p.role_prefix || '_viewer', 'member') "
-                "   OR pg_has_role(current_user, p.role_prefix || '_contributor', 'member') "
-                "   OR pg_has_role(current_user, p.role_prefix || '_editor', 'member') "
-                "   OR pg_has_role(current_user, p.role_prefix || '_admin', 'member') "
+                "WHERE pg_has_role(current_user, to_regrole(p.role_prefix || '_viewer'), 'member') "
+                "   OR pg_has_role(current_user, to_regrole(p.role_prefix || '_contributor'), 'member') "
+                "   OR pg_has_role(current_user, to_regrole(p.role_prefix || '_editor'), 'member') "
+                "   OR pg_has_role(current_user, to_regrole(p.role_prefix || '_admin'), 'member') "
                 "ORDER BY name"
             )
         ).all()
@@ -167,27 +172,50 @@ def create_portal_app(database_url: str | URL | None = None, auth_settings: Auth
         return row if row is not None and row.role is not None else None
 
     def member_count(session: Session, role_prefix: str) -> int | None:
+        """People who can sign in and hold one of this project's four group roles.
+
+        Mirrors `_USERS_VIEW` (pipeline/api/setup_portal.py) rather than a LIKE
+        pattern on role_prefix, and for the same reason that comment gives:
+        the privilege chain (viewer <- contributor <- editor <- admin) makes
+        each group a member of the ones below it, so a LIKE would also match
+        cplan_sync/cplan_authenticator/portal_owner and inflate the count with
+        roles that are not people at all; a LIKE also treats role_prefix's own
+        `_`/`%` as wildcards and would absorb a nested prefix (cplan_sub). The
+        four exact names side-step all of that, and `rolcanlogin` on the
+        member keeps the count meaning "people who can actually sign in", not
+        every login and service role transitively granted the group.
+        """
+        groups = [f"{role_prefix}_{suffix}" for suffix in ("viewer", "contributor", "editor", "admin")]
         try:
             return session.execute(
                 text(
                     "SELECT count(DISTINCT m.member) FROM pg_auth_members m "
                     "JOIN pg_roles g ON g.oid = m.roleid "
-                    "WHERE g.rolname LIKE :prefix"
+                    "JOIN pg_roles u ON u.oid = m.member AND u.rolcanlogin "
+                    "WHERE g.rolname IN (:viewer, :contributor, :editor, :admin)"
                 ),
-                {"prefix": f"{role_prefix}\\_%"},
+                dict(zip(("viewer", "contributor", "editor", "admin"), groups)),
             ).scalar_one()
         except Exception:  # noqa: BLE001 - a headcount is never worth a 500
+            session.rollback()
             return None
 
-    def tile_context(session: Session, row) -> dict:
+    def tile_context(session: Session, row, manifest: dict | None = None) -> dict:
+        # `manifest` is optional so this keeps working, just at the cost of a
+        # reload, for a caller that only has the row (e.g. a future page
+        # route reached from app.state.tile_context); project_detail below
+        # always has the manifest already and passes it, so the three
+        # manifest_path lookups below don't each re-read and re-parse it.
+        if manifest is None:
+            manifest = load_manifest(row.slug, root=PROJECTS_ROOT)
         return {
             "session": session,
             "slug": row.slug,
             "role": row.role,
             "member_count": member_count(session, row.role_prefix),
-            "manual_path": manifest_path(row.slug, "manual", root=PROJECTS_ROOT),
-            "changelog_path": manifest_path(row.slug, "changelog", root=PROJECTS_ROOT),
-            "reports_dir": manifest_path(row.slug, "reports", root=PROJECTS_ROOT),
+            "manual_path": manifest_path(row.slug, "manual", root=PROJECTS_ROOT, manifest=manifest),
+            "changelog_path": manifest_path(row.slug, "changelog", root=PROJECTS_ROOT, manifest=manifest),
+            "reports_dir": manifest_path(row.slug, "reports", root=PROJECTS_ROOT, manifest=manifest),
         }
 
     @app.get("/api/portal/projects/{slug}")
@@ -195,9 +223,12 @@ def create_portal_app(database_url: str | URL | None = None, auth_settings: Auth
         row = project_row(session, slug)
         if row is None:
             raise HTTPException(status_code=404, detail={"code": "not_found"})
-        manifest = load_manifest(slug, root=PROJECTS_ROOT)
+        # Everything from here on comes from the registry row, not the raw
+        # path parameter, now that row.slug is known to exist and be the
+        # caller's actual entitlement target.
+        manifest = load_manifest(row.slug, root=PROJECTS_ROOT)
         tiles = resolve_tiles(
-            slug, manifest, row.url, RESOLVERS, tile_context(session, row)
+            row.slug, manifest, row.url, RESOLVERS, tile_context(session, row, manifest)
         )
         return {
             "slug": row.slug,

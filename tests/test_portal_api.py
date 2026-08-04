@@ -214,32 +214,68 @@ def test_a_second_project_needs_no_portal_code(portal, tmp_path):
 
     prefix = "secondproj"
     groups = [f"{prefix}_{role}" for role in ("viewer", "contributor", "editor", "admin")]
-    with portal.state.engine.begin() as c:
-        for group in groups:
-            c.exec_driver_sql(f"CREATE ROLE {group} NOLOGIN")
-        c.exec_driver_sql(f"GRANT {prefix}_viewer TO {prefix}_contributor")
-        c.exec_driver_sql(f"GRANT {prefix}_contributor TO {prefix}_editor")
-        c.exec_driver_sql(f"GRANT {prefix}_editor TO {prefix}_admin")
-        c.exec_driver_sql(f"GRANT {prefix}_admin TO pa_admin")
-
-    register_project(portal.state.engine, "secondproj", "Second Project", "http://second/", prefix)
-    projects_root = tmp_path / "projects"
-    (projects_root / "secondproj").mkdir(parents=True)
-    (projects_root / "secondproj" / "resources.json").write_text(
-        '{"purpose": "A second tenant.", "app_title": "Open it",'
-        ' "tiles": [{"kind": "access", "title": "Access & support"}]}',
-        encoding="utf-8",
-    )
     original = portal_app.PROJECTS_ROOT
-    portal_app.PROJECTS_ROOT = projects_root
     try:
+        # Role creation is the first thing inside the try, not before it, so
+        # a failure partway through role setup still hits the finally below
+        # instead of leaking roles past the end of this test.
+        with portal.state.engine.begin() as c:
+            for group in groups:
+                c.exec_driver_sql(f"CREATE ROLE {group} NOLOGIN")
+            c.exec_driver_sql(f"GRANT {prefix}_viewer TO {prefix}_contributor")
+            c.exec_driver_sql(f"GRANT {prefix}_contributor TO {prefix}_editor")
+            c.exec_driver_sql(f"GRANT {prefix}_editor TO {prefix}_admin")
+            c.exec_driver_sql(f"GRANT {prefix}_admin TO pa_admin")
+
+        register_project(portal.state.engine, "secondproj", "Second Project", "http://second/", prefix)
+        projects_root = tmp_path / "projects"
+        (projects_root / "secondproj").mkdir(parents=True)
+        (projects_root / "secondproj" / "resources.json").write_text(
+            '{"purpose": "A second tenant.", "app_title": "Open it",'
+            ' "tiles": [{"kind": "access", "title": "Access & support"}]}',
+            encoding="utf-8",
+        )
+        portal_app.PROJECTS_ROOT = projects_root
+
         body = login(portal, "pa_admin").get("/api/portal/projects/secondproj").json()
         assert body["purpose"] == "A second tenant."
         assert [t["kind"] for t in body["tiles"]] == ["app", "access"]
         assert body["tiles"][0]["title"] == "Open it"
+        assert body["role"] == "admin"
+        # pa_viewer holds no role on THIS project's group (only cplan's), so
+        # a real entitlement check, not just the to_regrole-NULL path, must
+        # still 404 -- the two existing "unentitled" tests both used projects
+        # with no roles at all and would not have caught this.
+        assert login(portal, "pa_viewer").get("/api/portal/projects/secondproj").status_code == 404
     finally:
         portal_app.PROJECTS_ROOT = original
         with portal.state.engine.begin() as c:
             c.exec_driver_sql("DELETE FROM portal.projects WHERE slug = 'secondproj'")
             for group in groups:
                 c.exec_driver_sql(f"DROP ROLE IF EXISTS {group}")
+
+
+def test_role_prefix_must_stay_unique_across_projects(portal):
+    # The isolation property the UNIQUE constraint enforces has no other test:
+    # without it, two rows could share a role_prefix and a grant on one
+    # project would silently apply to the other (see portal.users' JOIN and
+    # create_user/set_project_role's role_prefix lookup in setup_portal.py).
+    from sqlalchemy.exc import IntegrityError
+
+    with pytest.raises(IntegrityError):
+        register_project(portal.state.engine, "dupeprefix", "Dupe", "http://x/", "cplan")
+
+
+def test_projects_list_survives_a_project_with_no_group_roles(portal):
+    # The list endpoint used to pass bare role names to pg_has_role, which
+    # raises 42704 for a name that is not a role -- taking the landing page
+    # down for every caller, not just the one probing the half-registered
+    # project. to_regrole must make this endpoint survive it too, the same
+    # way project_detail already does.
+    register_project(portal.state.engine, "halfreg", "Half Registered", "http://x/", "halfreg")
+    try:
+        resp = login(portal, "pa_admin").get("/api/portal/projects")
+        assert resp.status_code == 200, resp.text
+    finally:
+        with portal.state.engine.begin() as c:
+            c.exec_driver_sql("DELETE FROM portal.projects WHERE slug = 'halfreg'")

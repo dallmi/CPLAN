@@ -64,9 +64,22 @@ def load_manifest(slug: str, root: Path = PROJECTS_ROOT) -> dict[str, Any]:
         return {}
 
 
-def manifest_path(slug: str, kind: str, key: str | None = None, root: Path = PROJECTS_ROOT) -> Path | None:
-    """Resolve a *declared* path for one tile, or one document within it."""
-    for spec in load_manifest(slug, root=root).get("tiles", []):
+def manifest_path(
+    slug: str,
+    kind: str,
+    key: str | None = None,
+    root: Path = PROJECTS_ROOT,
+    manifest: dict[str, Any] | None = None,
+) -> Path | None:
+    """Resolve a *declared* path for one tile, or one document within it.
+
+    Pass an already-loaded `manifest` when the caller has one (e.g. a request
+    handler that loads it once for several lookups) to skip the redundant
+    read-and-parse; omitted, it is loaded fresh as before.
+    """
+    if manifest is None:
+        manifest = load_manifest(slug, root=root)
+    for spec in manifest.get("tiles", []):
         if spec.get("kind") != kind:
             continue
         declared = spec.get("path")
