@@ -216,8 +216,13 @@ def apply_portal(engine: Engine) -> None:
         c.exec_driver_sql("GRANT USAGE ON SCHEMA portal TO PUBLIC")
         c.exec_driver_sql(
             "CREATE TABLE IF NOT EXISTS portal.projects ("
-            "slug text PRIMARY KEY, name text NOT NULL, url text NOT NULL, role_prefix text NOT NULL UNIQUE)"
+            "slug text PRIMARY KEY, name text NOT NULL, url text NOT NULL, role_prefix text NOT NULL)"
         )
+        # role_prefix was UNIQUE; a second project sharing a first project's
+        # role group (so it needs no roles or users of its own) is a
+        # legitimate registration, not a data error, so the constraint is
+        # dropped here for databases that already applied the old DDL.
+        c.exec_driver_sql("ALTER TABLE portal.projects DROP CONSTRAINT IF EXISTS projects_role_prefix_key")
         c.exec_driver_sql("GRANT SELECT ON portal.projects TO PUBLIC")
         # Registry & view are owned by portal_owner so the SECURITY DEFINER
         # functions (also owned by it) can read them under their own privileges.

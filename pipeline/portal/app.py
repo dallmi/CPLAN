@@ -30,6 +30,8 @@ from pipeline.api.auth import (
 )
 from pipeline.api.database import backend_from_url, create_cplan_engine
 from pipeline.api.session import CurrentUser, build_session_dependencies
+from pipeline.portal.resolvers import RESOLVERS
+from pipeline.portal.resources import PROJECTS_ROOT, load_manifest, manifest_path, resolve_tiles
 
 
 class LoginPayload(BaseModel):
@@ -139,6 +141,75 @@ def create_portal_app(database_url: str | URL | None = None, auth_settings: Auth
             )
         ).all()
         return {"projects": [{"slug": r.slug, "name": r.name, "url": r.url} for r in rows]}
+
+    # `to_regrole` rather than a bare name: pg_has_role raises 42704 for a name
+    # that is not a role, so a project registered before its group roles were
+    # created would take down the request. NULL simply falls through the CASE,
+    # leaving role NULL, which this endpoint reports as "no such project".
+    PROJECT_SQL = text(
+        "SELECT p.slug, p.name, p.url, p.role_prefix, "
+        "  CASE WHEN pg_has_role(current_user, to_regrole(p.role_prefix || '_admin'), 'member') THEN 'admin' "
+        "       WHEN pg_has_role(current_user, to_regrole(p.role_prefix || '_editor'), 'member') THEN 'editor' "
+        "       WHEN pg_has_role(current_user, to_regrole(p.role_prefix || '_contributor'), 'member') THEN 'contributor' "
+        "       WHEN pg_has_role(current_user, to_regrole(p.role_prefix || '_viewer'), 'member') THEN 'viewer' "
+        "  END AS role "
+        "FROM portal.projects p WHERE p.slug = :slug"
+    )
+
+    def project_row(session: Session, slug: str):
+        """The project and the caller's role on it, or None.
+
+        None covers both "not registered" and "you hold no role on it". The
+        endpoints keep them indistinguishable on the wire: a different status
+        for the second case would let anyone enumerate the project registry.
+        """
+        row = session.execute(PROJECT_SQL, {"slug": slug}).one_or_none()
+        return row if row is not None and row.role is not None else None
+
+    def member_count(session: Session, role_prefix: str) -> int | None:
+        try:
+            return session.execute(
+                text(
+                    "SELECT count(DISTINCT m.member) FROM pg_auth_members m "
+                    "JOIN pg_roles g ON g.oid = m.roleid "
+                    "WHERE g.rolname LIKE :prefix"
+                ),
+                {"prefix": f"{role_prefix}\\_%"},
+            ).scalar_one()
+        except Exception:  # noqa: BLE001 - a headcount is never worth a 500
+            return None
+
+    def tile_context(session: Session, row) -> dict:
+        return {
+            "session": session,
+            "slug": row.slug,
+            "role": row.role,
+            "member_count": member_count(session, row.role_prefix),
+            "manual_path": manifest_path(row.slug, "manual", root=PROJECTS_ROOT),
+            "changelog_path": manifest_path(row.slug, "changelog", root=PROJECTS_ROOT),
+            "reports_dir": manifest_path(row.slug, "reports", root=PROJECTS_ROOT),
+        }
+
+    @app.get("/api/portal/projects/{slug}")
+    def project_detail(slug: str, session: Session = Depends(db_session)):
+        row = project_row(session, slug)
+        if row is None:
+            raise HTTPException(status_code=404, detail={"code": "not_found"})
+        manifest = load_manifest(slug, root=PROJECTS_ROOT)
+        tiles = resolve_tiles(
+            slug, manifest, row.url, RESOLVERS, tile_context(session, row)
+        )
+        return {
+            "slug": row.slug,
+            "name": row.name,
+            "purpose": manifest.get("purpose"),
+            "role": row.role,
+            "url": row.url,
+            "tiles": [t.as_dict() for t in tiles],
+        }
+
+    app.state.project_row = project_row
+    app.state.tile_context = tile_context
 
     @app.get("/api/portal/users")
     def list_users(session: Session = Depends(db_session)):

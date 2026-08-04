@@ -151,3 +151,77 @@ def test_admin_cannot_disable_own_account_via_endpoint(portal):
     assert "own account" in denied.json()["detail"]["message"]
     # Still enabled and still able to act.
     assert admin.get("/api/portal/users").status_code == 200
+
+
+def test_project_detail_returns_declared_tiles(portal):
+    detail = login(portal, "pa_admin").get("/api/portal/projects/cplan")
+    assert detail.status_code == 200, detail.text
+    body = detail.json()
+    assert body["slug"] == "cplan"
+    assert body["role"] == "admin"
+    kinds = [t["kind"] for t in body["tiles"]]
+    assert kinds[0] == "app" and body["tiles"][0]["primary"] is True
+    assert kinds[1:] == ["manual", "docs", "data", "changelog", "access", "reports"]
+
+
+def test_project_detail_states_the_callers_own_role(portal):
+    assert login(portal, "pa_viewer").get("/api/portal/projects/cplan").json()["role"] == "viewer"
+
+
+def test_project_detail_hides_existence_from_the_unentitled(portal):
+    # A project the caller holds no role on must be indistinguishable from one
+    # that does not exist — otherwise the 403/404 split enumerates the registry.
+    register_project(portal.state.engine, "secretproj", "Secret", "http://x/", "secretproj")
+    try:
+        client = login(portal, "pa_viewer")
+        forbidden = client.get("/api/portal/projects/secretproj")
+        missing = client.get("/api/portal/projects/nosuchproject")
+        assert forbidden.status_code == missing.status_code == 404
+        assert forbidden.json() == missing.json()
+    finally:
+        with portal.state.engine.begin() as c:
+            c.exec_driver_sql("DELETE FROM portal.projects WHERE slug = 'secretproj'")
+
+
+def test_project_detail_is_unauthenticated_401(portal):
+    assert TestClient(portal).get("/api/portal/projects/cplan").status_code == 401
+
+
+def test_a_project_whose_group_roles_were_never_created_is_404_not_500(portal):
+    # `pg_has_role` on a name that is not a role raises 42704. The detail
+    # endpoint must resolve role names through `to_regrole`, which yields NULL
+    # instead, so a half-registered project degrades to "no access".
+    register_project(portal.state.engine, "brokenproj2", "Broken", "http://x/", "brokenproj2")
+    try:
+        client = TestClient(portal, raise_server_exceptions=False)
+        client.post("/api/login", json={"username": "pa_admin", "password": PW["pa_admin"]})
+        assert client.get("/api/portal/projects/brokenproj2").status_code == 404
+    finally:
+        with portal.state.engine.begin() as c:
+            c.exec_driver_sql("DELETE FROM portal.projects WHERE slug = 'brokenproj2'")
+
+
+def test_a_second_project_needs_no_portal_code(portal, tmp_path):
+    # The measure of the whole design: registering a project and dropping a
+    # manifest beside it must produce a working page.
+    from pipeline.portal import app as portal_app
+
+    register_project(portal.state.engine, "secondproj", "Second Project", "http://second/", "cplan")
+    projects_root = tmp_path / "projects"
+    (projects_root / "secondproj").mkdir(parents=True)
+    (projects_root / "secondproj" / "resources.json").write_text(
+        '{"purpose": "A second tenant.", "app_title": "Open it",'
+        ' "tiles": [{"kind": "access", "title": "Access & support"}]}',
+        encoding="utf-8",
+    )
+    original = portal_app.PROJECTS_ROOT
+    portal_app.PROJECTS_ROOT = projects_root
+    try:
+        body = login(portal, "pa_admin").get("/api/portal/projects/secondproj").json()
+        assert body["purpose"] == "A second tenant."
+        assert [t["kind"] for t in body["tiles"]] == ["app", "access"]
+        assert body["tiles"][0]["title"] == "Open it"
+    finally:
+        portal_app.PROJECTS_ROOT = original
+        with portal.state.engine.begin() as c:
+            c.exec_driver_sql("DELETE FROM portal.projects WHERE slug = 'secondproj'")
