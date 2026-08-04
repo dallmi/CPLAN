@@ -62,7 +62,11 @@ from pathlib import Path
 from typing import Iterator
 
 ROOT = Path(__file__).resolve().parents[2]
-OUT = ROOT / "pipeline" / "portal" / "static" / "docs" / "img"
+# The manual's own asset directory, declared by the project manifest
+# (resources.json, the manual tile's "assets") and served by the portal's
+# gated /project/{slug}/assets route -- NOT the public static tree, where
+# these screenshots of the application were readable without a session.
+OUT = ROOT / "pipeline" / "portal" / "projects" / "cplan" / "assets"
 STUDIO_PORT = 8788
 PORTAL_PORT = 8789
 STUDIO_BASE = f"http://127.0.0.1:{STUDIO_PORT}"

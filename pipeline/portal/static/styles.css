@@ -1,6 +1,9 @@
 :root {
   --bg: #F7F7F5; --surface: #ECEBE4; --primary: #E60000; --primary-dark: #8A000A;
   --grey-4: #7A7870; --danger: #BD000C; --radius: 2px;
+  /* Interactive blue, same two tokens document.css uses, so a link means the
+     same thing on a shell page as on a document page. */
+  --info: #0C7EC6; --info-dark: #07476F;
 }
 * { box-sizing: border-box; }
 body { margin: 0; font-family: system-ui, sans-serif; background: var(--bg); color: #000; }
@@ -48,6 +51,13 @@ body { margin: 0; font-family: system-ui, sans-serif; background: var(--bg); col
 .footnote { font-size: 11px; color: var(--grey-4); margin: 0; }
 .prose p { font-size: 14px; line-height: 1.6; margin: 0 0 10px; max-width: 62em; }
 .prose p:last-child { margin-bottom: 0; }
+
+/* A link inside a content section — a report to download, a document to open.
+   Without this rule the browser's own blue underline applies, which is in no
+   palette this portal owns; caught by looking at the reports page, not by any
+   test. */
+.section a { color: var(--info); font-weight: 600; text-decoration: none; }
+.section a:hover { color: var(--info-dark); }
 
 .user-table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .user-table th, .user-table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--surface); }

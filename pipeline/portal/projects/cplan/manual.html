@@ -96,7 +96,9 @@ main { background: var(--white); }
    Real captures of a demo dataset. No shadow: the frame is a layout surface
    and carries a hairline border instead. Paths are absolute because this file
    is served at /project/cplan/manual, where a relative path would resolve
-   against /project/cplan/ and miss. */
+   against /project/cplan/ and miss. They are served by the portal's gated
+   asset route, not from its public static tree: an illustration of the
+   application is exactly as private as the manual that uses it. */
 .shot { margin-top: 0.5rem; border: 1px solid var(--grey-1); border-radius: var(--radius); overflow: hidden; background: var(--white); }
 .shot img { display: block; width: 100%; height: auto; }
 .cap { font-size: 0.78rem; color: var(--grey-4); margin-top: 0.45rem; margin-bottom: 0.9rem; }
@@ -215,7 +217,7 @@ dl.gloss > div { scroll-margin-top: 5.5rem; }
         <li>Access is granted per project, with one role per project. An administrator can reset a password or
         disable an account from the same table.</li>
       </ul>
-      <div class="shot"><img src="/docs/img/signin.png" alt="The portal home page, showing the Your projects panel with a Communication Planning tile, and below it the User administration table listing accounts with their project, role and status."></div>
+      <div class="shot"><img src="/project/cplan/assets/signin.png" alt="The portal home page, showing the Your projects panel with a Communication Planning tile, and below it the User administration table listing accounts with their project, role and status."></div>
       <div class="cap">The portal home as an administrator. The project tile carries the project name; purpose and your role are stated on the project page behind it.</div>
     </div>
   </div>
@@ -244,7 +246,7 @@ dl.gloss > div { scroll-margin-top: 5.5rem; }
       Nothing is filtered differently between them — only laid out differently. On the timeline an empty
       stretch is named rather than left blank: a <a class="term" href="#g-planning-gap">planning gap</a> of
       three weeks or more is called out under the board.</p>
-      <div class="shot"><img src="/docs/img/overview.png" alt="The studio Overview tab: the range control set to All in the top bar, the Portfolio, In flight, Readiness and Lead time figure groups, the List, Timeline and Calendar view switcher, the Needs you first queue and the Coming up list for the next seven days."></div>
+      <div class="shot"><img src="/project/cplan/assets/overview.png" alt="The studio Overview tab: the range control set to All in the top bar, the Portfolio, In flight, Readiness and Lead time figure groups, the List, Timeline and Calendar view switcher, the Needs you first queue and the Coming up list for the next seven days."></div>
       <div class="cap">The Overview in List view, with the range set to All. The range in the top bar governs all four tabs, not only this one.</div>
     </div>
   </div>
@@ -267,7 +269,7 @@ dl.gloss > div { scroll-margin-top: 5.5rem; }
         then short notice, then the missing required fields. A row reads the same wherever it appears.</li>
         <li>Selecting a row opens the activity drawer with the full detail and a change <b>History</b>.</li>
       </ul>
-      <div class="shot"><img src="/docs/img/activities.png" alt="The Activities tab: a search box, the type, channel, priority, campaign or pack and readiness filters with a Clear button and a 401 of 401 count, and a results table with Activity, Tracking ID, Channel, Start, Priority, Lead team, Campaign or pack and Issue columns."></div>
+      <div class="shot"><img src="/project/cplan/assets/activities.png" alt="The Activities tab: a search box, the type, channel, priority, campaign or pack and readiness filters with a Clear button and a 401 of 401 count, and a results table with Activity, Tracking ID, Channel, Start, Priority, Lead team, Campaign or pack and Issue columns."></div>
       <div class="cap">Activities. The count at the end of the filter bar tells you how much of the portfolio is in view; the Issue column shows short notice as a lead time in days and missing fields by name.</div>
     </div>
   </div>
@@ -294,7 +296,7 @@ dl.gloss > div { scroll-margin-top: 5.5rem; }
         <li>Saves are <a class="term" href="#g-version-check">version-checked</a>. If a colleague saved the same activity
         while you had it open, the conflict is flagged before anything is overwritten.</li>
       </ul>
-      <div class="shot"><img src="/docs/img/activity-form.png" alt="The activity drawer in create mode, titled New activity with Tracking ID Generated on save, showing the Internal or External activity type, the One channel or Several channels scope, the Identity, Classification and Content field groups, and a footer reading nine required fields left beside Cancel, Save as draft and Create activity."></div>
+      <div class="shot"><img src="/project/cplan/assets/activity-form.png" alt="The activity drawer in create mode, titled New activity with Tracking ID Generated on save, showing the Internal or External activity type, the One channel or Several channels scope, the Identity, Classification and Content field groups, and a footer reading nine required fields left beside Cancel, Save as draft and Create activity."></div>
       <div class="cap">The activity drawer in create mode. The footer counts what is still outstanding; Save as draft then names each gap and jumps you to it.</div>
     </div>
   </div>
@@ -317,7 +319,7 @@ dl.gloss > div { scroll-margin-top: 5.5rem; }
         per activity in send order, not one card per channel.</li>
         <li>The Packs tab lists each pack with its channel breadth, its window and its readiness.</li>
       </ul>
-      <div class="shot"><img src="/docs/img/pack-form.png" alt="The New communication pack drawer with the scope set to Several channels, the pack name and campaign fields, and a required channel matrix of cards for Digital Signage, Manager Cascade, Email, Intranet and Town Hall each showing its abbreviation and an Add control, above a notice that nothing will be created until a channel is ticked."></div>
+      <div class="shot"><img src="/project/cplan/assets/pack-form.png" alt="The New communication pack drawer with the scope set to Several channels, the pack name and campaign fields, and a required channel matrix of cards for Digital Signage, Manager Cascade, Email, Intranet and Town Hall each showing its abbreviation and an Add control, above a notice that nothing will be created until a channel is ticked."></div>
       <div class="cap">Creating a pack. Each channel card carries the abbreviation that will appear in the tracking ID. Channels are managed centrally so tracking IDs and downstream analytics stay consistent — add a new one only if it genuinely does not exist.</div>
     </div>
   </div>
@@ -345,7 +347,7 @@ dl.gloss > div { scroll-margin-top: 5.5rem; }
       channel list, the cluster to the cluster list, and the pack ID to the pack record. It is also what makes a
       <a class="term" href="#g-cross-channel">cross-channel match</a> reliable, where matching on the campaign
       name is not.</p>
-      <div class="shot"><img src="/docs/img/tracking-id.png" alt="An activity drawer showing the tracking ID STA-0000000-260825-0000001-EMA beside a Complete badge, with the same ID pasted into the Activities search box narrowing the table to that one row."></div>
+      <div class="shot"><img src="/project/cplan/assets/tracking-id.png" alt="An activity drawer showing the tracking ID STA-0000000-260825-0000001-EMA beside a Complete badge, with the same ID pasted into the Activities search box narrowing the table to that one row."></div>
       <div class="cap">The tracking ID as shown on a saved activity, and the same ID pasted into the search box to find its row. Deleting an activity permanently removes its tracking ID as well.</div>
     </div>
   </div>
@@ -371,7 +373,7 @@ dl.gloss > div { scroll-margin-top: 5.5rem; }
         refresh and reconciliation state, including the last <a class="term" href="#g-sync-run">sync run</a>.
         A backlog only shrinks once intake stops adding to it.</li>
       </ul>
-      <div class="shot tall"><img src="/docs/img/health.png" alt="The full Health tab as one scrolling page: a Planning health section with completeness, short notice, median lead and excluded figures plus planning readiness, lead-time distribution, field coverage and a by-team table; a Coverage section with the weekly load forecast, forward coverage by horizon, coverage by dimension and the channel mix cross-tab; and a Data health section with intake quality, trust diagnostics and refresh and reconciliation."></div>
+      <div class="shot tall"><img src="/project/cplan/assets/health.png" alt="The full Health tab as one scrolling page: a Planning health section with completeness, short notice, median lead and excluded figures plus planning readiness, lead-time distribution, field coverage and a by-team table; a Coverage section with the weekly load forecast, forward coverage by horizon, coverage by dimension and the channel mix cross-tab; and a Data health section with intake quality, trust diagnostics and refresh and reconciliation."></div>
       <div class="cap">Health, top to bottom. Read the coverage view for what is missing, not for what is there — the zero rows are the point.</div>
     </div>
   </div>
@@ -408,7 +410,7 @@ dl.gloss > div { scroll-margin-top: 5.5rem; }
       <p>Finished workbooks are not fetched from the studio and are not emailed to you. They land in the project's
       reports directory and appear under <b>Reports &amp; downloads</b> on the project page — the tile beside the one
       that opened this manual.</p>
-      <div class="shot"><img src="/docs/img/export.png" alt="The Activities tab with the Export to Excel button beside New activity in the page header, above the filter bar and the results table it will write."></div>
+      <div class="shot"><img src="/project/cplan/assets/export.png" alt="The Activities tab with the Export to Excel button beside New activity in the page header, above the filter bar and the results table it will write."></div>
       <div class="cap">Export to Excel on the Activities tab. Two routes, two questions: the export answers "what am I looking at"; the calendar report answers "what does the year look like". Check the range before exporting — that is the commonest cause of a workbook that looks short.</div>
     </div>
   </div>
@@ -434,7 +436,7 @@ dl.gloss > div { scroll-margin-top: 5.5rem; }
       <p>The read-only <a class="term" href="#g-snapshot">snapshot</a> export of the studio works by the same rule:
       it runs as a viewer, and that single fact is what switches off every write affordance in it. It also carries the
       complete plan in cleartext, with no access control and no expiry — so treat the file itself as the access decision.</p>
-      <div class="shot"><img src="/docs/img/roles.png" alt="An activity drawer seen with a viewer role: the full activity detail with a Read only badge, and no Edit activity, Duplicate or Delete activity buttons."></div>
+      <div class="shot"><img src="/project/cplan/assets/roles.png" alt="An activity drawer seen with a viewer role: the full activity detail with a Read only badge, and no Edit activity, Duplicate or Delete activity buttons."></div>
       <div class="cap">The same activity seen with a viewer role. Everything is legible; the edit actions are simply absent.</div>
     </div>
   </div>
