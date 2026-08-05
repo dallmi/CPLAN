@@ -72,6 +72,56 @@ BEGIN
 END; $fn$;
 """
 
+# set_project_role and revoke_project_role both need to answer the same
+# question -- "does p_name hold this project's admin group, and if so, would
+# taking it away leave zero OTHER active admins?" -- over the identical
+# two-step EXISTS+count query, so it lives once here rather than as two
+# near-identical blocks that could quietly drift apart. Only the message each
+# caller raises differs, so the predicate stays a boolean and the RAISE
+# EXCEPTION stays at each call site rather than being parametrised into the
+# helper too.
+#
+# A plain (non-SECURITY DEFINER) function is enough: both callers are
+# themselves SECURITY DEFINER, so by the time either of them calls this, the
+# active role is already portal_owner, and portal_owner -- as this function's
+# owner -- may always execute it regardless of grants. It is deliberately
+# never listed in _FUNCTIONS below, so cplan_admin is never GRANTed EXECUTE
+# on it directly: it is an implementation detail shared between two API
+# functions, not part of the API surface itself.
+#
+# set_active's own last-admin guard is NOT built on this helper, despite
+# checking the same thing in spirit: it loops over every project a disabled
+# account might administer (disabling a login is account-wide, not
+# project-scoped, unlike a role change on one project) and it also carries
+# its own self-caller check that has no equivalent here. Sharing would have
+# meant reshaping set_active's cross-project loop around a single-project
+# predicate, touching a function this task has no reason to change.
+_LAST_ACTIVE_ADMIN_FN = """
+CREATE OR REPLACE FUNCTION portal._is_last_active_admin(p_name text, p_admin_group text)
+RETURNS boolean LANGUAGE plpgsql AS $fn$
+DECLARE v_other_active_admins int;
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_auth_members m
+    JOIN pg_roles g ON g.oid = m.roleid AND g.rolname = p_admin_group
+    JOIN pg_roles u ON u.oid = m.member AND u.rolname = p_name
+  ) THEN
+    RETURN false;
+  END IF;
+  SELECT count(*) INTO v_other_active_admins FROM pg_auth_members m
+  JOIN pg_roles g ON g.oid = m.roleid AND g.rolname = p_admin_group
+  JOIN pg_roles u ON u.oid = m.member
+  WHERE u.rolcanlogin AND u.rolname <> p_name;
+  RETURN v_other_active_admins = 0;
+END; $fn$;
+"""
+
+# Moving a project's last active admin to any non-admin role empties the
+# admin group exactly as surely as revoke_project_role would -- reachable
+# from the very next line of the same matrix popover -- so it is refused the
+# same way. Re-granting admin to the sole admin (p_role = 'admin') is
+# excluded from the guard: that leaves the admin group non-empty, so it must
+# stay the no-op it already is.
 _SET_ROLE_FN = f"""
 CREATE OR REPLACE FUNCTION portal.set_project_role(p_name text, p_project text, p_role text)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $fn$
@@ -90,6 +140,9 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = p_name) THEN
     RAISE EXCEPTION 'unknown user %%', p_name;
   END IF;
+  IF p_role <> 'admin' AND portal._is_last_active_admin(p_name, v_prefix || '_admin') THEN
+    RAISE EXCEPTION 'cannot demote %%: last active admin (%%)', p_name, v_prefix || '_admin';
+  END IF;
   FOREACH r IN ARRAY ARRAY['viewer','contributor','editor','admin'] LOOP
     EXECUTE format('REVOKE %%I FROM %%I', v_prefix || '_' || r, p_name);
   END LOOP;
@@ -104,17 +157,18 @@ END; $fn$;
 # shape set_active's disable guard exists to prevent: nobody would be left
 # who can grant access back through the portal for that project, and
 # recovery would need the setup_roles CLI on the host machine, so that case
-# is guarded the same way (mirroring set_active's rolcanlogin-scoped count).
+# is guarded the same way (mirroring set_active's rolcanlogin-scoped count,
+# via the shared portal._is_last_active_admin above).
 # Unlike set_active, this does NOT special-case the caller's own account:
 # set_project_role already lets an admin demote themselves away from
-# <prefix>_admin today with no such guard (it is revoke-then-grant, and this
-# task does not change it), and a self-revoke while another admin remains is
-# recoverable through that other admin -- it is the *last* admin leaving
-# that the portal cannot undo, not *which* admin does the revoking.
+# <prefix>_admin today with no such guard (it is revoke-then-grant), and a
+# self-revoke while another admin remains is recoverable through that other
+# admin -- it is the *last* admin leaving that the portal cannot undo, not
+# *which* admin does the revoking.
 _REVOKE_ROLE_FN = f"""
 CREATE OR REPLACE FUNCTION portal.revoke_project_role(p_name text, p_project text)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $fn$
-DECLARE v_prefix text; v_admin_group text; v_other_active_admins int; r text;
+DECLARE v_prefix text; r text;
 BEGIN
   IF p_name = ANY ({_RESERVED_SQL_ARRAY}) THEN
     RAISE EXCEPTION 'reserved role %%', p_name;
@@ -126,19 +180,8 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = p_name) THEN
     RAISE EXCEPTION 'unknown user %%', p_name;
   END IF;
-  v_admin_group := v_prefix || '_admin';
-  IF EXISTS (
-    SELECT 1 FROM pg_auth_members m
-    JOIN pg_roles g ON g.oid = m.roleid AND g.rolname = v_admin_group
-    JOIN pg_roles u ON u.oid = m.member AND u.rolname = p_name
-  ) THEN
-    SELECT count(*) INTO v_other_active_admins FROM pg_auth_members m
-    JOIN pg_roles g ON g.oid = m.roleid AND g.rolname = v_admin_group
-    JOIN pg_roles u ON u.oid = m.member
-    WHERE u.rolcanlogin AND u.rolname <> p_name;
-    IF v_other_active_admins = 0 THEN
-      RAISE EXCEPTION 'cannot revoke %%: last active admin (%%)', p_name, v_admin_group;
-    END IF;
+  IF portal._is_last_active_admin(p_name, v_prefix || '_admin') THEN
+    RAISE EXCEPTION 'cannot revoke %%: last active admin (%%)', p_name, v_prefix || '_admin';
   END IF;
   FOREACH r IN ARRAY ARRAY['viewer','contributor','editor','admin'] LOOP
     EXECUTE format('REVOKE %%I FROM %%I', v_prefix || '_' || r, p_name);
@@ -296,6 +339,16 @@ def apply_portal(engine: Engine) -> None:
         c.exec_driver_sql(_USERS_VIEW)
         c.exec_driver_sql("ALTER VIEW portal.users OWNER TO portal_owner")
         c.exec_driver_sql("GRANT SELECT ON portal.users TO cplan_admin")
+
+        # Created and owned before _FUNCTIONS below: set_project_role and
+        # revoke_project_role call it by name in their bodies, and plpgsql
+        # resolves that call (and so requires the function to already exist)
+        # when THEY are created, not only when they are later invoked. It is
+        # intentionally not part of _FUNCTIONS -- see the comment on
+        # _LAST_ACTIVE_ADMIN_FN -- so it gets no GRANT EXECUTE TO cplan_admin.
+        c.exec_driver_sql(_LAST_ACTIVE_ADMIN_FN)
+        c.exec_driver_sql("ALTER FUNCTION portal._is_last_active_admin(text, text) OWNER TO portal_owner")
+        c.exec_driver_sql("REVOKE ALL ON FUNCTION portal._is_last_active_admin(text, text) FROM PUBLIC")
 
         for legacy in _LEGACY_SIGNATURES:
             c.exec_driver_sql(f"DROP FUNCTION IF EXISTS {legacy}")

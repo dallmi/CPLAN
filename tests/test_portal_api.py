@@ -225,6 +225,19 @@ def test_revoke_last_active_admin_via_endpoint_is_422(portal):
     assert admin.get("/api/portal/users").status_code == 200
 
 
+def test_demote_last_active_admin_via_role_endpoint_is_422(portal):
+    # The matrix popover offers "No access" right below "Viewer"/"Contributor"/
+    # "Editor" -- POST /role must refuse the last-admin lockout exactly like
+    # POST /revoke does, since it reaches the identical end state (an
+    # adminless project) via the adjacent menu item.
+    admin = login(portal, "pa_admin")
+    resp = admin.post("/api/portal/users/pa_admin/role", json={"project": "cplan", "role": "viewer"})
+    assert resp.status_code == 422, resp.text
+    assert "last active admin" in resp.json()["detail"]["message"]
+    # Still admin afterward and still able to act through the portal.
+    assert admin.get("/api/portal/users").status_code == 200
+
+
 def test_revoke_leaves_other_project_access_and_the_account_intact(portal):
     admin = login(portal, "pa_admin")
     prefix = "revokeproj"

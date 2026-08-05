@@ -148,6 +148,58 @@ def test_set_role_password_and_active_functions(engine):
         assert c.execute(text("SELECT rolcanlogin FROM pg_roles WHERE rolname = 'mutable'")).scalar_one() is False
 
 
+@pytest.mark.parametrize("role", ["viewer", "contributor", "editor"])
+def test_set_role_refuses_to_demote_the_last_active_admin(engine, role):
+    # p_admin is the only active cplan admin in this fixture. Moving them to
+    # any role but admin empties the admin group exactly as
+    # revoke_project_role would -- reachable from the very next line of the
+    # same matrix popover -- so set_project_role must refuse it too.
+    admin = _as(engine, "p_admin")
+    try:
+        with pytest.raises(ProgrammingError) as exc:
+            admin.exec_driver_sql(f"SELECT portal.set_project_role('p_admin', 'cplan', '{role}')")
+        assert exc.value.orig.sqlstate == "P0001"
+        assert "last active admin" in str(exc.value.orig)
+        admin.rollback()
+    finally:
+        admin.exec_driver_sql("RESET ROLE"); admin.commit(); admin.close()
+    with engine.connect() as c:
+        assert c.execute(text("SELECT pg_has_role('p_admin', 'cplan_admin', 'member')")).scalar_one() is True
+
+
+def test_set_role_allows_re_granting_admin_to_the_sole_admin(engine):
+    # p_role = 'admin' must stay the no-op it already is: granting admin to
+    # someone who already holds it never empties the admin group, so the
+    # guard must not fire here even though p_admin is the sole active admin.
+    admin = _as(engine, "p_admin")
+    try:
+        admin.exec_driver_sql("SELECT portal.set_project_role('p_admin', 'cplan', 'admin')"); admin.commit()
+    finally:
+        admin.rollback(); admin.exec_driver_sql("RESET ROLE"); admin.commit(); admin.close()
+    with engine.connect() as c:
+        assert c.execute(text("SELECT pg_has_role('p_admin', 'cplan_admin', 'member')")).scalar_one() is True
+
+
+def test_set_role_allows_demoting_a_non_last_admin(engine):
+    # A second ACTIVE admin exists here ('extra_admin'), so demoting it must
+    # still work -- p_admin remains, and this is not the lockout case.
+    admin = _as(engine, "p_admin")
+    try:
+        admin.exec_driver_sql("SELECT portal.create_user('extra_admin', 'pw-extra', 'cplan', 'admin')"); admin.commit()
+        admin.exec_driver_sql("SELECT portal.set_project_role('extra_admin', 'cplan', 'viewer')"); admin.commit()
+    finally:
+        admin.rollback(); admin.exec_driver_sql("RESET ROLE"); admin.commit(); admin.close()
+    with engine.connect() as c:
+        direct = c.execute(
+            text(
+                "SELECT r.rolname FROM pg_auth_members m "
+                "JOIN pg_roles r ON r.oid = m.roleid "
+                "JOIN pg_roles u ON u.oid = m.member WHERE u.rolname = 'extra_admin' AND r.rolname LIKE 'cplan\\_%'"
+            )
+        ).scalars().all()
+        assert direct == ["cplan_viewer"]
+
+
 def test_revoke_role_rejects_unknown_project_and_reserved_name(engine):
     admin = _as(engine, "p_admin")
     try:
