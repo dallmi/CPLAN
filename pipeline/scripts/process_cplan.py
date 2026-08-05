@@ -407,21 +407,39 @@ def parse_sp_person_email(val):
 
 
 def parse_sp_person_emails(val, separator=PERSON_JOIN):
-    """One email slot per person, aligned with the display names.
+    """One email slot per person, aligned with the display names that
+    `parse_sp_lookup` produces for the same field.
 
-    `parse_sp_lookup` renders an array of person objects as their DisplayNames
-    joined with the same separator, in list order. This walks the same list and
-    emits an address per element, empty where none is known, so position N here
-    is position N there.
+    `parse_sp_lookup`'s list branch drops any element whose display name comes
+    back empty -- a person object with no DisplayName/Value/Label, or a bare
+    string that turns out blank -- before joining the rest. Walking the list
+    independently and emitting one slot per *element* would not track that: an
+    element `parse_sp_lookup` drops leaves this one slot ahead, and the next
+    person's address lands under the previous person's name.
+
+    So this mirrors `parse_sp_lookup`'s element handling exactly -- same dict
+    and bare-string branches -- pairing each element's display name with the
+    email pulled from that same element, and only keeps the pairs whose name
+    survived. Position N here is position N in `parse_sp_lookup`'s output
+    because both apply the same filter to the same elements, not because both
+    walk the same list length.
 
     Returns "" for a plain-text column: a rich-text source field is a real
-    shape, and the caller falls back to matching on the name.
+    shape, and the caller falls back to matching on the name. Also returns ""
+    when no surviving element carried an address, so "no emails at all" is one
+    case rather than a string of empty separators.
     """
     parsed = _parse_person_json(val)
     if isinstance(parsed, dict):
         return _claims_email(parsed)
     if isinstance(parsed, list):
-        emails = [_claims_email(item) for item in parsed]
+        pairs = []
+        for item in parsed:
+            if isinstance(item, dict):
+                pairs.append((_extract_sp_value(item), _claims_email(item)))
+            elif isinstance(item, str) and item.strip():
+                pairs.append((item.strip(), ""))
+        emails = [email for name, email in pairs if name]
         return "" if not any(emails) else separator.join(emails)
     return ""
 

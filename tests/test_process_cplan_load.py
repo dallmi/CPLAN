@@ -319,3 +319,92 @@ def test_the_leadership_column_gains_an_email_column():
 
     assert row["bod_geb"] == "A, One"
     assert row["bod_geb_email"] == "a@example.invalid"
+
+
+def test_an_empty_display_name_does_not_shift_the_remaining_emails():
+    """parse_sp_lookup drops any element whose display name comes back empty
+    before joining. If parse_sp_person_emails emitted one slot per *element*
+    regardless, the two would disagree in count -- and zipping them
+    positionally would hand this person's address to the next person's name.
+    """
+    from pipeline.scripts.process_cplan import parse_sp_lookup, parse_sp_person_emails
+
+    raw = (
+        '[{"DisplayName": "", "Claims": "i:0#.f|membership|a@example.invalid"},'
+        ' {"DisplayName": "B, Two", "Claims": "i:0#.f|membership|b@example.invalid"}]'
+    )
+
+    names = parse_sp_lookup(raw, "; ")
+    emails = parse_sp_person_emails(raw)
+
+    # The relationship that matters: same number of slots either side.
+    assert len(names.split("; ")) == len(emails.split("; "))
+    assert names == "B, Two"
+    assert emails == "b@example.invalid"
+
+
+def test_a_bare_string_among_person_objects_does_not_shift_the_remaining_emails():
+    """`parse_sp_lookup`'s list branch also accepts bare strings (taxonomy
+    arrays can contain them). parse_sp_person_emails must walk the same
+    branches, or a bare string throws off the count the same way an empty
+    display name does.
+    """
+    from pipeline.scripts.process_cplan import parse_sp_lookup, parse_sp_person_emails
+
+    raw = (
+        '["Just, Text",'
+        ' {"DisplayName": "B, Two", "Claims": "i:0#.f|membership|b@example.invalid"}]'
+    )
+
+    names = parse_sp_lookup(raw, "; ")
+    emails = parse_sp_person_emails(raw)
+
+    assert len(names.split("; ")) == len(emails.split("; "))
+    assert names == "Just, Text; B, Two"
+    assert emails == "; b@example.invalid"
+
+
+def test_a_blank_email_field_falls_back_to_claims():
+    """Old behaviour tested `"Email" in parsed` and returned the value
+    verbatim, so a blank or null Email produced "" rather than falling back
+    to Claims. `_claims_email` tests truthiness instead, so it now falls
+    through -- a deliberate change, pinned here so it stays one.
+    """
+    from pipeline.scripts.process_cplan import parse_sp_person_email
+
+    raw = (
+        '{"Email": "", "Claims": "i:0#.f|membership|a@example.invalid",'
+        ' "DisplayName": "A, One"}'
+    )
+
+    assert parse_sp_person_email(raw) == "a@example.invalid"
+
+
+# --- parse_sp_person_email (singular): direct coverage -----------------------
+# Nothing called this directly before -- which is how its Email-truthiness
+# change above shipped unnoticed.
+
+def test_parse_sp_person_email_extracts_from_a_single_object():
+    from pipeline.scripts.process_cplan import parse_sp_person_email
+
+    raw = '{"Claims": "i:0#.f|membership|a@example.invalid", "DisplayName": "A, One"}'
+
+    assert parse_sp_person_email(raw) == "a@example.invalid"
+
+
+def test_parse_sp_person_email_returns_empty_for_non_json_text():
+    from pipeline.scripts.process_cplan import parse_sp_person_email
+
+    assert parse_sp_person_email("Example, Ada") == ""
+    assert parse_sp_person_email("") == ""
+
+
+def test_parse_sp_person_email_ignores_an_array():
+    """Single-person fields only. It must not silently start handling
+    arrays -- that is `parse_sp_person_emails`' job.
+    """
+    from pipeline.scripts.process_cplan import parse_sp_person_email
+
+    raw = '[{"Claims": "i:0#.f|membership|a@example.invalid", "DisplayName": "A, One"}]'
+
+    assert parse_sp_person_email(raw) == ""
