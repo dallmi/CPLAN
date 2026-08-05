@@ -145,6 +145,18 @@ class PortalFrontendTests(unittest.TestCase):
         for cls in (".status", ".status-dot", ".toast", ".popover", ".drawer-panel"):
             self.assertIn(cls, css)
 
+    def test_tile_primary_has_its_own_declaration_and_a_red_accent(self):
+        # The comment above .tile.no-access mentions "a red fill" in passing;
+        # a naive substring check on ".tile-primary" could pass on a comment
+        # alone. declarations_only() blanks comments first, so this only
+        # passes if a real rule targets .tile-primary and marks it with the
+        # corporate red -- not a background fill or tint, per the design
+        # system, so this checks for the token, not for "background".
+        css = declarations_only((STATIC / "styles.css").read_text(encoding="utf-8"))
+        match = re.search(r"\.tile-primary\b[^{]*\{([^}]*)\}", css)
+        self.assertIsNotNone(match, ".tile-primary must have a declaration of its own, not just a mention in a comment")
+        self.assertIn("var(--primary)", match.group(1))
+
     def test_project_page_classes_ported_from_the_old_stylesheet_exist(self):
         # These classes are not in the brief's interface list -- the project
         # page (project.html / project.js) landed after the brief was written

@@ -97,11 +97,17 @@ input:focus, select:focus { outline: 2px solid var(--info); outline-offset: -1px
    gaps — otherwise a part-filled last row leaves a bare Pastel I rectangle. */
 .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); border-top: 1px solid var(--surface); border-left: 1px solid var(--surface); }
 .tile {
-  display: flex; flex-direction: column; gap: 0; min-height: 168px; padding: 22px 24px;
+  display: flex; flex-direction: column; gap: 0; padding: 22px 24px;
   background: var(--white); text-decoration: none; color: var(--black); text-align: left;
   border: 0; border-right: 1px solid var(--surface); border-bottom: 1px solid var(--surface);
   position: relative;
 }
+/* Only a tile that carries a purpose paragraph (the home tile) gets the fixed
+   card height: the paragraph's flex: 1 needs a height to grow into, and a row
+   of these should line up. A tile with just a name and a status line (the
+   project page) has no such paragraph, so it sizes to its own content instead
+   of inheriting ~110px of dead space meant for someone else's layout. */
+.tile:has(.tile-purpose) { min-height: 168px; }
 .tile:hover { background: var(--row-alt); }
 .tile:hover .tile-open { color: var(--black); }
 .tile-name { font-size: 18px; font-weight: 600; line-height: 1.25; }
@@ -345,9 +351,13 @@ table.matrix td.cell-role { text-align: center; padding: 6px; }
    The tile grid and .tile-name/.tile-purpose/.tile-foot already carry the
    seam-grid idiom (§ Project tiles above); these extend it. */
 .tile-status { font-size: 12px; color: var(--grey-4); margin-top: 8px; }
-/* The one tile that opens the application: it earns prominence from size and
-   being first in the grid, not from a red fill or any other decoration. */
-.tile.tile-primary { grid-column: 1 / -1; }
+/* The one tile that opens the application: it earns most of its prominence
+   from size and being first in the grid, plus one deliberate mark -- a
+   left accent bar in the corporate red, the same idiom already used for
+   .notice and .log-entry.grant/.revoke/.account, not a red fill, tint,
+   shadow or rounded corner. It is the only red on the project page besides
+   the brand mark in the topbar. */
+.tile.tile-primary { grid-column: 1 / -1; border-left: 3px solid var(--primary); padding-left: 21px; }
 
 /* ---------- Prose (rendered manual / document body) ----------
    Plain readable paragraphs, left-aligned, no card around them. */
