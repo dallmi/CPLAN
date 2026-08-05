@@ -28,9 +28,26 @@ $manifest = @(
     @{ Path = "pipeline\api\session.py";       Marker = "build_session_dependencies";        Why = "shared SET ROLE session module" },
     @{ Path = "pipeline\api\setup_portal.py";  Marker = "not accounts";                      Why = "disable guards + user list hides group roles" },
     @{ Path = "pipeline\portal\app.py";        Marker = "Refusing to start";                 Why = "portal fails closed without auth" },
-    @{ Path = "pipeline\portal\static\app.js"; Marker = 'target="_blank"';                    Why = "tiles open in a new tab; server messages on row actions" },
-    @{ Path = "pipeline\portal\static\index.html"; Marker = 'rel="icon"';                     Why = "portal landing page incl. favicon" },
-    @{ Path = "pipeline\portal\static\styles.css"; Marker = "kit-pass";                      Why = "portal styling incl. sentence-case table headers" },
+    # The portal frontend, complete. The redesign split one app.js into nine ES
+    # modules that import each other, so a hand-copy that misses any one of them
+    # leaves a portal that loads and then fails on a module it cannot resolve.
+    # This block previously named `static\app.js`, which no longer exists, and
+    # gave the stylesheet a marker that lives in the *studio* stylesheet -- two
+    # entries crying wolf, which is how an operator learns to ignore red.
+    @{ Path = "pipeline\portal\static\index.html"; Marker = 'src="js/app.js"';                Why = "portal landing page; also proves the page points at the split module, not the old single file" },
+    @{ Path = "pipeline\portal\static\styles.css"; Marker = ".drawer-identity";               Why = "portal styling incl. the person drawer and the access matrix" },
+    @{ Path = "pipeline\portal\static\js\app.js"; Marker = "wireInvite";                      Why = "portal entry module -- imports the eight below, so a missing one breaks the page at load" },
+    @{ Path = "pipeline\portal\static\js\api.js"; Marker = "revokeRole";                      Why = "portal server calls" },
+    @{ Path = "pipeline\portal\static\js\state.js"; Marker = "accountsFromRows";              Why = "portal client state, role ranking and sign-in formatting" },
+    @{ Path = "pipeline\portal\static\js\ui.js"; Marker = "generatePassword";                 Why = "portal shared rendering, toasts, layer stack and the initial-password generator" },
+    @{ Path = "pipeline\portal\static\js\home.js"; Marker = "renderHome";                     Why = "portal project tiles" },
+    @{ Path = "pipeline\portal\static\js\users.js"; Marker = "wireUsers";                     Why = "portal users table incl. search, filters and sorting" },
+    @{ Path = "pipeline\portal\static\js\matrix.js"; Marker = "wireMatrix";                   Why = "portal user x project access matrix" },
+    @{ Path = "pipeline\portal\static\js\drawer.js"; Marker = "wireDrawer";                   Why = "portal person drawer incl. the confirmed destructive actions" },
+    @{ Path = "pipeline\portal\static\js\invite.js"; Marker = "wireInvite";                   Why = "portal invite flow" },
+    @{ Path = "pipeline\portal\static\js\password-words.js"; Marker = "PASSWORD_WORDS";       Why = "word list behind the initial-password generator -- without it ui.js fails to resolve its import" },
+    @{ Path = "pipeline\portal\static\project.html"; Marker = 'src="/project.js"';            Why = "portal project page" },
+    @{ Path = "pipeline\portal\static\project.js"; Marker = "project";                        Why = "portal project page behaviour" },
     @{ Path = "pipeline\studio\app.js";        Marker = "bod_geb:'GEB/GEB-1'";           Why = "four-tab studio, pack drawer, Excel exports, the read-only snapshot switch, and the GEB/GEB-1 relabel" },
     @{ Path = "pipeline\studio\styles.css";    Marker = "channel-chip";                  Why = "channel colour, packs table, pack drawer, five-tile row" },
     @{ Path = "pipeline\studio\index.html";    Marker = "<label>GEB/GEB-1<input";        Why = "four-tab nav, view switcher, pack drawer, both Excel exports, snapshot script tag, and the GEB/GEB-1 relabel" },
@@ -42,7 +59,24 @@ $manifest = @(
     @{ Path = "pipeline\studio\analytics.js";  Marker = "Deliberately NOT tracking_pack_id";                        Why = "missing campaign/pack no longer pinned to zero" },
     @{ Path = "pipeline\scripts\cplan_db.py";  Marker = "def stop";                          Why = "clean database stop" },
     @{ Path = "pipeline\scripts\start_portal.py"; Marker = "DEFAULT_PORT";                   Why = "portal launcher" },
+    # The calendar report, complete. Every module report_calendar.py reaches at
+    # import time is listed: a hand-copy that misses any one of them turns every
+    # report run into ModuleNotFoundError, and a manifest that covered only some
+    # of them would report the rest "OK" and send the operator looking elsewhere.
+    # Derived from the import closure of report_calendar.py, not from memory.
+    @{ Path = "report.ps1";                    Marker = "GebMembers";                        Why = "report launcher incl. the GEB member list flag" },
+    @{ Path = "pipeline\scripts\report_calendar.py"; Marker = "--geb-members";               Why = "the report entry point; loads the GEB member list and swaps the split breakdown fields in" },
+    @{ Path = "pipeline\scripts\process_cplan.py"; Marker = "parse_sp_person_emails";        Why = "the ETL every sheet is built from -- the plural parser keeps one email slot per person, which the singular one cannot do for a multi-person column" },
     @{ Path = "pipeline\report\membership.py"; Marker = "DEFAULT_FILENAME";                  Why = "GEB membership loader -- report_calendar.py imports it at module scope, so a missing copy turns every report run into ModuleNotFoundError" },
+    @{ Path = "pipeline\report\config.py";     Marker = "EXECUTIVES_SPLIT";                  Why = "report criteria, audience bands, the reader-facing field titles, and the split column pair every other module reads" },
+    @{ Path = "pipeline\report\data.py";       Marker = "_people_with_emails";               Why = "scope building and the GEB/GEB-1 split -- pairs each person with their own email, or drops all of them when the counts disagree" },
+    @{ Path = "pipeline\report\derive.py";     Marker = "def split_people_aligned";          Why = "per-row derivations; the aligned splitter keeps empty email slots so person N keeps their own address" },
+    @{ Path = "pipeline\report\calendar_sheet.py"; Marker = "SPLIT_FIELDS";                  Why = "the calendar sheet incl. the GEB and GEB-1 blocks and their header counts" },
+    @{ Path = "pipeline\report\table_sheets.py"; Marker = "GEB_SPLIT_TERMS";                 Why = "summary, data quality, audience, mix, activities and glossary sheets" },
+    @{ Path = "pipeline\report\grid.py";       Marker = "def build_grid";                    Why = "the calendar's week/month/quarter axis" },
+    @{ Path = "pipeline\report\metrics.py";    Marker = "REPORTED_FIELDS";                   Why = "load, lead time, pack and completeness figures" },
+    @{ Path = "pipeline\report\regions.py";    Marker = "GROUP_UNMAPPED";                    Why = "region grouping and the unmapped-value report" },
+    @{ Path = "pipeline\report\style.py";      Marker = "NUM_FMT_PCT";                       Why = "every colour, number format and sheet-finishing helper the workbook is built from" },
     @{ Path = "setup.ps1";                     Marker = "pipeline.api.ensure_db";            Why = "config-driven one-time setup incl. the schema step before setup_roles" },
     @{ Path = "start.ps1";                     Marker = "Start-CplanServer";                 Why = "server windows stay open on a crash, so the traceback is readable" },
     @{ Path = "stop.ps1";                      Marker = "Stop-CplanServerOnPort";            Why = "clean shutdown launcher - without it the servers keep their ports and the next start dies with winerror 10048" },

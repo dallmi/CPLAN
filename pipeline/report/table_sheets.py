@@ -431,6 +431,13 @@ GLOSSARY_SECTIONS = (
                     "theirs; a region-only value has none."),
         ("Overlap", "An activity naming two divisions counts in both, so those blocks "
                     "add up to more than the total."),
+        # The calendar and the people lists answer different questions about the
+        # same field, and their totals therefore differ: the calendar groups the
+        # whole portfolio, so an activity naming nobody needs a bucket, while a
+        # roster of people has no row for "nobody". Both are right; a reader
+        # comparing the two headings without this line sees a contradiction.
+        ("Not specified", "Activities with no value in that field. The calendar gives "
+                          "them a row; the people lists leave them out."),
     )),
     ("MEASURES", (
         ("Audience band", "The size band of the target audience."),
