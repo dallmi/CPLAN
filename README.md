@@ -95,6 +95,14 @@ change the period, the senior-executive criterion and the audience-size
 criterion. The design is documented in
 [`docs/superpowers/specs/2026-07-30-calendar-report-design.md`](docs/superpowers/specs/2026-07-30-calendar-report-design.md).
 
+The combined leadership field can be split into GEB and GEB-1 with
+`--geb-members path/to/list.csv` (or `report.ps1 -GebMembers ...`). The file
+names each GEB member by email and/or display name; `geb-members.csv` beside
+the repository root is the default when the flag is omitted, and it is
+gitignored because it names real people. `geb-members.csv.example` is the
+committed template — copy it and fill in the real list. Without the file, or
+without the flag, the two levels stay combined exactly as before.
+
 ## Daily workflow
 
 For the database-backed planning studio, `pipeline/scripts/daily_refresh.py` runs the whole daily refresh as one command: the CSV pipeline above, then the database sync (`pipeline/api/sync_snapshot.py`) that mirrors the result into the CPLAN database.

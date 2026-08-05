@@ -305,3 +305,78 @@ def test_a_bounded_run_never_warns_however_wide_it_is(tmp_path, capsys):
                           "--out", str(tmp_path / "r.xlsx")])
 
     assert "WARNING" not in capsys.readouterr().out
+
+
+# --- the GEB membership list on the command line ----------------------------
+
+GEB_EXAMPLE = 'email,name\n,"Example, Ada"\n'
+
+
+def test_without_a_list_the_workbook_is_unchanged(tmp_path):
+    """The regression that matters most. Every machine without the file must
+    get byte-comparable sheet names and the combined block titles.
+    """
+    write_activity_csvs(tmp_path / "input")
+    out = tmp_path / "report.xlsx"
+
+    report_calendar.main(["--input-dir", str(tmp_path / "input"),
+                          "--all", "--out", str(out)])
+    wb = load_workbook(out)
+
+    assert wb.sheetnames == EXPECTED_SHEETS
+    labels = [wb["Calendar"].cell(row=r, column=1).value
+              for r in range(1, wb["Calendar"].max_row + 1)]
+    assert "BY GEB/GEB-1 — multiple values possible" in labels
+    assert "BY GEB — multiple values possible" not in labels
+
+
+def test_a_list_splits_the_calendar_end_to_end(tmp_path):
+    write_activity_csvs(tmp_path / "input")
+    members = tmp_path / "geb-members.csv"
+    members.write_text(GEB_EXAMPLE, encoding="utf-8")
+    out = tmp_path / "report.xlsx"
+
+    code = report_calendar.main([
+        "--input-dir", str(tmp_path / "input"), "--all",
+        "--geb-members", str(members), "--out", str(out)])
+
+    assert code == 0
+    wb = load_workbook(out)
+    assert wb.sheetnames == EXPECTED_SHEETS  # no new sheet, only new blocks
+    labels = [wb["Calendar"].cell(row=r, column=1).value
+              for r in range(1, wb["Calendar"].max_row + 1)]
+    assert "BY GEB — multiple values possible" in labels
+    assert "BY GEB-1 — multiple values possible" in labels
+    assert "BY GEB/GEB-1 — multiple values possible" not in labels
+
+
+def test_a_broken_list_aborts_with_a_message(tmp_path, capsys):
+    """Aborting beats falling back: a fallback produces a workbook that looks
+    correct and is wrong.
+    """
+    write_activity_csvs(tmp_path / "input")
+    members = tmp_path / "geb-members.csv"
+    members.write_text("email\nonly@example.invalid\n", encoding="utf-8")
+    out = tmp_path / "report.xlsx"
+
+    code = report_calendar.main([
+        "--input-dir", str(tmp_path / "input"), "--all",
+        "--geb-members", str(members), "--out", str(out)])
+
+    assert code == 1
+    assert not out.exists()
+    assert "name" in capsys.readouterr().out
+
+
+def test_a_named_list_that_does_not_exist_aborts(tmp_path):
+    """An absent default file is normal; an absent *named* file is a typo on
+    the command line and must not silently produce the unsplit workbook.
+    """
+    write_activity_csvs(tmp_path / "input")
+    out = tmp_path / "report.xlsx"
+
+    code = report_calendar.main([
+        "--input-dir", str(tmp_path / "input"), "--all",
+        "--geb-members", str(tmp_path / "nope.csv"), "--out", str(out)])
+
+    assert code == 1

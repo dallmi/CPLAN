@@ -31,6 +31,7 @@ if str(REPO_DIR) not in sys.path:
 from pipeline.report.calendar_sheet import build_calendar          # noqa: E402
 from pipeline.report.config import EXECUTIVES_SPLIT, ReportConfig   # noqa: E402
 from pipeline.report.data import build_scope                       # noqa: E402
+from pipeline.report import membership                             # noqa: E402
 from pipeline.report.table_sheets import (                         # noqa: E402
     build_activities,
     build_audience,
@@ -142,6 +143,12 @@ def build_parser():
                         help="Output path (default: pipeline/output/reports/CPLAN_calendar_<period>_<date>.xlsx)")
     parser.add_argument("--input-dir", type=str, default=None,
                         help="Read the CSV exports from here instead of discovering OneDrive")
+    parser.add_argument(
+        "--geb-members", type=str, default=None,
+        help=("CSV naming the GEB members, so the report can split the "
+              "leadership field into GEB and GEB-1. Defaults to "
+              f"{membership.DEFAULT_FILENAME} beside this repository; without "
+              "it the two levels stay combined."))
     return parser
 
 
@@ -190,7 +197,21 @@ def main(argv=None):
         log("ERROR: the input files contain no activities")
         return 1
 
-    members = None  # Task 7 deletes this line and loads the real list instead
+    # An absent default file is the normal state and stays silent. An absent
+    # *named* file is a typo on the command line, and producing the unsplit
+    # workbook anyway would answer a question nobody asked.
+    members_path = Path(args.geb_members) if args.geb_members else (
+        REPO_DIR / membership.DEFAULT_FILENAME)
+    if args.geb_members and not members_path.exists():
+        log(f"ERROR: no GEB member list at {members_path}")
+        return 1
+    try:
+        members = membership.load_membership(members_path)
+    except membership.MembershipError as error:
+        log(f"ERROR: {error}")
+        return 1
+    if members is not None:
+        log(f"GEB list: {len(members)} members from {members_path.name}")
 
     # The split columns replace the combined one, never join it: a GEB block
     # beside a GEB/GEB-1 block would print the same person with the same count
@@ -209,6 +230,9 @@ def main(argv=None):
     for reason, count in scope.excluded.items():
         if count:
             log(f"  excluded ({reason}): {count}")
+    if scope.membership is not None and scope.unmatched_members:
+        log(f"  WARNING: {scope.unmatched_members} of {len(scope.membership)} "
+            f"GEB list entries matched nothing in scope")
     if scope.grid.weeks:
         first, last = scope.grid.weeks[0], scope.grid.weeks[-1]
         weeks = len(scope.grid.weeks)

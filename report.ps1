@@ -14,6 +14,7 @@ Usage (from the repo root, or just double-click report.cmd):
   .\report.ps1 -NoOpen                # write it, leave it closed
   .\report.ps1 -Out C:\tmp\plan.xlsx  # somewhere else
   .\report.ps1 -InputDir C:\tmp\csv   # read from here instead of OneDrive
+  .\report.ps1 -GebMembers C:\tmp\geb-members.csv  # split GEB / GEB-1
 
 The period is the one criterion with a switch here, because it is the one that
 changes from run to run. The rest - senior-executive involvement, audience
@@ -29,7 +30,8 @@ param(
     [string]$To,
     [switch]$NoOpen,
     [string]$Out,
-    [string]$InputDir
+    [string]$InputDir,
+    [string]$GebMembers
 )
 
 $ErrorActionPreference = "Stop"
@@ -70,6 +72,7 @@ try {
     if ($To) { $args += @("--to", $To) }
     if ($Out) { $args += @("--out", $Out) }
     if ($InputDir) { $args += @("--input-dir", $InputDir) }
+    if ($GebMembers) { $args += @("--geb-members", $GebMembers) }
 
     Write-Host "== CPLAN calendar report: CSV -> .xlsx ==" -ForegroundColor Cyan
     & $python @args
