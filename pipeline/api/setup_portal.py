@@ -49,7 +49,7 @@ _RESERVED_SQL_ARRAY = "ARRAY[" + ",".join(f"'{name}'" for name in sorted(PORTAL_
 
 _CREATE_USER_FN = f"""
 CREATE OR REPLACE FUNCTION portal.create_user(p_name text, p_password text, p_project text, p_role text)
-RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $fn$
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $fn$
 DECLARE v_prefix text; v_group text;
 BEGIN
   IF p_role NOT IN ('viewer','contributor','editor','admin') THEN
@@ -98,7 +98,7 @@ END; $fn$;
 # predicate, touching a function this task has no reason to change.
 _LAST_ACTIVE_ADMIN_FN = """
 CREATE OR REPLACE FUNCTION portal._is_last_active_admin(p_name text, p_admin_group text)
-RETURNS boolean LANGUAGE plpgsql AS $fn$
+RETURNS boolean LANGUAGE plpgsql SET search_path = pg_catalog, public, pg_temp AS $fn$
 DECLARE v_other_active_admins int;
 BEGIN
   IF NOT EXISTS (
@@ -124,7 +124,7 @@ END; $fn$;
 # stay the no-op it already is.
 _SET_ROLE_FN = f"""
 CREATE OR REPLACE FUNCTION portal.set_project_role(p_name text, p_project text, p_role text)
-RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $fn$
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $fn$
 DECLARE v_prefix text; r text;
 BEGIN
   IF p_role NOT IN ('viewer','contributor','editor','admin') THEN
@@ -140,6 +140,12 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = p_name) THEN
     RAISE EXCEPTION 'unknown user %%', p_name;
   END IF;
+  -- Serialise with every other function that can mutate this project's admin
+  -- group (revoke_project_role, set_active) on the same key, so two concurrent
+  -- "is there another admin left" reads under READ COMMITTED can never both
+  -- see the pre-mutation count and both proceed. Held for the rest of the
+  -- transaction (xact-scoped), released automatically at COMMIT/ROLLBACK.
+  PERFORM pg_advisory_xact_lock(hashtext(v_prefix || '_admin'));
   IF p_role <> 'admin' AND portal._is_last_active_admin(p_name, v_prefix || '_admin') THEN
     RAISE EXCEPTION 'cannot demote %%: last active admin (%%)', p_name, v_prefix || '_admin';
   END IF;
@@ -167,7 +173,7 @@ END; $fn$;
 # *which* admin does the revoking.
 _REVOKE_ROLE_FN = f"""
 CREATE OR REPLACE FUNCTION portal.revoke_project_role(p_name text, p_project text)
-RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $fn$
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $fn$
 DECLARE v_prefix text; r text;
 BEGIN
   IF p_name = ANY ({_RESERVED_SQL_ARRAY}) THEN
@@ -180,6 +186,10 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = p_name) THEN
     RAISE EXCEPTION 'unknown user %%', p_name;
   END IF;
+  -- Same lock key as set_project_role/set_active (hashtext of this project's
+  -- admin group name), so the three functions that can empty this project's
+  -- admin group can never both race past their last-admin check.
+  PERFORM pg_advisory_xact_lock(hashtext(v_prefix || '_admin'));
   IF portal._is_last_active_admin(p_name, v_prefix || '_admin') THEN
     RAISE EXCEPTION 'cannot revoke %%: last active admin (%%)', p_name, v_prefix || '_admin';
   END IF;
@@ -191,7 +201,7 @@ END; $fn$;
 
 _RESET_PW_FN = f"""
 CREATE OR REPLACE FUNCTION portal.reset_password(p_name text, p_password text)
-RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $fn$
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $fn$
 BEGIN
   IF p_name = ANY ({_RESERVED_SQL_ARRAY}) THEN
     RAISE EXCEPTION 'reserved role %%', p_name;
@@ -216,7 +226,7 @@ END; $fn$;
 #     setup_roles CLI on the host machine).
 _SET_ACTIVE_FN = f"""
 CREATE OR REPLACE FUNCTION portal.set_active(p_name text, p_active boolean, p_caller text DEFAULT current_user)
-RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $fn$
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $fn$
 DECLARE v_admin_group text; v_other_active_admins int;
 BEGIN
   IF p_name = ANY ({_RESERVED_SQL_ARRAY}) THEN
@@ -230,6 +240,11 @@ BEGIN
       RAISE EXCEPTION 'you cannot disable your own account (%%)', p_name;
     END IF;
     FOR v_admin_group IN SELECT role_prefix || '_admin' FROM portal.projects LOOP
+      -- Same lock key as set_project_role/revoke_project_role for this
+      -- project's admin group, taken before the membership/count check so
+      -- disabling races with a concurrent demotion/revocation on the same
+      -- project instead of both reading a stale "one other admin remains".
+      PERFORM pg_advisory_xact_lock(hashtext(v_admin_group));
       IF EXISTS (
         SELECT 1 FROM pg_auth_members m
         JOIN pg_roles g ON g.oid = m.roleid AND g.rolname = v_admin_group
@@ -290,7 +305,7 @@ WHERE u.rolname NOT IN ('cplan_authenticator', 'portal_owner')
 # called by the service identity on the login path, before any SET ROLE happens.
 _SET_DISPLAY_NAME_FN = f"""
 CREATE OR REPLACE FUNCTION portal.set_display_name(p_name text, p_display text)
-RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $fn$
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $fn$
 BEGIN
   IF p_name = ANY ({_RESERVED_SQL_ARRAY}) THEN
     RAISE EXCEPTION 'reserved role %%', p_name;
@@ -303,10 +318,16 @@ BEGIN
 END; $fn$;
 """
 
-_RECORD_SIGN_IN_FN = """
+_RECORD_SIGN_IN_FN = f"""
 CREATE OR REPLACE FUNCTION portal.record_sign_in(p_name text)
-RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $fn$
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $fn$
 BEGIN
+  IF p_name = ANY ({_RESERVED_SQL_ARRAY}) THEN
+    RAISE EXCEPTION 'reserved role %%', p_name;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = p_name) THEN
+    RAISE EXCEPTION 'unknown user %%', p_name;
+  END IF;
   INSERT INTO portal.user_profile (username, last_sign_in) VALUES (p_name, now())
   ON CONFLICT (username) DO UPDATE SET last_sign_in = now();
 END; $fn$;
@@ -319,7 +340,6 @@ _FUNCTIONS = (
     ("portal.reset_password(text, text)", _RESET_PW_FN),
     ("portal.set_active(text, boolean, text)", _SET_ACTIVE_FN),
     ("portal.set_display_name(text, text)", _SET_DISPLAY_NAME_FN),
-    ("portal.record_sign_in(text)", _RECORD_SIGN_IN_FN),
 )
 
 # Superseded signatures that must be dropped before (re)creating the functions:
@@ -363,7 +383,16 @@ def apply_portal(engine: Engine) -> None:
             "username text PRIMARY KEY, display_name text, last_sign_in timestamptz)"
         )
         c.exec_driver_sql("ALTER TABLE portal.user_profile OWNER TO portal_owner")
-        c.exec_driver_sql("GRANT SELECT ON portal.user_profile TO PUBLIC")
+        # Nothing reads this table directly: portal.users (SELECT granted to
+        # cplan_admin alone, below) joins it, and the SECURITY DEFINER
+        # functions read/write it under their own owner privileges. A PUBLIC
+        # grant here would let any cluster login role -- including a mere
+        # cplan_viewer with psql -- read the full account roster and every
+        # last-sign-in time, undoing portal.users' admin-only intent. The
+        # explicit REVOKE (not just omitting the GRANT) is load-bearing: it
+        # corrects installations that already ran the old GRANT on a prior
+        # `apply_portal`, not only fresh ones.
+        c.exec_driver_sql("REVOKE SELECT ON portal.user_profile FROM PUBLIC")
 
         # Seed CPLAN (idempotent upsert).
         c.execute(
@@ -401,7 +430,16 @@ def apply_portal(engine: Engine) -> None:
         # Every other portal.* function is admin-only. record_sign_in is called
         # on the login path, before the request has a SET ROLE'd identity, so it
         # is granted to the service role instead. It writes one timestamp for the
-        # name it is given and reveals nothing.
+        # name it is given and reveals nothing. Deliberately NOT part of
+        # _FUNCTIONS above -- see the comment on _LAST_ACTIVE_ADMIN_FN for why
+        # that loop's blanket `GRANT ... TO cplan_admin` is not what this
+        # function needs: no admin-facing endpoint calls it, so a grant to
+        # cplan_admin on top of the service-role grant would only be unused
+        # attack surface (an admin could stamp an arbitrary username's
+        # last_sign_in, or insert a profile row for a name of their choosing).
+        c.exec_driver_sql(_RECORD_SIGN_IN_FN)
+        c.exec_driver_sql("ALTER FUNCTION portal.record_sign_in(text) OWNER TO portal_owner")
+        c.exec_driver_sql("REVOKE ALL ON FUNCTION portal.record_sign_in(text) FROM PUBLIC")
         c.exec_driver_sql(f"GRANT EXECUTE ON FUNCTION portal.record_sign_in(text) TO {AUTHENTICATOR}")
 
 

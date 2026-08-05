@@ -9,6 +9,7 @@ Postgres (42501 -> 403) before anything happens.
 
 from __future__ import annotations
 
+import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -32,6 +33,8 @@ from pipeline.api.database import backend_from_url, create_cplan_engine
 from pipeline.api.session import CurrentUser, build_session_dependencies
 from pipeline.portal.resolvers import RESOLVERS
 from pipeline.portal.resources import PROJECTS_ROOT, load_manifest, manifest_path, resolve_tiles
+
+logger = logging.getLogger(__name__)
 
 
 # Most-privileged first: `PROJECT_ROLE` reports the first arm that matches, and
@@ -150,8 +153,17 @@ def create_portal_app(database_url: str | URL | None = None, auth_settings: Auth
         # ROLE'd identity yet (that is what login itself establishes), so there
         # is no per-request Session to use, and record_sign_in is granted to the
         # service role (cplan_authenticator) for exactly this reason.
-        with engine.begin() as connection:
-            connection.execute(text("SELECT portal.record_sign_in(:n)"), {"n": payload.username})
+        #
+        # This is bookkeeping, not the login decision: credentials are already
+        # verified above, so any failure here (a database that has not yet run
+        # the current apply_portal and lacks the function, a transient fault,
+        # anything) must be logged and swallowed, never turned into a 500 that
+        # denies a successful sign-in over a timestamp nobody is relying on.
+        try:
+            with engine.begin() as connection:
+                connection.execute(text("SELECT portal.record_sign_in(:n)"), {"n": payload.username})
+        except Exception:
+            logger.exception("record_sign_in failed for %s; continuing login", payload.username)
         response.set_cookie(
             auth.cookie_name,
             create_session_token(auth, payload.username),
@@ -314,8 +326,13 @@ def create_portal_app(database_url: str | URL | None = None, auth_settings: Auth
             ]
         }
 
-    def _call(session: Session, sql: str, params: dict):
-        """Invoke a portal.* SECURITY DEFINER function and translate its failure.
+    def _call_many(session: Session, statements: list[tuple[str, dict]]):
+        """Invoke one or more portal.* SECURITY DEFINER functions as a single transaction.
+
+        All statements share one commit: if a later one fails, every earlier
+        statement in the same call is rolled back too, so a caller never ends
+        up with a partial effect (e.g. an account that exists but never got
+        its display name, and would then fail retrying with "already exists").
 
         These calls can fail with `sqlalchemy.exc.ProgrammingError` for several
         distinct reasons, distinguished by SQLSTATE (see pipeline/api/setup_portal.py's
@@ -333,7 +350,8 @@ def create_portal_app(database_url: str | URL | None = None, auth_settings: Auth
         it must never be echoed to the client as if it were a client error.
         """
         try:
-            session.execute(text(sql), params)
+            for sql, params in statements:
+                session.execute(text(sql), params)
             session.commit()
         except ProgrammingError as exc:
             session.rollback()
@@ -341,19 +359,26 @@ def create_portal_app(database_url: str | URL | None = None, auth_settings: Auth
                 raise
             raise HTTPException(status_code=422, detail={"code": "invalid_input", "message": str(exc.orig)}) from exc
 
+    def _call(session: Session, sql: str, params: dict):
+        """Invoke a single portal.* SECURITY DEFINER function. See `_call_many`."""
+        _call_many(session, [(sql, params)])
+
     @app.post("/api/portal/users", status_code=status.HTTP_201_CREATED)
     def create_user_endpoint(payload: CreateUserPayload, session: Session = Depends(db_session)):
-        _call(
-            session,
-            "SELECT portal.create_user(:n, :p, :proj, :r)",
-            {"n": payload.username, "p": payload.password, "proj": payload.project, "r": payload.role},
-        )
-        if payload.display_name:
-            _call(
-                session,
-                "SELECT portal.set_display_name(:n, :d)",
-                {"n": payload.username, "d": payload.display_name},
+        # One transaction for both calls: if set_display_name fails, create_user
+        # is rolled back with it, so the client never sees "created" turn into
+        # a stuck half-created account that then fails a retry as "already exists".
+        statements = [
+            (
+                "SELECT portal.create_user(:n, :p, :proj, :r)",
+                {"n": payload.username, "p": payload.password, "proj": payload.project, "r": payload.role},
             )
+        ]
+        if payload.display_name:
+            statements.append(
+                ("SELECT portal.set_display_name(:n, :d)", {"n": payload.username, "d": payload.display_name})
+            )
+        _call_many(session, statements)
         return {"username": payload.username}
 
     @app.post("/api/portal/users/{username}/role")

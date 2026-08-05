@@ -485,6 +485,55 @@ def test_a_failed_login_does_not_stamp_last_sign_in(portal):
     assert row["last_sign_in"] is not None
 
 
+def test_login_succeeds_even_if_record_sign_in_fails(portal):
+    """A bookkeeping timestamp must never block a successful credential check
+    -- most obviously on a database that has not yet run the current
+    apply_portal, where portal.record_sign_in does not exist yet. Simulate
+    exactly that by dropping the function, confirm login still returns 200,
+    then restore it (via apply_portal) so later tests are unaffected."""
+    with portal.state.engine.begin() as c:
+        c.exec_driver_sql("DROP FUNCTION portal.record_sign_in(text)")
+    try:
+        r = TestClient(portal).post("/api/login", json={"username": "pa_viewer", "password": PW["pa_viewer"]})
+        assert r.status_code == 200, r.text
+    finally:
+        apply_portal(portal.state.engine)  # restore the function for every later test
+
+
+def test_create_user_with_display_name_is_atomic(portal):
+    """create_user and set_display_name used to run as two separate
+    transactions: if the second failed, the account existed but the client
+    saw an error, and a retry then hit "already exists". Force the second
+    call to fail (temporarily revoke its EXECUTE grant) and confirm the whole
+    request fails with no half-created account left behind; restore the
+    grant and confirm the same payload then succeeds cleanly, with both
+    changes landing together."""
+    admin = login(portal, "pa_admin")
+    payload = {
+        "username": "pa_atomic",
+        "password": "pw-atomic",
+        "project": "cplan",
+        "role": "viewer",
+        "display_name": "Atomic User",
+    }
+
+    with portal.state.engine.begin() as c:
+        c.exec_driver_sql("REVOKE EXECUTE ON FUNCTION portal.set_display_name(text, text) FROM cplan_admin")
+    try:
+        failed = admin.post("/api/portal/users", json=payload)
+        assert failed.status_code == 403, failed.text
+        users = admin.get("/api/portal/users").json()["users"]
+        assert not any(u["username"] == "pa_atomic" for u in users)  # create_user rolled back with it
+    finally:
+        with portal.state.engine.begin() as c:
+            c.exec_driver_sql("GRANT EXECUTE ON FUNCTION portal.set_display_name(text, text) TO cplan_admin")
+
+    retried = admin.post("/api/portal/users", json=payload)
+    assert retried.status_code == 201, retried.text
+    row = next(u for u in admin.get("/api/portal/users").json()["users"] if u["username"] == "pa_atomic")
+    assert row["display_name"] == "Atomic User"
+
+
 def test_projects_list_survives_a_project_with_no_group_roles(portal):
     # The list endpoint used to pass bare role names to pg_has_role, which
     # raises 42704 for a name that is not a role -- taking the landing page
