@@ -75,8 +75,14 @@ def _column(frame, name, default=""):
     return column
 
 
-def _people_with_emails(row):
-    """(display name, email) for each person in `bod_geb`, in source order.
+def _people_with_emails(bod_geb, bod_geb_email):
+    """(display name, email) for each person in one row's `bod_geb`, in source
+    order.
+
+    Takes the two raw cell values directly rather than a row, so callers reach
+    them the same way every other derivation here does -- through `_column`,
+    which stands in for a column the source did not carry -- instead of a
+    per-row `.get()`.
 
     The email column is written one slot per person by the ETL. Where the two
     counts disagree -- a hand-edited export, a mixed rich-text and person-picker
@@ -84,8 +90,8 @@ def _people_with_emails(row):
     names carry the match alone. Silently guessing an offset would attribute
     one person's address to another.
     """
-    names = [person_name(part) for part in split_people(row.get("bod_geb"))]
-    emails = split_people_aligned(row.get("bod_geb_email"))
+    names = [person_name(part) for part in split_people(bod_geb)]
+    emails = split_people_aligned(bod_geb_email)
     if len(emails) != len(names):
         emails = [""] * len(names)
     return list(zip(names, emails))
@@ -198,22 +204,6 @@ def build_scope(load, config, membership=None):
     elif config.executives == "without":
         drop(frame["has_executives"], "GEB/GEB-1")
 
-    # The GEB / GEB-1 split, when a membership list was supplied. Derived from
-    # the same normalised names the blocks render, so a person cannot appear in
-    # a block under one spelling and be matched under another.
-    unmatched = 0
-    if membership is not None:
-        pairs = frame.apply(
-            lambda row: _people_with_emails(row), axis=1)
-        frame["executives_geb"] = pairs.apply(
-            lambda people: PERSON_SEPARATOR.join(
-                name for name, email in people if membership.is_member(name, email)))
-        frame["executives_geb1"] = pairs.apply(
-            lambda people: PERSON_SEPARATOR.join(
-                name for name, email in people if not membership.is_member(name, email)))
-        seen = [pair for people in pairs for pair in people]
-        unmatched = membership.unmatched(seen)
-
     # `audience` now carries the source's "Estimated audience size", which is
     # what it was always meant to hold; the source's own "Audience" column is a
     # different field and lands in `audience_type` (see process_cplan's
@@ -274,6 +264,33 @@ def build_scope(load, config, membership=None):
     if (~is_internal).any():
         completeness[~is_internal] = _completeness(frame[~is_internal], external_fields)
     frame["completeness"] = completeness
+
+    # The GEB / GEB-1 split, when a membership list was supplied. Placed after
+    # every filter above has run, so the split -- and the unmatched count it
+    # feeds -- reflects only the rows the workbook actually shows; a row the
+    # audience-band, objectives or priority filter later drops must not have
+    # already counted its people as matched. Derived from the same normalised
+    # names the blocks render, so a person cannot appear in a block under one
+    # spelling and be matched under another.
+    unmatched = 0
+    if membership is not None:
+        pairs = [
+            _people_with_emails(bod_geb, bod_geb_email)
+            for bod_geb, bod_geb_email in zip(
+                _column(frame, "bod_geb"), _column(frame, "bod_geb_email"))
+        ]
+        frame["executives_geb"] = [
+            PERSON_SEPARATOR.join(
+                name for name, email in people if membership.is_member(name, email))
+            for people in pairs
+        ]
+        frame["executives_geb1"] = [
+            PERSON_SEPARATOR.join(
+                name for name, email in people if not membership.is_member(name, email))
+            for people in pairs
+        ]
+        seen = [pair for people in pairs for pair in people]
+        unmatched = membership.unmatched(seen)
 
     frame = frame.reset_index(drop=True)
     return Scope(

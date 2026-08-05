@@ -553,17 +553,40 @@ def test_unmatched_configuration_entries_are_counted():
     assert scope.unmatched_members == 1
 
 
-def test_unmatched_is_counted_over_rows_in_scope():
-    """A member whose only activity was filtered out reads as unmatched, which
-    is the honest answer: this workbook shows nothing of theirs.
+def test_unmatched_is_counted_over_rows_the_objectives_filter_dropped():
+    """A member whose only activity is dropped by the objectives filter still
+    reads as unmatched, which is the honest answer: this workbook shows
+    nothing of theirs. This filter runs late -- after the GEB/GEB-1 split
+    must be derived -- so it is the case that catches the split being
+    computed against rows the workbook no longer shows.
     """
-    frame = pd.DataFrame([
-        _leadership_row("Person, One"),
-        {"tracking_id": "B", "activity_name": "B", "start_date": None,
-         "bod_geb": "Dropped, Two", "bod_geb_email": ""},
-    ])
-    members = _members(("", "Person, One"), ("", "Dropped, Two"))
+    row = _leadership_row("Person, One")
+    row["strategic_objectives"] = "2026: Other"
+    frame = pd.DataFrame([row])
+    members = _members(("", "Person, One"))
 
-    scope = build_scope(ActivityLoad(frame, {}, {}), _config(), members)
+    scope = build_scope(
+        ActivityLoad(frame, {}, {}),
+        _config(exclude_objectives=("2026:",)),
+        members,
+    )
 
+    assert scope.frame.empty
+    assert scope.unmatched_members == 1
+
+
+def test_unmatched_is_counted_over_rows_the_priority_filter_dropped():
+    """Same guarantee against the priority filter, which runs later still."""
+    row = _leadership_row("Person, One")
+    row["priority"] = "4 - Low"
+    frame = pd.DataFrame([row])
+    members = _members(("", "Person, One"))
+
+    scope = build_scope(
+        ActivityLoad(frame, {}, {}),
+        _config(exclude_priorities=(4,)),
+        members,
+    )
+
+    assert scope.frame.empty
     assert scope.unmatched_members == 1
