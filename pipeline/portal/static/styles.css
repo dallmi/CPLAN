@@ -27,7 +27,9 @@ input:focus, select:focus { outline: 2px solid var(--info); outline-offset: -1px
 
 /* ---------- Type scale (§3) ---------- */
 .page-title { font-size: 40px; font-weight: 300; line-height: 1.1; margin: 0; letter-spacing: -0.015em; }
-.page-subtitle { font-size: 14px; font-weight: 400; line-height: 1.4; color: var(--grey-4); margin: 6px 0 0; }
+/* .subtitle is the project page's name for this same rule (page.head vs.
+   panel-head contexts); one declaration, not two copies to keep in sync. */
+.page-subtitle, .subtitle { font-size: 14px; font-weight: 400; line-height: 1.4; color: var(--grey-4); margin: 6px 0 0; }
 .section-heading { font-size: 16px; font-weight: 600; line-height: 1.3; margin: 0; }
 .footnote { font-size: 11px; line-height: 1.4; color: var(--grey-4); margin: 0; }
 .eyebrow { font-size: 10px; font-weight: 600; letter-spacing: 0.06em; color: var(--grey-4); margin: 0 0 6px; }
@@ -131,10 +133,6 @@ input:focus, select:focus { outline: 2px solid var(--info); outline-offset: -1px
 .role-contributor { background: var(--surface); color: var(--black); }
 .role-viewer { background: var(--white); color: var(--grey-5); border-color: var(--grey-1); }
 .role-none { background: transparent; color: var(--grey-2); font-weight: 400; border-color: transparent; }
-.role-inherited { position: relative; }
-.role-inherited::after {
-  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--bronze-1);
-}
 
 /* ---------- Status ---------- */
 .status { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; white-space: nowrap; }
@@ -189,7 +187,13 @@ table.matrix td.cell-role { text-align: center; padding: 6px; }
 .cell-btn:hover .role { outline: 1px solid var(--grey-3); outline-offset: 1px; }
 .matrix-legend { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; margin-top: 16px; }
 .legend-item { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--grey-5); }
+/* Swatches are coloured by the same .role-* classes the matrix cells use
+   (background+border-color), not by restating the ramp's colours here --
+   this rule only supplies the box a role class has no reason to set. The
+   compound selector below beats a plain .legend-swatch on specificity so
+   .role-viewer's border survives regardless of rule order. */
 .legend-swatch { width: 22px; height: 12px; flex: none; border: 1px solid transparent; }
+.legend-swatch.role-viewer { border-color: var(--grey-1); }
 
 /* Role popover */
 .popover {
@@ -205,42 +209,6 @@ table.matrix td.cell-role { text-align: center; padding: 6px; }
 .popover-option[aria-checked="true"] { font-weight: 600; }
 .popover-option .tick { width: 12px; flex: none; color: var(--primary); }
 .popover-sep { height: 1px; background: var(--surface); margin: 4px 0; }
-
-/* ---------- Groups ---------- */
-.group-list { border-top: 1px solid var(--surface); }
-.group-row {
-  display: grid; grid-template-columns: minmax(220px, 1.4fr) minmax(180px, 1fr) auto;
-  gap: 20px; align-items: center; padding: 16px 12px; border-bottom: 1px solid var(--surface);
-  width: 100%; background: none; border-left: 0; border-right: 0; border-top: 0; text-align: left;
-}
-.group-row:hover { background: var(--row-alt); }
-.group-name { font-size: 14px; font-weight: 600; }
-.group-meta { font-size: 11px; color: var(--grey-4); margin-top: 3px; }
-.member-stack { display: flex; align-items: center; }
-.member-stack .avatar {
-  width: 26px; height: 26px; margin-right: -6px; background: var(--surface); color: var(--grey-6);
-  border: 1px solid var(--white); display: flex; align-items: center; justify-content: center;
-  font-size: 10px; font-weight: 600;
-}
-.member-stack .more { margin-left: 12px; font-size: 11px; color: var(--grey-4); }
-.group-grants { display: flex; gap: 6px; flex-wrap: wrap; }
-.grant-pill { display: inline-flex; align-items: center; gap: 8px; padding: 4px 9px; background: var(--surface-alt); font-size: 11px; }
-.grant-pill .grant-project { color: var(--grey-6); }
-.grant-pill .grant-role { font-weight: 600; }
-
-/* ---------- Activity log ---------- */
-.log { border-top: 1px solid var(--surface); }
-.log-day { padding: 18px 12px 8px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; color: var(--grey-4); border-bottom: 1px solid var(--surface); }
-.log-entry { display: grid; grid-template-columns: 62px 3px 1fr; gap: 0 14px; align-items: start; padding: 14px 12px; border-bottom: 1px solid var(--surface); }
-.log-entry:hover { background: var(--row-alt); }
-.log-time { font-size: 12px; color: var(--grey-4); padding-top: 1px; }
-.log-strip { width: 3px; align-self: stretch; background: var(--grey-1); }
-.log-entry.grant .log-strip { background: var(--grey-6); }
-.log-entry.revoke .log-strip { background: var(--bordeaux-1); }
-.log-entry.account .log-strip { background: var(--bronze-1); }
-.log-text { font-size: 13px; line-height: 1.5; }
-.log-text strong { font-weight: 600; }
-.log-actor { font-size: 11px; color: var(--grey-4); margin-top: 3px; }
 
 /* ---------- Drawer ---------- */
 .drawer { position: fixed; inset: 0; z-index: 100; display: none; }
@@ -343,10 +311,6 @@ table.matrix td.cell-role { text-align: center; padding: 6px; }
 .panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 20px; padding-bottom: 10px; border-bottom: 1px solid var(--black); margin-bottom: 20px; }
 .panel-head h2 { font-size: 16px; font-weight: 600; line-height: 1.3; margin: 0; }
 
-/* ---------- Subtitle (project page head) ----------
-   Same values as .page-subtitle: secondary text stacked under a page title. */
-.subtitle { font-size: 14px; font-weight: 400; line-height: 1.4; color: var(--grey-4); margin: 6px 0 0; }
-
 /* ---------- Project-page tile variants ----------
    The tile grid and .tile-name/.tile-purpose/.tile-foot already carry the
    seam-grid idiom (§ Project tiles above); these extend it. */
@@ -354,9 +318,8 @@ table.matrix td.cell-role { text-align: center; padding: 6px; }
 /* The one tile that opens the application: it earns most of its prominence
    from size and being first in the grid, plus one deliberate mark -- a
    left accent bar in the corporate red, the same idiom already used for
-   .notice and .log-entry.grant/.revoke/.account, not a red fill, tint,
-   shadow or rounded corner. It is the only red on the project page besides
-   the brand mark in the topbar. */
+   .notice, not a red fill, tint, shadow or rounded corner. It is the only
+   red on the project page besides the brand mark in the topbar. */
 .tile.tile-primary { grid-column: 1 / -1; border-left: 3px solid var(--primary); padding-left: 21px; }
 
 /* ---------- Prose (rendered manual / document body) ----------

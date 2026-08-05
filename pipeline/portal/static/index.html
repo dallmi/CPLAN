@@ -27,12 +27,12 @@
       <p>Use your CPLAN account.</p>
       <div class="field">
         <label for="si-user">Username</label>
-        <input type="text" id="si-user" autocomplete="username" />
+        <input type="text" id="si-user" autocomplete="username" required />
       </div>
       <div class="field">
         <label for="si-pass">Password</label>
-        <input type="password" id="si-pass" autocomplete="current-password" />
-        <span class="field-error" id="si-error" hidden>Username or password is not correct.</span>
+        <input type="password" id="si-pass" autocomplete="current-password" required />
+        <span class="field-error" id="si-error" role="alert" hidden>Username or password is not correct.</span>
       </div>
       <button type="submit" class="btn primary">Sign in</button>
       <p class="signin-foot">Accounts are created by a portal administrator. If you cannot sign in, ask the administrator of the project you need.</p>
@@ -70,8 +70,8 @@
     <!-- Home ------------------------------------------------------------- -->
     <section class="page active" id="page-home" aria-labelledby="home-title">
       <div class="page-head">
-        <h1 class="page-title" id="home-title">Good morning, Andrea</h1>
-        <p class="page-subtitle">You have access to three of the four registered projects.</p>
+        <h1 class="page-title" id="home-title">Portal home</h1>
+        <p class="page-subtitle">Your projects and what you can reach from them.</p>
       </div>
       <div class="section">
         <div class="section-head">
@@ -118,9 +118,8 @@
           <thead>
             <tr>
               <th class="sortable" data-sort="name" aria-sort="ascending">Name<span class="sort-arrow">↑</span></th>
-              <th class="sortable" data-sort="role">Highest role<span class="sort-arrow">↑</span></th>
-              <th class="sortable num" data-sort="projects">Projects<span class="sort-arrow">↑</span></th>
-              <th>Groups</th>
+              <th class="sortable" data-sort="role">Highest role<span class="sort-arrow"></span></th>
+              <th class="sortable num" data-sort="projects">Projects<span class="sort-arrow"></span></th>
               <th>Status</th>
               <th class="num">Last sign-in</th>
               <th class="cell-actions"><span class="footnote">Actions</span></th>
@@ -164,13 +163,11 @@
         </table>
       </div>
       <div class="matrix-legend">
-        <span class="legend-item"><span class="legend-swatch" style="background:var(--grey-6)"></span>Admin</span>
-        <span class="legend-item"><span class="legend-swatch" style="background:var(--grey-3)"></span>Editor</span>
-        <span class="legend-item"><span class="legend-swatch" style="background:var(--surface)"></span>Contributor</span>
-        <span class="legend-item"><span class="legend-swatch" style="background:var(--white);border-color:var(--grey-1)"></span>Viewer</span>
-        <span class="legend-item"><span class="legend-swatch" style="background:var(--bronze-1);width:3px"></span>Inherited from a group</span>
+        <span class="legend-item"><span class="legend-swatch role-admin"></span>Admin</span>
+        <span class="legend-item"><span class="legend-swatch role-editor"></span>Editor</span>
+        <span class="legend-item"><span class="legend-swatch role-contributor"></span>Contributor</span>
+        <span class="legend-item"><span class="legend-swatch role-viewer"></span>Viewer</span>
       </div>
-      <p class="footnote" style="margin-top:14px">Effective access is the strongest grant from any source. A group cannot be undercut by a direct grant — remove the person from the group instead.</p>
     </section>
 
   </main>
@@ -206,13 +203,13 @@
     <div class="modal-body">
       <div class="field">
         <label for="iv-username">Username <span class="req">(required)</span></label>
-        <input type="text" id="iv-username" autocomplete="off" placeholder="first-initial.surname" />
+        <input type="text" id="iv-username" autocomplete="off" placeholder="first-initial.surname" required />
         <span class="field-error" id="iv-error" hidden></span>
       </div>
       <div class="field">
         <label for="iv-password">Initial password <span class="req">(required)</span></label>
         <div class="pw-row">
-          <input type="text" id="iv-password" autocomplete="off" />
+          <input type="text" id="iv-password" autocomplete="off" required />
           <button class="btn sm" type="button" id="iv-generate">Generate</button>
         </div>
         <span class="field-help">Shown once. Pass it on yourself — the portal sends no email.</span>

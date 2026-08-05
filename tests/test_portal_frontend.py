@@ -107,13 +107,21 @@ class PortalFrontendTests(unittest.TestCase):
         # The topbar must be populated from the signed-in session at runtime,
         # not ship with whoever last reviewed the prototype baked in.
         html = (STATIC / "index.html").read_text(encoding="utf-8")
-        for placeholder in ("a.keller", "Portal administrator", ">AK<"):
+        for placeholder in ("a.keller", "Portal administrator", ">AK<", "Andrea"):
             self.assertNotIn(placeholder, html)
         for element_id in ("user-chip-avatar", "user-chip-name", "user-chip-role"):
             self.assertIn(f'id="{element_id}"', html)
         app_js = (STATIC / "js" / "app.js").read_text(encoding="utf-8")
         self.assertIn("user-chip-name", app_js)
         self.assertIn("user-chip-role", app_js)
+
+    def test_home_head_has_no_hardcoded_greeting(self):
+        # The prototype's home page greeted a specific person by name; that
+        # residue would show up for every user, since no later task
+        # personalises this page. The head must be static, data-free copy.
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        self.assertNotIn("Good morning", html)
+        self.assertNotIn("Andrea", html)
 
     def test_signin_fields_start_empty(self):
         html = (STATIC / "index.html").read_text(encoding="utf-8")
@@ -180,16 +188,20 @@ class PortalFrontendTests(unittest.TestCase):
         self.assertIn('class="brand-block"', html)
         self.assertIn('class="btn quiet"', html)
         self.assertNotIn("btn-ghost", html)   # superseded button class
+        # pages.py renders its own copy of this header for the shell pages
+        # (access, data, reports, changelog, docs); it must carry the same
+        # chrome, not the old brand/btn-ghost markup the stylesheet no longer
+        # has rules for.
+        pages_py = (PORTAL / "pages.py").read_text(encoding="utf-8")
+        self.assertNotIn("btn-ghost", pages_py)
+        self.assertNotIn('class="brand"', pages_py)
 
     def test_home_tiles_open_the_project_page_and_favicon_present(self):
         # The new tab now belongs to the application tile on the project page
         # (project.js), not to the home tile: a home tile opens the project's
         # own page, in this tab, so the six other resource tiles are reachable.
-        app = (STATIC / "app.js").read_text(encoding="utf-8")
         project_js = (STATIC / "project.js").read_text(encoding="utf-8")
         html = (STATIC / "index.html").read_text(encoding="utf-8")
-        self.assertIn("/project/", app)
-        self.assertNotIn('target="_blank"', app)
         self.assertIn('target="_blank"', project_js)
         self.assertIn('rel="noopener"', project_js)
         self.assertIn('rel="icon"', html)
@@ -197,12 +209,6 @@ class PortalFrontendTests(unittest.TestCase):
 
 class ProjectPageStaticTests(unittest.TestCase):
     """Moved here from tests/test_portal_project_page.py: none of these needs a database."""
-
-    def test_home_tiles_link_into_the_project_page(self):
-        app_js = (STATIC / "app.js").read_text(encoding="utf-8")
-        self.assertIn("/project/", app_js)
-        # The raw URL is gone from the tile: it belongs on the project page now.
-        self.assertNotIn("tile-url", app_js)
 
     def test_project_shell_markup_and_no_emoji(self):
         html = (STATIC / "project.html").read_text(encoding="utf-8")

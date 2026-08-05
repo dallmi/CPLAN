@@ -504,10 +504,19 @@ _SHELL_PAGE = """<!DOCTYPE html>
 <link rel="stylesheet" href="/styles.css">
 </head><body>
 <header class="topbar">
-  <div class="brand"><span class="brand-mark"></span><h1>CPLAN Portal</h1></div>
-  <div id="user-chip" class="user-chip hidden">
-    <span id="user-chip-name"></span>
-    <button id="user-chip-logout" class="btn-ghost" type="button">Sign out</button>
+  <div class="brand-block">
+    <span class="brand-mark"></span>
+    <div>
+      <h1>CPLAN Portal</h1>
+      <p>Communication planning</p>
+    </div>
+  </div>
+  <div class="top-actions">
+    <div class="user-chip hidden" id="user-chip">
+      <span class="avatar" aria-hidden="true" id="user-chip-avatar"></span>
+      <span id="user-chip-name"></span>
+    </div>
+    <button class="btn quiet" id="user-chip-logout" type="button">Sign out</button>
   </div>
 </header>
 <main class="content">
