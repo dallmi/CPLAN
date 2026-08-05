@@ -28,6 +28,7 @@ forgets -- and a forgetful caller gets a 422 instead of a silent disclosure.
 from __future__ import annotations
 
 import argparse
+from collections.abc import Sequence
 
 from sqlalchemy import Engine, text
 from sqlalchemy.engine import Connection
@@ -426,8 +427,7 @@ END; $fn$;
 # username here is only ever a value compared against a text column, never an
 # identifier -- so there is nothing for format %I/%L to quote.
 #
-# The three counter keys, in the fixed order every statement below locks them
-# in (so two concurrent attempts can queue but never deadlock):
+# The three counter keys, in the fixed order every statement below locks them in:
 #
 #   'username'  the name, across all addresses -- the backstop against a
 #               distributed guessing run on one account.
@@ -442,6 +442,19 @@ END; $fn$;
 # with a separator, because the submitted username is arbitrary text: with a
 # separator, a caller could submit a name that made its pair key collide with
 # another address's.
+#
+# One order for all three means two concurrent attempts queue behind each other
+# rather than taking each other's rows in opposite orders. It is not deadlock
+# freedom, though, and the design does not claim it: the garbage-collecting
+# DELETE at the top of begin_login_attempt locks rows in (kind, key) order,
+# which is not the order the loop takes them in, so a collector and a counter
+# can reach a real lock-order cycle. PostgreSQL breaks it after
+# `deadlock_timeout` (1s by default) by cancelling one of the two. The loser is
+# a login attempt, which the portal answers with a single 503
+# `login_unavailable` -- not counted as a guess, and correct on a retry. That
+# outcome is accepted on purpose: it costs a rare retry, where an ordering
+# strict enough to rule the cycle out would mean either not collecting garbage
+# on this path at all, or holding every lock across the whole function.
 _LOGIN_COUNTER_KEYS = """
   v_kinds text[] := ARRAY['username', 'pair', 'source'];
   v_keys text[] := ARRAY[
@@ -550,12 +563,32 @@ BEGIN
   IF p_key IS NULL THEN
     DELETE FROM portal.login_attempts;
   ELSE
-    -- starts_with, not LIKE: a username may legitimately contain '_', which
-    -- LIKE would read as a wildcard and use to clear a different name's
-    -- counter.
+    -- Three clauses, because a 'pair' row has to be reachable from *either*
+    -- side of the pair. Of the three counters the pair one is the first to
+    -- fire (the lowest limit, in pipeline/api/login_guard.py), so a clear that
+    -- left its rows behind would report a number, look like it worked, and
+    -- change nothing about the block.
+    --
+    -- A pair key is `<length>:<username><source>` (see _LOGIN_COUNTER_KEYS).
+    -- From the username side the length prefix makes it a prefix match, with
+    -- starts_with rather than LIKE, because a username may legitimately
+    -- contain '_', which LIKE would read as a wildcard and use to clear a
+    -- different name's counter. From the address side the same prefix says
+    -- where the username ends, so the remainder is the source exactly -- where
+    -- an unanchored "ends with" would also clear every other address whose
+    -- last characters happened to match, handing a guessing run its budget
+    -- back.
+    --
+    -- CASE, not a third AND: WHERE does not promise to evaluate its conjuncts
+    -- left to right, and the ::integer would error on a 'username' row's key,
+    -- which carries no length prefix at all.
     DELETE FROM portal.login_attempts
      WHERE key = p_key
-        OR (kind = 'pair' AND starts_with(key, length(p_key)::text || ':' || p_key));
+        OR (kind = 'pair' AND starts_with(key, length(p_key)::text || ':' || p_key))
+        OR CASE WHEN kind = 'pair' AND key ~ '^[0-9]+:'
+                THEN substr(key, length(split_part(key, ':', 1))
+                               + split_part(key, ':', 1)::integer + 2) = p_key
+                ELSE false END;
   END IF;
   GET DIAGNOSTICS v_removed = ROW_COUNT;
   RETURN v_removed;
@@ -919,24 +952,43 @@ def clear_login_block(engine: Engine, key: str | None) -> int:
     """Release a login lockout now instead of at the end of its window.
 
     `key` is a username or a source address; `None` clears every counter in
-    the deployment. Runs as the same admin/superuser identity as
-    `apply_portal` -- see `_CLEAR_LOGIN_ATTEMPTS_FN` for why this is not
-    reachable from the portal itself.
+    the deployment. Either way it removes the 'pair' rows the key takes part
+    in as well as its own -- the pair counter is the one that fires first, so
+    a clear that missed it would return a number and leave the block standing.
+    Runs as the same admin/superuser identity as `apply_portal` -- see
+    `_CLEAR_LOGIN_ATTEMPTS_FN` for why this is not reachable from the portal
+    itself.
     """
     with engine.begin() as c:
         return int(c.execute(text("SELECT portal.clear_login_attempts(:k)"), {"k": key}).scalar_one())
 
 
-def main() -> None:
+# `--clear-login-block` given without a value: the flag was named but no key
+# was, which only means anything together with `--all`.
+_NO_KEY_GIVEN = ""
+
+
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    """The command line, split out so a test can drive `main` through it.
+
+    `--clear-login-block --all` is one of the two forms the README documents,
+    and with argparse's default `nargs` it is not a form at all: `--all` does
+    not read as a value, so the parser exits 2 with "expected one argument"
+    before anything runs. That is the emergency path failing at the one moment
+    it is needed, over an argument count. `nargs="?"` accepts the flag on its
+    own; `--all` then says what to do with it.
+    """
     parser = argparse.ArgumentParser(description="CPLAN portal schema, registry, and user-management functions")
     parser.add_argument("--database-url", default=None)
     parser.add_argument(
         "--clear-login-block",
         metavar="NAME_OR_ADDRESS",
+        nargs="?",
+        const=_NO_KEY_GIVEN,
         default=None,
         help=(
             "release the failed-login lockout on one username or source address "
-            "(use --all for every counter) instead of applying the schema"
+            "(add --all for every counter) instead of applying the schema"
         ),
     )
     parser.add_argument(
@@ -944,12 +996,33 @@ def main() -> None:
         action="store_true",
         help="with --clear-login-block: clear every login counter in the deployment",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
+    if args.clear_login_block == _NO_KEY_GIVEN and not args.all:
+        parser.error("--clear-login-block needs a username or address, or --all for every counter")
+    return args
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    args = parse_args(argv)
     engine = create_cplan_engine(_resolve_url(args.database_url))
     try:
-        if args.clear_login_block or args.all:
-            removed = clear_login_block(engine, None if args.all else args.clear_login_block)
-            print(f"Cleared {removed} login counter(s); sign-in is possible again immediately.")
+        if args.all or args.clear_login_block is not None:
+            key = None if args.all else args.clear_login_block
+            removed = clear_login_block(engine, key)
+            # Only claim the block is gone when a row was actually removed. The
+            # operator running this is working blind -- they cannot sign in to
+            # check -- so "cleared 0 counters; sign-in is possible again" would
+            # send them away from a mistyped name believing it was fixed.
+            if removed:
+                print(f"Cleared {removed} login counter(s); sign-in is possible again immediately.")
+            elif key is None:
+                print("No login counters exist; nothing was blocked and nothing was cleared.")
+            else:
+                print(
+                    f"No login counter matched {key!r}; nothing was cleared. Usernames and source "
+                    "addresses are matched exactly, and a block also releases on its own within "
+                    "the window."
+                )
             return
         apply_portal(engine)
         print("Portal schema, project registry, user-management functions and login throttle applied.")

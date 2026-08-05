@@ -23,6 +23,7 @@ from pipeline.api.app import Base, create_app
 from pipeline.api.auth import AuthSettings, CredentialCheck, check_credentials
 from pipeline.api.database import create_cplan_engine
 from pipeline.api.login_guard import LoginLimits
+from pipeline.api import setup_portal
 from pipeline.api.setup_portal import apply_portal, clear_login_block
 from pipeline.api.setup_roles import apply_roles, create_user
 from pipeline.portal.app import create_portal_app
@@ -471,6 +472,100 @@ def test_an_operator_can_release_a_lockout_without_waiting(portal):
 
     assert clear_login_block(app.state.engine, "lt_user") == 2  # the name and the pair
     assert attempt(app, "lt_user", GOOD, ATTACKER).status_code == 200
+
+
+def test_clearing_by_source_address_removes_the_pair_rows_too(portal):
+    """The address form has to release the block, not merely appear to.
+
+    'pair' is the counter that fires at five failures, and its key holds the
+    address inside a longer string. A clear that only matched `key = address`
+    would delete the per-source row -- which was nowhere near its own, far
+    higher limit -- report a number, and leave the person exactly as locked out
+    as they were.
+    """
+    app, _ = portal
+    burn(app, "lt_user", ATTACKER, LIMITS.pair_failures)
+    burn(app, "lt_other", ATTACKER, LIMITS.pair_failures)
+    assert attempt(app, "lt_user", GOOD, ATTACKER).status_code == 429
+
+    # Two pairs, two usernames, one source. The usernames are not this address's
+    # to clear -- another address may still be guessing them.
+    assert clear_login_block(app.state.engine, ATTACKER) == 3
+    assert attempt(app, "lt_user", GOOD, ATTACKER).status_code == 200
+    assert ("username", "lt_user") in counters(app), "the account-wide counter is not the address's to clear"
+
+
+def test_clearing_one_address_leaves_another_addresss_pair_alone(portal):
+    """The suffix has to be matched where the key says the source starts, not
+    merely anywhere: the pair key is username-then-address, so a plain
+    "ends with" test would also clear every other address ending in the same
+    characters -- handing a guessing run its budget back."""
+    app, _ = portal
+    burn(app, "lt_user", ATTACKER, 2)
+    burn(app, "lt_user", OWNER, 2)
+
+    assert clear_login_block(app.state.engine, OWNER) == 2  # OWNER's own row and its one pair
+    assert ("pair", f"7:lt_user{ATTACKER}") in counters(app)
+    assert ("pair", f"7:lt_user{OWNER}") not in counters(app)
+
+
+@pytest.mark.parametrize(
+    "argv,expected_key",
+    [
+        (["--clear-login-block", "lt_user"], "lt_user"),
+        (["--clear-login-block", "--all"], None),
+    ],
+)
+def test_both_documented_break_glass_command_lines_reach_the_clear(portal, monkeypatch, argv, expected_key):
+    """Driven through `parse_args`, because the parser is where this broke.
+
+    `--clear-login-block --all` is documented in pipeline/api/README.md and,
+    with argparse's default `nargs`, exited 2 with "expected one argument"
+    before touching the database -- the emergency path refusing to start, over
+    an argument count, at the one moment anybody runs it. Calling
+    `clear_login_block` directly cannot catch that; only going through the
+    command line the README prints can.
+    """
+    app, url = portal
+    burn(app, "lt_user", ATTACKER, LIMITS.pair_failures)
+    assert attempt(app, "lt_user", GOOD, ATTACKER).status_code == 429
+
+    seen: list[str | None] = []
+    real_clear = setup_portal.clear_login_block
+
+    def record(engine, key):
+        seen.append(key)
+        return real_clear(engine, key)
+
+    monkeypatch.setattr(setup_portal, "clear_login_block", record)
+    setup_portal.main([*argv, "--database-url", url])
+
+    assert seen == [expected_key]
+    assert attempt(app, "lt_user", GOOD, ATTACKER).status_code == 200
+
+
+def test_the_break_glass_cli_refuses_a_bare_flag_rather_than_guessing(portal):
+    """Without a name and without --all there is nothing to clear, and the one
+    thing it must not do is fall through to applying the schema."""
+    with pytest.raises(SystemExit) as exited:
+        setup_portal.parse_args(["--clear-login-block"])
+    assert exited.value.code == 2
+
+
+def test_the_break_glass_cli_does_not_claim_success_when_nothing_matched(portal, capsys):
+    """The operator running this cannot sign in to check whether it worked, so
+    the output is the whole of what they learn. A mistyped name that printed
+    "sign-in is possible again immediately" would send them away from a block
+    that is still there."""
+    app, url = portal
+    setup_portal.main(["--clear-login-block", "lt_no_such_name", "--database-url", url])
+    printed = capsys.readouterr().out
+    assert "nothing was cleared" in printed
+    assert "possible again" not in printed
+
+    burn(app, "lt_user", ATTACKER, 1)
+    setup_portal.main(["--clear-login-block", "lt_user", "--database-url", url])
+    assert "sign-in is possible again immediately" in capsys.readouterr().out
 
 
 def test_the_counter_table_is_pruned_and_readable_by_nobody_directly(portal):

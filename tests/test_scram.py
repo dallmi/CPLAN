@@ -44,19 +44,75 @@ VIEWER = "sc_outsider"
 VIEWER_PW = "pw-sc-outsider"
 
 # Every one of these is fed to PostgreSQL and to `build_verifier`, and the two
-# answers must be identical. They are chosen for the SASLprep steps they
-# exercise, not for realism: an administrator types the first one, but a
-# verifier that only agrees with the server on ASCII is a lockout waiting for
-# the first person with an umlaut in their password.
+# answers must be identical. Each entry is a password and the string
+# `pg_saslprep` turns it into.
+#
+# The first group is not about SASLprep at all: it covers the PBKDF2/HMAC chain
+# and the SQL literal escaping the comparison below needs. Every entry after it
+# pins *one named rule* in pipeline/api/scram.py -- delete the rule and that
+# case stops matching the server. A case whose prepared form equals its raw
+# form earns its place only when a rule has to fire to keep it that way; a
+# password preparation simply does not touch would pass with SASLprep removed
+# altogether and proves nothing, which is exactly what was wrong with the
+# corpus this replaced.
+#
+# They are chosen for the rules they pin, not for realism: an administrator
+# types the first one, but a verifier that only agrees with the server on ASCII
+# is a lockout waiting for the first person with an umlaut in their password.
 SASLPREP_CASES = {
-    "ascii": "pw-plain-ascii-42",
-    "quote-and-percent": "it's 100% fine",  # nothing to prepare; exercises the literal escaping instead
-    "latin-1-supplement": "Ünïcödé-Paßwört",
-    "outside-the-bmp": "passwörd-\U0001f512",
-    "soft-hyphen-mapped-away": "soft\u00adhyphen",  # stringprep B.1: mapped to nothing
-    "non-ascii-space": "nbsp\u00a0space",  # stringprep C.1.2: mapped to U+0020
-    "nfkc-normalised": "roman-\u2168",  # NFKC: ROMAN NUMERAL NINE -> "IX"
-    "prohibited-falls-back": "bell\u0007inside",  # C.2.1: preparation fails, raw password is used
+    # name: (password, the string PostgreSQL hashes for it)
+    #
+    # Nothing to prepare -- the hash chain and the literal escaping instead.
+    "ascii": ("pw-plain-ascii-42", "pw-plain-ascii-42"),
+    "quote-and-percent": ("it's 100% fine", "it's 100% fine"),
+    "latin-1-supplement": ("Ünïcödé-Paßwört", "Ünïcödé-Paßwört"),
+    #
+    # One rule each, from here down.
+    #
+    # B.1 "commonly mapped to nothing": the soft hyphen is dropped.
+    "soft-hyphen-mapped-away": ("soft\u00adhyphen", "softhyphen"),
+    # C.1.2 non-ASCII space: mapped to U+0020.
+    "non-ascii-space": ("nbsp\u00a0space", "nbsp space"),
+    # U+200B is in C.1.2 *and* in B.1. PostgreSQL applies C.1.2 first, so it
+    # becomes a space; applying B.1 first deletes it instead. Pins the order.
+    "zero-width-space": ("zero\u200bwidth", "zero width"),
+    # NFKC: ROMAN NUMERAL NINE -> "IX".
+    "nfkc-normalised": ("roman-Ⅸ", "roman-IX"),
+    # NFKC again, by canonical composition rather than a compatibility mapping:
+    # "e" + U+0301 has to arrive at the precomposed U+00E9 the server arrives at.
+    "nfd-decomposed-accent": ("nfd-cafe\u0301", "nfd-caf\u00e9"),
+    # NFKC once more, on a singleton decomposition (CJK compatibility
+    # ideographs are composition exclusions, so this stays decomposed rather
+    # than composing back): U+FA0B -> U+5ED3. Escaped because the two render
+    # identically -- the whole point of the case would be invisible otherwise.
+    "cjk-compatibility-ideograph": ("compat-\ufa0b", "compat-\u5ed3"),
+    # U+0340 is prohibited (C.8), but NFKC turns it into U+0300, which is not.
+    # PostgreSQL checks *before* normalising, so it refuses and hashes the raw
+    # password; checking afterwards silently accepts a different string. Pins
+    # the check-before-normalise order.
+    "prohibited-before-normalisation": ("grave\u0340mark", "grave\u0340mark"),
+    # U+1D2C is unassigned in Unicode 3.2 (table A.1), which PostgreSQL treats
+    # as prohibited output -- so the raw password is hashed, not the "A" that
+    # NFKC would otherwise have produced. Pins A.1 being in the prohibited set.
+    "unassigned-in-unicode-3-2": ("modifier-ᴬ", "modifier-ᴬ"),
+    # The same rule, for the character a real person is likeliest to reach for:
+    # every emoji is unassigned in Unicode 3.2. The variation selector is what
+    # an emoji keyboard actually emits, and B.1 would otherwise drop it.
+    "emoji": ("lock-\U0001f512\ufe0f", "lock-\U0001f512\ufe0f"),
+    # RFC 3454 section 6: a string containing a right-to-left character must
+    # begin and end with one. This one begins with alef but ends in digits, so
+    # preparation fails and the raw password is hashed -- soft hyphen and all.
+    # Pins the bidirectional check: without it the soft hyphen would vanish.
+    "bidi-violation": ("ال\u00ad42", "ال\u00ad42"),
+    # A password of nothing but characters B.1 deletes maps to the empty
+    # string, which PostgreSQL refuses ("don't allow empty password") rather
+    # than hashing "". Pins that exit.
+    "everything-mapped-away": ("\u00ad\u00ad\u00ad", "\u00ad\u00ad\u00ad"),
+    # C.2.1, an ASCII control character: prohibited, so both ends fall back to
+    # the raw password rather than raising. PostgreSQL's pure-ASCII shortcut
+    # reaches the same string by a shorter route; either way the account this
+    # password belongs to has to keep working.
+    "prohibited-falls-back": ("bell\u0007inside", "bell\u0007inside"),
 }
 
 
@@ -105,20 +161,45 @@ def stored_secret(engine, username: str) -> str:
 # --- SASLprep, without a server -------------------------------------------------
 
 
-def test_saslprep_applies_the_rfc_4013_steps():
-    assert saslprep("pw-plain-ascii-42") == "pw-plain-ascii-42"
-    assert saslprep("soft\u00adhyphen") == "softhyphen"  # B.1 mapped to nothing
-    assert saslprep("nbsp\u00a0space") == "nbsp space"  # C.1.2 mapped to a space
-    assert saslprep("roman-\u2168") == "roman-IX"  # NFKC
+@pytest.mark.parametrize("case", sorted(SASLPREP_CASES))
+def test_saslprep_prepares_each_case_the_way_postgresql_does(case):
+    """The same corpus as the server comparison below, asserted without a server.
+
+    This is the test that says *which string* is expected and why, so a rule
+    removed from `pipeline/api/scram.py` names itself here instead of only
+    surfacing as two unequal base64 blobs. It is not the authority, though --
+    the comparison against PostgreSQL's own verifier is; if the two ever
+    disagree, this file is what is wrong.
+    """
+    password, prepared = SASLPREP_CASES[case]
+    assert saslprep(password) == prepared
 
 
 def test_saslprep_returns_the_raw_password_when_preparation_is_impossible():
     """PostgreSQL and libpq both fall back to the unprepared password here, so
     this must too -- preparing it differently from the client is exactly the
-    mismatch that makes a well-formed verifier reject the right password."""
-    assert saslprep("bell\u0007inside") == "bell\u0007inside"  # C.2.1 prohibited
-    assert saslprep("\u0627\u0031") == "\u0627\u0031"  # RandALCat with a digit: bidi violation
-    assert saslprep("\ud800") == "\ud800"  # lone surrogate: not encodable as UTF-8
+    mismatch that makes a well-formed verifier reject the right password.
+
+    Each of these carries a soft hyphen that preparation *would* have removed
+    had it got that far, so a fallback that quietly went ahead anyway shows up
+    as an unequal string instead of passing on a coincidence."""
+    assert saslprep("bell\u0007in\u00adside") == "bell\u0007in\u00adside"  # C.2.1 prohibited
+    assert saslprep("\u0627\u00ad1") == "\u0627\u00ad1"  # RandALCat then a digit: bidi violation
+    assert saslprep("\ud800\u00ad") == "\ud800\u00ad"  # lone surrogate: C.5, and not UTF-8 either
+
+
+def test_a_password_that_cannot_be_encoded_fails_without_quoting_itself():
+    """The one input `build_verifier` cannot hash must not put a fragment of the
+    password into a traceback -- in the module written to keep passwords out of
+    logs, of all places. `UnicodeEncodeError` names the offending character in
+    its own message, so it must not be what escapes, and it must not be attached
+    as the cause either."""
+    with pytest.raises(ValueError) as raised:
+        build_verifier("secret-\ud800-tail")
+    assert not isinstance(raised.value, UnicodeEncodeError)
+    assert raised.value.__cause__ is None and raised.value.__context__ is None
+    assert "\ud800" not in str(raised.value)
+    assert "secret" not in str(raised.value)
 
 
 def test_build_verifier_is_salted_and_shaped_like_postgresqls_own():
@@ -142,7 +223,7 @@ def test_verifier_matches_the_one_postgresql_builds_itself(portal, case):
     PostgreSQL's, for this password.
     """
     app, url = portal
-    password = SASLPREP_CASES[case]
+    password, _ = SASLPREP_CASES[case]
     name = f"sc_cmp_{case.replace('-', '_')}"
     engine = app.state.engine
     with engine.begin() as connection:
@@ -176,14 +257,27 @@ def test_verifier_for_follows_the_servers_configured_iteration_count(portal):
 
 
 @postgres_required
-@pytest.mark.parametrize("case", ["ascii", "latin-1-supplement", "soft-hyphen-mapped-away", "nfkc-normalised"])
+@pytest.mark.parametrize(
+    "case",
+    [
+        "ascii",
+        "latin-1-supplement",
+        "soft-hyphen-mapped-away",
+        "nfkc-normalised",
+        # The two the fix was about: one where the mapping order decides the
+        # prepared string, one where the prohibited set does. Both are cases
+        # the previous code created an account for that could never sign in.
+        "zero-width-space",
+        "emoji",
+    ],
+)
 def test_account_created_through_the_portal_can_sign_in(portal, case):
     """End-to-end, through the real endpoint and against the real server: create
     the account over HTTP, then open a database session as that account with the
     password the admin typed. A verifier that is well-formed but wrong passes
     every other assertion in this file and fails only here."""
     app, url = portal
-    password = SASLPREP_CASES[case]
+    password, _ = SASLPREP_CASES[case]
     name = f"sc_login_{case.replace('-', '_')}"
     created = admin_client(app).post(
         "/api/portal/users",

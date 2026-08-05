@@ -284,9 +284,11 @@ PYTHONPATH=. .venv/bin/python -m pipeline.api.setup_portal --clear-login-block <
 PYTHONPATH=. .venv/bin/python -m pipeline.api.setup_portal --clear-login-block --all   # every counter
 ```
 
+Either form removes the per-pair rows the key takes part in as well as its own. The pair counter is the one that fires at five failures, so a clear that removed anything less would print a number and leave the block standing. A key that matched nothing says so instead of claiming sign-in is possible again — usernames and source addresses are matched exactly.
+
 Run as the same admin/superuser identity as `setup_portal` itself. There is deliberately no portal endpoint and no admin UI for it: the person who needs it is the person the portal is refusing, and `EXECUTE` on `portal.clear_login_attempts` is granted to nobody — not even the service role, which would otherwise be a way to hand a guessing run its budget back.
 
-`tests/test_login_throttle.py` covers all of the above against a real PostgreSQL, including four simulated hours of continuous guessing and thirty concurrent attempts.
+`tests/test_login_throttle.py` covers all of the above against a real PostgreSQL, including four simulated hours of continuous guessing, thirty concurrent attempts, and both command lines above driven through the argument parser they are documented as.
 
 ### The role model
 

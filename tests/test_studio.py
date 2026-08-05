@@ -587,6 +587,51 @@ class StudioStaticIntegrityTests(unittest.TestCase):
         )
 
 
+class StudioSignInMessageTests(unittest.TestCase):
+    """A throttled sign-in must not be reported as a wrong password.
+
+    The login throttle (pipeline/api/login_guard.py) answers `429`, and a
+    database whose counters could not be consulted answers `503`. Neither says
+    anything about the password. A person told "invalid username or password"
+    for either one does the obvious thing and changes their password, which
+    does not lift the block, does not fix the server, and costs them the one
+    credential that was working. The portal was corrected for exactly this; the
+    studio is the larger of the two sign-in surfaces and answers the same
+    server, so it has to say the same thing -- asserted here against the
+    portal's own file rather than against a copy of it, so the two cannot
+    drift apart quietly.
+    """
+
+    STATUS_MESSAGES = {
+        "429": "Too many failed sign-in attempts. Wait a few minutes and try again.",
+        "503": "Sign-in is temporarily unavailable. Ask an administrator to check the server.",
+    }
+
+    def test_the_studio_words_a_throttled_sign_in_the_way_the_portal_does(self):
+        app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+        portal_api = (ROOT / "pipeline" / "portal" / "static" / "js" / "api.js").read_text(encoding="utf-8")
+
+        table = _slice(app, "const LOGIN_ERRORS={", "function showLoginError")
+        mapping = dict(re.findall(r"(\d{3}):'([^']*)'", table))
+        for status, message in self.STATUS_MESSAGES.items():
+            self.assertEqual(mapping.get(status), message, f"studio wording for {status}")
+            self.assertIn(
+                f"'{message}'", portal_api,
+                f"the portal's {status} wording moved; the studio's is now a stale copy of it",
+            )
+
+    def test_the_sign_in_form_routes_every_refusal_through_that_table(self):
+        app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
+        html = (DASHBOARD / "index.html").read_text(encoding="utf-8")
+
+        submit = _slice(app, "document.getElementById('login-form').addEventListener", "hideLoginOverlay();")
+        self.assertIn("showLoginError(response.status)", submit)
+        # The old shape -- unhide an element whose text is fixed in the markup
+        # -- is what made every refusal read as a wrong password.
+        self.assertNotIn("login-error').classList.remove('hidden')", submit)
+        self.assertNotIn("Invalid username or password", html)
+
+
 class StudioExportTests(unittest.TestCase):
     """Exports are workbooks, not CSV handed to Excel to guess at."""
 

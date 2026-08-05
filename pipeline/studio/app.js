@@ -311,6 +311,24 @@ function donutHtml(entries, colorOf, centerText, centerSub) {
     document.getElementById('login-error').classList.add('hidden');
   }
 
+  // What a refused sign-in says. The throttle (pipeline/api/login_guard.py)
+  // answers 429, and a database that could not be consulted answers 503;
+  // neither means the password is wrong, and telling a throttled person that it
+  // is sends them off to change a password that was fine -- which does not lift
+  // the block and costs them the one credential they had. Worded exactly as the
+  // portal words it (pipeline/portal/static/js/api.js), because it is the same
+  // server answer and this is the larger of the two sign-in surfaces.
+  const LOGIN_ERRORS={
+    429:'Too many failed sign-in attempts. Wait a few minutes and try again.',
+    503:'Sign-in is temporarily unavailable. Ask an administrator to check the server.',
+  };
+
+  function showLoginError(status) {
+    const error=document.getElementById('login-error');
+    error.textContent=LOGIN_ERRORS[status]||'Invalid username or password.';
+    error.classList.remove('hidden');
+  }
+
   // --- role gating -----------------------------------------------------
   // Comfort only: Postgres RLS/grants are the authority. A manipulated UI
   // can still call the API directly; the server answers with 403 and the
@@ -3392,7 +3410,7 @@ function donutHtml(entries, colorOf, centerText, centerSub) {
       const username=document.getElementById('login-username').value.trim();
       const password=document.getElementById('login-password').value;
       const response=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password})});
-      if(!response.ok){document.getElementById('login-error').classList.remove('hidden');return;}
+      if(!response.ok){showLoginError(response.status);return;}
       hideLoginOverlay();
       await initSession();
       await loadAndRenderAll();

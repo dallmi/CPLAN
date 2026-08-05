@@ -16,7 +16,12 @@
       <input id="login-username" name="username" autocomplete="username" required>
       <label for="login-password">Password</label>
       <input id="login-password" name="password" type="password" autocomplete="current-password" required>
-      <p id="login-error" class="login-error hidden">Invalid username or password.</p>
+      <!-- Filled by showLoginError() in app.js, which is the one place the
+           wording lives: a 429 (throttled) and a 503 (counters unreachable)
+           must not read as a wrong password. Left empty so a hard-coded verdict
+           cannot be shown for an answer that did not mean it; role="alert"
+           announces whichever message it becomes. -->
+      <p id="login-error" class="login-error hidden" role="alert"></p>
       <button type="submit" class="btn primary">Sign in</button>
     </form>
   </div>

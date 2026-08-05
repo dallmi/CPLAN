@@ -22,18 +22,26 @@ storage encoding (`src/common/scram-common.c`):
 
     SCRAM-SHA-256$<iterations>:<b64 salt>$<b64 StoredKey>:<b64 ServerKey>
 
-    SaltedPassword = PBKDF2-HMAC-SHA-256(SASLprep(password), salt, iterations)
+    SaltedPassword = PBKDF2-HMAC-SHA-256(pg_saslprep(password), salt, iterations)
     ClientKey      = HMAC-SHA-256(SaltedPassword, "Client Key")
     StoredKey      = SHA-256(ClientKey)
     ServerKey      = HMAC-SHA-256(SaltedPassword, "Server Key")
 
+`pg_saslprep`, not the RFC's own step order: PostgreSQL's implementation
+(`src/common/saslprep.c`) maps, then checks the *mapped* string for prohibited
+characters and bidirectional violations, and normalises last -- where RFC 3454
+section 2 normalises second and checks third. `saslprep` below reproduces
+PostgreSQL, deliberately, because agreeing with the server is the whole job;
+agreeing with the RFC instead is what locks people out.
+
 Getting any of that wrong fails *silently and totally*: a string PostgreSQL
 cannot parse as a verifier is classified as `PASSWORD_TYPE_PLAINTEXT` and
-hashed as if it were the password, so the account ends up with a password
-nobody knows, no error is raised anywhere, and the first symptom is a person
-who cannot sign in. That is why the tests for this module prove a real sign-in
-end to end and compare byte-for-byte against a verifier the server built
-itself, rather than asserting on the shape of the string.
+hashed as if it were the password, and a verifier built from a differently
+prepared string is perfectly well-formed and simply never matches the password
+its owner types. Either way no error is raised anywhere and the first symptom
+is a person who cannot sign in. That is why the tests for this module prove a
+real sign-in end to end and compare byte-for-byte against a verifier the server
+built itself, rather than asserting on the shape of the string.
 """
 
 from __future__ import annotations
@@ -58,8 +66,12 @@ DEFAULT_ITERATIONS = 4096
 _SALT_BYTES = 16  # what PostgreSQL generates itself (SCRAM_DEFAULT_SALT_LEN)
 _KEY_BYTES = 32  # SHA-256 digest length
 
+# What PostgreSQL's `prohibited_output_ranges` and `unassigned_codepoint_ranges`
+# hold between them, and checked where PostgreSQL checks them: against the
+# *mapped* string, before normalisation.
 _PROHIBITED_TABLES = (
-    stringprep.in_table_c12,  # non-ASCII space (mapped above; a leftover means normalisation produced one)
+    stringprep.in_table_a1,  # unassigned in Unicode 3.2 -- prohibited output for PostgreSQL
+    stringprep.in_table_c12,  # non-ASCII space: already mapped to U+0020, so unreachable, as on the server
     stringprep.in_table_c21_c22,  # control characters, ASCII and non-ASCII
     stringprep.in_table_c3,  # private use
     stringprep.in_table_c4,  # non-character code points
@@ -77,23 +89,55 @@ class _Executor(Protocol):
     def execute(self, statement, /, *args, **kwargs): ...  # pragma: no cover - typing only
 
 
-def _bidi_ok(prepared: str) -> bool:
-    """RFC 3454 section 6: a string with any RandALCat character must have no LCat character and must both start and end with one."""
-    if not any(stringprep.in_table_d1(character) for character in prepared):
+def _bidi_ok(mapped: str) -> bool:
+    """RFC 3454 section 6: a string with any RandALCat character must have no LCat character and must both start and end with one.
+
+    Asked about the *mapped* string, never the normalised one -- PostgreSQL's
+    loop reads `input_chars`, which its NFKC step leaves untouched.
+    """
+    if not any(stringprep.in_table_d1(character) for character in mapped):
         return True
-    if any(stringprep.in_table_d2(character) for character in prepared):
+    if any(stringprep.in_table_d2(character) for character in mapped):
         return False
-    return stringprep.in_table_d1(prepared[0]) and stringprep.in_table_d1(prepared[-1])
+    return stringprep.in_table_d1(mapped[0]) and stringprep.in_table_d1(mapped[-1])
+
+
+def _map_character(character: str) -> str:
+    """RFC 3454 step 1, in the order `pg_saslprep` applies it: C.1.2 before B.1.
+
+    U+200B is in both tables. PostgreSQL tests the space table first, so it
+    becomes a space; testing B.1 first deletes it instead, and the two
+    verifiers that result never match each other.
+    """
+    if stringprep.in_table_c12(character):
+        return " "  # non-ASCII space -> U+0020
+    if stringprep.in_table_b1(character):
+        return ""  # "commonly mapped to nothing"
+    return character
 
 
 def saslprep(password: str) -> str:
-    """RFC 4013 SASLprep, including the fallback PostgreSQL and libpq both make.
+    """`pg_saslprep`, step for step, including the fallback PostgreSQL and libpq both make.
 
     Both ends of a SCRAM exchange prepare the password this way before hashing
     it, so this has to agree with them: a verifier built from a differently
     prepared string is perfectly well-formed and simply never matches what the
     client sends, which is the silent-lockout failure this module's docstring
-    warns about.
+    warns about. Where PostgreSQL and RFC 3454 disagree, PostgreSQL wins here,
+    because PostgreSQL is what the password will be checked against:
+
+    * **Mapping order.** C.1.2 (non-ASCII space) is applied before B.1
+      ("commonly mapped to nothing"), so a character in both -- U+200B -- ends
+      up as a space rather than deleted.
+    * **Check order.** The prohibited-output and bidirectional checks run on
+      the *mapped* string, and NFKC normalisation happens afterwards. RFC 3454
+      section 2 normalises first and checks the normalised string; PostgreSQL's
+      loops read `input_chars`, which normalisation never touches.
+    * **Prohibited output includes A.1**, the code points unassigned in Unicode
+      3.2. RFC 4013 leaves that to the profile's "unassigned" rule; PostgreSQL
+      simply refuses them.
+    * **A mapping that empties the string is prohibited**, so a password made
+      only of soft hyphens falls back to itself instead of hashing "".
 
     The fallback is part of that agreement, not laxness. `pg_saslprep`
     returning anything other than `SASLPREP_SUCCESS` -- invalid UTF-8, a
@@ -103,27 +147,27 @@ def saslprep(password: str) -> str:
     in exactly those cases instead of raising.
 
     Pure-ASCII passwords -- everything the portal generates, and effectively
-    everything an administrator types -- come back unchanged whichever way the
-    logic runs: no mapping table below contains an ASCII character, NFKC is the
-    identity on ASCII, and an ASCII control character is prohibited, which
-    lands on the fallback that returns the input. The interesting paths only
-    ever execute for a password that genuinely carries non-ASCII text.
+    everything an administrator types -- are returned as they came, which is
+    both what PostgreSQL's own `pg_is_ascii` shortcut does and what the steps
+    below would arrive at anyway: no mapping table contains an ASCII character,
+    NFKC is the identity on ASCII, and an ASCII control character is
+    prohibited, which lands on the fallback that returns the input. The
+    interesting paths only ever execute for a password that genuinely carries
+    non-ASCII text.
     """
-    try:
-        mapped = "".join(
-            " " if stringprep.in_table_c12(character) else character
-            for character in password
-            if not stringprep.in_table_b1(character)  # "commonly mapped to nothing"
-        )
-        prepared = unicodedata.normalize("NFKC", mapped)
-        if any(table(character) for character in prepared for table in _PROHIBITED_TABLES):
-            return password
-        if not _bidi_ok(prepared):
-            return password
-        prepared.encode("utf-8")  # unencodable (lone surrogate) is PostgreSQL's invalid-UTF-8 case
-    except (UnicodeError, ValueError):
+    if password.isascii():
         return password
-    return prepared
+    mapped = "".join(_map_character(character) for character in password)
+    if not mapped:
+        return password  # PostgreSQL's "don't allow empty password" exit
+    # C.5 below doubles as PostgreSQL's SASLPREP_INVALID_UTF8 exit: a Python
+    # string fails to encode as UTF-8 exactly when it holds a lone surrogate,
+    # and every lone surrogate is a C.5 code point, so both arrive here.
+    if any(table(character) for character in mapped for table in _PROHIBITED_TABLES):
+        return password
+    if not _bidi_ok(mapped):
+        return password
+    return unicodedata.normalize("NFKC", mapped)
 
 
 def build_verifier(password: str, *, salt: bytes | None = None, iterations: int = DEFAULT_ITERATIONS) -> str:
@@ -137,7 +181,21 @@ def build_verifier(password: str, *, salt: bytes | None = None, iterations: int 
         raise ValueError("iterations must be a positive integer")
     if salt is None:
         salt = secrets.token_bytes(_SALT_BYTES)
-    salted = hashlib.pbkdf2_hmac("sha256", saslprep(password).encode("utf-8"), salt, iterations, dklen=_KEY_BYTES)
+    try:
+        encoded: bytes | None = saslprep(password).encode("utf-8")
+    except UnicodeEncodeError:
+        # A string PostgreSQL would have rejected as invalid UTF-8 -- in Python
+        # that means a lone surrogate, which no client could have sent here in
+        # the first place. `UnicodeEncodeError` carries the *whole* string in
+        # `.object` and quotes the offending character in its message, so it
+        # must not escape this function in any form: not raised, not chained,
+        # not attached as `__context__` (which `raise ... from None` would
+        # still leave in place). Dropping it here and raising below, outside
+        # the handler, is what keeps a password fragment out of the traceback.
+        encoded = None
+    if encoded is None:
+        raise ValueError("password is not encodable as UTF-8")
+    salted = hashlib.pbkdf2_hmac("sha256", encoded, salt, iterations, dklen=_KEY_BYTES)
     client_key = hmac.new(salted, b"Client Key", hashlib.sha256).digest()
     stored_key = hashlib.sha256(client_key).digest()
     server_key = hmac.new(salted, b"Server Key", hashlib.sha256).digest()
