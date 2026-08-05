@@ -154,3 +154,40 @@ def test_an_empty_scope_does_not_crash(tmp_path):
     ws = wb["Data Quality"]
 
     assert ws.cell(row=1, column=1).value is not None
+
+
+# --- the GEB list block, printed only once a membership list is loaded -----
+
+def test_data_quality_reports_unmatched_list_entries(tmp_path):
+    """A typo in the list and a genuine GEB-1 person look identical in the
+    blocks. This number is the only thing that tells them apart.
+    """
+    from pipeline.report.membership import Entry, Membership, normalise_name
+
+    members = Membership(entries=(
+        Entry(email="", name=normalise_name("Example, Ada")),
+        Entry(email="", name=normalise_name("Nobody, Zero")),
+    ))
+    config = ReportConfig(date_from=date(2025, 1, 1), date_to=date(2025, 12, 31))
+    scope = load_fixture_scope(tmp_path, config, membership=members)
+    wb = Workbook()
+    wb.remove(wb.active)
+    build_data_quality(wb, scope, config)
+    ws = wb["Data Quality"]
+    pairs = {ws.cell(row=r, column=1).value: ws.cell(row=r, column=2).value
+             for r in range(1, ws.max_row + 1)}
+
+    assert pairs["GEB list entries never matched"] == 1
+    assert pairs["GEB list entries"] == 2
+
+
+def test_data_quality_omits_the_block_without_a_list(tmp_path):
+    config = ReportConfig(date_from=date(2025, 1, 1), date_to=date(2025, 12, 31))
+    scope = load_fixture_scope(tmp_path, config)
+    wb = Workbook()
+    wb.remove(wb.active)
+    build_data_quality(wb, scope, config)
+    ws = wb["Data Quality"]
+    labels = [ws.cell(row=r, column=1).value for r in range(1, ws.max_row + 1)]
+
+    assert "GEB list entries never matched" not in labels

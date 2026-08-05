@@ -25,7 +25,7 @@ from openpyxl.formatting.rule import DataBarRule
 from openpyxl.utils import get_column_letter
 
 from pipeline.report import regions, style
-from pipeline.report.config import AUDIENCE_BAND_ORDER, EXECUTIVES_SPLIT
+from pipeline.report.config import AUDIENCE_BAND_ORDER, EXECUTIVES_SPLIT, FIELD_TITLES
 from pipeline.report.derive import split_multi, split_people
 
 SHEET_NAME = "Calendar"
@@ -36,17 +36,9 @@ FIRST_DATA_ROW = 3
 
 NOT_SPECIFIED = "Not specified"
 
-FIELD_TITLES = {
-    "business_division": "BUSINESS DIVISION",
-    "region": "REGION",
-    "region_group": "REGION",
-    "country": "COUNTRY",
-    "executives": "GEB/GEB-1",
-    # Present only when a membership list splits the field; the combined
-    # title above is what a run without the list still shows.
-    "executives_geb": "GEB",
-    "executives_geb1": "GEB-1",
-}
+# FIELD_TITLES itself now lives in config.py: `ReportConfig.describe()` needs
+# the same reader-facing names for its "Breakdown dimensions" row, and two
+# copies of this map would only be able to disagree, never help.
 
 # Most blocks read best alphabetically. The region groups do not: they have a
 # natural reading order, and Global -- the largest value in the source -- would

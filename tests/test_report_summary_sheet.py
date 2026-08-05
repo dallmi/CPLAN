@@ -15,6 +15,12 @@ from pipeline.scripts.process_cplan import ActivityLoad
 from tests.report_fixtures import load_fixture_scope
 
 
+def _members(*names):
+    from pipeline.report.membership import Entry, Membership, normalise_name
+    return Membership(entries=tuple(
+        Entry(email="", name=normalise_name(n)) for n in names))
+
+
 def _build(tmp_path, builder):
     config = ReportConfig(date_from=date(2025, 1, 1), date_to=date(2025, 12, 31))
     scope = load_fixture_scope(tmp_path, config)
@@ -35,6 +41,33 @@ def test_the_summary_states_the_applied_criteria(tmp_path):
 
     assert pairs["Period"] == "2025-01-01 to 2025-12-31"
     assert pairs["GEB/GEB-1"] == "any"
+
+
+def test_the_summary_shows_readable_breakdown_dimension_names(tmp_path):
+    """`describe()` used to print the raw field identifiers verbatim; a reader
+    would see "executives" rather than "GEB/GEB-1" in the REPORT section.
+    """
+    ws, _ = _build(tmp_path, build_executive_summary)
+    pairs = _pairs(ws)
+
+    assert pairs["Breakdown dimensions"] == "BUSINESS DIVISION, REGION, COUNTRY, GEB/GEB-1"
+
+
+def test_the_summary_shows_readable_breakdown_dimension_names_with_a_membership(tmp_path):
+    """Once a membership splits `executives` into `executives_geb` and
+    `executives_geb1`, `report_calendar` swaps those into `breakdown_fields`
+    -- the raw identifiers must still render as GEB, GEB-1, not themselves.
+    """
+    config = ReportConfig(date_from=date(2025, 1, 1), date_to=date(2025, 12, 31),
+                          breakdown_fields=("business_division", "region_group", "country",
+                                            "executives_geb", "executives_geb1"))
+    scope = load_fixture_scope(tmp_path, config, membership=_members("Example, Ada"))
+    wb = Workbook()
+    wb.remove(wb.active)
+    build_executive_summary(wb, scope, config)
+    pairs = _pairs(wb.worksheets[0])
+
+    assert pairs["Breakdown dimensions"] == "BUSINESS DIVISION, REGION, COUNTRY, GEB, GEB-1"
 
 
 def test_the_summary_names_every_source_file(tmp_path):
@@ -242,3 +275,34 @@ def test_the_volume_block_breaks_the_portfolio_down_by_audience_band(tmp_path):
         assert band in labels, f"the VOLUME block does not list {band!r}"
     assert "Group-wide" not in labels
     assert "Single division" not in labels
+
+
+# --- the GEB share, printed only once a membership list makes it legible ----
+
+def test_the_summary_adds_a_geb_share_when_a_list_is_present(tmp_path):
+    config = ReportConfig(date_from=date(2025, 1, 1), date_to=date(2025, 12, 31))
+    scope = load_fixture_scope(tmp_path, config, membership=_members("Example, Ada"))
+    wb = Workbook()
+    wb.remove(wb.active)
+    build_executive_summary(wb, scope, config)
+    labels = [str(wb.worksheets[0].cell(row=r, column=1).value)
+              for r in range(1, wb.worksheets[0].max_row + 1)]
+
+    assert any("With GEB involvement" in label for label in labels)
+    assert any("With GEB/GEB-1 involvement" in label for label in labels)
+
+
+def test_the_summary_omits_the_geb_share_without_a_list(tmp_path):
+    ws, _ = _build(tmp_path, build_executive_summary)
+    labels = [str(ws.cell(row=r, column=1).value) for r in range(1, ws.max_row + 1)]
+
+    assert not any("With GEB involvement" in label for label in labels)
+
+
+def test_the_glossary_defines_both_levels_only_with_a_list(tmp_path):
+    ws, _ = _build(tmp_path, build_glossary)
+    terms = {term for term, _ in _glossary_entries(ws)}
+
+    assert "GEB/GEB-1" in terms
+    assert "GEB" not in terms
+    assert "GEB-1" not in terms

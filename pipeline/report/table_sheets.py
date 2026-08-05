@@ -91,6 +91,12 @@ def build_executive_summary(wb, scope, config):
     executives = int(frame["has_executives"].sum()) if len(frame) else 0
     _write_share_row(ws, row, total_row, "With GEB/GEB-1 involvement", executives, sub=False)
     row += 1
+    if scope.membership is not None:
+        # Indented under the combined figure: it is a part of it, not a
+        # second independent measure.
+        geb = int((frame["executives_geb"] != "").sum()) if len(frame) else 0
+        _write_share_row(ws, row, total_row, "With GEB involvement", geb, sub=True)
+        row += 1
     large = int(frame["audience_band"].isin(LARGE_AUDIENCE_BANDS).sum()) if len(frame) else 0
     _write_share_row(ws, row, total_row, "Large audience (top two bands)", large,
                      sub=False)
@@ -182,7 +188,16 @@ def build_data_quality(wb, scope, config):
                                           metrics.anomalies(frame, scope.duplicates_removed)])
     row += 1
 
-    _write_unmapped_regions(ws, row, frame)
+    row = _write_unmapped_regions(ws, row, frame)
+
+    if scope.membership is not None:
+        row = style.write_section_header(ws, row, "GEB LIST", 4)
+        row = style.write_header_row(ws, row, ["Measure", "Count", "", ""])
+        row = style.write_data_rows(ws, row, [
+            ["GEB list entries", len(scope.membership)],
+            ["GEB list entries never matched", scope.unmatched_members],
+        ])
+        row += 1
 
     style.finalize_sheet(ws, freeze="A2", widths={"A": 40, "B": 14, "C": 14, "D": 14})
 
@@ -436,6 +451,37 @@ GLOSSARY_SECTIONS = (
 )
 
 
+# Added to MEASURES only when a membership list is in play -- defining terms
+# the workbook never prints would be its own small lie.
+GEB_SPLIT_TERMS = (
+    ("GEB", "A person named on the GEB list. Everyone else in the field is "
+            "GEB-1."),
+    ("GEB-1", "Named in the leadership field but not on the GEB list."),
+)
+
+
+def _glossary_sections(scope):
+    """The Glossary's sections, with the level terms present only when a
+    membership list is in play.
+
+    Assembled rather than branched at the write site so the section order,
+    the widths and the wrapping stay in one place.
+    """
+    if scope.membership is None:
+        return GLOSSARY_SECTIONS
+    sections = []
+    for title, terms in GLOSSARY_SECTIONS:
+        if title == "MEASURES":
+            expanded = []
+            for entry in terms:
+                expanded.append(entry)
+                if entry[0] == "GEB/GEB-1":
+                    expanded.extend(GEB_SPLIT_TERMS)
+            terms = tuple(expanded)
+        sections.append((title, terms))
+    return tuple(sections)
+
+
 # A quarter carrying fewer grid weeks than this is a stub, not a quarter the Δ
 # column can honestly be measured against. Four weeks is roughly a month --
 # short, but enough that a difference against it means something.
@@ -656,7 +702,7 @@ def build_glossary(wb, scope, config):
     ws = wb.create_sheet("Glossary")
     ws.sheet_view.showGridLines = False
     row = 1
-    for title, terms in GLOSSARY_SECTIONS:
+    for title, terms in _glossary_sections(scope):
         row = style.write_section_header(ws, row, title, 2)
         for term, definition in terms:
             style.write_kpi_row(ws, row, term, None)

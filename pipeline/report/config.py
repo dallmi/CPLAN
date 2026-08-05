@@ -43,6 +43,23 @@ EXECUTIVES_CHOICES = frozenset({"any", "with", "without"})
 # silently mislabel a header rather than crash.
 EXECUTIVES_SPLIT = ("executives_geb", "executives_geb1")
 
+# Reader-facing names for the fields a breakdown or crosstab can group by.
+# `calendar_sheet` uses this for its block titles ("BY <TITLE>") and
+# `ReportConfig.describe()` uses it for the Executive Summary's "Breakdown
+# dimensions" row -- one map, so a field's display name cannot drift between
+# the two the way two hardcoded copies did before.
+FIELD_TITLES = {
+    "business_division": "BUSINESS DIVISION",
+    "region": "REGION",
+    "region_group": "REGION",
+    "country": "COUNTRY",
+    "executives": "GEB/GEB-1",
+    # Present only when a membership list splits the field; the combined
+    # title above is what a run without the list still shows.
+    "executives_geb": "GEB",
+    "executives_geb1": "GEB-1",
+}
+
 SHORT_NOTICE_DAYS = 7
 
 
@@ -168,5 +185,6 @@ class ReportConfig:
              if self.exclude_priorities else "none"),
             ("Archived activities", "included" if self.include_archived else "excluded"),
             ("Activity detail rows", "on" if self.detail_rows else "off"),
-            ("Breakdown dimensions", ", ".join(self.breakdown_fields)),
+            ("Breakdown dimensions", ", ".join(
+                FIELD_TITLES.get(field, field.upper()) for field in self.breakdown_fields)),
         ]

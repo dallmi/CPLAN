@@ -161,8 +161,8 @@ def write_activity_csvs(directory):
     return files
 
 
-def load_fixture_scope(directory, config):
+def load_fixture_scope(directory, config, membership=None):
     from pipeline.report.data import build_scope
     from pipeline.scripts.process_cplan import load_activities
 
-    return build_scope(load_activities(write_activity_csvs(directory)), config)
+    return build_scope(load_activities(write_activity_csvs(directory)), config, membership)
