@@ -170,12 +170,25 @@ def create_portal_app(database_url: str | URL | None = None, auth_settings: Auth
     def projects(session: Session = Depends(db_session)):
         rows = session.execute(
             text(
-                "SELECT slug, name, url FROM portal.projects p "
+                "SELECT p.slug, p.name, p.url, "
+                f"  {PROJECT_ROLE} AS role "
+                "FROM portal.projects p "
                 f"WHERE {PROJECT_VISIBLE} "
-                "ORDER BY name"
+                "ORDER BY p.name"
             )
         ).all()
-        return {"projects": [{"slug": r.slug, "name": r.name, "url": r.url} for r in rows]}
+        return {
+            "projects": [
+                {
+                    "slug": r.slug,
+                    "name": r.name,
+                    "url": r.url,
+                    "purpose": load_manifest(r.slug, root=PROJECTS_ROOT).get("purpose"),
+                    "role": r.role,
+                }
+                for r in rows
+            ]
+        }
 
     PROJECT_SQL = text(
         "SELECT p.slug, p.name, p.url, p.role_prefix, "

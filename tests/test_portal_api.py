@@ -64,6 +64,20 @@ def test_projects_tiles_reflect_membership(portal):
         assert "cplan" in slugs  # both hold a cplan group role
 
 
+def test_projects_endpoint_returns_purpose_and_callers_role(portal):
+    client = login(portal, "pa_admin")
+    body = client.get("/api/portal/projects").json()
+    cplan = next(p for p in body["projects"] if p["slug"] == "cplan")
+    assert cplan["role"] == "admin"
+    assert cplan["purpose"]
+
+    viewer = login(portal, "pa_viewer")
+    cplan_as_viewer = next(
+        p for p in viewer.get("/api/portal/projects").json()["projects"] if p["slug"] == "cplan"
+    )
+    assert cplan_as_viewer["role"] == "viewer"
+
+
 def test_only_admin_lists_users(portal):
     assert login(portal, "pa_admin").get("/api/portal/users").status_code == 200
     assert login(portal, "pa_viewer").get("/api/portal/users").status_code == 403
