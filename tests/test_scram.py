@@ -32,13 +32,16 @@ from pipeline.api.app import Base
 from pipeline.api.auth import AuthSettings, CredentialCheck, check_credentials
 from pipeline.api.database import create_cplan_engine
 from pipeline.api.scram import DEFAULT_ITERATIONS, VERIFIER_PREFIX, build_verifier, saslprep, verifier_for
-from pipeline.api.setup_portal import apply_portal
+from pipeline.api.setup_portal import CREATE_USER_SIGNATURE, RESET_PASSWORD_SIGNATURE, apply_portal
 from pipeline.api.setup_roles import apply_roles, create_user
-from pipeline.portal.app import create_portal_app
+from pipeline.portal import app as portal_module
+from pipeline.portal.app import MAX_PASSWORD_LENGTH, create_portal_app
 from tests.conftest import postgres_required, postgres_test_database, scram_literal
 
 ADMIN = "sc_admin"
 ADMIN_PW = "pw-sc-admin"
+VIEWER = "sc_outsider"
+VIEWER_PW = "pw-sc-outsider"
 
 # Every one of these is fed to PostgreSQL and to `build_verifier`, and the two
 # answers must be identical. They are chosen for the SASLprep steps they
@@ -65,6 +68,7 @@ def portal(tmp_path_factory):
     apply_roles(engine)
     apply_portal(engine)
     create_user(engine, ADMIN, ADMIN_PW, "admin")
+    create_user(engine, VIEWER, VIEWER_PW, "viewer")
     engine.dispose()
     app = create_portal_app(url, auth_settings=AuthSettings(secret="scram-secret"))
     with TestClient(app):
@@ -73,8 +77,12 @@ def portal(tmp_path_factory):
 
 
 def admin_client(app) -> TestClient:
+    return signed_in(app, ADMIN, ADMIN_PW)
+
+
+def signed_in(app, username: str, password: str) -> TestClient:
     client = TestClient(app)
-    response = client.post("/api/login", json={"username": ADMIN, "password": ADMIN_PW})
+    response = client.post("/api/login", json={"username": username, "password": password})
     assert response.status_code == 200, response.text
     return client
 
@@ -316,3 +324,110 @@ def test_a_refused_cleartext_reset_leaves_the_existing_password_working(portal):
     assert stored_secret(app.state.engine, "sc_untouched") == before
     assert check_credentials(url, "sc_untouched", "pw-untouched") is CredentialCheck.ACCEPTED
     assert check_credentials(url, "sc_untouched", "pw-cleartext") is CredentialCheck.REJECTED
+
+
+# --- hashing is bounded work, done only for a caller entitled to it -------------
+#
+# Hashing runs in the request handler, before the statement Postgres would
+# refuse. SASLprep (pipeline/api/scram.py) is a per-character Python loop over
+# nine `stringprep` predicates and holds the GIL for its whole run, so its cost
+# is linear in the length of the submitted password and is paid on the one
+# process that also serves /api/login and every page. Unbounded, and reachable
+# before the authorization check, that is a signed-in viewer's denial of
+# service against the administrators. Two independent things stop it, and each
+# of the tests below pins one of them.
+
+
+def _count_hashes(monkeypatch) -> list[str]:
+    """Record every password `verifier_for` is asked to hash, and hash nothing.
+
+    Counting calls is the assertion that matters: "was refused" and "was
+    refused *before the work*" look identical from the outside, and it is the
+    ordering that this whole section is about.
+    """
+    hashed: list[str] = []
+
+    def record(executor, password: str) -> str:
+        hashed.append(password)
+        return build_verifier("stand-in-not-the-real-password")
+
+    monkeypatch.setattr(portal_module, "verifier_for", record)
+    return hashed
+
+
+@postgres_required
+@pytest.mark.parametrize(
+    "method,path,payload",
+    [
+        ("create", "/api/portal/users", {"username": "sc_nope", "project": "cplan", "role": "viewer"}),
+        ("reset", f"/api/portal/users/{ADMIN}/password", {}),
+    ],
+)
+def test_a_non_admin_is_refused_before_their_password_is_hashed(portal, monkeypatch, method, path, payload):
+    """The ordering fix. A viewer holds no EXECUTE on either function, so both
+    calls end in 403 either way -- what is asserted here is that no hashing was
+    done on the way to that 403."""
+    app, _ = portal
+    hashed = _count_hashes(monkeypatch)
+    response = signed_in(app, VIEWER, VIEWER_PW).post(path, json={**payload, "password": "pw-attacker"})
+    assert response.status_code == 403, response.text
+    assert response.json()["detail"]["code"] == "forbidden"
+    assert hashed == [], f"hashed {len(hashed)} password(s) for a caller that was going to be refused"
+
+
+@postgres_required
+def test_the_privilege_precheck_agrees_with_the_execute_check_it_stands_in_for(portal):
+    """`has_function_privilege` is asked instead of waiting for 42501, so the
+    two must answer the same thing -- including about the *signature that
+    actually exists*, which is why both read setup_portal's own constant. A
+    typo'd signature raises 42883 rather than answering False, and would turn
+    every reset into a 500."""
+    app, _ = portal
+    with app.state.engine.connect() as connection:
+        for signature in (CREATE_USER_SIGNATURE, RESET_PASSWORD_SIGNATURE):
+            for role, expected in ((ADMIN, True), (VIEWER, False)):
+                connection.exec_driver_sql(f'SET ROLE "{role}"')
+                granted = connection.execute(
+                    text("SELECT has_function_privilege(CAST(:signature AS text), 'EXECUTE')"),
+                    {"signature": signature},
+                ).scalar()
+                connection.exec_driver_sql("RESET ROLE")
+                assert granted is expected, f"{role} on {signature}"
+
+
+@postgres_required
+@pytest.mark.parametrize(
+    "path,payload",
+    [
+        ("/api/portal/users", {"username": "sc_toolong", "project": "cplan", "role": "viewer"}),
+        (f"/api/portal/users/{ADMIN}/password", {}),
+    ],
+)
+def test_an_oversized_password_is_rejected_before_it_is_hashed(portal, monkeypatch, path, payload):
+    """The bound. This one is asserted for an *admin* on purpose: the length
+    limit is not an authorization rule, it is what stops the request body from
+    deciding how much CPU the process spends, so it has to hold for the caller
+    who is allowed in as much as for the one who is not. Being a Pydantic
+    constraint, it is enforced during request validation -- the endpoint body
+    never runs, so nothing is hashed."""
+    app, _ = portal
+    hashed = _count_hashes(monkeypatch)
+    response = admin_client(app).post(path, json={**payload, "password": "x" * (MAX_PASSWORD_LENGTH + 1)})
+    assert response.status_code == 422, response.text
+    assert hashed == []
+
+
+@postgres_required
+def test_a_password_at_the_limit_still_creates_an_account_that_signs_in(portal):
+    """The bound has to be a limit on abuse and not on passwords: the longest
+    accepted password must still work end to end, or this would have traded a
+    denial of service for a lockout."""
+    app, url = portal
+    password = "sc-long-" + "p" * (MAX_PASSWORD_LENGTH - len("sc-long-"))
+    assert len(password) == MAX_PASSWORD_LENGTH
+    created = admin_client(app).post(
+        "/api/portal/users",
+        json={"username": "sc_maxlen", "password": password, "project": "cplan", "role": "viewer"},
+    )
+    assert created.status_code == 201, created.text
+    assert check_credentials(url, "sc_maxlen", password) is CredentialCheck.ACCEPTED

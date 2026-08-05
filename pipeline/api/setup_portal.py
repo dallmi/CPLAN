@@ -575,11 +575,21 @@ _LOGIN_GUARD_FUNCTIONS = (
     (LOGIN_GUARD_ENTRY_POINT, _BEGIN_LOGIN_ATTEMPT_FN),
 )
 
+# The two functions that take a verifier, named here rather than only inside
+# _FUNCTIONS because a second module needs the exact signatures: the portal
+# asks Postgres whether the caller may EXECUTE them *before* it spends any
+# time hashing a password (pipeline/portal/app.py). A signature that drifted
+# from the one actually created would make that question be about a function
+# that does not exist, which raises 42883 rather than answering -- so the two
+# uses read the same constant.
+CREATE_USER_SIGNATURE = "portal.create_user(text, text, text, text)"
+RESET_PASSWORD_SIGNATURE = "portal.reset_password(text, text)"
+
 _FUNCTIONS = (
-    ("portal.create_user(text, text, text, text)", _CREATE_USER_FN),
+    (CREATE_USER_SIGNATURE, _CREATE_USER_FN),
     ("portal.set_project_role(text, text, text)", _SET_ROLE_FN),
     ("portal.revoke_project_role(text, text)", _REVOKE_ROLE_FN),
-    ("portal.reset_password(text, text)", _RESET_PW_FN),
+    (RESET_PASSWORD_SIGNATURE, _RESET_PW_FN),
     ("portal.set_active(text, boolean, text)", _SET_ACTIVE_FN),
     ("portal.set_display_name(text, text)", _SET_DISPLAY_NAME_FN),
 )
@@ -599,10 +609,7 @@ _LEGACY_SIGNATURES = ("portal.set_active(text, boolean)",)
 # inside apply_portal's single transaction, so a concurrent session either
 # sees the old function or the new one, never a missing one, and a failure
 # partway through leaves the database exactly as it was.
-_RENAMED_PARAMETER_SIGNATURES = (
-    "portal.create_user(text, text, text, text)",
-    "portal.reset_password(text, text)",
-)
+_RENAMED_PARAMETER_SIGNATURES = (CREATE_USER_SIGNATURE, RESET_PASSWORD_SIGNATURE)
 
 
 def _existing_group_roles(connection: Connection, role_prefix: str) -> list[str]:

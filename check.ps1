@@ -42,6 +42,26 @@ $manifest = @(
     @{ Path = "pipeline\portal\app.py";        Marker = "too_many_attempts";                 Why = "the portal's login is throttled" },
     @{ Path = "pipeline\scripts\start_cplan.py";  Marker = "proxy_headers";                  Why = "studio refuses to start without the throttle, and never trusts X-Forwarded-For" },
     @{ Path = "pipeline\scripts\start_portal.py"; Marker = "proxy_headers";                  Why = "portal refuses to start without the throttle, and never trusts X-Forwarded-For" },
+    # Passwords are hashed before they reach a SQL statement, so that the
+    # cleartext can never be written to the server log. These four ship
+    # together, and each half-copied combination breaks something different:
+    #   - scram.py missing: setup_roles and the portal both import it at module
+    #     scope, so setup.cmd's role step and start.cmd both die with
+    #     ModuleNotFoundError - and setup.ps1 reports that as "is the database
+    #     reachable?", which sends the operator to the wrong place entirely.
+    #   - new setup_portal.py, old portal\app.py: the portal starts and serves
+    #     normally, but its create_user/reset_password calls still send
+    #     cleartext, which the new functions refuse - so every Invite and every
+    #     Reset password answers 422 forever, an admin can create no accounts,
+    #     and a locked-out user cannot be given a new password.
+    #   - new portal\app.py, old setup_portal.py: the old functions take the
+    #     verifier for a password and hash it again, and the account is created
+    #     with a password nobody knows, silently and with no error anywhere.
+    # None of that is visible from the outside, so it must be caught here.
+    @{ Path = "pipeline\api\scram.py";         Marker = "def verifier_for";                  Why = "the SCRAM verifier builder - a NEW file; without it neither setup_roles nor the portal can even be imported" },
+    @{ Path = "pipeline\api\setup_portal.py";  Marker = "p_verifier";                        Why = "create_user/reset_password refuse cleartext; re-run setup.cmd after copying this one" },
+    @{ Path = "pipeline\portal\app.py";        Marker = "verifier_for";                      Why = "the portal hashes before it sends - an older copy sends cleartext and every Invite/Reset answers 422" },
+    @{ Path = "pipeline\api\setup_roles.py";   Marker = "_verifier_literal";                 Why = "the --create-user/--reset-password CLI hashes too - otherwise the bootstrap admin's password lands in the log" },
     # static\app.js was split into static\js\*.js; the entry pointed at the old
     # path and so reported MISSING on every run, which trains an operator to
     # read a red result as normal -- exactly the habit the entries above rely

@@ -34,6 +34,7 @@ from pipeline.api.database import backend_from_url, create_cplan_engine
 from pipeline.api.login_guard import LoginGuard, client_source
 from pipeline.api.scram import verifier_for
 from pipeline.api.session import CurrentUser, build_session_dependencies
+from pipeline.api.setup_portal import CREATE_USER_SIGNATURE, RESET_PASSWORD_SIGNATURE
 from pipeline.portal.resolvers import RESOLVERS
 from pipeline.portal.resources import PROJECTS_ROOT, load_manifest, manifest_path, resolve_tiles
 
@@ -70,8 +71,35 @@ PROJECT_ROLE = (
 )
 
 
+# How long a password the two password-setting endpoints will look at.
+#
+# Not a policy about passwords -- it is what stops a request body from deciding
+# how much CPU this process spends. Those endpoints hash before the statement
+# is sent, and SASLprep (pipeline/api/scram.py) is a per-character
+# Python loop over nine `stringprep` predicates that holds the GIL throughout,
+# so its cost is linear in the length of the body and is paid on the event
+# loop's threadpool: a multi-megabyte password costs seconds of CPU, and
+# enough of them in flight stop the single-worker process (pipeline/scripts/
+# start_portal.py) answering anything at all, sign-ins included. Nothing else
+# in the stack bounds it -- uvicorn caps no request body, and `username` (63)
+# and `display_name` (200) beside it were the only fields that carried a limit.
+#
+# As a Pydantic constraint this is enforced during request validation, before
+# the endpoint body runs, so an oversized password is a 422 that never reaches
+# `verifier_for`. It is comfortably above anything the portal itself generates
+# (ui.js builds a four-word passphrase) or an administrator types, and PBKDF2
+# over 512 characters costs the same as over eight -- the input is hashed to a
+# fixed-size block first -- so the limit costs no strength.
+MAX_PASSWORD_LENGTH = 512
+
+
 class LoginPayload(BaseModel):
     username: str = Field(min_length=1, max_length=63)
+    # Deliberately unbounded, unlike the two below: login does not hash
+    # anything here (pipeline/api/auth.py hands the password to libpq, which
+    # prepares it in C and off the GIL, and only after the throttle has
+    # admitted the attempt), and a limit here would lock out an account whose
+    # password was set by the `setup_roles` CLI, which has no limit either.
     password: str
 
 
@@ -85,7 +113,7 @@ class CreateUserPayload(BaseModel):
     # this is the enforcement that actually matters: the API is not relying
     # on the browser.
     username: str = Field(min_length=1, max_length=63, pattern=r"^[A-Za-z0-9._-]+$")
-    password: str = Field(min_length=1)
+    password: str = Field(min_length=1, max_length=MAX_PASSWORD_LENGTH)
     project: str = Field(min_length=1)
     role: str = Field(min_length=1)
     display_name: str | None = Field(default=None, max_length=200)
@@ -105,7 +133,7 @@ class RevokePayload(BaseModel):
 
 
 class PasswordPayload(BaseModel):
-    password: str = Field(min_length=1)
+    password: str = Field(min_length=1, max_length=MAX_PASSWORD_LENGTH)
 
 
 class ActivePayload(BaseModel):
@@ -418,6 +446,34 @@ def create_portal_app(
         """Invoke a single portal.* SECURITY DEFINER function. See `_call_many`."""
         _call_many(session, [(sql, params)])
 
+    def _require_execute(session: Session, signature: str) -> None:
+        """403 now if the caller may not EXECUTE `signature`, rather than after the work.
+
+        Authorization for every endpoint below is Postgres's own EXECUTE check:
+        the portal.* functions are `REVOKE ALL FROM PUBLIC` with EXECUTE granted
+        to cplan_admin alone, so a non-admin's call raises 42501 and the handler
+        above turns that into 403. That check happens when the statement runs --
+        which, for the two endpoints that hash a password, is *after* the
+        hashing. This asks Postgres the same question first, for one catalog
+        lookup, so a caller who is going to be refused is refused before
+        anything costly happens on their behalf.
+
+        `has_function_privilege` is not a second, parallel rule that could drift
+        from the first: it *is* the check EXECUTE performs, asked about the same
+        `current_user` this session has already SET ROLE'd to. And it is not the
+        authority either -- the real check still runs underneath, so a grant
+        revoked in the microseconds between the two still ends in 403, and this
+        being wrong in the permissive direction changes nothing. The signature
+        comes from pipeline/api/setup_portal.py's own constant, so it names the
+        function that module actually creates.
+        """
+        allowed = session.execute(
+            text("SELECT has_function_privilege(CAST(:signature AS text), 'EXECUTE')"),
+            {"signature": signature},
+        ).scalar()
+        if not allowed:
+            raise HTTPException(status_code=403, detail={"code": "forbidden"})
+
     @app.post("/api/portal/users", status_code=status.HTTP_201_CREATED)
     def create_user_endpoint(payload: CreateUserPayload, session: Session = Depends(db_session)):
         # One transaction for both calls: if set_display_name fails, create_user
@@ -429,6 +485,10 @@ def create_portal_app(
         # what statement logging and audit extensions write to the server log.
         # See pipeline/api/scram.py. This is the last point at which the
         # cleartext exists at all -- past it, only the verifier travels.
+        #
+        # Authorization first, hashing second -- see `_require_execute`, and
+        # `MAX_PASSWORD_LENGTH` for the bound on what can be hashed at all.
+        _require_execute(session, CREATE_USER_SIGNATURE)
         statements = [
             (
                 "SELECT portal.create_user(:n, :v, :proj, :r)",
@@ -461,7 +521,10 @@ def create_portal_app(
     def set_password_endpoint(username: str, payload: PasswordPayload, session: Session = Depends(db_session)):
         # Hashed here for the same reason as create_user above: what reaches
         # the server, and any log it writes, is the verifier and never the
-        # password (pipeline/api/scram.py).
+        # password (pipeline/api/scram.py). And refused first if the caller may
+        # not reset passwords at all, so the hashing is work done only for
+        # someone entitled to it.
+        _require_execute(session, RESET_PASSWORD_SIGNATURE)
         _call(
             session,
             "SELECT portal.reset_password(:n, :v)",
