@@ -13,6 +13,7 @@ import pandas as pd
 
 from pipeline.report import derive, regions
 from pipeline.report.config import BAND_UNKNOWN
+from pipeline.report.derive import PERSON_SEPARATOR, person_name, split_people, split_people_aligned
 from pipeline.report.grid import build_grid
 
 # The fields the studio requires, from analytics.js. Any of them the export did
@@ -46,6 +47,10 @@ class Scope:
     completeness_fields: list = field(default_factory=list)
     skipped_completeness_fields: list = field(default_factory=list)
     duplicates_removed: int = 0
+    # None when no membership list was supplied -- the state every machine
+    # without the file is in, and the one that must render today's workbook.
+    membership: object = None
+    unmatched_members: int = 0
 
 
 def _is_blank(series):
@@ -68,6 +73,22 @@ def _column(frame, name, default=""):
     if column is None:
         return pd.Series([default] * len(frame), index=frame.index)
     return column
+
+
+def _people_with_emails(row):
+    """(display name, email) for each person in `bod_geb`, in source order.
+
+    The email column is written one slot per person by the ETL. Where the two
+    counts disagree -- a hand-edited export, a mixed rich-text and person-picker
+    history -- no alignment can be trusted, so every email is dropped and the
+    names carry the match alone. Silently guessing an offset would attribute
+    one person's address to another.
+    """
+    names = [person_name(part) for part in split_people(row.get("bod_geb"))]
+    emails = split_people_aligned(row.get("bod_geb_email"))
+    if len(emails) != len(names):
+        emails = [""] * len(names)
+    return list(zip(names, emails))
 
 
 def _completeness(frame, fields):
@@ -102,7 +123,7 @@ def _resolve_window(days, config):
     return first or last, last or first
 
 
-def build_scope(load, config):
+def build_scope(load, config, membership=None):
     frame = load.frame
     rows_read = len(frame)
     excluded = {key: 0 for key in EXCLUSION_ORDER}
@@ -115,7 +136,8 @@ def build_scope(load, config):
         return Scope(frame=frame, grid=build_grid(*_resolve_window([], config)),
                      rows_read=0, excluded=excluded,
                      source_files=source_files,
-                     duplicates_removed=load.duplicates_removed)
+                     duplicates_removed=load.duplicates_removed,
+                     membership=membership)
 
     frame = frame.copy()
     # pandas 3: `.dt.date` on a column that is entirely NaT returns dtype
@@ -175,6 +197,22 @@ def build_scope(load, config):
         drop(~frame["has_executives"], "GEB/GEB-1")
     elif config.executives == "without":
         drop(frame["has_executives"], "GEB/GEB-1")
+
+    # The GEB / GEB-1 split, when a membership list was supplied. Derived from
+    # the same normalised names the blocks render, so a person cannot appear in
+    # a block under one spelling and be matched under another.
+    unmatched = 0
+    if membership is not None:
+        pairs = frame.apply(
+            lambda row: _people_with_emails(row), axis=1)
+        frame["executives_geb"] = pairs.apply(
+            lambda people: PERSON_SEPARATOR.join(
+                name for name, email in people if membership.is_member(name, email)))
+        frame["executives_geb1"] = pairs.apply(
+            lambda people: PERSON_SEPARATOR.join(
+                name for name, email in people if not membership.is_member(name, email)))
+        seen = [pair for people in pairs for pair in people]
+        unmatched = membership.unmatched(seen)
 
     # `audience` now carries the source's "Estimated audience size", which is
     # what it was always meant to hold; the source's own "Audience" column is a
@@ -244,4 +282,6 @@ def build_scope(load, config):
         completeness_fields=sorted(set(internal_fields) | set(external_fields)),
         skipped_completeness_fields=skipped,
         duplicates_removed=load.duplicates_removed,
+        membership=membership,
+        unmatched_members=unmatched,
     )

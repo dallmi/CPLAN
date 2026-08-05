@@ -441,3 +441,129 @@ def test_an_open_period_with_no_dated_rows_still_produces_an_axis():
 
     assert scope.frame.empty
     assert scope.grid.weeks          # a column-less sheet would be unopenable
+
+
+from pipeline.report.membership import Membership, Entry
+
+
+def _members(*pairs):
+    """A Membership from (email, name) pairs, already normalised by Entry."""
+    from pipeline.report.membership import normalise_email, normalise_name
+    return Membership(entries=tuple(
+        Entry(email=normalise_email(e), name=normalise_name(n)) for e, n in pairs))
+
+
+def _leadership_row(bod_geb, bod_geb_email=""):
+    return {
+        "tracking_id": "A", "activity_name": "A",
+        "start_date": pd.Timestamp("2025-03-05"),
+        "bod_geb": bod_geb, "bod_geb_email": bod_geb_email,
+    }
+
+
+def test_without_a_membership_the_split_columns_are_absent():
+    """Every machine without the list gets today's workbook, unchanged."""
+    frame = pd.DataFrame([_leadership_row("Person, One")])
+
+    scope = build_scope(ActivityLoad(frame, {}, {}), _config())
+
+    assert "executives_geb" not in scope.frame.columns
+    assert "executives_geb1" not in scope.frame.columns
+    assert scope.membership is None
+    assert scope.unmatched_members == 0
+
+
+def test_a_configured_member_lands_in_the_geb_column():
+    frame = pd.DataFrame([_leadership_row("Person, One")])
+    members = _members(("", "Person, One"))
+
+    scope = build_scope(ActivityLoad(frame, {}, {}), _config(), members)
+    row = scope.frame.iloc[0]
+
+    assert row["executives_geb"] == "One Person"
+    assert row["executives_geb1"] == ""
+
+
+def test_anyone_else_in_the_field_lands_in_geb1():
+    frame = pd.DataFrame([_leadership_row("Other, Two")])
+    members = _members(("", "Person, One"))
+
+    scope = build_scope(ActivityLoad(frame, {}, {}), _config(), members)
+    row = scope.frame.iloc[0]
+
+    assert row["executives_geb"] == ""
+    assert row["executives_geb1"] == "Two Other"
+
+
+def test_the_two_columns_partition_the_source_field():
+    """Every person appears in exactly one column, and none is lost."""
+    frame = pd.DataFrame([_leadership_row("Person, One; Other, Two; Third, Three")])
+    members = _members(("", "Person, One"), ("", "Third, Three"))
+
+    scope = build_scope(ActivityLoad(frame, {}, {}), _config(), members)
+    row = scope.frame.iloc[0]
+
+    assert row["executives_geb"] == "One Person; Three Third"
+    assert row["executives_geb1"] == "Two Other"
+    assert row["executives"] == "One Person; Two Other; Three Third"
+
+
+def test_an_email_identifies_a_member_whose_name_differs():
+    frame = pd.DataFrame([
+        _leadership_row("Married, Anna", "anna@example.invalid")])
+    members = _members(("anna@example.invalid", "Maiden, Anna"))
+
+    scope = build_scope(ActivityLoad(frame, {}, {}), _config(), members)
+
+    assert scope.frame.iloc[0]["executives_geb"] == "Anna Married"
+
+
+def test_emails_pair_positionally_with_names():
+    frame = pd.DataFrame([
+        _leadership_row("A, One; B, Two", "a@example.invalid; b@example.invalid")])
+    members = _members(("b@example.invalid", ""))
+
+    scope = build_scope(ActivityLoad(frame, {}, {}), _config(), members)
+    row = scope.frame.iloc[0]
+
+    assert row["executives_geb"] == "Two B"
+    assert row["executives_geb1"] == "One A"
+
+
+def test_a_mismatched_email_count_falls_back_to_names_only():
+    """Positional pairing is only safe while the counts agree. Where they do
+    not, guessing an alignment would attribute someone else's address.
+    """
+    frame = pd.DataFrame([_leadership_row("A, One; B, Two", "only@example.invalid")])
+    members = _members(("only@example.invalid", ""))
+
+    scope = build_scope(ActivityLoad(frame, {}, {}), _config(), members)
+    row = scope.frame.iloc[0]
+
+    assert row["executives_geb"] == ""
+    assert row["executives_geb1"] == "One A; Two B"
+
+
+def test_unmatched_configuration_entries_are_counted():
+    frame = pd.DataFrame([_leadership_row("Person, One")])
+    members = _members(("", "Person, One"), ("", "Nobody, Zero"))
+
+    scope = build_scope(ActivityLoad(frame, {}, {}), _config(), members)
+
+    assert scope.unmatched_members == 1
+
+
+def test_unmatched_is_counted_over_rows_in_scope():
+    """A member whose only activity was filtered out reads as unmatched, which
+    is the honest answer: this workbook shows nothing of theirs.
+    """
+    frame = pd.DataFrame([
+        _leadership_row("Person, One"),
+        {"tracking_id": "B", "activity_name": "B", "start_date": None,
+         "bod_geb": "Dropped, Two", "bod_geb_email": ""},
+    ])
+    members = _members(("", "Person, One"), ("", "Dropped, Two"))
+
+    scope = build_scope(ActivityLoad(frame, {}, {}), _config(), members)
+
+    assert scope.unmatched_members == 1
