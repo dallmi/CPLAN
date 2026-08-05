@@ -42,6 +42,26 @@ def _labels(ws):
     }
 
 
+def _member_names_under(ws, header_row):
+    """The level-1 labels directly under a block header, stopping at the next.
+
+    The hierarchy lives in `row_dimensions[row].outline_level`, not in the
+    label text -- `_label_cell` sets the outline level and writes the text
+    unindented, while `_detail_label` happens to prefix two spaces of its own.
+    Testing the text would therefore catch detail rows as members.
+    """
+    names = []
+    for row in range(header_row + 1, ws.max_row + 1):
+        value = ws.cell(row=row, column=LABEL_COL).value
+        if value is None:
+            continue
+        if str(value).startswith("BY ") or str(value) == "ALL ACTIVITIES":
+            break
+        if ws.row_dimensions[row].outline_level == 1:
+            names.append(str(value).strip())
+    return names
+
+
 def test_the_header_names_the_axes(tmp_path):
     ws, _ = _sheet(tmp_path)
 
@@ -472,3 +492,77 @@ def test_the_totals_still_reconcile_with_empty_cells_skipped(tmp_path):
                 for band in AUDIENCE_BAND_ORDER if band in labels)
 
     assert total == len(scope.frame)
+
+
+# --- the GEB/GEB-1 split into two blocks --------------------------------------
+
+def _split_sheet(sources, member_names, emails=None):
+    """A calendar over the split columns, built from `bod_geb` and a list."""
+    import pandas as pd
+
+    from pipeline.report.data import build_scope
+    from pipeline.report.membership import Entry, Membership, normalise_name
+    from pipeline.scripts.process_cplan import ActivityLoad
+
+    members = Membership(entries=tuple(
+        Entry(email="", name=normalise_name(n)) for n in member_names))
+    frame = pd.DataFrame({
+        "tracking_id": [f"IC-{i:04d}" for i in range(len(sources))],
+        "activity_name": [f"A{i}" for i in range(len(sources))],
+        "start_date": [pd.Timestamp("2025-03-05")] * len(sources),
+        "bod_geb": list(sources),
+        "bod_geb_email": list(emails or [""] * len(sources)),
+    })
+    config = ReportConfig(
+        date_from=date(2025, 1, 1), date_to=date(2025, 12, 31),
+        breakdown_fields=("executives_geb", "executives_geb1"))
+    scope = build_scope(ActivityLoad(frame, {}, {}), config, members)
+    wb = Workbook()
+    wb.remove(wb.active)
+    build_calendar(wb, scope, config)
+    return wb["Calendar"]
+
+
+def test_the_calendar_carries_a_geb_block_and_a_geb1_block():
+    ws = _split_sheet(["Member, One", "Other, Two"], ["Member, One"])
+    labels = _labels(ws)
+
+    assert "BY GEB — multiple values possible" in labels
+    assert "BY GEB-1 — multiple values possible" in labels
+
+
+def test_a_member_appears_only_under_geb():
+    ws = _split_sheet(["Member, One", "Other, Two"], ["Member, One"])
+    labels = _labels(ws)
+    geb = labels["BY GEB — multiple values possible"]
+    geb1 = labels["BY GEB-1 — multiple values possible"]
+
+    names_under_geb = _member_names_under(ws, geb)
+    names_under_geb1 = _member_names_under(ws, geb1)
+
+    assert "One Member" in names_under_geb
+    assert "One Member" not in names_under_geb1
+    assert "Two Other" in names_under_geb1
+    assert "Two Other" not in names_under_geb
+
+
+def test_the_two_block_headers_sum_to_the_combined_figure():
+    """The split is a partition. Two activities, one member each, means one
+    activity under each header -- never two under both.
+    """
+    ws = _split_sheet(["Member, One", "Other, Two"], ["Member, One"])
+    labels = _labels(ws)
+
+    geb_total = _week_total(ws, labels["BY GEB — multiple values possible"])
+    geb1_total = _week_total(ws, labels["BY GEB-1 — multiple values possible"])
+
+    assert geb_total == 1
+    assert geb1_total == 1
+
+
+def test_an_activity_naming_both_levels_counts_once_in_each_block():
+    ws = _split_sheet(["Member, One; Other, Two"], ["Member, One"])
+    labels = _labels(ws)
+
+    assert _week_total(ws, labels["BY GEB — multiple values possible"]) == 1
+    assert _week_total(ws, labels["BY GEB-1 — multiple values possible"]) == 1

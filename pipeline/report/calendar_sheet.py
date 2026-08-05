@@ -42,6 +42,10 @@ FIELD_TITLES = {
     "region_group": "REGION",
     "country": "COUNTRY",
     "executives": "GEB/GEB-1",
+    # Present only when a membership list splits the field; the combined
+    # title above is what a run without the list still shows.
+    "executives_geb": "GEB",
+    "executives_geb1": "GEB-1",
 }
 
 # Most blocks read best alphabetically. The region groups do not: they have a
@@ -59,7 +63,13 @@ def _sort_key(field, name):
 
 # People fields split on the semicolon only: a display name contains a comma
 # ("Last, First"), so the generic splitter would turn one person into two rows.
-PEOPLE_FIELDS = frozenset({"executives", "senior_executives"})
+PEOPLE_FIELDS = frozenset({
+    "executives", "senior_executives", "executives_geb", "executives_geb1"})
+
+# The two fields a membership list derives from `executives`, and only those:
+# see the breakdown-fields loop in `build_calendar` for why they skip the
+# generic "Not specified" catch-all that every other breakdown field gets.
+SPLIT_FIELDS = frozenset({"executives_geb", "executives_geb1"})
 
 
 def _split_for(field, value):
@@ -359,7 +369,18 @@ def build_calendar(wb, scope, config):
         row += 1
         values = {}
         for _, activity in scope.frame.iterrows():
-            names = _split_for(field, activity.get(field)) or [NOT_SPECIFIED]
+            names = _split_for(field, activity.get(field))
+            if not names:
+                # A split field (see `SPLIT_FIELDS`) has no catch-all bucket of
+                # its own: an activity with nothing on this side of the split
+                # either has something on the other side or has no GEB/GEB-1
+                # people at all, and either way the un-split combined field
+                # already accounts for it as `Not specified` when no
+                # membership is loaded. Giving GEB and GEB-1 each their own
+                # catch-all row would count that activity in both blocks.
+                if field in SPLIT_FIELDS:
+                    continue
+                names = [NOT_SPECIFIED]
             for name in names:
                 values.setdefault(name, []).append(activity.name)
         member_rows = []
@@ -368,18 +389,22 @@ def build_calendar(wb, scope, config):
             member_rows.append(write_value_row(name, subset, level=1, hidden=True))
         # Week/month/quarter cells: the same true, non-overlapping distinct
         # count as ALL ACTIVITIES (an activity tagged with two divisions is
-        # still counted once here). Only the Total column is overwritten with
-        # a literal below -- never a SUM -- because summing the member rows
-        # vertically would double-count activities that appear in more than
-        # one division/region. That literal is derived from the SAME `counts`
-        # dict as the row's own week cells (`sum(counts.values())`), not from
-        # `len(scope.frame)` -- they agree today because every row's
-        # week_index resolves (asserted above), but deriving the Total from
-        # the row's own data keeps that agreement structural rather than
-        # incidental: if the assumption were ever wrong, the header would
-        # still match its own week cells instead of silently disagreeing
-        # with them.
-        counts = _counts(scope.frame, grid)
+        # still counted once here) -- true for any field with a catch-all
+        # bucket, since every activity then lands in some member row and the
+        # union is the whole scope. A split field carries no catch-all, so its
+        # header instead counts only the activities that actually landed in
+        # one of ITS OWN member rows; otherwise the GEB and GEB-1 headers
+        # would each separately claim the whole scope and no longer sum back
+        # to the combined field's own figure. Only the Total column is
+        # overwritten with a literal below -- never a SUM -- because summing
+        # the member rows vertically would double-count activities that
+        # appear in more than one division/region (or, for a split field, in
+        # both GEB and GEB-1). That literal is derived from the SAME `counts`
+        # dict as the row's own week cells (`sum(counts.values())`), keeping
+        # the header structurally in agreement with the cells printed beside
+        # it rather than incidentally so.
+        covered = sorted({idx for indices in values.values() for idx in indices})
+        counts = _counts(scope.frame.loc[covered], grid)
         _write_grid_row(ws, header_row, counts, plan, bold=True)
         _finish_distinct_count_header(ws, header_row, sum(counts.values()))
         if member_rows:

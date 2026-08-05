@@ -190,7 +190,21 @@ def main(argv=None):
         log("ERROR: the input files contain no activities")
         return 1
 
-    scope = build_scope(load, config)
+    membership = None  # Task 7 replaces this with the real load
+
+    # The split columns replace the combined one, never join it: a GEB block
+    # beside a GEB/GEB-1 block would print the same person with the same count
+    # twice, and anyone adding the blocks would double-count the members.
+    if membership is not None:
+        fields = []
+        for field in config.breakdown_fields:
+            if field == "executives":
+                fields.extend(("executives_geb", "executives_geb1"))
+            else:
+                fields.append(field)
+        config = replace(config, breakdown_fields=tuple(fields))
+
+    scope = build_scope(load, config, membership)
     log(f"{len(scope.frame)} of {scope.rows_read} activities in scope")
     for reason, count in scope.excluded.items():
         if count:
