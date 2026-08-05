@@ -167,7 +167,7 @@ def create_portal_app(
         yield
         engine.dispose()
 
-    app = FastAPI(title="CPLAN Portal", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="Insights Portal", version="0.1.0", lifespan=lifespan)
     app.state.engine = engine
     current_user, db_session = build_session_dependencies(engine, auth)
     guard = LoginGuard(engine)

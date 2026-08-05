@@ -507,8 +507,8 @@ _SHELL_PAGE = """<!DOCTYPE html>
   <div class="brand-block">
     <span class="brand-mark"></span>
     <div>
-      <h1>CPLAN Portal</h1>
-      <p>Communication planning</p>
+      <h1>Insights Portal</h1>
+      <p>Data products for corporate communications</p>
     </div>
   </div>
   <div class="top-actions">

@@ -28,7 +28,7 @@
   }
 
   function render(project) {
-    document.title = `${project.name} — CPLAN Portal`;
+    document.title = `${project.name} — Insights Portal`;
     document.getElementById('project-name').textContent = project.name;
     document.getElementById('project-crumb').textContent = project.name;
     document.getElementById('project-purpose').textContent = project.purpose || '';
