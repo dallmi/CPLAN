@@ -456,7 +456,8 @@ GLOSSARY_SECTIONS = (
 GEB_SPLIT_TERMS = (
     ("GEB", "A person named on the GEB list. Everyone else in the field is "
             "GEB-1."),
-    ("GEB-1", "Named in the leadership field but not on the GEB list."),
+    ("GEB-1", "Named in the leadership field but not on the GEB list. An "
+              "activity naming nobody is outside both blocks."),
 )
 
 

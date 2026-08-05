@@ -107,6 +107,24 @@ def test_a_row_with_neither_key_is_an_error(tmp_path):
         load_membership(path)
 
 
+def test_an_unquoted_last_first_name_is_rejected_with_the_row_number(tmp_path):
+    """An operator editing the file in Notepad rather than Excel can write
+    `,Müller, Anna` without quotes. The csv module then reads three fields;
+    DictReader stashes the third under its None restkey, and a silent .get()
+    would truncate the name to "Müller" -- matching nobody, filing a real
+    member under GEB-1, and leaving Data Quality's "never matched" count
+    pointing the operator at the wrong problem. The row must be rejected
+    outright, with the row number and the quoting fix named directly.
+    """
+    path = _write(tmp_path, "email,name\n,Müller, Anna\n")
+
+    with pytest.raises(MembershipError) as excinfo:
+        load_membership(path)
+    message = str(excinfo.value)
+    assert "row 2" in message
+    assert "quote" in message.lower()
+
+
 def test_a_file_without_any_row_is_an_error(tmp_path):
     path = _write(tmp_path, 'email,name\n')
 

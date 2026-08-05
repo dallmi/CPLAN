@@ -17,7 +17,6 @@ from __future__ import annotations
 import csv
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
 from pipeline.report.derive import person_name
 
@@ -91,6 +90,12 @@ class Membership:
         Note what this cannot see: an entry that matches *too much*. Two people
         sharing a display name both match one name-only entry, and nothing in
         the data could separate them. An email on every row removes that risk.
+
+        The mirror case is one person written two different ways -- "Mueller"
+        on one activity, "Müller" on another. Once either spelling matches the
+        entry, the entry counts as matched and this stays 0, while the other
+        spelling is filed under GEB-1 unflagged. Giving the entry an email, or
+        adding the second spelling as its own row, removes it too.
         """
         keys = [(normalise_name(name), normalise_email(email)) for name, email in people]
         return sum(
@@ -130,6 +135,16 @@ def load_membership(path):
             # DictReader yields the first data row as row 2 of the file; naming
             # the file's own line number is what makes the message actionable.
             for offset, raw in enumerate(reader, start=2):
+                # DictReader stashes any field past the header count under the
+                # None key instead of raising. The one way a row grows an extra
+                # field is an unquoted "Last, First" name -- its comma reads as
+                # a column separator -- so a silent .get() here would truncate
+                # the name and file a real member under GEB-1 with no trace.
+                if None in raw:
+                    raise MembershipError(
+                        f"{path}: row {offset} has more fields than the header "
+                        f"-- a \"Last, First\" name likely needs quotes"
+                    )
                 email = normalise_email(_cell(raw, fieldnames, "email"))
                 name = normalise_name(_cell(raw, fieldnames, "name"))
                 if not email and not name:
