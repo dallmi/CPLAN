@@ -47,12 +47,18 @@ document.querySelectorAll('.nav-item').forEach((b) => { b.onclick = () => show(b
 
 document.getElementById('signin-form').addEventListener('submit', async (event) => {
   event.preventDefault();
-  const ok = await signIn(
+  const result = await signIn(
     document.getElementById('si-user').value.trim(),
     document.getElementById('si-pass').value,
   );
-  document.getElementById('si-error').hidden = ok;
-  if (ok) await enterApp(await getSession());
+  const error = document.getElementById('si-error');
+  // The server distinguishes a wrong password (401) from a throttled attempt
+  // (429) and from a limiter it could not consult (503); the form has to say
+  // which, or someone who is simply locked out for a few minutes goes looking
+  // for an administrator to reset a password that was never wrong.
+  if (!result.ok && result.message) error.textContent = result.message;
+  error.hidden = result.ok;
+  if (result.ok) await enterApp(await getSession());
 });
 
 document.getElementById('sign-out').addEventListener('click', async () => {

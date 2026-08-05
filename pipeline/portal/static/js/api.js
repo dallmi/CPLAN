@@ -25,6 +25,16 @@ async function post(url, body, { sessionOn401 = true } = {}) {
     return { ok: false, message: 'Username or password is not correct.' };
   }
   if (response.status === 403) return { ok: false, message: 'You do not have permission.' };
+  // The login throttle (pipeline/api/login_guard.py). Worded identically for
+  // every caller, because the server answers a throttled attempt identically
+  // for every caller -- a message that said anything about the account would
+  // undo the very property the uniform 429 exists to hold.
+  if (response.status === 429) {
+    return { ok: false, message: 'Too many failed sign-in attempts. Wait a few minutes and try again.' };
+  }
+  if (response.status === 503) {
+    return { ok: false, message: 'Sign-in is temporarily unavailable. Ask an administrator to check the server.' };
+  }
   if (response.status === 422) return { ok: false, message: await validationMessage(response) };
   return { ok: false, message: 'The change could not be saved.' };
 }
@@ -54,7 +64,10 @@ export async function getSession() {
 export async function signIn(username, password) {
   // /api/login is the one endpoint where a 401 is a wrong password, not an
   // expired session -- it must not reload the page out from under the user.
-  return (await post('/api/login', { username, password }, { sessionOn401: false })).ok;
+  // Returns {ok, message} rather than a bare boolean: a throttled sign-in
+  // (429) is not a wrong password, and telling a locked-out person to check
+  // their typing sends them to an administrator instead of to the clock.
+  return post('/api/login', { username, password }, { sessionOn401: false });
 }
 
 export async function signOut() {

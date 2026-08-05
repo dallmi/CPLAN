@@ -20,16 +20,18 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.engine import URL
-from sqlalchemy.exc import ProgrammingError
+from sqlalchemy.exc import ProgrammingError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from pipeline.api.auth import (
     AuthSettings,
+    CredentialCheck,
     auth_settings_from_environment,
+    check_credentials,
     create_session_token,
-    verify_credentials,
 )
 from pipeline.api.database import backend_from_url, create_cplan_engine
+from pipeline.api.login_guard import LoginGuard, client_source
 from pipeline.api.session import CurrentUser, build_session_dependencies
 from pipeline.portal.resolvers import RESOLVERS
 from pipeline.portal.resources import PROJECTS_ROOT, load_manifest, manifest_path, resolve_tiles
@@ -109,7 +111,10 @@ class ActivePayload(BaseModel):
     active: bool
 
 
-def create_portal_app(database_url: str | URL | None = None, auth_settings: AuthSettings | None = None) -> FastAPI:
+def create_portal_app(
+    database_url: str | URL | None = None,
+    auth_settings: AuthSettings | None = None,
+) -> FastAPI:
     resolved_url = database_url or os.environ.get("CPLAN_DATABASE_URL")
     if not resolved_url:
         raise RuntimeError("CPLAN database is not configured; set CPLAN_DATABASE_URL")
@@ -136,6 +141,8 @@ def create_portal_app(database_url: str | URL | None = None, auth_settings: Auth
     app = FastAPI(title="CPLAN Portal", version="0.1.0", lifespan=lifespan)
     app.state.engine = engine
     current_user, db_session = build_session_dependencies(engine, auth)
+    guard = LoginGuard(engine)
+    app.state.login_guard = guard
 
     @app.exception_handler(ProgrammingError)
     async def insufficient_privilege_handler(_: Request, exc: ProgrammingError):
@@ -144,9 +151,56 @@ def create_portal_app(database_url: str | URL | None = None, auth_settings: Auth
         raise exc
 
     @app.post("/api/login")
-    def login(payload: LoginPayload, response: Response):
-        if not verify_credentials(resolved_url, payload.username, payload.password):
+    def login(payload: LoginPayload, request: Request, response: Response):
+        # Throttling comes first, and a blocked attempt returns without ever
+        # calling the credential probe: that is what bounds the number of
+        # guesses (rather than merely their reward), and it is also what keeps
+        # a blocked attempt on a real account timed identically to a blocked
+        # attempt on a name that was never a role -- neither one opens a
+        # database connection. See pipeline/api/login_guard.py for the policy
+        # and for why the counters live in Postgres.
+        source = client_source(request)
+        try:
+            admitted = guard.begin_attempt(payload.username, source)
+        except SQLAlchemyError:
+            # Fail closed. The guard is the control, not bookkeeping like
+            # record_sign_in below, so a portal that cannot consult it must
+            # not fall back to an unlimited login endpoint. The realistic
+            # cause is a database that has not run the current apply_portal --
+            # which start_portal.py now refuses to start against, so this is
+            # the second line of defence rather than the first.
+            logger.exception("login throttle unavailable; refusing the attempt")
+            raise HTTPException(status_code=503, detail={"code": "login_unavailable"})
+        if not admitted:
+            # Identical for every caller: same status, same body, same
+            # Retry-After, whether or not the username exists. It says the
+            # attempt was throttled -- which an attacker learns anyway by
+            # counting -- and nothing about who the account belongs to.
+            raise HTTPException(
+                status_code=429,
+                detail={"code": "too_many_attempts"},
+                headers={"Retry-After": str(guard.retry_after_seconds)},
+            )
+        outcome = check_credentials(resolved_url, payload.username, payload.password)
+        if outcome is CredentialCheck.UNAVAILABLE:
+            # The database never answered, so nothing was guessed here: hand
+            # the reservation back rather than spend a real user's budget on
+            # the server's own outage (a pg restart, an exhausted connection
+            # limit), which used to lock the account for fifteen minutes past
+            # recovery. The client is told the same thing the fail-closed
+            # branch above tells it.
+            guard.end_attempt(payload.username, source)
+            logger.warning("credential check unavailable; refusing the attempt")
+            raise HTTPException(status_code=503, detail={"code": "login_unavailable"})
+        if outcome is CredentialCheck.REJECTED:
+            # The reservation stands: this one was a guess.
             raise HTTPException(status_code=401, detail={"code": "invalid_credentials"})
+        # Correct password: give back the one reservation this attempt took, so
+        # signing in normally never eats into the budget. Deliberately only
+        # this attempt's own reservation and not the whole counter -- clearing
+        # it would let anyone watch a name's remaining headroom to learn that
+        # its owner had just signed in, and that the name is an account at all.
+        guard.end_attempt(payload.username, source)
         # Stamped only once credentials are verified -- a wrong password never
         # reaches here, so a failed attempt never masquerades as a sign-in. This
         # runs on the engine, not a request session: the request has no SET

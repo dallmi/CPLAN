@@ -28,9 +28,29 @@ $manifest = @(
     @{ Path = "pipeline\api\session.py";       Marker = "build_session_dependencies";        Why = "shared SET ROLE session module" },
     @{ Path = "pipeline\api\setup_portal.py";  Marker = "not accounts";                      Why = "disable guards + user list hides group roles" },
     @{ Path = "pipeline\portal\app.py";        Marker = "Refusing to start";                 Why = "portal fails closed without auth" },
-    @{ Path = "pipeline\portal\static\app.js"; Marker = 'target="_blank"';                    Why = "tiles open in a new tab; server messages on row actions" },
+    # The failed-sign-in throttle. These files ship together or not at all: the
+    # portal and the studio import login_guard, login_guard needs the counters
+    # setup_portal creates, and both need auth.py's three-way credential probe.
+    # A machine that received some of them and not the others must be reported
+    # as stale, not as "all files current" -- that half-copied state is a
+    # portal that starts, serves its landing page, and then answers every
+    # sign-in with an error.
+    @{ Path = "pipeline\api\login_guard.py";   Marker = "MISSING_GUARD_MESSAGE";             Why = "the shared login rate limit - a NEW file; without it neither server starts" },
+    @{ Path = "pipeline\api\auth.py";          Marker = "CredentialCheck";                   Why = "a database that could not answer is not counted as a password guess" },
+    @{ Path = "pipeline\api\setup_portal.py";  Marker = "begin_login_attempt";               Why = "the login counters + --clear-login-block; re-run setup.cmd after copying this one" },
+    @{ Path = "pipeline\api\app.py";           Marker = "too_many_attempts";                 Why = "the studio's login shares the portal's limit - otherwise it is bypassed by changing the port" },
+    @{ Path = "pipeline\portal\app.py";        Marker = "too_many_attempts";                 Why = "the portal's login is throttled" },
+    @{ Path = "pipeline\scripts\start_cplan.py";  Marker = "proxy_headers";                  Why = "studio refuses to start without the throttle, and never trusts X-Forwarded-For" },
+    @{ Path = "pipeline\scripts\start_portal.py"; Marker = "proxy_headers";                  Why = "portal refuses to start without the throttle, and never trusts X-Forwarded-For" },
+    # static\app.js was split into static\js\*.js; the entry pointed at the old
+    # path and so reported MISSING on every run, which trains an operator to
+    # read a red result as normal -- exactly the habit the entries above rely
+    # on not existing.
+    @{ Path = "pipeline\portal\static\js\home.js"; Marker = 'target="_blank"';                Why = "tiles open in a new tab; server messages on row actions" },
     @{ Path = "pipeline\portal\static\index.html"; Marker = 'rel="icon"';                     Why = "portal landing page incl. favicon" },
-    @{ Path = "pipeline\portal\static\styles.css"; Marker = "kit-pass";                      Why = "portal styling incl. sentence-case table headers" },
+    # Marker was "kit-pass", a class the design-system adoption deleted, so this
+    # entry reported STALE forever -- same problem as the entry above it.
+    @{ Path = "pipeline\portal\static\styles.css"; Marker = "--bordeaux-1";                  Why = "portal styling on the design-system tokens" },
     @{ Path = "pipeline\studio\app.js";        Marker = "bod_geb:'GEB/GEB-1'";           Why = "four-tab studio, pack drawer, Excel exports, the read-only snapshot switch, and the GEB/GEB-1 relabel" },
     @{ Path = "pipeline\studio\styles.css";    Marker = "channel-chip";                  Why = "channel colour, packs table, pack drawer, five-tile row" },
     @{ Path = "pipeline\studio\index.html";    Marker = "<label>GEB/GEB-1<input";        Why = "four-tab nav, view switcher, pack drawer, both Excel exports, snapshot script tag, and the GEB/GEB-1 relabel" },
@@ -158,7 +178,13 @@ else {
 
 Write-Host ""
 if ($stale.Count -eq 0 -and -not $missingPackages) {
-    Write-Host "RESULT: all files current. Safe to run fix-db.cmd, then setup.cmd (or start.cmd)." -ForegroundColor Green
+    # Deliberately no longer "setup.cmd (or start.cmd)": setup.cmd is the only
+    # branch that re-applies the database schema, and an update can add objects
+    # the servers refuse to start without (the login throttle did). Taking the
+    # start.cmd shortcut after copying new files is how an installation ends up
+    # with new code on an old database.
+    Write-Host "RESULT: all files current. Run fix-db.cmd, then setup.cmd (it re-applies the schema," -ForegroundColor Green
+    Write-Host "        which an update can require), then start.cmd." -ForegroundColor Green
 }
 else {
     if ($stale.Count -gt 0) {

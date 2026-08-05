@@ -9,6 +9,7 @@ from sqlalchemy import text
 from pipeline.api.app import Base, create_app
 from pipeline.api.auth import AuthSettings
 from pipeline.api.database import create_cplan_engine
+from pipeline.api.setup_portal import apply_portal
 from pipeline.api.setup_roles import apply_roles, create_user
 from tests.conftest import postgres_required, postgres_test_database
 
@@ -24,6 +25,13 @@ def api(tmp_path_factory):
     engine = create_cplan_engine(url)
     Base.metadata.create_all(engine)
     apply_roles(engine)
+    # The studio's own login is throttled by the counters `apply_portal`
+    # creates (pipeline/api/login_guard.py), so with authentication enabled the
+    # studio needs the portal's schema step too -- which is why
+    # `start_cplan.py` refuses to start without it rather than answering every
+    # sign-in with a 503. Applying it here is the fixture matching that
+    # reality, not a workaround for it.
+    apply_portal(engine)
     for name, role in (("a_viewer", "viewer"), ("a_contrib", "contributor"), ("a_editor", "editor"), ("a_admin", "admin")):
         create_user(engine, name, PASSWORDS[name], role)
     engine.dispose()
