@@ -32,6 +32,7 @@ from pipeline.api.auth import (
 )
 from pipeline.api.database import backend_from_url, create_cplan_engine
 from pipeline.api.login_guard import LoginGuard, client_source
+from pipeline.api.scram import verifier_for
 from pipeline.api.session import CurrentUser, build_session_dependencies
 from pipeline.portal.resolvers import RESOLVERS
 from pipeline.portal.resources import PROJECTS_ROOT, load_manifest, manifest_path, resolve_tiles
@@ -422,10 +423,21 @@ def create_portal_app(
         # One transaction for both calls: if set_display_name fails, create_user
         # is rolled back with it, so the client never sees "created" turn into
         # a stuck half-created account that then fails a retry as "already exists".
+        #
+        # The password is hashed here, not by the server: portal.create_user
+        # builds `CREATE ROLE ... PASSWORD %L` DDL, and that statement text is
+        # what statement logging and audit extensions write to the server log.
+        # See pipeline/api/scram.py. This is the last point at which the
+        # cleartext exists at all -- past it, only the verifier travels.
         statements = [
             (
-                "SELECT portal.create_user(:n, :p, :proj, :r)",
-                {"n": payload.username, "p": payload.password, "proj": payload.project, "r": payload.role},
+                "SELECT portal.create_user(:n, :v, :proj, :r)",
+                {
+                    "n": payload.username,
+                    "v": verifier_for(session, payload.password),
+                    "proj": payload.project,
+                    "r": payload.role,
+                },
             )
         ]
         if payload.display_name:
@@ -447,7 +459,14 @@ def create_portal_app(
 
     @app.post("/api/portal/users/{username}/password")
     def set_password_endpoint(username: str, payload: PasswordPayload, session: Session = Depends(db_session)):
-        _call(session, "SELECT portal.reset_password(:n, :p)", {"n": username, "p": payload.password})
+        # Hashed here for the same reason as create_user above: what reaches
+        # the server, and any log it writes, is the verifier and never the
+        # password (pipeline/api/scram.py).
+        _call(
+            session,
+            "SELECT portal.reset_password(:n, :v)",
+            {"n": username, "v": verifier_for(session, payload.password)},
+        )
         return {"status": "ok"}
 
     @app.post("/api/portal/users/{username}/active")

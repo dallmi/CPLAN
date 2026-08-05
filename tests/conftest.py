@@ -88,10 +88,23 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 
 from pipeline.api.database import embedded_database_url
+from pipeline.api.scram import build_verifier
 from pipeline.scripts.cplan_db import stop
 
 HAS_PGSERVER = importlib.util.find_spec("pgserver") is not None
 EXTERNAL_DATABASE_URL = os.environ.get("CPLAN_TEST_DATABASE_URL")
+
+
+def scram_literal(password: str) -> str:
+    """`password` as a SCRAM verifier, wrapped as a SQL string literal.
+
+    `portal.create_user`/`portal.reset_password` refuse anything that is not a
+    verifier (pipeline/api/scram.py), so a test calling them as raw SQL has to
+    hash first, exactly as the portal service does. Safe to splice into an
+    `exec_driver_sql` string: a verifier is base64 plus `$:=`, so there is no
+    quote to escape and no `%` for psycopg's placeholder scan to trip over.
+    """
+    return "'" + build_verifier(password) + "'"
 
 # Shared skip condition for every module that needs a real PostgreSQL server:
 # skip only when NEITHER path is available, so a machine with nothing

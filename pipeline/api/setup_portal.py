@@ -16,6 +16,13 @@ user, and calls these functions; EXECUTE is granted only to cplan_admin, so the
 membership check is Postgres's own privilege check performed against the real
 caller before the SECURITY DEFINER switch. The functions do input validation and
 identifier quoting (format %I/%L) as defence in depth. PostgreSQL only.
+
+create_user and reset_password take a SCRAM-SHA-256 *verifier*, never a
+cleartext password: the caller hashes it first (pipeline/api/scram.py), because
+the DDL these functions build with `format(... %L)` is statement text, and
+statement text is logged. They refuse anything that is not a verifier rather
+than passing it on, so the leak cannot come back by way of a caller that
+forgets -- and a forgetful caller gets a 422 instead of a silent disclosure.
 """
 
 from __future__ import annotations
@@ -71,8 +78,33 @@ _RESERVED_SQL_ARRAY = "ARRAY[" + ",".join(f"'{name}'" for name in sorted(PORTAL_
 # maps to ProgrammingError — matching the 42501 case's exception type without
 # changing what is validated or rejected.
 
+# The one thing create_user and reset_password must refuse: a cleartext
+# password. Everything they hand to `format(... %L)` becomes statement text,
+# and statement text is written to the server log by `log_statement`,
+# `log_min_duration_statement` or an audit extension -- so a password that
+# arrives here in the clear is a password disclosed to every operator who can
+# read a log file. Callers hash it first (pipeline/api/scram.py); this is what
+# makes that a contract rather than a convention.
+#
+# The pattern is PostgreSQL's own storage format, checked structurally rather
+# than by prefix alone, because a string that merely *starts* like a verifier
+# but does not parse as one is classified PASSWORD_TYPE_PLAINTEXT and hashed as
+# though it were the password -- an account with a password nobody knows, and
+# no error anywhere. Written with the character classes [$] and [0-9] rather
+# than backslash escapes so the pattern carries no backslash at all: the body
+# is dollar-quoted, and a backslash's meaning inside a string literal there
+# depends on `standard_conforming_strings`.
+#
+# The message deliberately quotes nothing back. A RAISE with the offending
+# value in it would put the cleartext straight into the log this whole change
+# exists to keep it out of.
+_VERIFIER_PATTERN = "^SCRAM-SHA-256[$][0-9]+:[A-Za-z0-9+/]+=*[$][A-Za-z0-9+/]+=*:[A-Za-z0-9+/]+=*$"
+_VERIFIER_GUARD = f"""  IF p_verifier IS NULL OR p_verifier !~ '{_VERIFIER_PATTERN}' THEN
+    RAISE EXCEPTION 'password must be a SCRAM-SHA-256 verifier, not cleartext (see pipeline/api/scram.py)';
+  END IF;"""
+
 _CREATE_USER_FN = f"""
-CREATE OR REPLACE FUNCTION portal.create_user(p_name text, p_password text, p_project text, p_role text)
+CREATE OR REPLACE FUNCTION portal.create_user(p_name text, p_verifier text, p_project text, p_role text)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $fn$
 DECLARE v_prefix text; v_group text;
 BEGIN
@@ -89,8 +121,9 @@ BEGIN
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = p_name) THEN
     RAISE EXCEPTION 'user %% already exists', p_name;
   END IF;
+{_VERIFIER_GUARD}
   v_group := v_prefix || '_' || p_role;
-  EXECUTE format('CREATE ROLE %%I LOGIN PASSWORD %%L', p_name, p_password);
+  EXECUTE format('CREATE ROLE %%I LOGIN PASSWORD %%L', p_name, p_verifier);
   EXECUTE format('GRANT %%I TO %%I', v_group, p_name);
   EXECUTE format('GRANT %%I TO {AUTHENTICATOR}', p_name);
 END; $fn$;
@@ -224,7 +257,7 @@ END; $fn$;
 """
 
 _RESET_PW_FN = f"""
-CREATE OR REPLACE FUNCTION portal.reset_password(p_name text, p_password text)
+CREATE OR REPLACE FUNCTION portal.reset_password(p_name text, p_verifier text)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $fn$
 BEGIN
   IF p_name = ANY ({_RESERVED_SQL_ARRAY}) THEN
@@ -233,7 +266,8 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = p_name) THEN
     RAISE EXCEPTION 'unknown user %%', p_name;
   END IF;
-  EXECUTE format('ALTER ROLE %%I PASSWORD %%L', p_name, p_password);
+{_VERIFIER_GUARD}
+  EXECUTE format('ALTER ROLE %%I PASSWORD %%L', p_name, p_verifier);
 END; $fn$;
 """
 
@@ -556,6 +590,20 @@ _FUNCTIONS = (
 # variant that still carries its EXECUTE grant.
 _LEGACY_SIGNATURES = ("portal.set_active(text, boolean)",)
 
+# Same signature, renamed parameter: p_password became p_verifier when the
+# argument stopped being a password. CREATE OR REPLACE refuses a rename
+# outright ("cannot change name of input parameter"), so an installation
+# created before that change cannot be upgraded without dropping these two
+# first. Unlike _LEGACY_SIGNATURES they ARE recreated immediately afterwards,
+# by the _FUNCTIONS loop below -- both the drops and every re-creation run
+# inside apply_portal's single transaction, so a concurrent session either
+# sees the old function or the new one, never a missing one, and a failure
+# partway through leaves the database exactly as it was.
+_RENAMED_PARAMETER_SIGNATURES = (
+    "portal.create_user(text, text, text, text)",
+    "portal.reset_password(text, text)",
+)
+
 
 def _existing_group_roles(connection: Connection, role_prefix: str) -> list[str]:
     """The subset of `<role_prefix>_{viewer,contributor,editor,admin}` that already exist as roles.
@@ -768,7 +816,7 @@ def apply_portal(engine: Engine) -> None:
         c.exec_driver_sql("ALTER FUNCTION portal._is_last_active_admin(text, text) OWNER TO portal_owner")
         c.exec_driver_sql("REVOKE ALL ON FUNCTION portal._is_last_active_admin(text, text) FROM PUBLIC")
 
-        for legacy in _LEGACY_SIGNATURES:
+        for legacy in _LEGACY_SIGNATURES + _RENAMED_PARAMETER_SIGNATURES:
             c.exec_driver_sql(f"DROP FUNCTION IF EXISTS {legacy}")
         for signature, ddl in _FUNCTIONS:
             c.exec_driver_sql(ddl)

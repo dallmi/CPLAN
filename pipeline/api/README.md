@@ -205,6 +205,8 @@ PYTHONPATH=. .venv/bin/python -m pipeline.api.setup_roles --activate <name>     
 
 All five accept `--password` to supply the value non-interactively instead of the getpass prompt, and `--database-url` to target a database other than the resolved default (`CPLAN_DATABASE_URL`, then `CPLAN_DB_*`, then the persisted backend settings — same resolution `setup_backend`/`import_snapshot` use). Usernames are plain PostgreSQL login roles, so they follow PostgreSQL identifier rules; the internal group roles and `cplan_authenticator` are rejected as usernames (`RESERVED_ROLES`) since a real user could otherwise collide with the privilege model itself.
 
+The password never travels to the server: `setup_roles` hashes it into a SCRAM-SHA-256 verifier locally and puts *that* into the `CREATE ROLE`/`ALTER ROLE` statement — see [Passwords never reach the server log](#passwords-never-reach-the-server-log). `--password` does still put it in your shell history and in the process list, so the prompt stays the better option outside a script.
+
 ### Portal
 
 The portal is a small landing page — project tiles plus browser-based user administration — that sits next to the studio and shares its login. PostgreSQL only, same as the rest of this section.
@@ -216,6 +218,8 @@ PYTHONPATH=. .venv/bin/python -m pipeline.api.setup_portal
 ```
 
 Idempotent, and run as the same admin/superuser identity as `setup_roles` — never by the portal service itself. It creates the `portal_owner` role, the `portal` schema, the project registry (seeded with the CPLAN entry), the `portal.users` view, the `SECURITY DEFINER` user-management functions (`portal.create_user`, `portal.set_project_role`, `portal.revoke_project_role`, `portal.reset_password`, `portal.set_active`, `portal.set_display_name`) with `EXECUTE` granted only to `cplan_admin`, `portal.record_sign_in` granted to the service role — and the failed-sign-in counters (`portal.login_attempts`, `portal.begin_login_attempt`, `portal.end_login_attempt`, `portal.clear_login_attempts`; see [Failed sign-in throttling](#failed-sign-in-throttling)).
+
+`portal.create_user` and `portal.reset_password` take a SCRAM-SHA-256 verifier, not a password, and refuse anything else (SQLSTATE `P0001`, surfaced as `422`) — see [Passwords never reach the server log](#passwords-never-reach-the-server-log). Upgrading an installation that predates this renames those two functions' second parameter, which `CREATE OR REPLACE` cannot do, so `apply_portal` drops and recreates them inside its own transaction; nothing else about the step changes.
 
 **This is not once-only, despite the name.** A release that adds a `portal.*` object needs another pass, and this one does: an installation that receives the new files without re-running `setup_portal` has a portal and a studio whose login endpoints cannot consult their rate limit. Both refuse to start in that state and print the command above rather than serving sign-in without a limit — so "the portal window closed / says the login throttle is not installed" after an update means exactly this step is missing. `setup.cmd` runs it; `check.cmd` verifies the files on disk, not the database.
 
@@ -301,6 +305,18 @@ Roles are additive group memberships (`viewer` ⊂ `contributor` ⊂ `editor` �
 A contributor's attempt to edit or delete a row they don't own fails as a normal HTTP error, not a leak: the app's ownership check (`update_activity`) returns `403 forbidden_not_owner` before the query even runs, and any privilege PostgreSQL itself rejects (e.g. a raw `DELETE` attempt) surfaces via the global `ProgrammingError` handler as `403 forbidden` (SQLSTATE `42501`) rather than a raw 500.
 
 Delete is intentionally hard to lose data from: `DELETE /api/activities/{id}` is `admin`-only, and even then the row is not silently gone — the handler writes an `activity_changes` audit row (`change_type "deleted"`, a JSON snapshot of `tracking_id`/`activity_name` in `old_value`) in the same transaction as the delete, so the deletion itself remains visible in the History panel and `v_change_log` after the activity row is gone.
+
+### Passwords never reach the server log
+
+`CREATE ROLE … PASSWORD 'secret'` puts the cleartext inside the statement *text*, and statement text is exactly what gets logged: `log_statement = 'ddl'` or `'all'`, a low enough `log_min_duration_statement`, or an audit extension such as pgaudit (which logs statements executed *inside* functions too, where the portal builds its DDL). The server log is a file operators read routinely and central collection ships onwards, so a password that lands there is disclosed broadly, permanently, and invisibly.
+
+Both paths that set a password therefore hash it first, in this process, and send only the result:
+
+- `pipeline/api/scram.py` builds the SCRAM-SHA-256 verifier PostgreSQL would have built itself — RFC 5802/7677, SASLprep included, at the server's own configured `scram_iterations`. PostgreSQL stores a string it recognises as a verifier verbatim, so the account is byte-for-byte what a cleartext `PASSWORD` would have produced.
+- `setup_roles` (the CLI) and the portal endpoints (`POST /api/portal/users`, `…/password`) both call it. The cleartext exists only in the request handler and the `getpass` prompt; from there on, only the verifier travels.
+- `portal.create_user` and `portal.reset_password` **refuse** a value that is not a verifier rather than passing it on, so the leak cannot return through a caller that forgets to hash. An out-of-date client gets `422`, and the account it was changing is untouched.
+
+Two things about this are worth knowing when changing it. A malformed verifier is *not* rejected by PostgreSQL — anything it cannot parse as one is treated as a cleartext password and hashed, which locks the account out silently — so `tests/test_scram.py` proves a real sign-in and compares byte-for-byte against a verifier the server built itself, rather than asserting on the shape of the string. And nothing here changes how sign-in works: `pipeline/api/auth.py` still verifies a password by opening a real connection, and PostgreSQL is still the only authority on passwords.
 
 ### Central-server hardening
 
