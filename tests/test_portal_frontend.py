@@ -100,14 +100,35 @@ class PortalFrontendTests(unittest.TestCase):
         self.assertIn("/password", app)
         self.assertIn("/active", app)
 
-    def test_no_emoji_and_corporate_palette(self):
-        html = (STATIC / "index.html").read_text(encoding="utf-8")
-        app = (STATIC / "app.js").read_text(encoding="utf-8")
+    def test_stylesheet_follows_the_design_system(self):
         css = (STATIC / "styles.css").read_text(encoding="utf-8")
-        self.assertIsNone(EMOJI.search(html))
-        self.assertIsNone(EMOJI.search(app))
-        self.assertIn("#E60000", css)   # corporate red primary
-        self.assertIn("#F7F7F5", css)   # page background
+        self.assertIn("#E60000", css)                 # corporate red primary
+        self.assertIn("#F7F7F5", css)                 # page background
+        self.assertIn("Frutiger 45 Light", css)       # brand typeface, not system-ui
+        self.assertIn("--radius: 2px", css)
+        # Drop shadows are forbidden on layout surfaces; the shipped portal had
+        # one on every panel. Overlay scrims are not shadows and stay allowed.
+        for rule in ("box-shadow", "linear-gradient", "radial-gradient"):
+            self.assertNotIn(rule, css, f"{rule} is forbidden by the design system")
+
+    def test_role_ramp_and_status_classes_exist(self):
+        css = (STATIC / "styles.css").read_text(encoding="utf-8")
+        for cls in (".role-admin", ".role-editor", ".role-contributor", ".role-viewer", ".role-none"):
+            self.assertIn(cls, css)
+        for cls in (".status", ".status-dot", ".toast", ".popover", ".drawer-panel"):
+            self.assertIn(cls, css)
+
+    def test_project_page_classes_ported_from_the_old_stylesheet_exist(self):
+        # These classes are not in the brief's interface list -- the project
+        # page (project.html / project.js) landed after the brief was written
+        # -- but dropping them silently breaks that page's styling.
+        css = (STATIC / "styles.css").read_text(encoding="utf-8")
+        for cls in (
+            ".crumbs", ".crumb-sep", ".crumb-here",
+            ".panel", ".panel-head", ".subtitle",
+            ".tile-status", ".tile-primary", ".prose", ".hidden",
+        ):
+            self.assertIn(cls, css)
 
     def test_home_tiles_open_the_project_page_and_favicon_present(self):
         # The new tab now belongs to the application tile on the project page

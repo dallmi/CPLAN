@@ -1,82 +1,363 @@
+/* CPLAN Portal — design-system implementation.
+   Corporate Design System v1.0. Hard constraints observed:
+   no gradients, no tints of brand red, no drop shadows on layout surfaces,
+   no rounded corners beyond the 2px token, no ALL CAPS, no underlines,
+   left-aligned throughout, white dominant, red as a small accent only. */
+
 :root {
-  --bg: #F7F7F5; --surface: #ECEBE4; --primary: #E60000; --primary-dark: #8A000A;
-  --grey-4: #7A7870; --danger: #BD000C; --radius: 2px;
-  /* Interactive blue, same two tokens document.css uses, so a link means the
-     same thing on a shell page as on a document page. */
+  --primary: #E60000; --primary-dark: #8A000A; --white: #FFFFFF; --black: #000000;
+  --grey-1: #CCCABC; --grey-2: #B8B3A2; --grey-3: #8E8D83;
+  --grey-4: #7A7870; --grey-5: #5A5D5C; --grey-6: #404040;
+  --bordeaux-1: #BD000C; --bordeaux-2: #8A000A; --bordeaux-3: #620004;
+  --bronze-1: #B98E2C; --bronze-2: #946F29; --bronze-3: #6C5312;
+  --bg: #F7F7F5; --surface: #ECEBE4; --surface-alt: #F5F0E1; --row-alt: #F8F7F2;
+  --success: #6F7A1A; --warning: #E4A911; --danger: #BD000C;
   --info: #0C7EC6; --info-dark: #07476F;
+  --font: "Frutiger 45 Light", "Frutiger", "Helvetica Neue", Arial, "Segoe UI", system-ui, sans-serif;
+  --radius: 2px;
 }
+
 * { box-sizing: border-box; }
-body { margin: 0; font-family: system-ui, sans-serif; background: var(--bg); color: #000; }
+[hidden] { display: none !important; }
+html, body { margin: 0; min-height: 100%; font-family: var(--font); background: var(--bg); color: var(--black); }
+button, input, select, textarea { font: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--info); outline-offset: 1px; }
+input:focus, select:focus { outline: 2px solid var(--info); outline-offset: -1px; }
+
+/* ---------- Type scale (§3) ---------- */
+.page-title { font-size: 40px; font-weight: 300; line-height: 1.1; margin: 0; letter-spacing: -0.015em; }
+.page-subtitle { font-size: 14px; font-weight: 400; line-height: 1.4; color: var(--grey-4); margin: 6px 0 0; }
+.section-heading { font-size: 16px; font-weight: 600; line-height: 1.3; margin: 0; }
+.footnote { font-size: 11px; line-height: 1.4; color: var(--grey-4); margin: 0; }
+.eyebrow { font-size: 10px; font-weight: 600; letter-spacing: 0.06em; color: var(--grey-4); margin: 0 0 6px; }
+
+/* ---------- Shell ---------- */
+.app-shell { min-height: 100vh; display: flex; flex-direction: column; }
+
+.topbar {
+  position: sticky; top: 0; z-index: 50;
+  display: flex; justify-content: space-between; align-items: center; gap: 24px;
+  padding: 0 32px; height: 60px; background: var(--white); border-bottom: 1px solid var(--surface);
+}
+.brand-block { display: flex; align-items: center; gap: 14px; }
+.brand-mark { width: 4px; height: 30px; background: var(--primary); flex: none; }
+.brand-block h1 { font-size: 17px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+.brand-block p { margin: 1px 0 0; font-size: 11px; color: var(--grey-4); }
+.top-actions { display: flex; align-items: center; gap: 16px; }
+.user-chip { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--grey-5); }
+.user-chip .avatar {
+  width: 28px; height: 28px; flex: none; background: var(--surface); color: var(--grey-6);
+  display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600;
+}
+.user-chip strong { color: var(--black); font-weight: 600; }
+
+.main-nav { display: flex; gap: 0; padding: 0 32px; background: var(--white); border-bottom: 1px solid var(--surface); }
+.nav-item {
+  border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px;
+  padding: 12px 0; margin-right: 28px; background: transparent;
+  color: var(--grey-5); font-size: 13px; font-weight: 500;
+}
+.nav-item:hover { color: var(--black); }
+.nav-item.active { color: var(--black); border-bottom-color: var(--primary); font-weight: 600; }
+
+.content { flex: 1; width: 100%; max-width: 1200px; margin: 0 auto; padding: 40px 32px 80px; }
+.page { display: none; }
+.page.active { display: block; }
+.page-head { margin-bottom: 32px; }
+.page-head-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }
+
+/* Section: hairline rule above a heading — no boxes, no shadows. */
+.section { margin-top: 40px; }
+.section-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 20px;
+  padding-bottom: 10px; border-bottom: 1px solid var(--black); margin-bottom: 0;
+}
+.section-head .footnote { flex: none; }
+
+/* ---------- Buttons ---------- */
+.btn {
+  border: 1px solid var(--grey-1); border-radius: var(--radius); background: var(--white);
+  color: var(--black); padding: 8px 14px; font-size: 13px; font-weight: 500;
+}
+.btn:hover { background: var(--surface); }
+.btn.primary { background: var(--primary); border-color: var(--primary); color: var(--white); font-weight: 600; }
+.btn.primary:hover { background: var(--primary-dark); border-color: var(--primary-dark); }
+.btn.quiet { border-color: transparent; color: var(--grey-5); padding: 8px 10px; }
+.btn.quiet:hover { color: var(--black); background: var(--surface); }
+.btn.danger { border-color: var(--danger); color: var(--danger); background: var(--white); }
+.btn.danger:hover { background: var(--danger); color: var(--white); }
+.btn.sm { padding: 5px 10px; font-size: 12px; }
+.btn:disabled { color: var(--grey-2); border-color: var(--surface); background: var(--white); cursor: not-allowed; }
+.link-inline { border: 0; background: none; padding: 0; color: var(--info); font-size: 12px; font-weight: 600; }
+.link-inline:hover { color: var(--info-dark); }
+
+/* ---------- Project tiles (Home) ---------- */
+/* Seam grid: borders live on the tiles, not on a background showing through the
+   gaps — otherwise a part-filled last row leaves a bare Pastel I rectangle. */
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); border-top: 1px solid var(--surface); border-left: 1px solid var(--surface); }
+.tile {
+  display: flex; flex-direction: column; gap: 0; min-height: 168px; padding: 22px 24px;
+  background: var(--white); text-decoration: none; color: var(--black); text-align: left;
+  border: 0; border-right: 1px solid var(--surface); border-bottom: 1px solid var(--surface);
+  position: relative;
+}
+.tile:hover { background: var(--row-alt); }
+.tile:hover .tile-open { color: var(--black); }
+.tile-name { font-size: 18px; font-weight: 600; line-height: 1.25; }
+.tile-purpose { font-size: 13px; color: var(--grey-5); line-height: 1.45; margin-top: 8px; flex: 1; }
+.tile-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 20px; padding-top: 12px; border-top: 1px solid var(--surface); }
+.tile-open { font-size: 12px; font-weight: 600; color: var(--grey-4); }
+.tile.no-access { background: var(--bg); }
+.tile.no-access .tile-name, .tile.no-access .tile-purpose { color: var(--grey-3); }
+.tile.no-access:hover { background: var(--bg); cursor: default; }
+
+/* ---------- Role chip: a grey density ramp, not decoration ----------
+   Greys carry the layout (§2.7). Weight of fill = weight of privilege,
+   so the matrix is readable at a glance without colour-coding text. */
+.role {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 88px; padding: 4px 10px; font-size: 11px; font-weight: 600;
+  border: 1px solid transparent; border-radius: var(--radius); white-space: nowrap;
+}
+.role-admin { background: var(--grey-6); color: var(--white); }
+.role-editor { background: var(--grey-3); color: var(--black); }
+.role-contributor { background: var(--surface); color: var(--black); }
+.role-viewer { background: var(--white); color: var(--grey-5); border-color: var(--grey-1); }
+.role-none { background: transparent; color: var(--grey-2); font-weight: 400; border-color: transparent; }
+.role-inherited { position: relative; }
+.role-inherited::after {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--bronze-1);
+}
+
+/* ---------- Status ---------- */
+.status { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; white-space: nowrap; }
+.status-dot { width: 7px; height: 7px; flex: none; background: var(--grey-2); }
+.status.active .status-dot { background: var(--success); }
+.status.disabled { color: var(--grey-4); }
+.status.pending .status-dot { background: var(--warning); }
+
+/* ---------- Toolbar / filters ---------- */
+.toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 20px 0 0; }
+.toolbar .search { position: relative; flex: 1; min-width: 220px; max-width: 340px; }
+.toolbar input[type="search"], .toolbar select {
+  width: 100%; padding: 8px 11px; border: 1px solid var(--grey-1); border-radius: var(--radius);
+  background: var(--white); font-size: 13px; color: var(--black);
+}
+.toolbar select { width: auto; min-width: 140px; }
+.toolbar .spacer { flex: 1; }
+.result-count { font-size: 12px; color: var(--grey-4); white-space: nowrap; }
+
+/* ---------- Tables (§7) ---------- */
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+thead th {
+  text-align: left; font-size: 11px; font-weight: 600; color: var(--grey-4);
+  padding: 0 12px 8px; border-bottom: 1px solid var(--black); white-space: nowrap;
+}
+thead th.num, tbody td.num { text-align: right; }
+thead th.sortable { cursor: pointer; }
+thead th.sortable:hover { color: var(--black); }
+thead th .sort-arrow { color: var(--grey-2); margin-left: 4px; }
+thead th[aria-sort="ascending"], thead th[aria-sort="descending"] { color: var(--black); }
+thead th[aria-sort] .sort-arrow { color: var(--black); }
+tbody td { padding: 12px; border-bottom: 1px solid var(--surface); vertical-align: top; }
+tbody tr:hover { background: var(--row-alt); }
+tbody tr.is-disabled td { color: var(--grey-4); }
+.cell-actions { width: 1%; white-space: nowrap; text-align: right; }
+.cell-primary { font-weight: 600; }
+.cell-sub { font-size: 11px; color: var(--grey-4); margin-top: 3px; font-weight: 400; }
+.name-btn { border: 0; background: none; padding: 0; font: inherit; font-weight: 600; color: var(--black); text-align: left; }
+.name-btn:hover { color: var(--info-dark); }
+
+/* ---------- Access matrix ---------- */
+.matrix-wrap { overflow-x: auto; border-bottom: 1px solid var(--surface); }
+table.matrix { min-width: 720px; }
+table.matrix thead th { padding-bottom: 10px; }
+table.matrix thead th.col-project { text-align: center; min-width: 150px; }
+table.matrix thead th.col-project small { display: block; font-weight: 400; color: var(--grey-3); margin-top: 2px; }
+table.matrix tbody td { padding: 8px 12px; vertical-align: middle; }
+table.matrix tbody td.cell-user { min-width: 220px; }
+table.matrix td.cell-role { text-align: center; padding: 6px; }
+.cell-btn { border: 0; background: none; padding: 3px; width: 100%; display: flex; justify-content: center; }
+.cell-btn:hover .role { outline: 1px solid var(--grey-3); outline-offset: 1px; }
+.matrix-legend { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; margin-top: 16px; }
+.legend-item { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--grey-5); }
+.legend-swatch { width: 22px; height: 12px; flex: none; border: 1px solid transparent; }
+
+/* Role popover */
+.popover {
+  position: absolute; z-index: 120; min-width: 190px; background: var(--white);
+  border: 1px solid var(--grey-3); border-radius: var(--radius); padding: 5px;
+}
+.popover-title { font-size: 10px; font-weight: 600; letter-spacing: 0.06em; color: var(--grey-4); padding: 6px 8px 7px; border-bottom: 1px solid var(--surface); margin-bottom: 4px; }
+.popover-option {
+  display: flex; align-items: center; gap: 10px; width: 100%; border: 0; background: none;
+  padding: 7px 8px; font-size: 12px; text-align: left; color: var(--black);
+}
+.popover-option:hover { background: var(--row-alt); }
+.popover-option[aria-checked="true"] { font-weight: 600; }
+.popover-option .tick { width: 12px; flex: none; color: var(--primary); }
+.popover-sep { height: 1px; background: var(--surface); margin: 4px 0; }
+
+/* ---------- Groups ---------- */
+.group-list { border-top: 1px solid var(--surface); }
+.group-row {
+  display: grid; grid-template-columns: minmax(220px, 1.4fr) minmax(180px, 1fr) auto;
+  gap: 20px; align-items: center; padding: 16px 12px; border-bottom: 1px solid var(--surface);
+  width: 100%; background: none; border-left: 0; border-right: 0; border-top: 0; text-align: left;
+}
+.group-row:hover { background: var(--row-alt); }
+.group-name { font-size: 14px; font-weight: 600; }
+.group-meta { font-size: 11px; color: var(--grey-4); margin-top: 3px; }
+.member-stack { display: flex; align-items: center; }
+.member-stack .avatar {
+  width: 26px; height: 26px; margin-right: -6px; background: var(--surface); color: var(--grey-6);
+  border: 1px solid var(--white); display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 600;
+}
+.member-stack .more { margin-left: 12px; font-size: 11px; color: var(--grey-4); }
+.group-grants { display: flex; gap: 6px; flex-wrap: wrap; }
+.grant-pill { display: inline-flex; align-items: center; gap: 8px; padding: 4px 9px; background: var(--surface-alt); font-size: 11px; }
+.grant-pill .grant-project { color: var(--grey-6); }
+.grant-pill .grant-role { font-weight: 600; }
+
+/* ---------- Activity log ---------- */
+.log { border-top: 1px solid var(--surface); }
+.log-day { padding: 18px 12px 8px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; color: var(--grey-4); border-bottom: 1px solid var(--surface); }
+.log-entry { display: grid; grid-template-columns: 62px 3px 1fr; gap: 0 14px; align-items: start; padding: 14px 12px; border-bottom: 1px solid var(--surface); }
+.log-entry:hover { background: var(--row-alt); }
+.log-time { font-size: 12px; color: var(--grey-4); padding-top: 1px; }
+.log-strip { width: 3px; align-self: stretch; background: var(--grey-1); }
+.log-entry.grant .log-strip { background: var(--grey-6); }
+.log-entry.revoke .log-strip { background: var(--bordeaux-1); }
+.log-entry.account .log-strip { background: var(--bronze-1); }
+.log-text { font-size: 13px; line-height: 1.5; }
+.log-text strong { font-weight: 600; }
+.log-actor { font-size: 11px; color: var(--grey-4); margin-top: 3px; }
+
+/* ---------- Drawer ---------- */
+.drawer { position: fixed; inset: 0; z-index: 100; display: none; }
+.drawer.open { display: block; }
+.drawer-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.28); }
+.drawer-panel {
+  position: absolute; top: 0; right: 0; height: 100%; width: min(560px, 96vw);
+  background: var(--white); overflow-y: auto; border-left: 1px solid var(--surface);
+}
+.drawer-head { position: sticky; top: 0; z-index: 2; background: var(--white); padding: 24px 28px 20px; border-bottom: 1px solid var(--black); }
+.drawer-head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.drawer-identity { display: flex; align-items: center; gap: 14px; }
+.drawer-identity .avatar { width: 44px; height: 44px; flex: none; background: var(--surface); color: var(--grey-6); display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 600; }
+.drawer-identity h2 { font-size: 22px; font-weight: 400; margin: 0; }
+.drawer-identity p { margin: 3px 0 0; font-size: 12px; color: var(--grey-4); }
+.icon-btn { width: 32px; height: 32px; flex: none; border: 1px solid var(--grey-1); background: var(--white); color: var(--grey-5); font-size: 16px; line-height: 1; display: flex; align-items: center; justify-content: center; }
+.icon-btn:hover { color: var(--black); background: var(--surface); }
+.drawer-body { padding: 0 28px 40px; }
+.drawer-section { padding: 24px 0; border-bottom: 1px solid var(--surface); }
+.drawer-section:last-child { border-bottom: 0; }
+.drawer-section h3 { font-size: 13px; font-weight: 600; margin: 0 0 14px; }
+.access-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 11px 0; border-bottom: 1px solid var(--surface); }
+.access-row:last-child { border-bottom: 0; }
+.access-project { font-size: 13px; }
+.access-note { font-size: 11px; color: var(--grey-4); margin-top: 3px; }
+.drawer-danger { display: flex; gap: 10px; flex-wrap: wrap; }
+
+/* ---------- Modal ---------- */
+.modal-overlay { position: fixed; inset: 0; z-index: 150; display: none; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.28); }
+.modal-overlay.open { display: flex; }
+.modal-card { width: 440px; max-width: 94vw; background: var(--white); border: 1px solid var(--grey-3); border-radius: var(--radius); }
+.modal-head { padding: 24px 28px 18px; border-bottom: 1px solid var(--black); }
+.modal-head h2 { font-size: 22px; font-weight: 400; margin: 0; }
+.modal-head p { margin: 5px 0 0; font-size: 12px; color: var(--grey-4); }
+.modal-body { padding: 22px 28px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 10px; padding: 0 28px 24px; }
+.field { margin-bottom: 18px; }
+.field:last-child { margin-bottom: 0; }
+.field > label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px; }
+.field .req { font-weight: 400; color: var(--grey-4); }
+.field input[type="text"], .field input[type="password"], .field select {
+  width: 100%; padding: 9px 11px; border: 1px solid var(--grey-1); border-radius: var(--radius);
+  background: var(--white); font-size: 13px; color: var(--black);
+}
+.field-help { display: block; margin-top: 6px; font-size: 11px; color: var(--grey-4); }
+.field-error { display: block; margin-top: 6px; font-size: 11px; color: var(--danger); }
+.pw-row { display: flex; gap: 8px; }
+.pw-row input { flex: 1; }
+.role-picker { display: flex; flex-direction: column; border: 1px solid var(--grey-1); border-radius: var(--radius); }
+.role-choice { display: flex; align-items: flex-start; gap: 12px; padding: 11px 13px; border-bottom: 1px solid var(--surface); cursor: pointer; }
+.role-choice:last-child { border-bottom: 0; }
+.role-choice:hover { background: var(--row-alt); }
+.role-choice input { margin: 3px 0 0; flex: none; accent-color: var(--primary); }
+.role-choice .rc-name { display: block; font-size: 13px; font-weight: 600; }
+.role-choice .rc-desc { display: block; font-size: 11px; color: var(--grey-4); margin-top: 2px; line-height: 1.45; }
+
+/* ---------- Sign in ---------- */
+.signin { min-height: 100vh; display: grid; grid-template-columns: 1fr 1fr; background: var(--white); }
+.signin-brand { background: var(--surface); padding: 56px; display: flex; flex-direction: column; justify-content: space-between; }
+.signin-brand .brand-mark { width: 5px; height: 40px; }
+.signin-brand-top { display: flex; align-items: center; gap: 16px; }
+.signin-brand-top h1 { font-size: 20px; font-weight: 600; margin: 0; }
+.signin-claim { font-size: 34px; font-weight: 300; line-height: 1.25; max-width: 12em; margin: 0; }
+.signin-claim + p { font-size: 14px; color: var(--grey-5); max-width: 30em; margin: 18px 0 0; line-height: 1.5; }
+.signin-form-col { display: flex; align-items: center; justify-content: center; padding: 56px; }
+.signin-form { width: 100%; max-width: 340px; }
+.signin-form h2 { font-size: 28px; font-weight: 300; margin: 0 0 6px; }
+.signin-form > p { font-size: 13px; color: var(--grey-4); margin: 0 0 32px; }
+.signin-form .btn.primary { width: 100%; padding: 11px; margin-top: 6px; }
+.signin-foot { font-size: 11px; color: var(--grey-4); margin-top: 24px; line-height: 1.5; }
+
+/* ---------- Notice / empty / toast ---------- */
+.notice { padding: 13px 16px; border-left: 3px solid var(--bronze-1); background: var(--surface-alt); font-size: 12px; line-height: 1.5; }
+.notice strong { font-weight: 600; }
+.empty { padding: 48px 12px; text-align: left; border-bottom: 1px solid var(--surface); }
+.empty-title { font-size: 14px; font-weight: 600; }
+.empty-text { font-size: 12px; color: var(--grey-4); margin: 5px 0 14px; max-width: 40em; }
+.toast {
+  position: fixed; right: 28px; bottom: 28px; z-index: 200; display: none;
+  align-items: center; gap: 14px; padding: 12px 16px; background: var(--grey-6); color: var(--white); font-size: 12px;
+}
+.toast.show { display: flex; }
+.toast-action { border: 1px solid rgba(255, 255, 255, 0.4); background: none; color: var(--white); padding: 4px 9px; font-size: 11px; font-weight: 600; border-radius: var(--radius); }
+.toast-action:hover { background: rgba(255, 255, 255, 0.16); }
+
+/* ---------- Utility ---------- */
 .hidden { display: none !important; }
 
-.topbar { display: flex; justify-content: space-between; align-items: center; padding: 12px 24px; background: #fff; border-bottom: 1px solid var(--surface); }
-.brand { display: flex; align-items: center; gap: 10px; }
-.brand-mark { width: 6px; height: 22px; background: var(--primary); display: inline-block; }
-.brand h1 { font-size: 18px; font-weight: 600; margin: 0; }
-.user-chip { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--grey-4); }
-
-.content { max-width: 960px; margin: 24px auto; padding: 0 24px; display: flex; flex-direction: column; gap: 24px; }
-.panel { background: #fff; border: 1px solid var(--surface); border-radius: var(--radius); box-shadow: 0 1px 3px rgba(0,0,0,0.05); padding: 20px; }
-.panel-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
-.panel-head h2 { font-size: 20px; font-weight: 600; margin: 0; }
-.subtitle { font-size: 13px; color: var(--grey-4); margin: 2px 0 0; }
-
-.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
-.tile { display: block; padding: 16px; border: 1px solid var(--surface); border-left: 3px solid var(--primary); border-radius: var(--radius); text-decoration: none; color: #000; }
-.tile:hover { background: var(--bg); }
-.tile-name { font-weight: 600; }
-.tile-status { font-size: 12px; color: var(--grey-4); margin-top: 6px; }
-/* The application tile on a project page: same idiom, more weight, no red
-   fill — it earns prominence from size and being first, not from decoration. */
-.tile-primary { grid-column: 1 / -1; padding: 20px; }
-.tile-primary .tile-name { font-size: 18px; }
-
 /* ---------- Breadcrumb (project page) ----------
-   A direct child of .content, which already supplies the page's horizontal
-   padding and the 24px gap between sections — no margin duplicated here. */
-.crumbs { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 12px; color: var(--grey-4); }
-.crumbs a { color: #000; font-weight: 600; text-decoration: none; }
+   A direct child of .content: the footnote type scale, not a boxed nav bar. */
+.crumbs { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 12px; color: var(--grey-4); margin-bottom: 24px; }
+.crumbs a { color: var(--black); font-weight: 600; text-decoration: none; }
 .crumbs a:hover { color: var(--primary-dark); }
-.crumbs .crumb-sep { color: var(--grey-4); }
-.crumbs .crumb-here { color: var(--grey-4); }
+.crumbs .crumb-sep, .crumbs .crumb-here { color: var(--grey-4); }
 
-.page-head h1 { font-size: 26px; font-weight: 600; margin: 0; }
+/* ---------- Panel (project page section container) ----------
+   Same hairline idiom as .section-head above: a rule under the heading, no
+   box, no shadow. .panel is the project page's equivalent of .section. */
+.panel { margin-top: 40px; }
+.panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 20px; padding-bottom: 10px; border-bottom: 1px solid var(--black); margin-bottom: 20px; }
+.panel-head h2 { font-size: 16px; font-weight: 600; line-height: 1.3; margin: 0; }
 
-/* ---------- Full-width prose sections (project pages: access & support) ----------
-   A hairline rule above the heading, no box, no shadow: this is a portal
-   shell page reading like a sentence, not a document or a data table in a
-   card. A direct child of .content, same reasoning as .crumbs above. */
-.section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding-bottom: 8px; border-bottom: 1px solid #000; margin-bottom: 14px; }
-.section-head h2 { font-size: 18px; font-weight: 600; margin: 0; }
-.footnote { font-size: 11px; color: var(--grey-4); margin: 0; }
-.prose p { font-size: 14px; line-height: 1.6; margin: 0 0 10px; max-width: 62em; }
+/* ---------- Subtitle (project page head) ----------
+   Same values as .page-subtitle: secondary text stacked under a page title. */
+.subtitle { font-size: 14px; font-weight: 400; line-height: 1.4; color: var(--grey-4); margin: 6px 0 0; }
+
+/* ---------- Project-page tile variants ----------
+   The tile grid and .tile-name/.tile-purpose/.tile-foot already carry the
+   seam-grid idiom (§ Project tiles above); these extend it. */
+.tile-status { font-size: 12px; color: var(--grey-4); margin-top: 8px; }
+/* The one tile that opens the application: it earns prominence from size and
+   being first in the grid, not from a red fill or any other decoration. */
+.tile.tile-primary { grid-column: 1 / -1; }
+
+/* ---------- Prose (rendered manual / document body) ----------
+   Plain readable paragraphs, left-aligned, no card around them. */
+.prose p { font-size: 14px; line-height: 1.6; color: var(--black); margin: 0 0 10px; max-width: 62em; }
 .prose p:last-child { margin-bottom: 0; }
 
-/* A link inside a content section — a report to download, a document to open.
-   Without this rule the browser's own blue underline applies, which is in no
-   palette this portal owns; caught by looking at the reports page, not by any
-   test. */
-.section a { color: var(--info); font-weight: 600; text-decoration: none; }
-.section a:hover { color: var(--info-dark); }
-
-.user-table { width: 100%; border-collapse: collapse; font-size: 14px; }
-.user-table th, .user-table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--surface); }
-/* kit-pass: sentence-case headers */ .user-table th { font-size: 11px; letter-spacing: 0.02em; color: var(--grey-4); }
-.actions-col { width: 1%; white-space: nowrap; }
-
-.btn-primary { background: var(--primary); color: #fff; border: none; border-radius: var(--radius); padding: 8px 16px; font-size: 14px; cursor: pointer; }
-.btn-primary:hover { background: var(--primary-dark); }
-.btn-ghost { background: transparent; border: 1px solid var(--surface); border-radius: var(--radius); padding: 6px 12px; font-size: 13px; cursor: pointer; }
-.icon-action { background: transparent; border: none; color: var(--grey-4); cursor: pointer; padding: 2px 6px; }
-
-.login-overlay, .modal-overlay { position: fixed; inset: 0; background: var(--bg); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-.modal-overlay { background: rgba(0,0,0,0.35); }
-.login-card, .modal-card { background: #fff; border: 1px solid var(--surface); border-radius: var(--radius); box-shadow: 0 1px 3px rgba(0,0,0,0.05); padding: 32px; width: 320px; display: flex; flex-direction: column; gap: 8px; }
-.login-card h2, .modal-card h2 { font-size: 24px; font-weight: 600; margin: 0; }
-.login-subtitle { font-size: 14px; color: var(--grey-4); margin: 0 0 16px; }
-.login-error { color: var(--danger); font-size: 12px; margin: 0; }
-.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
-label { display: flex; flex-direction: column; font-size: 13px; gap: 4px; }
-input, select { padding: 8px; border: 1px solid var(--surface); border-radius: var(--radius); font-size: 14px; }
-.toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #000; color: #fff; padding: 10px 16px; border-radius: var(--radius); font-size: 13px; opacity: 0; transition: opacity 0.2s; pointer-events: none; }
-.toast.show { opacity: 1; }
+@media (max-width: 900px) {
+  .signin { grid-template-columns: 1fr; }
+  .signin-brand { display: none; }
+  .content { padding: 28px 20px 60px; }
+  .topbar, .main-nav { padding-left: 20px; padding-right: 20px; }
+  .page-title { font-size: 30px; }
+}
