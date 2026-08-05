@@ -401,6 +401,47 @@ class PortalFrontendTests(unittest.TestCase):
             source = (JS / module).read_text(encoding="utf-8")
             self.assertNotIn("window.prompt", source, f"{module} still collects input via window.prompt")
 
+    def test_password_word_list_is_large_clean_and_deduplicated(self):
+        # Word list quality matters more than exact size (per the owner's
+        # decision: ~2,000 pronounceable words, four drawn per password for
+        # ~44 bits of entropy, replacing the old 8-word/3-word/2-digit
+        # scheme). This only checks the shape a bad regeneration would
+        # break: enough entries, no duplicates, and every entry spellable
+        # and typeable (lowercase a-z, 3-7 letters).
+        words_js = (JS / "password-words.js").read_text(encoding="utf-8")
+        match = re.search(r"PASSWORD_WORDS\s*=\s*\[(.*)\];", words_js, re.DOTALL)
+        self.assertIsNotNone(match, "PASSWORD_WORDS array not found in password-words.js")
+        words = re.findall(r"'([^']*)'", match.group(1))
+
+        self.assertGreaterEqual(len(words), 1500, "password word list has fewer than 1,500 entries")
+        self.assertEqual(len(words), len(set(words)), "password word list has duplicate entries")
+        word_shape = re.compile(r"^[a-z]{3,7}$")
+        bad = [w for w in words if not word_shape.fullmatch(w)]
+        self.assertEqual(bad, [], f"non-conforming word-list entries: {bad}")
+
+    def test_generate_password_draws_four_words_with_a_csprng(self):
+        # The old generatePassword() picked three of eight fixed words with
+        # Math.random() and appended a two-digit number (~12.5 bits,
+        # brute-forceable in seconds against a login with no rate limit).
+        # The owner's fix is four words from the ~2,000-word pool via a
+        # cryptographically secure, unbiased draw -- this checks the shape
+        # of that fix, not just that *a* password gets generated.
+        ui = (JS / "ui.js").read_text(encoding="utf-8")
+        self.assertIn("import { PASSWORD_WORDS } from './password-words.js'", ui)
+        self.assertIn("crypto.getRandomValues", ui)
+        self.assertNotIn("Math.random", ui)
+
+        # generatePassword() itself must join exactly four words; the
+        # rejection-sampling helper it calls into is what actually draws
+        # from PASSWORD_WORDS, so match on the join call it makes.
+        func_match = re.search(r"export function generatePassword\(\)\s*\{(.*?)\n\}", ui, re.DOTALL)
+        self.assertIsNotNone(func_match, "generatePassword() not found in ui.js")
+        body = func_match.group(1)
+        self.assertIn("PASSWORD_WORDS", ui)
+        pick_calls = re.findall(r"pick\(\)", body)
+        self.assertEqual(len(pick_calls), 4, "generatePassword() must draw exactly four words")
+        self.assertIn("join('-')", body)
+
 
 class ProjectPageStaticTests(unittest.TestCase):
     """Moved here from tests/test_portal_project_page.py: none of these needs a database."""

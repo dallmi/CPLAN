@@ -8,6 +8,7 @@
    cannot import an ES module -- with a comment noting the duplication is
    deliberate. */
 import { ROLE_LABEL, statusOf, formatSignIn } from './state.js';
+import { PASSWORD_WORDS } from './password-words.js';
 
 export const esc = (value) =>
   String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -15,12 +16,40 @@ export const esc = (value) =>
 export const initials = (name) => name.split(/[\s.]+/).filter(Boolean).map((p) => p[0]).join('').slice(0, 2).toUpperCase();
 
 /* Used to live verbatim in both drawer.js (reset password) and invite.js
-   (initial password): one home for it now. Its word list and shape are a
-   separate decision the owner is making elsewhere -- do not change them here. */
+   (initial password): one home for it now.
+
+   Four words from a ~2,000-word pool is ~44 bits of entropy (log2(2000) * 4
+   ~= 10.97 * 4), the figure the owner asked for -- up from the old
+   three-of-eight-plus-two-digits scheme's ~12.5 bits. No digit suffix: at
+   this pool size it buys negligible extra entropy and it was the part an
+   admin most often mis-heard reading the password aloud over the phone.
+
+   randomIndex() draws its randomness from crypto.getRandomValues, a
+   cryptographically secure source, rather than the old non-crypto RNG that
+   is not documented to be uniform and is predictable enough to brute-force.
+   It also avoids modulo bias by rejection sampling: draw just enough random
+   bytes to cover `max` (2 bytes for our ~2,000-word list, since one byte
+   only reaches 256), then throw the draw away whenever it falls in the
+   partial final bucket of range / max, so every surviving draw maps onto
+   [0, max) with exactly equal probability -- a plain `value % max` would
+   over-represent the low indices whenever max does not evenly divide the
+   range those bytes can hold. */
+function randomIndex(max) {
+  const byteCount = Math.max(1, Math.ceil(Math.log2(max) / 8));
+  const range = 256 ** byteCount;
+  const limit = range - (range % max);
+  const bytes = new Uint8Array(byteCount);
+  let value;
+  do {
+    crypto.getRandomValues(bytes);
+    value = bytes.reduce((acc, byte) => acc * 256 + byte, 0);
+  } while (value >= limit);
+  return value % max;
+}
+
 export function generatePassword() {
-  const words = ['anchor', 'harbour', 'lantern', 'meadow', 'compass', 'basalt', 'willow', 'quarry'];
-  const pick = () => words[Math.floor(Math.random() * words.length)];
-  return `${pick()}-${pick()}-${Math.floor(10 + Math.random() * 89)}`;
+  const pick = () => PASSWORD_WORDS[randomIndex(PASSWORD_WORDS.length)];
+  return [pick(), pick(), pick(), pick()].join('-');
 }
 
 export const roleChip = (role) =>
