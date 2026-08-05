@@ -231,6 +231,15 @@ class PortalFrontendTests(unittest.TestCase):
         self.assertIn('rel="noopener"', project_js)
         self.assertIn('rel="icon"', html)
 
+    def test_tiles_show_purpose_and_role_not_the_url(self):
+        home = (JS / "home.js").read_text(encoding="utf-8")
+        self.assertIn("purpose", home)
+        self.assertIn("roleChip", home)
+        self.assertIn('target="_blank"', home)
+        self.assertIn('rel="noopener"', home)
+        # The shipped portal printed the raw URL as the tile subtitle.
+        self.assertNotIn("tile-url", home)
+
 
 class ProjectPageStaticTests(unittest.TestCase):
     """Moved here from tests/test_portal_project_page.py: none of these needs a database."""
