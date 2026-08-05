@@ -239,7 +239,13 @@ BEGIN
     IF p_name = p_caller THEN
       RAISE EXCEPTION 'you cannot disable your own account (%%)', p_name;
     END IF;
-    FOR v_admin_group IN SELECT role_prefix || '_admin' FROM portal.projects LOOP
+    -- ORDER BY makes lock acquisition order deterministic across projects:
+    -- with a single registered project this loop can never deadlock, but
+    -- once a second one exists, two concurrent set_active calls each
+    -- disabling an admin of multiple projects must always take these
+    -- per-project locks in the same relative order, or they could each hold
+    -- one project's lock while waiting on the other's.
+    FOR v_admin_group IN SELECT role_prefix || '_admin' FROM portal.projects ORDER BY role_prefix LOOP
       -- Same lock key as set_project_role/revoke_project_role for this
       -- project's admin group, taken before the membership/count check so
       -- disabling races with a concurrent demotion/revocation on the same
@@ -440,6 +446,17 @@ def apply_portal(engine: Engine) -> None:
         c.exec_driver_sql(_RECORD_SIGN_IN_FN)
         c.exec_driver_sql("ALTER FUNCTION portal.record_sign_in(text) OWNER TO portal_owner")
         c.exec_driver_sql("REVOKE ALL ON FUNCTION portal.record_sign_in(text) FROM PUBLIC")
+        # CREATE OR REPLACE FUNCTION preserves an existing function's ACL --
+        # it does not reset it. A database that ran a previous apply_portal
+        # (when record_sign_in was still part of the _FUNCTIONS loop above
+        # and so received `GRANT EXECUTE ... TO cplan_admin`) keeps that grant
+        # forever unless it is explicitly revoked here; `REVOKE ALL FROM
+        # PUBLIC` only strips PUBLIC's own privileges, not a role's explicit
+        # grant. This REVOKE is therefore load-bearing for upgrades, exactly
+        # like the portal.user_profile REVOKE above, and must stay below
+        # every statement that could re-grant cplan_admin here (there is
+        # none) so a later apply_portal run can never quietly restore it.
+        c.exec_driver_sql("REVOKE EXECUTE ON FUNCTION portal.record_sign_in(text) FROM cplan_admin")
         c.exec_driver_sql(f"GRANT EXECUTE ON FUNCTION portal.record_sign_in(text) TO {AUTHENTICATOR}")
 
 

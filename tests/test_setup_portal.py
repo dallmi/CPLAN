@@ -9,7 +9,7 @@ from sqlalchemy.exc import ProgrammingError
 from pipeline.api.app import Base
 from pipeline.api.database import create_cplan_engine
 from pipeline.api.setup_portal import PORTAL_OWNER, apply_portal, register_project
-from pipeline.api.setup_roles import apply_roles, create_user
+from pipeline.api.setup_roles import AUTHENTICATOR, apply_roles, create_user
 from tests.conftest import postgres_required, postgres_test_database
 
 pytestmark = postgres_required
@@ -116,6 +116,35 @@ def test_record_sign_in_is_not_executable_by_cplan_admin(engine):
         admin.rollback()
     finally:
         admin.exec_driver_sql("RESET ROLE"); admin.commit(); admin.close()
+
+
+def test_apply_portal_revokes_a_stale_cplan_admin_grant_on_record_sign_in(engine):
+    """CREATE OR REPLACE FUNCTION preserves an existing function's ACL rather
+    than resetting it. A database that ran a previous apply_portal -- back
+    when record_sign_in was still part of the _FUNCTIONS loop and so received
+    `GRANT EXECUTE ... TO cplan_admin` -- would keep that grant forever if
+    apply_portal only ever granted and revoked from PUBLIC. Simulate exactly
+    that stale state by granting EXECUTE to cplan_admin directly, re-run
+    apply_portal, and assert the grant is gone. test_record_sign_in_is_not_
+    executable_by_cplan_admin above only proves this on a fresh install,
+    where the grant was never made in the first place -- it cannot catch a
+    regression that reintroduces the grant without also reintroducing an
+    explicit revoke."""
+    with engine.begin() as c:
+        c.exec_driver_sql("GRANT EXECUTE ON FUNCTION portal.record_sign_in(text) TO cplan_admin")
+        assert c.execute(
+            text("SELECT has_function_privilege('cplan_admin', 'portal.record_sign_in(text)', 'EXECUTE')")
+        ).scalar_one() is True  # the stale-grant simulation actually took
+
+    apply_portal(engine)
+
+    with engine.connect() as c:
+        assert c.execute(
+            text("SELECT has_function_privilege('cplan_admin', 'portal.record_sign_in(text)', 'EXECUTE')")
+        ).scalar_one() is False
+        assert c.execute(
+            text(f"SELECT has_function_privilege('{AUTHENTICATOR}', 'portal.record_sign_in(text)', 'EXECUTE')")
+        ).scalar_one() is True  # the grant it does need survives the upgrade
 
 
 def test_function_rejects_unknown_project_role_and_reserved_name(engine):
@@ -315,19 +344,35 @@ def test_revoke_role_blocks_last_active_admin(engine):
     # was true by file order, not by anything this test established itself.
     # Create and disable a second admin here instead, so "p_admin is the
     # only ACTIVE admin" is something this test proves, not assumes.
-    admin = _as(engine, "p_admin")
+    #
+    # Cleanup below is unconditional (outer try/finally) for the same reason
+    # as its neighbour test_set_role_allows_demoting_a_non_last_admin: this
+    # `engine` fixture is module-scoped and shared with every later test, so
+    # leaving 'revoke_guard_admin' behind -- even disabled -- is unwanted
+    # residue rather than something a later test should have to account for.
     try:
-        admin.exec_driver_sql("SELECT portal.create_user('revoke_guard_admin', 'pw-guard', 'cplan', 'admin')"); admin.commit()
-        admin.exec_driver_sql("SELECT portal.set_active('revoke_guard_admin', false)"); admin.commit()
-        with pytest.raises(ProgrammingError) as exc:
-            admin.exec_driver_sql("SELECT portal.revoke_project_role('p_admin', 'cplan')")
-        assert exc.value.orig.sqlstate == "P0001"
-        assert "last active admin" in str(exc.value.orig)
-        admin.rollback()
+        admin = _as(engine, "p_admin")
+        try:
+            admin.exec_driver_sql("SELECT portal.create_user('revoke_guard_admin', 'pw-guard', 'cplan', 'admin')"); admin.commit()
+            admin.exec_driver_sql("SELECT portal.set_active('revoke_guard_admin', false)"); admin.commit()
+            with pytest.raises(ProgrammingError) as exc:
+                admin.exec_driver_sql("SELECT portal.revoke_project_role('p_admin', 'cplan')")
+            assert exc.value.orig.sqlstate == "P0001"
+            assert "last active admin" in str(exc.value.orig)
+            admin.rollback()
+        finally:
+            admin.exec_driver_sql("RESET ROLE"); admin.commit(); admin.close()
+        with engine.connect() as c:
+            assert c.execute(text("SELECT pg_has_role('p_admin', 'cplan_admin', 'member')")).scalar_one() is True
     finally:
-        admin.exec_driver_sql("RESET ROLE"); admin.commit(); admin.close()
-    with engine.connect() as c:
-        assert c.execute(text("SELECT pg_has_role('p_admin', 'cplan_admin', 'member')")).scalar_one() is True
+        cleanup = _as(engine, "p_admin")
+        try:
+            cleanup.exec_driver_sql("SELECT portal.revoke_project_role('revoke_guard_admin', 'cplan')")
+            cleanup.commit()
+        except ProgrammingError:
+            cleanup.rollback()  # 'revoke_guard_admin' never existed (create_user itself failed) -- nothing to clean up
+        finally:
+            cleanup.exec_driver_sql("RESET ROLE"); cleanup.commit(); cleanup.close()
 
 
 def test_revoke_role_allowed_when_another_active_admin_exists(engine):
@@ -440,6 +485,42 @@ def test_user_profile_table_is_not_selectable_by_a_non_admin(engine):
         viewer.rollback()
     finally:
         viewer.exec_driver_sql("RESET ROLE"); viewer.commit(); viewer.close()
+
+
+def test_apply_portal_revokes_a_stale_public_grant_on_user_profile(engine):
+    """The test above only proves PUBLIC has no SELECT on a fresh install --
+    it cannot catch a regression on an already-upgraded installation that
+    ran the old `GRANT SELECT ON portal.user_profile TO PUBLIC` before the
+    fix. Simulate that stale state directly (grants, unlike a view's column
+    list, are not something CREATE-time DDL touches at all -- only an
+    explicit REVOKE removes one), re-run apply_portal, and assert PUBLIC's
+    access is gone. This is the load-bearing half of the fix: omitting the
+    GRANT going forward does nothing for a database that already has it."""
+    def _public_has_select(c):
+        # has_table_privilege() takes a role name/oid, not the PUBLIC pseudo-
+        # role keyword -- 'PUBLIC' as a text argument is looked up as an
+        # actual role and raises undefined_object. information_schema's
+        # table_privileges lists PUBLIC grants under that literal grantee
+        # name, so query it directly instead.
+        return (
+            c.execute(
+                text(
+                    "SELECT 1 FROM information_schema.table_privileges "
+                    "WHERE grantee = 'PUBLIC' AND table_schema = 'portal' "
+                    "AND table_name = 'user_profile' AND privilege_type = 'SELECT'"
+                )
+            ).first()
+            is not None
+        )
+
+    with engine.begin() as c:
+        c.exec_driver_sql("GRANT SELECT ON portal.user_profile TO PUBLIC")
+        assert _public_has_select(c)  # the stale-grant simulation actually took
+
+    apply_portal(engine)
+
+    with engine.connect() as c:
+        assert not _public_has_select(c)
 
 
 def test_apply_portal_upgrades_the_view_from_a_pre_profile_definition(engine):
