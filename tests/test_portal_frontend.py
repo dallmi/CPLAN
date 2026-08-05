@@ -268,6 +268,26 @@ class PortalFrontendTests(unittest.TestCase):
             "users.js row template must emit exactly as many <td>s as user-table has <th>s",
         )
 
+    def test_matrix_pivots_and_offers_no_access(self):
+        matrix = (JS / "matrix.js").read_text(encoding="utf-8")
+        self.assertIn("matrix-rows", matrix)
+        self.assertIn("matrix-head", matrix)
+        self.assertIn("revokeRole", matrix)     # emptying a cell
+        self.assertIn("setRole", matrix)
+        self.assertIn("No access", matrix)
+        self.assertIn("Export as CSV", matrix)
+
+    def test_matrix_popover_offers_a_no_access_option(self):
+        # The matrix exists to let an admin clear a grant, not just set one.
+        # A menu item with an empty data-role, wired to revokeRole, is the
+        # actual capability; the string "No access" alone could be just a
+        # legend label.
+        matrix = (JS / "matrix.js").read_text(encoding="utf-8")
+        self.assertIn('data-role=""', matrix)
+        option_match = re.search(r'data-role=""[^>]*>\s*<span[^>]*>[^<]*</span>([^<]*)', matrix)
+        self.assertIsNotNone(option_match, "no-access popover option not found")
+        self.assertIn("No access", option_match.group(1))
+
 
 class ProjectPageStaticTests(unittest.TestCase):
     """Moved here from tests/test_portal_project_page.py: none of these needs a database."""
