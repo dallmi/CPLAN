@@ -119,6 +119,13 @@ def build_executive_summary(wb, scope, config):
     median_completeness = int(frame["completeness"].median()) if len(frame) else 0
     row = style.write_kpi_row(ws, row, "Median planning completeness (%)", median_completeness)
     row = style.write_kpi_row(ws, row, "Without a pack link", packs["without_pack"])
+    row += 1
+
+    # The same signature the studio and the portal carry. This workbook travels
+    # furthest -- it reaches people who open neither application -- and a mark
+    # that reads differently here would not accumulate into recognition. A
+    # label-only row, so it reads as a footer rather than as one more figure.
+    style.write_kpi_row(ws, row, "Produced by ECC Measurement & Insights", None)
 
     style.finalize_sheet(ws, freeze="A2", widths={"A": 44, "B": 24, "C": 12})
 

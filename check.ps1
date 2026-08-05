@@ -118,6 +118,17 @@ $manifest = @(
     @{ Path = "pipeline\report\metrics.py";    Marker = "REPORTED_FIELDS";                   Why = "load, lead time, pack and completeness figures" },
     @{ Path = "pipeline\report\regions.py";    Marker = "GROUP_UNMAPPED";                    Why = "region grouping and the unmapped-value report" },
     @{ Path = "pipeline\report\style.py";      Marker = "NUM_FMT_PCT";                       Why = "every colour, number format and sheet-finishing helper the workbook is built from" },
+    # The team signature. Added as second markers rather than replacing the
+    # ones above, so each file keeps both claims. A brand is only a brand if it
+    # is the same everywhere; a hand-copy carrying the old wording would report
+    # "current" on the strength of a marker that predates the naming, which is
+    # exactly the inconsistency this is meant to prevent.
+    @{ Path = "pipeline\portal\app.py";        Marker = 'title="Insights Portal"';           Why = "the portal is named for what it holds, not for its first product" },
+    @{ Path = "pipeline\portal\static\index.html"; Marker = "ECC Measurement &amp; Insights"; Why = "portal landing page carries the signature, and the sign-in copy no longer describes CPLAN alone" },
+    @{ Path = "pipeline\portal\static\project.html"; Marker = "ECC Measurement &amp; Insights"; Why = "portal project page carries the signature" },
+    @{ Path = "pipeline\portal\static\project.js"; Marker = "Insights Portal";                Why = "the project page's document title follows the portal name" },
+    @{ Path = "pipeline\studio\index.html";    Marker = "ECC Measurement &amp; Insights"; Why = "the studio carries the signature too - a mark on one surface is not a brand" },
+    @{ Path = "pipeline\report\table_sheets.py"; Marker = "Produced by ECC Measurement";     Why = "the workbook signs itself; it reaches people who never open either application" },
     @{ Path = "setup.ps1";                     Marker = "pipeline.api.ensure_db";            Why = "config-driven one-time setup incl. the schema step before setup_roles" },
     @{ Path = "start.ps1";                     Marker = "Start-CplanServer";                 Why = "server windows stay open on a crash, so the traceback is readable" },
     @{ Path = "stop.ps1";                      Marker = "Stop-CplanServerOnPort";            Why = "clean shutdown launcher - without it the servers keep their ports and the next start dies with winerror 10048" },

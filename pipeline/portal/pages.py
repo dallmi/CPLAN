@@ -508,7 +508,7 @@ _SHELL_PAGE = """<!DOCTYPE html>
     <span class="brand-mark"></span>
     <div>
       <h1>Insights Portal</h1>
-      <p>powered by M&amp;I</p>
+      <p>ECC Measurement &amp; Insights</p>
     </div>
   </div>
   <div class="top-actions">
