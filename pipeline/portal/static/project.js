@@ -51,6 +51,9 @@
     if (response.status === 401) { location.href = '/'; return; }
     const user = await response.json();
     document.getElementById('user-chip-name').textContent = user.username;
+    // Duplicated from js/ui.js's initials() rather than imported: this is a
+    // plain, non-module script (no <script type="module">), so it cannot
+    // import an ES module. Keep the two in sync by hand if this logic changes.
     document.getElementById('user-chip-avatar').textContent =
       user.username.split(/[\s.]+/).filter(Boolean).map((p) => p[0]).join('').slice(0, 2).toUpperCase();
     document.getElementById('user-chip').classList.remove('hidden');

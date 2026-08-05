@@ -1,6 +1,7 @@
 /* Boot and navigation. Every render module owns one page and is called from here. */
 import { getSession, signIn, signOut } from './api.js';
 import { state } from './state.js';
+import { initials } from './ui.js';
 import { renderHome, loadHome } from './home.js';
 import { renderUsers, loadUsers, wireUsers } from './users.js';
 import { renderMatrix, wireMatrix } from './matrix.js';
@@ -12,10 +13,6 @@ export function show(page) {
   document.querySelectorAll('.nav-item').forEach((b) => b.classList.toggle('active', b.dataset.page === page));
   document.querySelectorAll('.page').forEach((p) => p.classList.toggle('active', p.id === `page-${page}`));
   document.querySelectorAll('.popover').forEach((p) => p.remove());
-}
-
-function initials(username) {
-  return username.split(/[\s.]+/).filter(Boolean).map((p) => p[0]).join('').slice(0, 2).toUpperCase();
 }
 
 function capitalize(word) {

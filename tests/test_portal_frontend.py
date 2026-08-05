@@ -14,6 +14,7 @@ from pathlib import Path
 
 PORTAL = Path(__file__).resolve().parents[1] / "pipeline" / "portal"
 STATIC = PORTAL / "static"
+JS = STATIC / "js"
 MANUAL = PORTAL / "projects" / "cplan" / "manual.html"
 ASSETS = PORTAL / "projects" / "cplan" / "assets"
 EMOJI = re.compile("[\U0001F000-\U0001FFFF\U00002600-\U000027BF\U00002B00-\U00002BFF]")
@@ -195,6 +196,30 @@ class PortalFrontendTests(unittest.TestCase):
         pages_py = (PORTAL / "pages.py").read_text(encoding="utf-8")
         self.assertNotIn("btn-ghost", pages_py)
         self.assertNotIn('class="brand"', pages_py)
+
+    def test_api_module_covers_every_endpoint(self):
+        api = (JS / "api.js").read_text(encoding="utf-8")
+        for route in (
+            "/api/me", "/api/login", "/api/logout", "/api/portal/projects",
+            "/api/portal/users", "/role", "/revoke", "/password", "/active", "/display-name",
+        ):
+            self.assertIn(route, api)
+
+    def test_state_pivots_rows_into_accounts(self):
+        state = (JS / "state.js").read_text(encoding="utf-8")
+        # portal.users returns one row per user x project x role; the UI needs
+        # one object per person carrying a per-project map.
+        self.assertIn("accountsFromRows", state)
+        self.assertIn("export const ROLES", state)
+        self.assertIn("highestRole", state)
+
+    def test_app_module_imports_initials_instead_of_redefining_it(self):
+        # initials() used to be written out separately in app.js and ui.js.
+        # ui.js is now the single home for it; app.js must import it rather
+        # than carry its own copy, or the two will drift apart again.
+        app_js = (JS / "app.js").read_text(encoding="utf-8")
+        self.assertIn("import { initials", app_js)
+        self.assertNotIn("function initials(", app_js)
 
     def test_home_tiles_open_the_project_page_and_favicon_present(self):
         # The new tab now belongs to the application tile on the project page
