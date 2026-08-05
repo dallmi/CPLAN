@@ -4,7 +4,7 @@
 
 **Goal:** Replace the portal's assembled-looking single page with the reviewed design — sign-in, project tiles, a users list and a user × project access matrix — plus the three backend additions that design needs.
 
-**Architecture:** The frontend becomes a small ES-module single-page app served by the same FastAPI `StaticFiles` mount as today (no build step, no bundler, no framework). The access matrix is a client-side pivot of `portal.users`, which already returns one row per user × project × role — so it needs no new read endpoint. Three backend gaps are closed: a `purpose` column plus the caller's own role on the tiles endpoint, a `portal.revoke_project_role` function so a matrix cell can be emptied, and a `portal.user_profile` table so display names and last-sign-in have somewhere to live.
+**Architecture:** The frontend becomes a small ES-module single-page app served by the same FastAPI `StaticFiles` mount as today (no build step, no bundler, no framework). The access matrix is a client-side pivot of `portal.users`, which already returns one row per user × project × role — so it needs no new read endpoint. Three backend gaps are closed: the project's purpose (read from its `resources.json` manifest, not a new column) plus the caller's own role on the tiles endpoint, a `portal.revoke_project_role` function so a matrix cell can be emptied, and a `portal.user_profile` table so display names and last-sign-in have somewhere to live.
 
 **Tech Stack:** Python 3.13, FastAPI, SQLAlchemy 2, PostgreSQL 16 (embedded via `pgserver`), plain ES modules, `unittest` + `pytest`.
 
@@ -24,7 +24,7 @@
 ## File Structure
 
 **Backend — modified:**
-- `pipeline/api/setup_portal.py` — schema, registry, SECURITY DEFINER functions. Gains: a `purpose` column on `portal.projects`, the `portal.user_profile` table, and three new functions (`revoke_project_role`, `set_display_name`, `record_sign_in`).
+- `pipeline/api/setup_portal.py` — schema, registry, SECURITY DEFINER functions. Gains: the `portal.user_profile` table, and three new functions (`revoke_project_role`, `set_display_name`, `record_sign_in`).
 - `pipeline/portal/app.py` — HTTP surface. Gains: richer `/api/portal/projects`, a revoke endpoint, a display-name endpoint, and a sign-in timestamp write on login.
 
 **Frontend — replaced.** Today's `static/{index.html,styles.css,app.js}` become a module layout, one responsibility per file:
@@ -49,97 +49,20 @@
 
 ### Task 1: Project purpose and the caller's own role on the tiles endpoint
 
-Today a tile shows `http://127.0.0.1:8780/` as its subtitle, because that is all the endpoint returns. Give the registry a one-line purpose, and have the endpoint report the caller's role on each project so the tile can show it.
+Today a home tile shows only the project name. Give it the project's one-line purpose and the role the caller holds on that project.
+
+**This task was rewritten on 2026-08-05**, after the project-page feature landed. Its original form added a `purpose` column to `portal.projects`. That would now be a second source of truth: `pipeline/portal/projects/<slug>/resources.json` already carries `purpose`, the project page reads it from there, and `apply_portal`'s upsert would re-assert the seeded constant on every deploy — so editing the repository file would appear to work and then silently stop. The manifest wins: it versions with the manual and the document titles that live beside it, it needs no migration, and registering a second project already requires dropping that file.
 
 **Files:**
-- Modify: `pipeline/api/setup_portal.py` (`_CPLAN` seed, `apply_portal`, `register_project`)
-- Modify: `pipeline/portal/app.py:129-141` (the `projects` endpoint)
-- Test: `tests/test_setup_portal.py`, `tests/test_portal_api.py`
+- Modify: `pipeline/portal/app.py` (the `projects` endpoint only)
+- Test: `tests/test_portal_api.py`
+- `pipeline/api/setup_portal.py` is NOT touched. No column, no `ALTER TABLE`, no seed change, and `register_project` keeps its current signature.
 
 **Interfaces:**
-- Consumes: nothing from earlier tasks.
-- Produces: `GET /api/portal/projects` returns `{"projects": [{"slug": str, "name": str, "url": str, "purpose": str | None, "role": "admin"|"editor"|"contributor"|"viewer"}]}`. `register_project(engine, slug, name, url, role_prefix, purpose=None) -> None`.
+- Consumes: `load_manifest(slug, root=PROJECTS_ROOT) -> dict` and the module-level SQL fragments `PROJECT_VISIBLE` and `PROJECT_ROLE`, all already in the codebase.
+- Produces: `GET /api/portal/projects` returns `{"projects": [{"slug": str, "name": str, "url": str, "purpose": str | None, "role": "admin"|"editor"|"contributor"|"viewer"}]}`.
 
-- [ ] **Step 1: Write the failing test for the schema column**
-
-Add to `tests/test_setup_portal.py`:
-
-```python
-def test_projects_table_has_purpose_column(portal_engine):
-    with portal_engine.connect() as c:
-        row = c.execute(
-            text(
-                "SELECT purpose FROM portal.projects WHERE slug = 'cplan'"
-            )
-        ).one()
-    assert row.purpose is not None and row.purpose.strip() != ""
-```
-
-- [ ] **Step 2: Run it to make sure it fails**
-
-Run: `PYTHONPATH=. .venv/bin/python -m pytest tests/test_setup_portal.py::test_projects_table_has_purpose_column -v`
-Expected: FAIL with `UndefinedColumn: column "purpose" does not exist`.
-
-- [ ] **Step 3: Add the column and seed it**
-
-In `pipeline/api/setup_portal.py`, extend the seed constant:
-
-```python
-_CPLAN = {
-    "slug": "cplan",
-    "name": "CPLAN Studio",
-    "url": "http://127.0.0.1:8780/",
-    "role_prefix": "cplan",
-    "purpose": "Plan and track internal and external communication activity across the year.",
-}
-```
-
-In `apply_portal`, after the `CREATE TABLE IF NOT EXISTS portal.projects (...)` statement and before the `GRANT SELECT`, top the column up for databases created before it existed — the same pattern `ensure_schema()` uses for model columns:
-
-```python
-        # Databases created before `purpose` existed are topped up in place;
-        # CREATE TABLE IF NOT EXISTS never alters an existing table.
-        c.exec_driver_sql("ALTER TABLE portal.projects ADD COLUMN IF NOT EXISTS purpose text")
-```
-
-Then extend the seed upsert to carry it:
-
-```python
-        c.execute(
-            text(
-                "INSERT INTO portal.projects (slug, name, url, role_prefix, purpose) "
-                "VALUES (:slug, :name, :url, :role_prefix, :purpose) "
-                "ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name, url = EXCLUDED.url, "
-                "role_prefix = EXCLUDED.role_prefix, purpose = EXCLUDED.purpose"
-            ),
-            _CPLAN,
-        )
-```
-
-And widen `register_project` the same way:
-
-```python
-def register_project(
-    engine: Engine, slug: str, name: str, url: str, role_prefix: str, purpose: str | None = None
-) -> None:
-    with engine.begin() as c:
-        c.execute(
-            text(
-                "INSERT INTO portal.projects (slug, name, url, role_prefix, purpose) "
-                "VALUES (:slug, :name, :url, :role_prefix, :purpose) "
-                "ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name, url = EXCLUDED.url, "
-                "role_prefix = EXCLUDED.role_prefix, purpose = EXCLUDED.purpose"
-            ),
-            {"slug": slug, "name": name, "url": url, "role_prefix": role_prefix, "purpose": purpose},
-        )
-```
-
-- [ ] **Step 4: Run it to make sure it passes**
-
-Run: `PYTHONPATH=. .venv/bin/python -m pytest tests/test_setup_portal.py -v`
-Expected: PASS, and every pre-existing test in the file still passes.
-
-- [ ] **Step 5: Write the failing test for the endpoint payload**
+- [ ] **Step 1: Write the failing test**
 
 Add to `tests/test_portal_api.py`:
 
@@ -158,55 +81,61 @@ def test_projects_endpoint_returns_purpose_and_callers_role(portal):
     assert cplan_as_viewer["role"] == "viewer"
 ```
 
-- [ ] **Step 6: Run it to make sure it fails**
+This asserts the payload, not the mechanism, so it is the acceptance criterion for this task however it is implemented.
 
-Run: `PYTHONPATH=. .venv/bin/python -m pytest tests/test_portal_api.py::test_projects_endpoint_returns_purpose_and_callers_role -v`
+- [ ] **Step 2: Run it to make sure it fails**
+
+Run: `CPLAN_TEST_DATABASE_URL=... PYTHONPATH=. .venv/bin/python -m pytest tests/test_portal_api.py::test_projects_endpoint_returns_purpose_and_callers_role -v`
 Expected: FAIL with `KeyError: 'role'`.
 
-- [ ] **Step 7: Return purpose and the caller's role**
+- [ ] **Step 3: Return purpose and the caller's role**
 
-Replace the `projects` endpoint in `pipeline/portal/app.py`. The role is resolved with the same `pg_has_role` check `/api/me` uses, but per project and strongest-first — this is the union rule the access model is built on, evaluated by Postgres itself:
+Replace the `projects` endpoint in `pipeline/portal/app.py`. Reuse `PROJECT_ROLE` and `PROJECT_VISIBLE` — they already resolve role names through `to_regrole`, and they exist precisely so this rule is written once:
 
 ```python
     @app.get("/api/portal/projects")
     def projects(session: Session = Depends(db_session)):
         rows = session.execute(
             text(
-                "SELECT slug, name, url, purpose, "
-                "  CASE "
-                "    WHEN pg_has_role(current_user, p.role_prefix || '_admin', 'member')       THEN 'admin' "
-                "    WHEN pg_has_role(current_user, p.role_prefix || '_editor', 'member')      THEN 'editor' "
-                "    WHEN pg_has_role(current_user, p.role_prefix || '_contributor', 'member') THEN 'contributor' "
-                "    ELSE 'viewer' "
-                "  END AS role "
+                "SELECT p.slug, p.name, p.url, "
+                f"  {PROJECT_ROLE} AS role "
                 "FROM portal.projects p "
-                "WHERE pg_has_role(current_user, p.role_prefix || '_viewer', 'member') "
-                "   OR pg_has_role(current_user, p.role_prefix || '_contributor', 'member') "
-                "   OR pg_has_role(current_user, p.role_prefix || '_editor', 'member') "
-                "   OR pg_has_role(current_user, p.role_prefix || '_admin', 'member') "
-                "ORDER BY name"
+                f"WHERE {PROJECT_VISIBLE} "
+                "ORDER BY p.name"
             )
         ).all()
         return {
             "projects": [
-                {"slug": r.slug, "name": r.name, "url": r.url, "purpose": r.purpose, "role": r.role}
+                {
+                    "slug": r.slug,
+                    "name": r.name,
+                    "url": r.url,
+                    "purpose": load_manifest(r.slug, root=PROJECTS_ROOT).get("purpose"),
+                    "role": r.role,
+                }
                 for r in rows
             ]
         }
 ```
 
-- [ ] **Step 8: Run the portal API tests**
+Two things this must NOT do, both of them regressions of measured defects:
 
-Run: `PYTHONPATH=. .venv/bin/python -m pytest tests/test_portal_api.py -v`
-Expected: PASS.
+- **Do not write the four `pg_has_role` arms out by hand, and do not pass bare role names.** `pg_has_role` raises SQLSTATE 42704 for a name that is not a role, so one project registered before its group roles exist takes this endpoint — the landing page — down for every caller, cluster-wide. That was measured and fixed; `tests/test_portal_api.py::test_projects_list_survives_a_project_with_no_group_roles` guards it.
+- **Do not add `ELSE 'viewer'` to the role CASE.** `PROJECT_ROLE` deliberately yields NULL when the caller holds no role, so "no access" cannot be laundered into "viewer". `PROJECT_VISIBLE` already excludes those rows here, so the NULL never reaches the payload.
 
-- [ ] **Step 9: Commit**
+The manifest read is one sub-kilobyte JSON parse per visible project, and `project_detail` already does exactly this per request. If it ever measures as a problem, memoise on file mtime — do not move the field into the database.
+
+- [ ] **Step 4: Run the portal API tests**
+
+Run: `CPLAN_TEST_DATABASE_URL=... PYTHONPATH=. .venv/bin/python -m pytest tests/test_portal_api.py -v`
+Expected: PASS, including the two guard tests named above.
+
+- [ ] **Step 5: Commit**
 
 ```bash
-git add pipeline/api/setup_portal.py pipeline/portal/app.py tests/test_setup_portal.py tests/test_portal_api.py
-git commit -m "feat(portal): give projects a purpose and report the caller's role per project"
+git add pipeline/portal/app.py tests/test_portal_api.py
+git commit -m "Show what a project is for, and what you may do on it"
 ```
-
 ---
 
 ### Task 2: Revoke a project role
