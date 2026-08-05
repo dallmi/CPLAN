@@ -240,6 +240,34 @@ class PortalFrontendTests(unittest.TestCase):
         # The shipped portal printed the raw URL as the tile subtitle.
         self.assertNotIn("tile-url", home)
 
+    def test_users_table_can_search_filter_and_sort(self):
+        users = (JS / "users.js").read_text(encoding="utf-8")
+        for hook in ("user-search", "user-filter-role", "user-filter-status", "user-count", "user-empty"):
+            self.assertIn(hook, users)
+        self.assertIn("aria-sort", users)
+        self.assertIn("openDrawer", users)
+
+    def test_users_row_template_matches_the_table_head_column_count(self):
+        # Phase 1 has no groups concept, so the Groups column was removed from
+        # index.html's <thead>. If the row template in users.js emits a
+        # different number of <td>s than the head has <th>s, every row
+        # silently misaligns under its header. index.html is the source of
+        # truth for the column count.
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        thead_match = re.search(r'<table id="user-table">.*?<thead>(.*?)</thead>', html, re.DOTALL)
+        self.assertIsNotNone(thead_match, "user-table thead not found")
+        column_count = thead_match.group(1).count("<th")
+
+        users = (JS / "users.js").read_text(encoding="utf-8")
+        row_match = re.search(r"innerHTML = list\.map\(\(u\) => `(.*?)`\)\.join\(''\)", users, re.DOTALL)
+        self.assertIsNotNone(row_match, "users.js row template not found")
+        cell_count = row_match.group(1).count("<td")
+
+        self.assertEqual(
+            cell_count, column_count,
+            "users.js row template must emit exactly as many <td>s as user-table has <th>s",
+        )
+
 
 class ProjectPageStaticTests(unittest.TestCase):
     """Moved here from tests/test_portal_project_page.py: none of these needs a database."""
