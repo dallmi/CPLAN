@@ -180,6 +180,97 @@ def test_admin_cannot_disable_own_account_via_endpoint(portal):
     assert admin.get("/api/portal/users").status_code == 200
 
 
+def test_admin_can_revoke_a_project_role(portal):
+    client = login(portal, "pa_admin")
+    client.post(
+        "/api/portal/users",
+        json={"username": "pa_temp", "password": "pw-t", "project": "cplan", "role": "viewer"},
+    )
+    assert any(u["username"] == "pa_temp" for u in client.get("/api/portal/users").json()["users"])
+
+    response = client.post("/api/portal/users/pa_temp/revoke", json={"project": "cplan"})
+    assert response.status_code == 200
+    assert not any(u["username"] == "pa_temp" for u in client.get("/api/portal/users").json()["users"])
+
+
+def test_non_admin_cannot_revoke(portal):
+    viewer = login(portal, "pa_viewer")
+    response = viewer.post("/api/portal/users/pa_admin/revoke", json={"project": "cplan"})
+    assert response.status_code == 403
+
+
+def test_revoke_role_on_unknown_project_is_422(portal):
+    admin = login(portal, "pa_admin")
+    resp = admin.post("/api/portal/users/pa_viewer/revoke", json={"project": "no-such-project"})
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["detail"]["code"] == "invalid_input"
+
+
+def test_revoke_role_on_unknown_user_is_422(portal):
+    admin = login(portal, "pa_admin")
+    resp = admin.post("/api/portal/users/pa_ghost/revoke", json={"project": "cplan"})
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["detail"]["code"] == "invalid_input"
+
+
+def test_revoke_last_active_admin_via_endpoint_is_422(portal):
+    # pa_admin is the sole active cplan admin throughout this module's
+    # fixture -- no other test in this file grants a second account the
+    # admin role -- so this exercises the point-4 lockout guard end to end.
+    admin = login(portal, "pa_admin")
+    resp = admin.post("/api/portal/users/pa_admin/revoke", json={"project": "cplan"})
+    assert resp.status_code == 422, resp.text
+    assert "last active admin" in resp.json()["detail"]["message"]
+    # Still admin afterward and still able to act through the portal.
+    assert admin.get("/api/portal/users").status_code == 200
+
+
+def test_revoke_leaves_other_project_access_and_the_account_intact(portal):
+    admin = login(portal, "pa_admin")
+    prefix = "revokeproj"
+    groups = [f"{prefix}_{role}" for role in ("viewer", "contributor", "editor", "admin")]
+    try:
+        with portal.state.engine.begin() as c:
+            for group in groups:
+                c.exec_driver_sql(f"CREATE ROLE {group} NOLOGIN")
+            c.exec_driver_sql(f"GRANT {prefix}_viewer TO {prefix}_contributor")
+            c.exec_driver_sql(f"GRANT {prefix}_contributor TO {prefix}_editor")
+            c.exec_driver_sql(f"GRANT {prefix}_editor TO {prefix}_admin")
+            # A second admin on THIS project too, so this test's revoke below
+            # never trips the last-active-admin guard by accident.
+            c.exec_driver_sql(f"GRANT {prefix}_admin TO pa_admin")
+        register_project(portal.state.engine, "revokeproj", "Revoke Project", "http://x/", prefix)
+
+        created = admin.post(
+            "/api/portal/users",
+            json={"username": "pa_multi", "password": "pw-multi", "project": "cplan", "role": "viewer"},
+        )
+        assert created.status_code == 201, created.text
+        # Granted directly rather than through the /role endpoint: portal_owner
+        # only holds ADMIN OPTION on the cplan_* groups apply_portal wires up
+        # (see _ASSIGNABLE_GROUPS), not on this test's ad hoc revokeproj_*
+        # groups, so portal.set_project_role's GRANT would 42501 for reasons
+        # unrelated to what this test is checking.
+        with portal.state.engine.begin() as c:
+            c.exec_driver_sql(f"GRANT {prefix}_viewer TO pa_multi")
+
+        response = admin.post("/api/portal/users/pa_multi/revoke", json={"project": "cplan"})
+        assert response.status_code == 200, response.text
+
+        rows = {(u["username"], u["project"]) for u in admin.get("/api/portal/users").json()["users"]}
+        assert ("pa_multi", "cplan") not in rows
+        assert ("pa_multi", "revokeproj") in rows  # access to the OTHER project survives
+
+        with portal.state.engine.connect() as c:
+            assert c.exec_driver_sql("SELECT 1 FROM pg_roles WHERE rolname = 'pa_multi'").first()  # account survives
+    finally:
+        with portal.state.engine.begin() as c:
+            c.exec_driver_sql("DELETE FROM portal.projects WHERE slug = 'revokeproj'")
+            c.exec_driver_sql("DROP ROLE IF EXISTS pa_multi")
+            for group in groups:
+                c.exec_driver_sql(f"DROP ROLE IF EXISTS {group}")
+
+
 def test_project_detail_returns_declared_tiles(portal):
     detail = login(portal, "pa_admin").get("/api/portal/projects/cplan")
     assert detail.status_code == 200, detail.text

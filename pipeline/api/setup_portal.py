@@ -97,6 +97,55 @@ BEGIN
 END; $fn$;
 """
 
+# Removing every assignable group role for one project drops the user out of
+# portal.users for that project entirely -- which is what an emptied matrix
+# cell means. The account itself and any access to OTHER projects are
+# untouched. Revoking the project's last active admin has the same failure
+# shape set_active's disable guard exists to prevent: nobody would be left
+# who can grant access back through the portal for that project, and
+# recovery would need the setup_roles CLI on the host machine, so that case
+# is guarded the same way (mirroring set_active's rolcanlogin-scoped count).
+# Unlike set_active, this does NOT special-case the caller's own account:
+# set_project_role already lets an admin demote themselves away from
+# <prefix>_admin today with no such guard (it is revoke-then-grant, and this
+# task does not change it), and a self-revoke while another admin remains is
+# recoverable through that other admin -- it is the *last* admin leaving
+# that the portal cannot undo, not *which* admin does the revoking.
+_REVOKE_ROLE_FN = f"""
+CREATE OR REPLACE FUNCTION portal.revoke_project_role(p_name text, p_project text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $fn$
+DECLARE v_prefix text; v_admin_group text; v_other_active_admins int; r text;
+BEGIN
+  IF p_name = ANY ({_RESERVED_SQL_ARRAY}) THEN
+    RAISE EXCEPTION 'reserved role %%', p_name;
+  END IF;
+  SELECT role_prefix INTO v_prefix FROM portal.projects WHERE slug = p_project;
+  IF v_prefix IS NULL THEN
+    RAISE EXCEPTION 'unknown project %%', p_project;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = p_name) THEN
+    RAISE EXCEPTION 'unknown user %%', p_name;
+  END IF;
+  v_admin_group := v_prefix || '_admin';
+  IF EXISTS (
+    SELECT 1 FROM pg_auth_members m
+    JOIN pg_roles g ON g.oid = m.roleid AND g.rolname = v_admin_group
+    JOIN pg_roles u ON u.oid = m.member AND u.rolname = p_name
+  ) THEN
+    SELECT count(*) INTO v_other_active_admins FROM pg_auth_members m
+    JOIN pg_roles g ON g.oid = m.roleid AND g.rolname = v_admin_group
+    JOIN pg_roles u ON u.oid = m.member
+    WHERE u.rolcanlogin AND u.rolname <> p_name;
+    IF v_other_active_admins = 0 THEN
+      RAISE EXCEPTION 'cannot revoke %%: last active admin (%%)', p_name, v_admin_group;
+    END IF;
+  END IF;
+  FOREACH r IN ARRAY ARRAY['viewer','contributor','editor','admin'] LOOP
+    EXECUTE format('REVOKE %%I FROM %%I', v_prefix || '_' || r, p_name);
+  END LOOP;
+END; $fn$;
+"""
+
 _RESET_PW_FN = f"""
 CREATE OR REPLACE FUNCTION portal.reset_password(p_name text, p_password text)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $fn$
@@ -192,6 +241,7 @@ WHERE u.rolname NOT IN ('cplan_authenticator', 'portal_owner')
 _FUNCTIONS = (
     ("portal.create_user(text, text, text, text)", _CREATE_USER_FN),
     ("portal.set_project_role(text, text, text)", _SET_ROLE_FN),
+    ("portal.revoke_project_role(text, text)", _REVOKE_ROLE_FN),
     ("portal.reset_password(text, text)", _RESET_PW_FN),
     ("portal.set_active(text, boolean, text)", _SET_ACTIVE_FN),
 )

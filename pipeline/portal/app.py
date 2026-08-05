@@ -89,6 +89,10 @@ class RolePayload(BaseModel):
     role: str = Field(min_length=1)
 
 
+class RevokePayload(BaseModel):
+    project: str = Field(min_length=1)
+
+
 class PasswordPayload(BaseModel):
     password: str = Field(min_length=1)
 
@@ -321,6 +325,11 @@ def create_portal_app(database_url: str | URL | None = None, auth_settings: Auth
     @app.post("/api/portal/users/{username}/role")
     def set_role_endpoint(username: str, payload: RolePayload, session: Session = Depends(db_session)):
         _call(session, "SELECT portal.set_project_role(:n, :proj, :r)", {"n": username, "proj": payload.project, "r": payload.role})
+        return {"status": "ok"}
+
+    @app.post("/api/portal/users/{username}/revoke")
+    def revoke_role_endpoint(username: str, payload: RevokePayload, session: Session = Depends(db_session)):
+        _call(session, "SELECT portal.revoke_project_role(:n, :proj)", {"n": username, "proj": payload.project})
         return {"status": "ok"}
 
     @app.post("/api/portal/users/{username}/password")

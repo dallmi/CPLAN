@@ -106,6 +106,7 @@ def test_mutators_reject_unknown_user(engine):
     try:
         for sql in (
             "SELECT portal.set_project_role('ghost', 'cplan', 'editor')",
+            "SELECT portal.revoke_project_role('ghost', 'cplan')",
             "SELECT portal.reset_password('ghost', 'pw')",
             "SELECT portal.set_active('ghost', false)",
         ):
@@ -145,6 +146,78 @@ def test_set_role_password_and_active_functions(engine):
         ).scalars().all()
         assert direct == ["cplan_editor"]  # old direct membership revoked, exactly one group
         assert c.execute(text("SELECT rolcanlogin FROM pg_roles WHERE rolname = 'mutable'")).scalar_one() is False
+
+
+def test_revoke_role_rejects_unknown_project_and_reserved_name(engine):
+    admin = _as(engine, "p_admin")
+    try:
+        for sql in (
+            "SELECT portal.revoke_project_role('p_admin', 'nope')",       # unknown project
+            "SELECT portal.revoke_project_role('cplan_admin', 'cplan')",  # reserved name
+        ):
+            with pytest.raises(ProgrammingError) as exc:
+                admin.exec_driver_sql(sql)
+            assert exc.value.orig.sqlstate == "P0001"
+            admin.rollback()
+    finally:
+        admin.exec_driver_sql("RESET ROLE"); admin.commit(); admin.close()
+
+
+def test_revoke_role_removes_group_membership_and_preserves_account(engine):
+    admin = _as(engine, "p_admin")
+    try:
+        admin.exec_driver_sql("SELECT portal.create_user('revocable', 'pw0', 'cplan', 'contributor')"); admin.commit()
+        admin.exec_driver_sql("SELECT portal.revoke_project_role('revocable', 'cplan')"); admin.commit()
+    finally:
+        admin.rollback(); admin.exec_driver_sql("RESET ROLE"); admin.commit(); admin.close()
+    with engine.connect() as c:
+        # No more cplan.* group membership -- gone from portal.users for cplan.
+        direct = c.execute(
+            text(
+                "SELECT r.rolname FROM pg_auth_members m "
+                "JOIN pg_roles r ON r.oid = m.roleid "
+                "JOIN pg_roles u ON u.oid = m.member WHERE u.rolname = 'revocable' AND r.rolname LIKE 'cplan\\_%'"
+            )
+        ).scalars().all()
+        assert direct == []
+        # The account itself (the login role) is untouched by revoking a project role.
+        assert c.execute(text("SELECT rolcanlogin FROM pg_roles WHERE rolname = 'revocable'")).scalar_one() is True
+
+
+def test_revoke_role_blocks_last_active_admin(engine):
+    # p_admin is the only active cplan admin at this point in the fixture
+    # (the earlier 'second_admin' from test_set_active_allows_disable_when_
+    # another_active_admin_exists was left disabled, so it does not count).
+    # Revoking the project's last admin would leave nobody able to grant
+    # access back through the portal -- the same failure shape set_active's
+    # own last-admin guard exists to prevent.
+    admin = _as(engine, "p_admin")
+    try:
+        with pytest.raises(ProgrammingError) as exc:
+            admin.exec_driver_sql("SELECT portal.revoke_project_role('p_admin', 'cplan')")
+        assert exc.value.orig.sqlstate == "P0001"
+        assert "last active admin" in str(exc.value.orig)
+        admin.rollback()
+    finally:
+        admin.exec_driver_sql("RESET ROLE"); admin.commit(); admin.close()
+    with engine.connect() as c:
+        assert c.execute(text("SELECT pg_has_role('p_admin', 'cplan_admin', 'member')")).scalar_one() is True
+
+
+def test_revoke_role_allowed_when_another_active_admin_exists(engine):
+    # Revoking someone who is NOT the last active admin must succeed --
+    # p_admin remains, so 'temp_admin' losing cplan is recoverable through
+    # p_admin and is not a lockout.
+    admin = _as(engine, "p_admin")
+    try:
+        admin.exec_driver_sql("SELECT portal.create_user('temp_admin', 'pw-temp', 'cplan', 'admin')"); admin.commit()
+        admin.exec_driver_sql("SELECT portal.revoke_project_role('temp_admin', 'cplan')"); admin.commit()
+    finally:
+        admin.rollback(); admin.exec_driver_sql("RESET ROLE"); admin.commit(); admin.close()
+    with engine.connect() as c:
+        assert c.execute(text("SELECT pg_has_role('temp_admin', 'cplan_admin', 'member')")).scalar_one() is False
+        # Account itself still exists -- only the project role was revoked.
+        assert c.execute(text("SELECT 1 FROM pg_roles WHERE rolname = 'temp_admin'")).first()
 
 
 def test_portal_users_view_lists_project_members(engine):
