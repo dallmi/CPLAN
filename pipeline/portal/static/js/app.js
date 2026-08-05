@@ -14,9 +14,24 @@ export function show(page) {
   document.querySelectorAll('.popover').forEach((p) => p.remove());
 }
 
-async function enterApp() {
+function initials(username) {
+  return username.split(/[\s.]+/).filter(Boolean).map((p) => p[0]).join('').slice(0, 2).toUpperCase();
+}
+
+function capitalize(word) {
+  return word ? word.charAt(0).toUpperCase() + word.slice(1) : '';
+}
+
+function paintUserChip(session) {
+  document.getElementById('user-chip-avatar').textContent = initials(session.username);
+  document.getElementById('user-chip-name').textContent = session.username;
+  document.getElementById('user-chip-role').textContent = capitalize(session.role);
+}
+
+async function enterApp(session) {
   document.getElementById('screen-signin').hidden = true;
   document.getElementById('screen-app').hidden = false;
+  paintUserChip(session);
   await Promise.all([loadHome(), loadUsers()]);
   renderHome();
   renderUsers();
@@ -38,7 +53,7 @@ document.getElementById('signin-form').addEventListener('submit', async (event) 
     document.getElementById('si-pass').value,
   );
   document.getElementById('si-error').hidden = ok;
-  if (ok) await enterApp();
+  if (ok) await enterApp(await getSession());
 });
 
 document.getElementById('sign-out').addEventListener('click', async () => {
@@ -52,4 +67,4 @@ wireDrawer();
 wireInvite();
 
 const session = await getSession();
-if (session) { await enterApp(); } else { showSignIn(); }
+if (session) { await enterApp(session); } else { showSignIn(); }

@@ -27,11 +27,11 @@
       <p>Use your CPLAN account.</p>
       <div class="field">
         <label for="si-user">Username</label>
-        <input type="text" id="si-user" autocomplete="username" value="a.keller" />
+        <input type="text" id="si-user" autocomplete="username" />
       </div>
       <div class="field">
         <label for="si-pass">Password</label>
-        <input type="password" id="si-pass" autocomplete="current-password" value="prototype" />
+        <input type="password" id="si-pass" autocomplete="current-password" />
         <span class="field-error" id="si-error" hidden>Username or password is not correct.</span>
       </div>
       <button type="submit" class="btn primary">Sign in</button>
@@ -52,8 +52,8 @@
     </div>
     <div class="top-actions">
       <div class="user-chip">
-        <span class="avatar" aria-hidden="true">AK</span>
-        <span><strong>a.keller</strong><br />Portal administrator</span>
+        <span class="avatar" aria-hidden="true" id="user-chip-avatar"></span>
+        <span><strong id="user-chip-name"></strong><br /><span id="user-chip-role"></span></span>
       </div>
       <button class="btn quiet" type="button" id="sign-out">Sign out</button>
     </div>
@@ -118,8 +118,8 @@
           <thead>
             <tr>
               <th class="sortable" data-sort="name" aria-sort="ascending">Name<span class="sort-arrow">↑</span></th>
-              <th>Highest role</th>
-              <th class="num">Projects</th>
+              <th class="sortable" data-sort="role">Highest role<span class="sort-arrow">↑</span></th>
+              <th class="sortable num" data-sort="projects">Projects<span class="sort-arrow">↑</span></th>
               <th>Groups</th>
               <th>Status</th>
               <th class="num">Last sign-in</th>

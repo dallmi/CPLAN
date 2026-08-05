@@ -93,6 +93,33 @@ class PortalFrontendTests(unittest.TestCase):
         for page in ("home", "users", "matrix"):
             self.assertIn(f'data-page="{page}"', html)
 
+    def test_user_table_has_every_sortable_column(self):
+        # A later task wires sorting with querySelectorAll('#user-table
+        # th.sortable') and toggles state.userSort on data-sort. Every
+        # sortable column must carry both, or sorting by that column silently
+        # never works.
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        for sort_key in ("name", "role", "projects"):
+            self.assertIn(f'data-sort="{sort_key}"', html)
+        self.assertEqual(html.count('class="sort-arrow"'), 3)
+
+    def test_topbar_carries_no_hardcoded_username(self):
+        # The topbar must be populated from the signed-in session at runtime,
+        # not ship with whoever last reviewed the prototype baked in.
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        for placeholder in ("a.keller", "Portal administrator", ">AK<"):
+            self.assertNotIn(placeholder, html)
+        for element_id in ("user-chip-avatar", "user-chip-name", "user-chip-role"):
+            self.assertIn(f'id="{element_id}"', html)
+        app_js = (STATIC / "js" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("user-chip-name", app_js)
+        self.assertIn("user-chip-role", app_js)
+
+    def test_signin_fields_start_empty(self):
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        self.assertNotIn('value="a.keller"', html)
+        self.assertNotIn('value="prototype"', html)
+
     def test_boot_module_has_no_emoji(self):
         # The old test_no_emoji_and_corporate_palette covered index.html and
         # app.js; this task retires both as the portal's entry point, so the
