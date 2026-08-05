@@ -3,9 +3,22 @@
    The chip's fill weight encodes privilege — see the ramp in styles.css. */
 import { setRole, revokeRole } from './api.js';
 import { state, ROLES, ROLE_LABEL, accessFor, project } from './state.js';
-import { esc, roleChip, toast, closePopover } from './ui.js';
+import { esc, roleChip, toast, closePopover, pushLayer, popLayer } from './ui.js';
 import { openDrawer } from './drawer.js';
-import { loadUsers } from './users.js';
+import { loadUsers, renderUsers } from './users.js';
+
+// Escape used to drop focus to <body> instead of back to the cell that
+// opened the popover. Tracked here so every close path -- Escape, a
+// click-away, or picking an option -- can restore it.
+let popoverLayerToken = null;
+let popoverAnchor = null;
+
+function closePopoverAndRestoreFocus() {
+  closePopover();
+  if (popoverLayerToken) { popLayer(popoverLayerToken); popoverLayerToken = null; }
+  if (popoverAnchor && typeof popoverAnchor.focus === 'function') popoverAnchor.focus();
+  popoverAnchor = null;
+}
 
 function visible() {
   const query = document.getElementById('matrix-search').value.trim().toLowerCase();
@@ -19,6 +32,17 @@ function visible() {
 }
 
 export function renderMatrix() {
+  const wrap = document.getElementById('matrix-wrap');
+  const loadError = document.getElementById('matrix-load-error');
+  if (state.usersLoadFailed || state.projectsLoadFailed) {
+    wrap.hidden = true;
+    loadError.hidden = false;
+    document.getElementById('matrix-count').textContent = '';
+    return;
+  }
+  wrap.hidden = false;
+  loadError.hidden = true;
+
   const filter = document.getElementById('matrix-filter-project');
   if (filter.options.length <= 1 && state.projects.length) {
     filter.innerHTML = '<option value="">All projects</option>' +
@@ -61,7 +85,7 @@ export function renderMatrix() {
 }
 
 function openRolePopover(anchor) {
-  closePopover();
+  closePopoverAndRestoreFocus();
   const [username, slug] = anchor.dataset.cell.split(':');
   const account = state.users.find((u) => u.username === username);
   const current = accessFor(account, slug);
@@ -85,15 +109,19 @@ function openRolePopover(anchor) {
     window.scrollX + document.documentElement.clientWidth - popover.offsetWidth - 12,
   )}px`;
 
+  popoverAnchor = anchor;
+  popoverLayerToken = pushLayer(closePopoverAndRestoreFocus);
+
   popover.querySelectorAll('[data-role]').forEach((option) => {
     option.onclick = async () => {
       const next = option.dataset.role;
-      closePopover();
+      closePopoverAndRestoreFocus();
       const result = next
         ? await setRole(username, slug, next)
         : await revokeRole(username, slug);
       if (!result.ok) { toast(result.message); return; }
       await loadUsers();
+      renderUsers();
       renderMatrix();
       toast(next
         ? `${account.name} is now ${ROLE_LABEL[next]} on ${project(slug).name}.`
@@ -126,7 +154,6 @@ export function wireMatrix() {
   });
   document.getElementById('matrix-export').onclick = exportCsv;   // labelled "Export as CSV"
   document.addEventListener('click', (event) => {
-    if (!event.target.closest('.popover') && !event.target.closest('[data-cell]')) closePopover();
+    if (!event.target.closest('.popover') && !event.target.closest('[data-cell]')) closePopoverAndRestoreFocus();
   });
-  document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closePopover(); });
 }

@@ -8,7 +8,9 @@ import { renderMatrix, wireMatrix } from './matrix.js';
 import { wireDrawer } from './drawer.js';
 import { wireInvite } from './invite.js';
 
-export function show(page) {
+// Not exported: nothing outside this module calls navigation directly, and
+// exporting it invited a caller to bypass the nav buttons' own state.
+function show(page) {
   state.page = page;
   document.querySelectorAll('.nav-item').forEach((b) => b.classList.toggle('active', b.dataset.page === page));
   document.querySelectorAll('.page').forEach((p) => p.classList.toggle('active', p.id === `page-${page}`));

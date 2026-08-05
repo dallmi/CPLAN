@@ -160,8 +160,13 @@ thead th {
   padding: 0 12px 8px; border-bottom: 1px solid var(--black); white-space: nowrap;
 }
 thead th.num, tbody td.num { text-align: right; }
-thead th.sortable { cursor: pointer; }
-thead th.sortable:hover { color: var(--black); }
+thead th.sortable { padding: 0; }
+.sort-btn {
+  border: 0; background: none; margin: 0; padding: 0 12px 8px; font: inherit;
+  font-size: 11px; font-weight: 600; color: inherit; cursor: pointer;
+  display: inline-flex; align-items: center; white-space: nowrap;
+}
+.sort-btn:hover { color: var(--black); }
 thead th .sort-arrow { color: var(--grey-2); margin-left: 4px; }
 thead th[aria-sort="ascending"], thead th[aria-sort="descending"] { color: var(--black); }
 thead th[aria-sort] .sort-arrow { color: var(--black); }
@@ -291,8 +296,6 @@ table.matrix td.cell-role { text-align: center; padding: 6px; }
   align-items: center; gap: 14px; padding: 12px 16px; background: var(--grey-6); color: var(--white); font-size: 12px;
 }
 .toast.show { display: flex; }
-.toast-action { border: 1px solid rgba(255, 255, 255, 0.4); background: none; color: var(--white); padding: 4px 9px; font-size: 11px; font-weight: 600; border-radius: var(--radius); }
-.toast-action:hover { background: rgba(255, 255, 255, 0.16); }
 
 /* ---------- Utility ---------- */
 .hidden { display: none !important; }

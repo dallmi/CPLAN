@@ -2,14 +2,23 @@
    portal stays put; rel="noopener" severs the reverse window handle. */
 import { fetchProjects } from './api.js';
 import { state } from './state.js';
-import { esc, roleChip } from './ui.js';
+import { esc, roleChip, toast } from './ui.js';
 
 export async function loadHome() {
-  state.projects = await fetchProjects();
+  const projects = await fetchProjects();
+  state.projectsLoadFailed = projects === null;
+  state.projects = projects || [];
+  if (state.projectsLoadFailed) toast('Could not load your projects. Check your connection and try again.');
 }
 
 export function renderHome() {
   const tiles = document.getElementById('project-tiles');
+  if (state.projectsLoadFailed) {
+    tiles.innerHTML =
+      '<div class="empty"><p class="empty-title">Could not load projects.</p>' +
+      '<p class="empty-text">Something went wrong reaching the server. Try refreshing the page.</p></div>';
+    return;
+  }
   if (!state.projects.length) {
     tiles.innerHTML =
       '<div class="empty"><p class="empty-title">No projects yet.</p>' +

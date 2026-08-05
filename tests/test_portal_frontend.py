@@ -19,6 +19,41 @@ MANUAL = PORTAL / "projects" / "cplan" / "manual.html"
 ASSETS = PORTAL / "projects" / "cplan" / "assets"
 EMOJI = re.compile("[\U0001F000-\U0001FFFF\U00002600-\U000027BF\U00002B00-\U00002BFF]")
 
+# Named imports, static (`import { a, b } from './x.js'`) and dynamic
+# (`const { a, b } = await import('./x.js')`, used by drawer.js/invite.js to
+# dodge a circular import). Both bind a local name that may be aliased with
+# `as`; the export lives under the name *before* `as`.
+IMPORT_STATIC = re.compile(r"import\s*\{([^}]+)\}\s*from\s*['\"]\./([\w.-]+\.js)['\"]")
+IMPORT_DYNAMIC = re.compile(r"const\s*\{([^}]+)\}\s*=\s*await\s+import\(['\"]\./([\w.-]+\.js)['\"]\)")
+# `export function foo`, `export const bar = ...`, and `export { a, b as c }`.
+# In the last form the *exported* name is the one after `as`.
+EXPORT_DECL = re.compile(r"export\s+(?:async\s+function\*?|function\*?|const|let|class)\s+([A-Za-z_$][\w$]*)")
+EXPORT_LIST = re.compile(r"export\s*\{([^}]+)\}(?!\s*from)")
+
+
+def exported_names(source: str) -> set[str]:
+    """Every name a module file makes available to `import { name } from`."""
+    names = set(EXPORT_DECL.findall(source))
+    for group in EXPORT_LIST.findall(source):
+        for item in group.split(","):
+            item = item.strip()
+            if item:
+                names.add(item.split(" as ")[-1].strip())
+    return names
+
+
+def imported_names(source: str) -> list[tuple[str, str]]:
+    """[(exported_name, module_filename), ...] for every named import in `source`."""
+    result = []
+    for pattern in (IMPORT_STATIC, IMPORT_DYNAMIC):
+        for match in pattern.finditer(source):
+            for item in match.group(1).split(","):
+                item = item.strip()
+                if item:
+                    result.append((item.split(" as ")[0].strip(), match.group(2)))
+    return result
+
+
 STICKY = re.compile(r"position\s*:\s*sticky")
 # `@media screen`, `@media screen and (max-width: 860px)` -- but not
 # `@media print`, and not a bare `@media (max-width: 700px)`, which applies to
@@ -317,6 +352,45 @@ class PortalFrontendTests(unittest.TestCase):
         # danger zone offers exactly one remove action, scoped to the whole
         # account, not one per list item.
         self.assertEqual(drawer.count('data-act="remove"'), 1)
+
+    def test_the_import_export_checker_can_fail(self):
+        # Prove the two helpers actually work, in both directions, before
+        # trusting them on the real module files below.
+        self.assertEqual(exported_names("export function foo() {}"), {"foo"})
+        self.assertEqual(exported_names("export const bar = 1;"), {"bar"})
+        self.assertEqual(exported_names("export async function baz() {}"), {"baz"})
+        self.assertEqual(exported_names("export { a, b as c };"), {"a", "c"})
+        self.assertEqual(
+            imported_names("import { foo, bar } from './x.js';"),
+            [("foo", "x.js"), ("bar", "x.js")],
+        )
+        self.assertEqual(
+            imported_names("const { a } = await import('./y.js');"),
+            [("a", "y.js")],
+        )
+        self.assertEqual(imported_names("import { z } from './z.js';"), [("z", "z.js")])
+
+    def test_every_named_import_resolves_to_a_real_export(self):
+        # A typo in an import name (or an export that got renamed/removed
+        # without updating its callers) currently only surfaces as a runtime
+        # error in the browser console. This walks every named import --
+        # static and the dynamic `await import()` used to dodge circular
+        # imports -- across the module files and checks the target module
+        # actually exports that name.
+        sources = {path.name: path.read_text(encoding="utf-8") for path in JS.glob("*.js")}
+        exports_by_module = {name: exported_names(src) for name, src in sources.items()}
+
+        problems = []
+        for name, source in sources.items():
+            for imported_name, module in imported_names(source):
+                if module not in exports_by_module:
+                    problems.append(f"{name} imports from missing module {module}")
+                    continue
+                if imported_name not in exports_by_module[module]:
+                    problems.append(
+                        f"{name} imports `{imported_name}` from {module}, which does not export it"
+                    )
+        self.assertEqual(problems, [])
 
     def test_invite_modal_replaces_the_browser_prompt(self):
         invite = (JS / "invite.js").read_text(encoding="utf-8")

@@ -7,17 +7,22 @@
    this drawer has no Groups section and no per-group "Remove" button. */
 import { resetPassword, setActive, revokeRole } from './api.js';
 import { state, accessFor, project } from './state.js';
-import { esc, initials, roleChip, statusCell, signInLabel, toast } from './ui.js';
+import { esc, initials, roleChip, statusCell, signInLabel, toast, generatePassword, pushLayer, popLayer } from './ui.js';
 
-function generatePassword() {
-  const words = ['anchor', 'harbour', 'lantern', 'meadow', 'compass', 'basalt', 'willow', 'quarry'];
-  const pick = () => words[Math.floor(Math.random() * words.length)];
-  return `${pick()}-${pick()}-${Math.floor(10 + Math.random() * 89)}`;
-}
+// The row button behind the scrim otherwise keeps focus while the drawer
+// covers it, and closing had nowhere to send focus back to. Recorded only
+// the first time the drawer opens -- runAction() re-opens the same drawer
+// after a mutation to refresh its contents, and that reopen must not forget
+// the original trigger or push a second layer onto the stack.
+let drawerLayerToken = null;
+let drawerTrigger = null;
 
 export function openDrawer(username) {
   const account = state.users.find((u) => u.username === username);
   if (!account) return;
+
+  const panel = document.getElementById('person-drawer');
+  const wasOpen = panel.classList.contains('open');
 
   document.getElementById('drawer-avatar').textContent = initials(account.name);
   document.getElementById('drawer-name').textContent = account.name;
@@ -65,7 +70,13 @@ export function openDrawer(username) {
   document.getElementById('drawer-body').querySelectorAll('[data-act]').forEach((button) => {
     button.onclick = () => runAction(button.dataset.act, account);
   });
-  document.getElementById('person-drawer').classList.add('open');
+  panel.classList.add('open');
+
+  if (!wasOpen) {
+    drawerTrigger = document.activeElement;
+    drawerLayerToken = pushLayer(closeDrawer);
+  }
+  document.querySelector('#person-drawer [data-close-drawer].icon-btn').focus();
 }
 
 async function runAction(action, account) {
@@ -125,9 +136,11 @@ async function runAction(action, account) {
 
 export function closeDrawer() {
   document.getElementById('person-drawer').classList.remove('open');
+  if (drawerLayerToken) { popLayer(drawerLayerToken); drawerLayerToken = null; }
+  if (drawerTrigger && typeof drawerTrigger.focus === 'function') drawerTrigger.focus();
+  drawerTrigger = null;
 }
 
 export function wireDrawer() {
   document.querySelectorAll('[data-close-drawer]').forEach((b) => { b.onclick = closeDrawer; });
-  document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeDrawer(); });
 }

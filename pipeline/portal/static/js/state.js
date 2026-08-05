@@ -15,7 +15,13 @@ export const ROLE_DESC = {
   viewer: 'Read everything. Change nothing.',
 };
 
-export const state = { me: null, projects: [], users: [], page: 'home', userSort: { key: 'name', dir: 1 } };
+export const state = {
+  me: null, projects: [], users: [], page: 'home', userSort: { key: 'name', dir: 1 },
+  // Set by loadHome()/loadUsers() in home.js/users.js: true when the last
+  // read failed (offline, non-2xx), so home/users/matrix can render a
+  // distinguishable error state instead of a false "0 of 0" empty result.
+  projectsLoadFailed: false, usersLoadFailed: false,
+};
 
 export const rank = (role) => (role ? ROLES.indexOf(role) : -1);
 export const project = (slug) => state.projects.find((p) => p.slug === slug);

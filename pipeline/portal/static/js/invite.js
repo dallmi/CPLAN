@@ -6,7 +6,13 @@
    one role at a time; additional access is added afterwards from the matrix. */
 import { createUser } from './api.js';
 import { state, ROLES, ROLE_LABEL, ROLE_DESC, project } from './state.js';
-import { esc, toast } from './ui.js';
+import { esc, toast, generatePassword, pushLayer, popLayer } from './ui.js';
+
+// The modal moved focus in on open but never gave it back on close. Recorded
+// on open, restored on every close path (Cancel, backdrop, Escape, or a
+// completed submit).
+let inviteLayerToken = null;
+let inviteTrigger = null;
 
 // The matrix encodes a grant as `username:slug` in a data-cell attribute and
 // splits it on ':' (matrix.js openRolePopover). A username containing a colon
@@ -16,12 +22,6 @@ import { esc, toast } from './ui.js';
 // so this check is a courtesy that fails fast, not the only guard.
 const USERNAME_PATTERN = /^[A-Za-z0-9._-]+$/;
 const USERNAME_HELP = 'Letters, numbers, dot, hyphen and underscore only.';
-
-function generatePassword() {
-  const words = ['anchor', 'harbour', 'lantern', 'meadow', 'compass', 'basalt', 'willow', 'quarry'];
-  const pick = () => words[Math.floor(Math.random() * words.length)];
-  return `${pick()}-${pick()}-${Math.floor(10 + Math.random() * 89)}`;
-}
 
 export function openInvite() {
   document.getElementById('iv-username').value = '';
@@ -35,11 +35,16 @@ export function openInvite() {
       <span><span class="rc-name">${ROLE_LABEL[r]}</span><span class="rc-desc">${esc(ROLE_DESC[r])}</span></span>
     </label>`).join('');
   document.getElementById('invite-modal').classList.add('open');
+  inviteTrigger = document.activeElement;
+  inviteLayerToken = pushLayer(closeInvite);
   document.getElementById('iv-username').focus();
 }
 
 export function closeInvite() {
   document.getElementById('invite-modal').classList.remove('open');
+  if (inviteLayerToken) { popLayer(inviteLayerToken); inviteLayerToken = null; }
+  if (inviteTrigger && typeof inviteTrigger.focus === 'function') inviteTrigger.focus();
+  inviteTrigger = null;
 }
 
 export function wireInvite() {
@@ -48,7 +53,6 @@ export function wireInvite() {
     document.getElementById('iv-password').value = generatePassword();
   };
   document.querySelectorAll('[data-close-modal]').forEach((b) => { b.onclick = closeInvite; });
-  document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeInvite(); });
 
   document.getElementById('invite-form').addEventListener('submit', async (event) => {
     event.preventDefault();

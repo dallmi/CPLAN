@@ -117,9 +117,9 @@
         <table id="user-table">
           <thead>
             <tr>
-              <th class="sortable" data-sort="name" aria-sort="ascending">Name<span class="sort-arrow">↑</span></th>
-              <th class="sortable" data-sort="role">Highest role<span class="sort-arrow"></span></th>
-              <th class="sortable num" data-sort="projects">Projects<span class="sort-arrow"></span></th>
+              <th class="sortable" data-sort="name" aria-sort="ascending"><button type="button" class="sort-btn">Name<span class="sort-arrow">↑</span></button></th>
+              <th class="sortable" data-sort="role"><button type="button" class="sort-btn">Highest role<span class="sort-arrow"></span></button></th>
+              <th class="sortable num" data-sort="projects"><button type="button" class="sort-btn">Projects<span class="sort-arrow"></span></button></th>
               <th>Status</th>
               <th class="num">Last sign-in</th>
               <th class="cell-actions"><span class="footnote">Actions</span></th>
@@ -132,6 +132,10 @@
         <p class="empty-title">No users match those filters.</p>
         <p class="empty-text">Try a different search term, or clear the role and status filters.</p>
         <button class="btn sm" type="button" id="user-clear-filters">Clear filters</button>
+      </div>
+      <div class="empty" id="user-load-error" hidden>
+        <p class="empty-title">Could not load users.</p>
+        <p class="empty-text">Something went wrong reaching the server. Try refreshing the page.</p>
       </div>
     </section>
 
@@ -156,11 +160,15 @@
           <span class="result-count" id="matrix-count"></span>
         </div>
       </div>
-      <div class="matrix-wrap">
+      <div class="matrix-wrap" id="matrix-wrap">
         <table class="matrix" id="matrix-table">
           <thead><tr id="matrix-head"></tr></thead>
           <tbody id="matrix-rows"></tbody>
         </table>
+      </div>
+      <div class="empty" id="matrix-load-error" hidden>
+        <p class="empty-title">Could not load the access matrix.</p>
+        <p class="empty-text">Something went wrong reaching the server. Try refreshing the page.</p>
       </div>
       <div class="matrix-legend">
         <span class="legend-item"><span class="legend-swatch role-admin"></span>Admin</span>
@@ -232,7 +240,6 @@
 
 <div class="toast" id="toast" role="status">
   <span id="toast-text"></span>
-  <button class="toast-action" type="button" id="toast-undo">Undo</button>
 </div>
   <script type="module" src="js/app.js"></script>
 </body>

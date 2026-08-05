@@ -543,7 +543,7 @@ _SHELL_PAGE = """<!DOCTYPE html>
     // Same derivation as js/ui.js's initials() -- this shell page is a plain
     // inline script, not an ES module, so it cannot import that helper.
     document.getElementById('user-chip-avatar').textContent = user.username
-      .split(/[\s.]+/).filter(Boolean).map(function (p) {{ return p[0]; }}).join('').slice(0, 2).toUpperCase();
+      .split(/[\\s.]+/).filter(Boolean).map(function (p) {{ return p[0]; }}).join('').slice(0, 2).toUpperCase();
     document.getElementById('user-chip').classList.remove('hidden');
   }});
   document.getElementById('user-chip-logout').addEventListener('click', function () {{
