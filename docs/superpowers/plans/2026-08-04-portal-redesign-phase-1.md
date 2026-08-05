@@ -1683,3 +1683,12 @@ git commit -m "feat(portal): replace the browser prompt with a designed invite f
 - **Phase 3 — Access audit log.** An append-only `portal.audit` table written inside each `portal.*` function, plus the Activity log screen.
 - **Phase 4 — Per-project admin scoping.** `EXECUTE` on the user-management functions is granted to `cplan_admin` project-wide, so today every admin is a portal-wide admin. Each function would check the caller's admin membership against the target project.
 - **Security follow-up.** `portal.create_user` and `portal.reset_password` interpolate the password with `format(... %L)`. With statement logging enabled, the cleartext password reaches the PostgreSQL log. Worth closing before the portal is used on a shared instance.
+
+## Completed 2026-08-05 — open items found along the way
+
+All eleven tasks are implemented, reviewed and on `main`. These surfaced during review and are deliberately not fixed here:
+
+- **The bootstrap admin can never be revoked through the portal.** `setup_roles.create_user` (the CLI that creates the very first admin) grants the group role as the connecting superuser, not as `portal_owner`. PostgreSQL's `REVOKE` honours the grantor, so the `portal.*` functions — which run as `portal_owner` — cannot undo it. That account sits permanently outside the access administration the portal provides. Fix by having the bootstrap path grant as `portal_owner`, and add a one-off repair for existing installations.
+- **The login has no rate limit and no lockout.** Nothing in `pipeline/portal/app.py` or `pipeline/api/auth.py` bounds failed attempts. This is what made the weak generated password a real risk rather than a theoretical one; the password is now ~44 bits, but the missing limit stands on its own.
+- **`pg_has_role` is transitive, the guards are not.** Role reporting and PostgreSQL's own `EXECUTE` check use `pg_has_role`, while the last-admin guards and the revoke loops read `pg_auth_members` directly. With no groups this is unreachable. When Phase 2 adds groups, demoting a transitively-granted admin would report success without taking effect — fix the guards before groups land, not after.
+- **`create_user` cannot be reached for a second project.** `portal_owner` holds `ADMIN OPTION` only on the roles `setup_roles` grants it, which today means one project. Registering a second project requires extending that grant, or every call against it fails with `42501` surfaced as `403`.
