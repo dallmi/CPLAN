@@ -188,7 +188,7 @@ def build_data_quality(wb, scope, config):
                                           metrics.anomalies(frame, scope.duplicates_removed)])
     row += 1
 
-    row = _write_unmapped_regions(ws, row, frame)
+    row = _write_unmapped_regions(ws, row, frame) + 1
 
     if scope.membership is not None:
         row = style.write_section_header(ws, row, "GEB LIST", 4)

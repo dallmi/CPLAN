@@ -47,7 +47,7 @@ EXECUTIVES_SPLIT = ("executives_geb", "executives_geb1")
 # `calendar_sheet` uses this for its block titles ("BY <TITLE>") and
 # `ReportConfig.describe()` uses it for the Executive Summary's "Breakdown
 # dimensions" row -- one map, so a field's display name cannot drift between
-# the two the way two hardcoded copies did before.
+# the two the way two hardcoded copies would.
 FIELD_TITLES = {
     "business_division": "BUSINESS DIVISION",
     "region": "REGION",

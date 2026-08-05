@@ -30,6 +30,23 @@ def _build(tmp_path, builder):
     return wb.worksheets[0], scope
 
 
+def _build_with_membership(tmp_path, builder, membership):
+    """Like `_build`, but with a membership list loaded.
+
+    Every pre-existing sheet-level test built through `_build` alone, which
+    never exercises the membership branch -- exactly the gap that let the
+    GEB share row's denominator, and the Glossary's split terms, go
+    unmeasured. New assertions about membership-only behaviour should build
+    through here instead.
+    """
+    config = ReportConfig(date_from=date(2025, 1, 1), date_to=date(2025, 12, 31))
+    scope = load_fixture_scope(tmp_path, config, membership=membership)
+    wb = Workbook()
+    wb.remove(wb.active)
+    builder(wb, scope, config)
+    return wb.worksheets[0], scope
+
+
 def _pairs(ws):
     return {ws.cell(row=r, column=1).value: ws.cell(row=r, column=2).value
             for r in range(1, ws.max_row + 1)}
@@ -115,12 +132,15 @@ def test_the_summary_still_renders_the_report_section_on_an_empty_scope():
     assert pairs["Rows read"] == 0
 
 
-def test_every_share_formula_divides_by_its_own_section_total(tmp_path):
+def _assert_every_share_divides_by_the_section_total(ws):
     """A formula that names the wrong denominator row still renders a
     plausible-looking percentage -- startswith("=TEXT(IF(") alone cannot
     catch that. Check the actual cell references instead.
+
+    Runs over every `=TEXT(IF(` row on the sheet, whatever the sheet
+    contains -- so a membership build's `With GEB involvement` row is
+    checked the same way as every other share, without a separate branch.
     """
-    ws, _ = _build(tmp_path, build_executive_summary)
     rows = {ws.cell(row=r, column=1).value: r for r in range(1, ws.max_row + 1)}
     total_row = rows["Activities in scope"]
 
@@ -132,7 +152,25 @@ def test_every_share_formula_divides_by_its_own_section_total(tmp_path):
         assert f"B${total_row}=0" in label, f"row {r} guards the wrong total"
         assert f"B{r}/B${total_row}" in label, f"row {r} divides the wrong cells"
         checked += 1
+    return checked
+
+
+def test_every_share_formula_divides_by_its_own_section_total(tmp_path):
+    ws, _ = _build(tmp_path, build_executive_summary)
+    checked = _assert_every_share_divides_by_the_section_total(ws)
     assert checked >= 8  # internal/external plus the six audience bands
+
+
+def test_the_geb_share_formula_also_divides_by_the_section_total(tmp_path):
+    """The `With GEB involvement` row only exists on a membership build, so
+    the check above alone never touches it. Left unpinned, a version of the
+    row that divides by its neighbour instead (the combined `With
+    GEB/GEB-1 involvement` row directly above it) still renders a plausible
+    percentage on the fixture, and every other report test stays green.
+    """
+    ws, _ = _build_with_membership(tmp_path, build_executive_summary, _members("Example, Ada"))
+    checked = _assert_every_share_divides_by_the_section_total(ws)
+    assert checked >= 9  # the eight above, plus the new GEB row
 
 
 def test_the_summary_reports_load_and_discipline(tmp_path):
@@ -173,6 +211,23 @@ def test_every_glossary_definition_stays_short(tmp_path):
     assert entries, "the Glossary has no definitions at all"
     too_long = [(t, len(d)) for t, d in entries if len(d) > MAX_DEFINITION_CHARS]
     assert not too_long, f"definitions over {MAX_DEFINITION_CHARS} chars: {too_long}"
+
+    # GEB_SPLIT_TERMS only renders on a membership build (see
+    # `_glossary_sections`), so the no-membership build above never measures
+    # it. Checked here rather than only for presence, so the ceiling actually
+    # bounds every definition the workbook can print, not just the ones a
+    # no-membership run happens to include -- and the positive case (the
+    # terms are actually defined once a list is loaded, not merely short if
+    # they were) is pinned in the same build.
+    ws_with_list, _ = _build_with_membership(tmp_path, build_glossary, _members("Example, Ada"))
+    entries_with_list = _glossary_entries(ws_with_list)
+    terms_with_list = {t: d for t, d in entries_with_list}
+    assert "GEB" in terms_with_list, "the Glossary omits GEB when a list is loaded"
+    assert "GEB-1" in terms_with_list, "the Glossary omits GEB-1 when a list is loaded"
+    too_long_with_list = [(t, len(d)) for t, d in entries_with_list
+                          if len(d) > MAX_DEFINITION_CHARS]
+    assert not too_long_with_list, (
+        f"definitions over {MAX_DEFINITION_CHARS} chars: {too_long_with_list}")
 
 
 def test_the_glossary_defines_the_terms_a_reader_meets_on_the_sheets(tmp_path):
