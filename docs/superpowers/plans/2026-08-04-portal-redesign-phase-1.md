@@ -40,6 +40,11 @@
 - `pipeline/portal/static/js/invite.js` — invite modal
 - `pipeline/portal/static/js/app.js` — boot and navigation
 
+**Frontend — restyled, not restructured.** The project-page feature landed after this plan was first written. These files keep their current structure and behaviour; they only inherit the new visual system, because they already share `styles.css` with the portal home:
+- `pipeline/portal/static/project.html` — a project's own page (modify: chrome only)
+- `pipeline/portal/static/project.js` — unchanged
+- `pipeline/portal/static/document.css` — the rendered-manual/document stylesheet, checked for the same design-system rules
+
 **Tests — modified/created:**
 - `tests/test_portal_api.py` — extend for the new endpoints
 - `tests/test_setup_portal.py` — extend for the new schema objects and functions
@@ -551,6 +556,7 @@ git commit -m "feat(portal): adopt the design-system stylesheet and drop the for
 **Files:**
 - Create (replacing): `pipeline/portal/static/index.html`
 - Create: `pipeline/portal/static/js/app.js`
+- Modify: `pipeline/portal/static/project.html` (chrome only — see Step 4a)
 - Test: `tests/test_portal_frontend.py`
 
 **Interfaces:**
@@ -672,6 +678,60 @@ wireInvite();
 const session = await getSession();
 if (session) { await enterApp(); } else { showSignIn(); }
 ```
+
+- [ ] **Step 4a: Bring the project page onto the same chrome**
+
+`project.html` already loads `/styles.css`, so Task 4 restyled it for free — but its header markup is the *old* shell (`.brand`, `.user-chip` with a `.btn-ghost`), which the new stylesheet no longer defines the same way. Left alone, the portal home and a project page would drift apart again — the exact fault the studio review opened with.
+
+Replace only the `<header>` in `pipeline/portal/static/project.html` with the shell from `index.html`:
+
+```html
+  <header class="topbar">
+    <div class="brand-block">
+      <span class="brand-mark"></span>
+      <div>
+        <h1>CPLAN Portal</h1>
+        <p>Communication planning</p>
+      </div>
+    </div>
+    <div class="top-actions">
+      <div class="user-chip hidden" id="user-chip">
+        <span class="avatar" aria-hidden="true" id="user-chip-avatar"></span>
+        <span id="user-chip-name"></span>
+      </div>
+      <button class="btn quiet" id="user-chip-logout" type="button">Sign out</button>
+    </div>
+  </header>
+```
+
+`project.js` sets `#user-chip-name` and unhides `#user-chip` already; both IDs survive, so it needs no change. Set the avatar beside it — in `loadUserChip()`, after the existing `textContent` assignment:
+
+```javascript
+    document.getElementById('user-chip-avatar').textContent =
+      user.username.split(/[\s.]+/).filter(Boolean).map((p) => p[0]).join('').slice(0, 2).toUpperCase();
+```
+
+Leave the breadcrumb, page head and tile grid alone — they are the project-page feature's own design and are out of scope here.
+
+- [ ] **Step 4b: Hold `document.css` to the same rules**
+
+Add to `tests/test_portal_frontend.py`:
+
+```python
+    def test_document_stylesheet_follows_the_design_system(self):
+        css = (STATIC / "document.css").read_text(encoding="utf-8")
+        for rule in ("box-shadow", "linear-gradient", "radial-gradient"):
+            self.assertNotIn(rule, css, f"{rule} is forbidden by the design system")
+
+    def test_project_page_uses_the_portal_shell(self):
+        html = (STATIC / "project.html").read_text(encoding="utf-8")
+        self.assertIn('class="topbar"', html)
+        self.assertIn('class="brand-block"', html)
+        self.assertIn('class="btn quiet"', html)
+        self.assertNotIn("btn-ghost", html)   # superseded button class
+```
+
+Fix any violation `document.css` turns out to carry, the same way Task 4 did for `styles.css`.
 
 - [ ] **Step 5: Run the tests**
 
