@@ -508,7 +508,7 @@ _SHELL_PAGE = """<!DOCTYPE html>
     <span class="brand-mark"></span>
     <div>
       <h1>Insights Portal</h1>
-      <p>Data products for corporate communications</p>
+      <p>powered by M&amp;I</p>
     </div>
   </div>
   <div class="top-actions">

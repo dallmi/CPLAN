@@ -1,4 +1,8 @@
-"""CPLAN portal service: landing page, project tiles, admin user management.
+"""Insights Portal service: landing page, project tiles, admin user management.
+
+The `CPLAN_*` environment variables keep their names on purpose. They are
+identifiers every existing config file, launcher and deployment already sets --
+renaming them would break working installations to make a docstring tidier.
 
 Separate FastAPI app sharing the studio's Postgres cluster, session cookie, and
 per-request SET ROLE identity (pipeline/api/session). Privileged user management
