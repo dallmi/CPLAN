@@ -29,7 +29,7 @@ if str(REPO_DIR) not in sys.path:
     sys.path.insert(0, str(REPO_DIR))
 
 from pipeline.report.calendar_sheet import build_calendar          # noqa: E402
-from pipeline.report.config import ReportConfig                    # noqa: E402
+from pipeline.report.config import EXECUTIVES_SPLIT, ReportConfig   # noqa: E402
 from pipeline.report.data import build_scope                       # noqa: E402
 from pipeline.report.table_sheets import (                         # noqa: E402
     build_activities,
@@ -190,21 +190,21 @@ def main(argv=None):
         log("ERROR: the input files contain no activities")
         return 1
 
-    membership = None  # Task 7 replaces this with the real load
+    members = None  # Task 7 deletes this line and loads the real list instead
 
     # The split columns replace the combined one, never join it: a GEB block
     # beside a GEB/GEB-1 block would print the same person with the same count
     # twice, and anyone adding the blocks would double-count the members.
-    if membership is not None:
+    if members is not None:
         fields = []
         for field in config.breakdown_fields:
             if field == "executives":
-                fields.extend(("executives_geb", "executives_geb1"))
+                fields.extend(EXECUTIVES_SPLIT)
             else:
                 fields.append(field)
         config = replace(config, breakdown_fields=tuple(fields))
 
-    scope = build_scope(load, config, membership)
+    scope = build_scope(load, config, members)
     log(f"{len(scope.frame)} of {scope.rows_read} activities in scope")
     for reason, count in scope.excluded.items():
         if count:

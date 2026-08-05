@@ -12,6 +12,7 @@ from openpyxl.utils import get_column_letter
 from pipeline.report.calendar_sheet import (
     FIRST_GRID_COL,
     LABEL_COL,
+    NOT_SPECIFIED,
     TOTAL_COL,
     _children,
     build_calendar,
@@ -496,7 +497,7 @@ def test_the_totals_still_reconcile_with_empty_cells_skipped(tmp_path):
 
 # --- the GEB/GEB-1 split into two blocks --------------------------------------
 
-def _split_sheet(sources, member_names, emails=None):
+def _split_sheet(sources, member_names):
     """A calendar over the split columns, built from `bod_geb` and a list."""
     import pandas as pd
 
@@ -511,7 +512,7 @@ def _split_sheet(sources, member_names, emails=None):
         "activity_name": [f"A{i}" for i in range(len(sources))],
         "start_date": [pd.Timestamp("2025-03-05")] * len(sources),
         "bod_geb": list(sources),
-        "bod_geb_email": list(emails or [""] * len(sources)),
+        "bod_geb_email": [""] * len(sources),
     })
     config = ReportConfig(
         date_from=date(2025, 1, 1), date_to=date(2025, 12, 31),
@@ -546,7 +547,7 @@ def test_a_member_appears_only_under_geb():
     assert "Two Other" not in names_under_geb
 
 
-def test_the_two_block_headers_sum_to_the_combined_figure():
+def test_neither_block_claims_the_other_blocks_activity():
     """The split is a partition. Two activities, one member each, means one
     activity under each header -- never two under both.
     """
@@ -566,3 +567,47 @@ def test_an_activity_naming_both_levels_counts_once_in_each_block():
 
     assert _week_total(ws, labels["BY GEB — multiple values possible"]) == 1
     assert _week_total(ws, labels["BY GEB-1 — multiple values possible"]) == 1
+
+
+def test_a_name_with_two_commas_stays_one_member_row():
+    """`derive.person_name` passes a value with two or more commas through
+    verbatim -- a known source inconsistency -- so this is what makes
+    `PEOPLE_FIELDS` load-bearing for the split columns: without them,
+    `_split_for` would fall back to `split_multi`, which also splits on
+    commas, and turn one person into three member rows.
+    """
+    ws = _split_sheet(["Doe, Jane, PhD"], ["Doe, Jane, PhD"])
+    labels = _labels(ws)
+    geb = labels["BY GEB — multiple values possible"]
+
+    assert _member_names_under(ws, geb) == ["Doe, Jane, PhD"]
+
+
+def test_an_activity_with_nobody_in_either_field_is_in_neither_block():
+    """The most surprising consequence of the header fix in this task: a
+    split field carries no `Not specified` catch-all (see `SPLIT_FIELDS`), so
+    an activity naming nobody at all vanishes from both blocks rather than
+    showing up as `Not specified` in one or both of them.
+    """
+    ws = _split_sheet(["", "Member, One"], ["Member, One"])
+    labels = _labels(ws)
+    geb = labels["BY GEB — multiple values possible"]
+    geb1 = labels["BY GEB-1 — multiple values possible"]
+
+    assert NOT_SPECIFIED not in _member_names_under(ws, geb)
+    assert NOT_SPECIFIED not in _member_names_under(ws, geb1)
+    assert _week_total(ws, geb) == 1
+    assert _week_total(ws, geb1) == 0
+
+
+def test_the_all_empty_case_still_renders_both_blocks_at_zero():
+    """No hand-wavy crash on an empty selection: with nobody named anywhere,
+    both blocks still exist, both headers read 0, and nothing raises.
+    """
+    ws = _split_sheet(["", ""], [])
+    labels = _labels(ws)
+
+    assert "BY GEB — multiple values possible" in labels
+    assert "BY GEB-1 — multiple values possible" in labels
+    assert _week_total(ws, labels["BY GEB — multiple values possible"]) == 0
+    assert _week_total(ws, labels["BY GEB-1 — multiple values possible"]) == 0

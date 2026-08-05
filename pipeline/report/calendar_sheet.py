@@ -25,7 +25,7 @@ from openpyxl.formatting.rule import DataBarRule
 from openpyxl.utils import get_column_letter
 
 from pipeline.report import regions, style
-from pipeline.report.config import AUDIENCE_BAND_ORDER
+from pipeline.report.config import AUDIENCE_BAND_ORDER, EXECUTIVES_SPLIT
 from pipeline.report.derive import split_multi, split_people
 
 SHEET_NAME = "Calendar"
@@ -69,7 +69,9 @@ PEOPLE_FIELDS = frozenset({
 # The two fields a membership list derives from `executives`, and only those:
 # see the breakdown-fields loop in `build_calendar` for why they skip the
 # generic "Not specified" catch-all that every other breakdown field gets.
-SPLIT_FIELDS = frozenset({"executives_geb", "executives_geb1"})
+# Sourced from `config.EXECUTIVES_SPLIT` rather than named again here, so this
+# set and `report_calendar.py`'s swap cannot silently drift apart.
+SPLIT_FIELDS = frozenset(EXECUTIVES_SPLIT)
 
 
 def _split_for(field, value):

@@ -34,6 +34,15 @@ AUDIENCE_BAND_ORDER = AUDIENCE_BANDS + (BAND_UNKNOWN,)
 
 EXECUTIVES_CHOICES = frozenset({"any", "with", "without"})
 
+# The two columns a membership list derives from the combined `executives`
+# field. Named once here because three modules need to agree on them --
+# `calendar_sheet` (which fields skip the "Not specified" catch-all and split
+# on semicolons), `data` (which columns it computes), and `report_calendar`
+# (which swaps them in for `executives` in `breakdown_fields` once a
+# membership is loaded) -- and disagreement between two hardcoded copies would
+# silently mislabel a header rather than crash.
+EXECUTIVES_SPLIT = ("executives_geb", "executives_geb1")
+
 SHORT_NOTICE_DAYS = 7
 
 
