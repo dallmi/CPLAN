@@ -262,13 +262,16 @@ SELECT u.rolname AS username,
          WHEN p.role_prefix || '_contributor' THEN 'contributor'
          WHEN p.role_prefix || '_viewer'      THEN 'viewer'
        END AS role,
-       u.rolcanlogin AS active
+       u.rolcanlogin AS active,
+       pr.display_name,
+       pr.last_sign_in
 FROM pg_roles u
 JOIN pg_auth_members am ON am.member = u.oid
 JOIN pg_roles g ON g.oid = am.roleid
 JOIN portal.projects p ON g.rolname IN (
     p.role_prefix || '_viewer', p.role_prefix || '_contributor',
     p.role_prefix || '_editor', p.role_prefix || '_admin')
+LEFT JOIN portal.user_profile pr ON pr.username = u.rolname
 WHERE u.rolname NOT IN ('cplan_authenticator', 'portal_owner')
   -- Group and service roles are not accounts: the privilege hierarchy
   -- (GRANT <prefix>_viewer TO <prefix>_contributor TO ...) makes the group
@@ -281,12 +284,42 @@ WHERE u.rolname NOT IN ('cplan_authenticator', 'portal_owner')
   );
 """
 
+# Names are not secret — every signed-in user may read them, so a tile or a
+# drawer can say "Andrea Keller" instead of "a.keller". Writes go through
+# SECURITY DEFINER functions: set_display_name is admin-only, record_sign_in is
+# called by the service identity on the login path, before any SET ROLE happens.
+_SET_DISPLAY_NAME_FN = f"""
+CREATE OR REPLACE FUNCTION portal.set_display_name(p_name text, p_display text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $fn$
+BEGIN
+  IF p_name = ANY ({_RESERVED_SQL_ARRAY}) THEN
+    RAISE EXCEPTION 'reserved role %%', p_name;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = p_name) THEN
+    RAISE EXCEPTION 'unknown user %%', p_name;
+  END IF;
+  INSERT INTO portal.user_profile (username, display_name) VALUES (p_name, p_display)
+  ON CONFLICT (username) DO UPDATE SET display_name = EXCLUDED.display_name;
+END; $fn$;
+"""
+
+_RECORD_SIGN_IN_FN = """
+CREATE OR REPLACE FUNCTION portal.record_sign_in(p_name text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $fn$
+BEGIN
+  INSERT INTO portal.user_profile (username, last_sign_in) VALUES (p_name, now())
+  ON CONFLICT (username) DO UPDATE SET last_sign_in = now();
+END; $fn$;
+"""
+
 _FUNCTIONS = (
     ("portal.create_user(text, text, text, text)", _CREATE_USER_FN),
     ("portal.set_project_role(text, text, text)", _SET_ROLE_FN),
     ("portal.revoke_project_role(text, text)", _REVOKE_ROLE_FN),
     ("portal.reset_password(text, text)", _RESET_PW_FN),
     ("portal.set_active(text, boolean, text)", _SET_ACTIVE_FN),
+    ("portal.set_display_name(text, text)", _SET_DISPLAY_NAME_FN),
+    ("portal.record_sign_in(text)", _RECORD_SIGN_IN_FN),
 )
 
 # Superseded signatures that must be dropped before (re)creating the functions:
@@ -325,6 +358,13 @@ def apply_portal(engine: Engine) -> None:
         # functions (also owned by it) can read them under their own privileges.
         c.exec_driver_sql("ALTER TABLE portal.projects OWNER TO portal_owner")
 
+        c.exec_driver_sql(
+            "CREATE TABLE IF NOT EXISTS portal.user_profile ("
+            "username text PRIMARY KEY, display_name text, last_sign_in timestamptz)"
+        )
+        c.exec_driver_sql("ALTER TABLE portal.user_profile OWNER TO portal_owner")
+        c.exec_driver_sql("GRANT SELECT ON portal.user_profile TO PUBLIC")
+
         # Seed CPLAN (idempotent upsert).
         c.execute(
             text(
@@ -357,6 +397,12 @@ def apply_portal(engine: Engine) -> None:
             c.exec_driver_sql(f"ALTER FUNCTION {signature} OWNER TO portal_owner")
             c.exec_driver_sql(f"REVOKE ALL ON FUNCTION {signature} FROM PUBLIC")
             c.exec_driver_sql(f"GRANT EXECUTE ON FUNCTION {signature} TO cplan_admin")
+
+        # Every other portal.* function is admin-only. record_sign_in is called
+        # on the login path, before the request has a SET ROLE'd identity, so it
+        # is granted to the service role instead. It writes one timestamp for the
+        # name it is given and reveals nothing.
+        c.exec_driver_sql(f"GRANT EXECUTE ON FUNCTION portal.record_sign_in(text) TO {AUTHENTICATOR}")
 
 
 def register_project(engine: Engine, slug: str, name: str, url: str, role_prefix: str) -> None:

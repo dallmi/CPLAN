@@ -397,6 +397,94 @@ def test_role_prefix_must_stay_unique_across_projects(portal):
         register_project(portal.state.engine, "dupeprefix", "Dupe", "http://x/", "cplan")
 
 
+def test_login_records_sign_in_and_display_name_round_trips(portal):
+    client = login(portal, "pa_admin")
+    client.post("/api/portal/users/pa_viewer/display-name", json={"display_name": "Vera Iewer"})
+
+    row = next(u for u in client.get("/api/portal/users").json()["users"] if u["username"] == "pa_viewer")
+    assert row["display_name"] == "Vera Iewer"
+
+    login(portal, "pa_viewer")
+    refreshed = next(u for u in client.get("/api/portal/users").json()["users"] if u["username"] == "pa_viewer")
+    assert refreshed["last_sign_in"] is not None
+
+
+def test_a_later_login_updates_last_sign_in(portal):
+    admin = login(portal, "pa_admin")
+    created = admin.post(
+        "/api/portal/users",
+        json={"username": "pa_signin", "password": "pw-signin", "project": "cplan", "role": "viewer"},
+    )
+    assert created.status_code == 201, created.text
+    PW["pa_signin"] = "pw-signin"
+
+    login(portal, "pa_signin")
+    first = next(
+        u for u in admin.get("/api/portal/users").json()["users"] if u["username"] == "pa_signin"
+    )
+    assert first["last_sign_in"] is not None
+
+    login(portal, "pa_signin")
+    second = next(
+        u for u in admin.get("/api/portal/users").json()["users"] if u["username"] == "pa_signin"
+    )
+    assert second["last_sign_in"] is not None
+    assert second["last_sign_in"] >= first["last_sign_in"]
+
+
+def test_a_user_with_no_profile_row_still_appears_with_nulls(portal):
+    admin = login(portal, "pa_admin")
+    created = admin.post(
+        "/api/portal/users",
+        json={"username": "pa_noprofile", "password": "pw-noprofile", "project": "cplan", "role": "viewer"},
+    )
+    assert created.status_code == 201, created.text
+    # Never logged in, no display name set -- portal.user_profile has no row
+    # for this account at all, so the LEFT JOIN in portal.users must still
+    # surface the account with both columns null rather than dropping it.
+    row = next(
+        u for u in admin.get("/api/portal/users").json()["users"] if u["username"] == "pa_noprofile"
+    )
+    assert row["display_name"] is None
+    assert row["last_sign_in"] is None
+
+
+def test_set_display_name_is_refused_for_non_admin(portal):
+    viewer = login(portal, "pa_viewer")
+    denied = viewer.post("/api/portal/users/pa_admin/display-name", json={"display_name": "Someone Else"})
+    assert denied.status_code == 403
+    assert denied.json()["detail"]["code"] == "forbidden"
+
+
+def test_a_failed_login_does_not_stamp_last_sign_in(portal):
+    # Point 6: a wrong password never authenticates, so it must never look
+    # like a sign-in either -- otherwise "last sign-in" would silently record
+    # login *attempts* (including someone else's guesses) rather than actual
+    # sessions, which is both misleading to an admin reading the users table
+    # and would mask a brute-force attempt as if it had succeeded.
+    admin = login(portal, "pa_admin")
+    created = admin.post(
+        "/api/portal/users",
+        json={"username": "pa_wrongpw", "password": "pw-correct", "project": "cplan", "role": "viewer"},
+    )
+    assert created.status_code == 201, created.text
+    PW["pa_wrongpw"] = "pw-correct"
+
+    bad = TestClient(portal).post("/api/login", json={"username": "pa_wrongpw", "password": "not-the-password"})
+    assert bad.status_code == 401
+
+    row = next(
+        u for u in admin.get("/api/portal/users").json()["users"] if u["username"] == "pa_wrongpw"
+    )
+    assert row["last_sign_in"] is None
+
+    login(portal, "pa_wrongpw")
+    row = next(
+        u for u in admin.get("/api/portal/users").json()["users"] if u["username"] == "pa_wrongpw"
+    )
+    assert row["last_sign_in"] is not None
+
+
 def test_projects_list_survives_a_project_with_no_group_roles(portal):
     # The list endpoint used to pass bare role names to pg_has_role, which
     # raises 42704 for a name that is not a role -- taking the landing page

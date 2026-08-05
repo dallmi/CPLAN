@@ -82,6 +82,11 @@ class CreateUserPayload(BaseModel):
     password: str = Field(min_length=1)
     project: str = Field(min_length=1)
     role: str = Field(min_length=1)
+    display_name: str | None = Field(default=None, max_length=200)
+
+
+class DisplayNamePayload(BaseModel):
+    display_name: str = Field(min_length=1, max_length=200)
 
 
 class RolePayload(BaseModel):
@@ -139,6 +144,14 @@ def create_portal_app(database_url: str | URL | None = None, auth_settings: Auth
     def login(payload: LoginPayload, response: Response):
         if not verify_credentials(resolved_url, payload.username, payload.password):
             raise HTTPException(status_code=401, detail={"code": "invalid_credentials"})
+        # Stamped only once credentials are verified -- a wrong password never
+        # reaches here, so a failed attempt never masquerades as a sign-in. This
+        # runs on the engine, not a request session: the request has no SET
+        # ROLE'd identity yet (that is what login itself establishes), so there
+        # is no per-request Session to use, and record_sign_in is granted to the
+        # service role (cplan_authenticator) for exactly this reason.
+        with engine.begin() as connection:
+            connection.execute(text("SELECT portal.record_sign_in(:n)"), {"n": payload.username})
         response.set_cookie(
             auth.cookie_name,
             create_session_token(auth, payload.username),
@@ -282,9 +295,24 @@ def create_portal_app(database_url: str | URL | None = None, auth_settings: Auth
     def list_users(session: Session = Depends(db_session)):
         # SELECT on portal.users is granted only to cplan_admin -> 42501 -> 403 for others.
         rows = session.execute(
-            text("SELECT username, project, role, active FROM portal.users ORDER BY username")
+            text(
+                "SELECT username, project, role, active, display_name, last_sign_in "
+                "FROM portal.users ORDER BY username"
+            )
         ).all()
-        return {"users": [{"username": r.username, "project": r.project, "role": r.role, "active": r.active} for r in rows]}
+        return {
+            "users": [
+                {
+                    "username": r.username,
+                    "project": r.project,
+                    "role": r.role,
+                    "active": r.active,
+                    "display_name": r.display_name,
+                    "last_sign_in": r.last_sign_in.isoformat() if r.last_sign_in else None,
+                }
+                for r in rows
+            ]
+        }
 
     def _call(session: Session, sql: str, params: dict):
         """Invoke a portal.* SECURITY DEFINER function and translate its failure.
@@ -320,6 +348,12 @@ def create_portal_app(database_url: str | URL | None = None, auth_settings: Auth
             "SELECT portal.create_user(:n, :p, :proj, :r)",
             {"n": payload.username, "p": payload.password, "proj": payload.project, "r": payload.role},
         )
+        if payload.display_name:
+            _call(
+                session,
+                "SELECT portal.set_display_name(:n, :d)",
+                {"n": payload.username, "d": payload.display_name},
+            )
         return {"username": payload.username}
 
     @app.post("/api/portal/users/{username}/role")
@@ -340,6 +374,13 @@ def create_portal_app(database_url: str | URL | None = None, auth_settings: Auth
     @app.post("/api/portal/users/{username}/active")
     def set_active_endpoint(username: str, payload: ActivePayload, session: Session = Depends(db_session)):
         _call(session, "SELECT portal.set_active(:n, :a)", {"n": username, "a": payload.active})
+        return {"status": "ok"}
+
+    @app.post("/api/portal/users/{username}/display-name")
+    def set_display_name_endpoint(
+        username: str, payload: DisplayNamePayload, session: Session = Depends(db_session)
+    ):
+        _call(session, "SELECT portal.set_display_name(:n, :d)", {"n": username, "d": payload.display_name})
         return {"status": "ok"}
 
     from pipeline.portal.pages import register_pages
