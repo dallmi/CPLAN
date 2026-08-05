@@ -196,3 +196,59 @@ def test_an_empty_scope_does_not_crash():
     ws = wb["Audience & leadership"]
 
     assert ws.cell(row=1, column=1).value is not None
+
+
+# --- split by level, when a membership list is present -----------------------------
+
+def _split_audience_sheet(sources, member_names):
+    from pipeline.report.membership import Entry, Membership, normalise_name
+
+    members = Membership(entries=tuple(
+        Entry(email="", name=normalise_name(n)) for n in member_names))
+    frame = pd.DataFrame({
+        "tracking_id": [f"IC-{i:04d}" for i in range(len(sources))],
+        "activity_name": [f"A{i}" for i in range(len(sources))],
+        "start_date": [pd.Timestamp("2025-03-05")] * len(sources),
+        "bod_geb": list(sources),
+        "bod_geb_email": [""] * len(sources),
+        "audience": ["1000"] * len(sources),
+    })
+    config = ReportConfig(date_from=date(2025, 1, 1), date_to=date(2025, 12, 31))
+    scope = build_scope(ActivityLoad(frame, {}, {}), config, members)
+    wb = Workbook()
+    wb.remove(wb.active)
+    build_audience(wb, scope, config)
+    return wb["Audience & leadership"]
+
+
+def test_the_sheet_splits_the_member_block_when_a_list_is_present():
+    ws = _split_audience_sheet(["Member, One", "Other, Two"], ["Member, One"])
+    labels = _column_a(ws)
+
+    assert "ACTIVITIES BY GEB MEMBER" in labels
+    assert "ACTIVITIES BY GEB-1 MEMBER" in labels
+    assert "ACTIVITIES BY GEB/GEB-1 MEMBER" not in labels
+
+
+def test_the_combined_block_returns_without_a_list():
+    """The regression that matters most: every machine without the file."""
+    ws = _geb_sheet(["Member, One", "Other, Two"])
+    labels = _column_a(ws)
+
+    assert "ACTIVITIES BY GEB/GEB-1 MEMBER" in labels
+    assert "ACTIVITIES BY GEB MEMBER" not in labels
+    assert "ACTIVITIES BY GEB-1 MEMBER" not in labels
+
+
+def test_a_member_is_listed_under_geb_only():
+    ws = _split_audience_sheet(["Member, One", "Other, Two"], ["Member, One"])
+    block = _member_block(ws, title="ACTIVITIES BY GEB MEMBER")
+
+    assert list(block) == ["One Member"]
+
+
+def test_everyone_else_is_listed_under_geb1():
+    ws = _split_audience_sheet(["Member, One", "Other, Two"], ["Member, One"])
+    block = _member_block(ws, title="ACTIVITIES BY GEB-1 MEMBER")
+
+    assert list(block) == ["Two Other"]

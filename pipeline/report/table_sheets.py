@@ -325,12 +325,28 @@ def build_audience(wb, scope, config):
     # print a number larger than the portfolio, as if it were a true total.
     row += 1
 
-    row = _write_people_block(
-        ws, row, frame, "executives",
-        "ACTIVITIES BY GEB/GEB-1 MEMBER", "GEB/GEB-1 member",
-        "All activities with GEB/GEB-1",
-        "No GEB/GEB-1 member named on any in-scope activity")
-    row += 1
+    if scope.membership is None:
+        row = _write_people_block(
+            ws, row, frame, "executives",
+            "ACTIVITIES BY GEB/GEB-1 MEMBER", "GEB/GEB-1 member",
+            "All activities with GEB/GEB-1",
+            "No GEB/GEB-1 member named on any in-scope activity")
+        row += 1
+    else:
+        # One block per level, never a level block beside the combined one:
+        # the same person would appear twice with the same count.
+        row = _write_people_block(
+            ws, row, frame, "executives_geb",
+            "ACTIVITIES BY GEB MEMBER", "GEB member",
+            "All activities with GEB",
+            "No GEB member named on any in-scope activity")
+        row += 1
+        row = _write_people_block(
+            ws, row, frame, "executives_geb1",
+            "ACTIVITIES BY GEB-1 MEMBER", "GEB-1 member",
+            "All activities with GEB-1",
+            "No GEB-1 member named on any in-scope activity")
+        row += 1
 
     row = _write_people_block(
         ws, row, frame, "senior_executives",
