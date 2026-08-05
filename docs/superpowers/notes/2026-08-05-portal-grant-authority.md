@@ -85,12 +85,21 @@ project (`role_prefix`), used from `apply_portal` and `register_project`:
   (re-granting ADMIN OPTION already held is a no-op) and a no-op for roles
   that don't exist yet.
 - `_repair_grantor(connection, role_prefix)` — for each existing group role,
-  finds every **LOGIN** member (`u.rolcanlogin`) whose membership was
-  granted by anyone other than `portal_owner`, and re-attributes it:
-  `REVOKE <group> FROM <member>` then `GRANT <group> TO <member> GRANTED BY
-  portal_owner`. Scoped to login roles so it never touches the
-  viewer⊂contributor⊂editor⊂admin hierarchy itself (all NOLOGIN roles,
-  granted by `apply_roles` and never managed by the portal).
+  finds every member whose membership was granted by anyone other than
+  `portal_owner`, and re-attributes it: `REVOKE <group> FROM <member>` then
+  `GRANT <group> TO <member> GRANTED BY portal_owner`. Excludes the project's
+  own group/service roles (its four assignable roles plus `<prefix>_sync`,
+  and the cluster-wide `cplan_authenticator`/`portal_owner`) **by name**, so
+  it never touches the viewer⊂contributor⊂editor⊂admin hierarchy itself.
+  This is deliberately not a `u.rolcanlogin` filter: that column is
+  `portal.set_active`'s own active/disabled flag, not "is this a real
+  account" — a disabled account is still a fully manageable portal account,
+  and typically the one most likely to need this repair (someone disabled
+  rather than deleted after leaving). An earlier revision filtered on
+  `rolcanlogin` and so silently skipped disabled accounts forever, since
+  `apply_portal` is not a startup path that would come back around for them
+  on its own; `tests/test_portal_grant_authority.py` covers that case
+  directly.
 
 `apply_portal` now loops over every row in `portal.projects` (after the
 CPLAN seed upsert, so a fresh database includes CPLAN itself) and calls
@@ -156,6 +165,13 @@ create_user/apply_portal/register_project ordering it needs):
   isolation: an "existing installation" gets a superuser-granted membership,
   `apply_portal` runs, and the membership becomes directly revocable by
   `portal_owner`.
+- `test_apply_portal_repairs_a_disabled_accounts_grantor` — the repair must
+  reach a *disabled* account too: `rolcanlogin` is `portal.set_active`'s own
+  active/disabled flag, not "is this a real account," and a disabled account
+  is still fully manageable through the portal. Builds the same
+  superuser-granted membership, disables it via `portal.set_active` (called
+  by a second admin), runs `apply_portal`, and asserts the membership is
+  genuinely revocable via `portal.revoke_project_role` afterwards.
 - `test_apply_portal_repair_is_a_no_op_when_nothing_needs_repairing` —
   idempotency of the repair itself.
 - `test_last_admin_guard_still_blocks_the_repaired_bootstrap_admin` and

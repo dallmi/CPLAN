@@ -32,7 +32,7 @@ from sqlalchemy.exc import ProgrammingError
 from pipeline.api.app import Base
 from pipeline.api.database import create_cplan_engine
 from pipeline.api.setup_portal import PORTAL_OWNER, apply_portal, register_project
-from pipeline.api.setup_roles import apply_roles, create_user
+from pipeline.api.setup_roles import apply_roles, create_user, set_user_active
 from tests.conftest import postgres_required, postgres_test_database
 
 pytestmark = postgres_required
@@ -166,6 +166,68 @@ def test_apply_portal_repairs_a_superuser_granted_membership(engine):
         owner.commit()
         owner.close()
     assert _direct_groups(engine, "legacy_admin") == []
+
+
+def test_apply_portal_repairs_a_disabled_accounts_grantor(engine):
+    """`rolcanlogin` cannot stand in for "is this a real account": it is
+    `portal.set_active`'s own active/disabled flag, and a disabled account is
+    still a fully manageable one -- neither `set_project_role` nor
+    `revoke_project_role` checks whether its target is active. It is also
+    exactly the account most likely to need this repair: someone who left,
+    disabled rather than deleted, is precisely who an operator would next try
+    to strip of access.
+
+    Exercises the real failure end to end rather than just the predicate: a
+    superuser-granted membership, disabled via the exact `ALTER ROLE ...
+    NOLOGIN` statement `portal.set_active` issues (here via
+    `setup_roles.set_user_active`, i.e. the `--deactivate` CLI path -- not
+    the `portal.set_active` RPC itself: that SECURITY DEFINER function always
+    runs its `ALTER ROLE` as `portal_owner`, which requires `portal_owner` to
+    hold ADMIN OPTION on the *login role itself*, a distinct PostgreSQL
+    authority from the group-role membership this task's fix repairs, and
+    one a superuser-bootstrapped account never grants it -- a real,
+    separate, and still-open gap, but not what `_repair_grantor`'s predicate
+    is about or what this test targets), then `apply_portal`, then a genuine
+    `portal.revoke_project_role` call. Against the old `u.rolcanlogin`-scoped
+    predicate this would still reach every assertion up to the last one --
+    the disabled account is silently excluded from the sweep, so its grantor
+    is never repaired, and the final REVOKE (issued by `portal_owner` through
+    the SECURITY DEFINER function) silently changes nothing: PostgreSQL's
+    grantor-mismatch REVOKE is a WARNING, never an error, so only checking
+    the resulting database state -- not the absence of an exception --
+    catches it."""
+    apply_portal(engine)  # an "existing installation"
+    create_user(engine, "leaver_admin", "pw-leaver", "admin")
+    create_user(engine, "ops_admin", "pw-ops", "admin")  # a second admin, so the last-admin guard never fires
+    # Both created via the CLI bootstrap path (connected as the superuser),
+    # so both start out superuser-granted -- exactly like legacy_admin above.
+    assert _grantors_of(engine, "cplan_admin", "leaver_admin") != [PORTAL_OWNER]
+
+    set_user_active(engine, "leaver_admin", False)
+    with engine.connect() as c:
+        assert (
+            c.execute(text("SELECT rolcanlogin FROM pg_roles WHERE rolname = 'leaver_admin'")).scalar_one() is False
+        )
+
+    apply_portal(engine)  # the repair pass -- must reach leaver_admin despite it being disabled
+
+    assert _grantors_of(engine, "cplan_admin", "leaver_admin") == [PORTAL_OWNER]
+
+    # Not just relabelled: portal_owner (via the SECURITY DEFINER function,
+    # called by another admin) can now actually revoke it.
+    revoker = _as(engine, "ops_admin")
+    try:
+        revoker.exec_driver_sql("SELECT portal.revoke_project_role('leaver_admin', 'cplan')")
+        revoker.commit()
+    finally:
+        revoker.exec_driver_sql("RESET ROLE")
+        revoker.commit()
+        revoker.close()
+    assert _direct_groups(engine, "leaver_admin") == []
+
+    with engine.connect() as c:
+        # The account itself survives, still disabled -- only its project role was revoked.
+        assert c.execute(text("SELECT 1 FROM pg_roles WHERE rolname = 'leaver_admin'")).first()
 
 
 def test_apply_portal_repair_is_a_no_op_when_nothing_needs_repairing(engine):

@@ -1,6 +1,16 @@
 """Portal schema, project registry, and SECURITY DEFINER user-management functions.
 
-Runs once as a superuser/admin (like setup_roles), NOT by the portal service.
+Runs once as an actual PostgreSQL superuser (like setup_roles), NOT by the
+portal service, and NOT merely a CREATEROLE-holding "admin" role short of
+superuser: apply_portal's grantor repair (_repair_grantor, below) issues
+`GRANT ... GRANTED BY portal_owner`, and PostgreSQL only allows naming an
+arbitrary grantor like that when the session role is a superuser, or is
+itself a member of the named grantor -- a non-superuser CREATEROLE role
+without that membership gets a plain permission-denied error (verified
+against a real server), which aborts and rolls back the whole apply_portal
+call rather than corrupting anything, but does mean this cannot be delegated
+to a lesser admin role the way setup_roles' own DDL can.
+
 The portal service connects as cplan_authenticator, SET ROLEs to the logged-in
 user, and calls these functions; EXECUTE is granted only to cplan_admin, so the
 membership check is Postgres's own privilege check performed against the real
@@ -27,6 +37,15 @@ PORTAL_RESERVED = frozenset(GROUP_ROLES) | {AUTHENTICATOR, PORTAL_OWNER}
 # used to extend portal_owner's authority to ANY registered project, not just
 # CPLAN's (see _grant_admin_option/_repair_grantor below).
 _ROLE_SUFFIXES = tuple(ASSIGNABLE_ROLES)
+
+# The fifth, non-assignable suffix that also sits in a project's group-role
+# hierarchy (GRANT <prefix>_editor TO <prefix>_sync) but is never something a
+# real account holds. Combined with _ROLE_SUFFIXES this names every one of a
+# project's own service/group roles -- used by _repair_grantor to exclude the
+# hierarchy itself by NAME, the same shape _USERS_VIEW below already uses to
+# separate real accounts from group/service roles (rolcanlogin cannot do this:
+# it is the portal's own active/disabled flag, not "is this a real account").
+_SERVICE_SUFFIXES = _ROLE_SUFFIXES + ("sync",)
 
 # CPLAN seed for the project registry.
 _CPLAN = {"slug": "cplan", "name": "CPLAN Studio", "url": "http://127.0.0.1:8780/", "role_prefix": "cplan"}
@@ -424,10 +443,19 @@ def _repair_grantor(connection: Connection, role_prefix: str) -> None:
     _grant_admin_option is always called first for every project in
     apply_portal, below, so that precondition holds by the time this runs.
 
-    Scoped to LOGIN roles only (u.rolcanlogin): the viewer/contributor/
-    editor/admin hierarchy itself (e.g. GRANT cplan_viewer TO
-    cplan_contributor, all NOLOGIN roles) is never something the portal
-    manages -- only real accounts are in scope here.
+    Excludes this project's own group/service roles by NAME (its four
+    assignable roles plus `<prefix>_sync`, and the cluster-wide
+    cplan_authenticator/portal_owner) -- the same shape _USERS_VIEW below
+    already uses to separate real accounts from group/service roles.
+    Deliberately NOT `u.rolcanlogin`: that column is `portal.set_active`'s own
+    active/disabled flag (`_USERS_VIEW` exposes it as `active`), not "is this
+    a real account" -- a disabled account is still a fully manageable portal
+    account (neither set_project_role nor revoke_project_role checks whether
+    it is active), and it is exactly the account most likely to need this
+    repair: someone who left, disabled rather than deleted, is precisely who
+    an operator would next try to strip of access. Filtering on rolcanlogin
+    would silently skip it forever, since apply_portal is not a startup path
+    that would come back around for it on its own.
 
     Safe to re-run: a membership already granted by portal_owner fails the
     `grantor <> portal_owner` filter and is never touched, so a database with
@@ -438,6 +466,7 @@ def _repair_grantor(connection: Connection, role_prefix: str) -> None:
     revoked but never re-granted.
     """
     quote = connection.dialect.identifier_preparer.quote
+    excluded_names = [f"{role_prefix}_{suffix}" for suffix in _SERVICE_SUFFIXES] + [AUTHENTICATOR, PORTAL_OWNER]
     for group in _existing_group_roles(connection, role_prefix):
         members = connection.execute(
             text(
@@ -445,9 +474,9 @@ def _repair_grantor(connection: Connection, role_prefix: str) -> None:
                 "JOIN pg_roles g ON g.oid = m.roleid "
                 "JOIN pg_roles u ON u.oid = m.member "
                 "JOIN pg_roles gr ON gr.oid = m.grantor "
-                "WHERE g.rolname = :group AND u.rolcanlogin AND gr.rolname <> :owner"
+                "WHERE g.rolname = :group AND u.rolname <> ALL(:excluded) AND gr.rolname <> :owner"
             ),
-            {"group": group, "owner": PORTAL_OWNER},
+            {"group": group, "excluded": excluded_names, "owner": PORTAL_OWNER},
         ).scalars().all()
         for member in members:
             q_member = quote(member)

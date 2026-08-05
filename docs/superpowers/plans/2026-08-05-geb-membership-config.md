@@ -47,7 +47,6 @@
 import pytest
 
 from pipeline.report.membership import (
-    Membership,
     MembershipError,
     load_membership,
     normalise_email,
@@ -166,7 +165,7 @@ def test_the_error_names_the_file(tmp_path):
         load_membership(path)
 
 
-def test_normalisers_are_exported_for_the_caller(tmp_path):
+def test_normalisers_are_exported_for_the_caller():
     """data.py normalises the frame side with the same functions, so the two
     sides cannot drift into different notions of equality.
     """
@@ -1341,9 +1340,33 @@ GEB_SPLIT_TERMS = (
 )
 ```
 
-In `build_glossary`, when writing the `MEASURES` section and
-`scope.membership is not None`, insert `GEB_SPLIT_TERMS` directly after the
-existing `GEB/GEB-1` entry.
+`build_glossary` iterates the module constant directly (`for title, terms in
+GLOSSARY_SECTIONS:` at line 643). Give it a scope-aware view instead:
+
+```python
+def _glossary_sections(scope):
+    """The Glossary's sections, with the level terms present only when a
+    membership list is in play.
+
+    Assembled rather than branched at the write site so the section order,
+    the widths and the wrapping stay in one place.
+    """
+    if scope.membership is None:
+        return GLOSSARY_SECTIONS
+    sections = []
+    for title, terms in GLOSSARY_SECTIONS:
+        if title == "MEASURES":
+            expanded = []
+            for entry in terms:
+                expanded.append(entry)
+                if entry[0] == "GEB/GEB-1":
+                    expanded.extend(GEB_SPLIT_TERMS)
+            terms = tuple(expanded)
+        sections.append((title, terms))
+    return tuple(sections)
+```
+
+and change line 643 to `for title, terms in _glossary_sections(scope):`.
 
 Both definitions are under 110 characters. Verify with:
 
