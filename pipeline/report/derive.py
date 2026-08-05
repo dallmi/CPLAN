@@ -138,6 +138,21 @@ def split_people(value):
     return [part.strip() for part in text.split(";") if part.strip()]
 
 
+def split_people_aligned(value):
+    """Like `split_people`, but keeping empty slots.
+
+    The email column is written one slot per person, in the same order as the
+    display names, blank where no address is known. Dropping the blanks -- which
+    `split_people` deliberately does, because a blank is not a person -- would
+    shift every later person onto somebody else's address. Only the email
+    column uses this.
+    """
+    text = _text(value)
+    if not text:
+        return []
+    return [part.strip() for part in text.split(";")]
+
+
 def person_name(text):
     """"Last, First" read as "First Last"; anything else left alone.
 

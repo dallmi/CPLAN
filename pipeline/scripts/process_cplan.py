@@ -382,34 +382,63 @@ def _extract_sp_value(obj):
     return _strip_taxonomy_guid(raw) if raw else ""
 
 
+def _claims_email(obj):
+    """The address inside one SharePoint person object, or ""."""
+    if not isinstance(obj, dict):
+        return ""
+    if obj.get("Email"):
+        return str(obj["Email"])
+    claims = obj.get("Claims", "") or ""
+    if "|membership|" in claims:
+        return claims.split("|membership|")[-1]
+    return ""
+
+
 def parse_sp_person_email(val):
-    """Extract email from a SharePoint person/Claims field.
+    """Extract the email from a single SharePoint person/Claims field.
 
     Claims format: "i:0#.f|membership|john@corp.com"
+
+    Single-person fields only (`lead`, `author`). For a multi-person field use
+    `parse_sp_person_emails`, which keeps one slot per person.
     """
-    if pd.isna(val) or val == "":
-        return ""
-    if not isinstance(val, str):
-        return ""
+    parsed = _parse_person_json(val)
+    return _claims_email(parsed) if isinstance(parsed, dict) else ""
 
-    stripped = val.strip()
-    if not stripped.startswith("{") and not stripped.startswith("["):
-        return ""
 
-    try:
-        parsed = json.loads(stripped)
-    except (json.JSONDecodeError, TypeError):
-        return ""
+def parse_sp_person_emails(val, separator=PERSON_JOIN):
+    """One email slot per person, aligned with the display names.
 
+    `parse_sp_lookup` renders an array of person objects as their DisplayNames
+    joined with the same separator, in list order. This walks the same list and
+    emits an address per element, empty where none is known, so position N here
+    is position N there.
+
+    Returns "" for a plain-text column: a rich-text source field is a real
+    shape, and the caller falls back to matching on the name.
+    """
+    parsed = _parse_person_json(val)
     if isinstance(parsed, dict):
-        # Try Email field first
-        if "Email" in parsed:
-            return parsed["Email"]
-        # Extract from Claims string
-        claims = parsed.get("Claims", "")
-        if "|membership|" in claims:
-            return claims.split("|membership|")[-1]
+        return _claims_email(parsed)
+    if isinstance(parsed, list):
+        emails = [_claims_email(item) for item in parsed]
+        return "" if not any(emails) else separator.join(emails)
     return ""
+
+
+def _parse_person_json(val):
+    """The parsed JSON of a person field, or None when it is not JSON."""
+    if pd.isna(val) or val == "":
+        return None
+    if not isinstance(val, str):
+        return None
+    stripped = val.strip()
+    if not (stripped.startswith("{") or stripped.startswith("[")):
+        return None
+    try:
+        return json.loads(stripped)
+    except (json.JSONDecodeError, TypeError):
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -579,10 +608,16 @@ def transform(df, source_type):
         if col in df.columns:
             df[col] = df[col].apply(_strip_html)
 
-    # Extract person emails BEFORE lookup parsing (which replaces JSON with display names)
+    # Extract person emails BEFORE lookup parsing (which replaces JSON with
+    # display names). Multi-person columns need the aligned variant: the
+    # single-object parser returns "" for an array, which would leave the
+    # leadership columns silently email-less.
     for col in SP_PERSON_COLUMNS:
         if col in df.columns:
             df[f"{col}_email"] = df[col].apply(parse_sp_person_email)
+    for col in SP_MULTI_PERSON_COLUMNS:
+        if col in df.columns:
+            df[f"{col}_email"] = df[col].apply(parse_sp_person_emails)
 
     # Parse SP lookup JSON fields -> extract Value / DisplayName
     for col in SP_LOOKUP_COLUMNS:

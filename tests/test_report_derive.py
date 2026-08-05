@@ -227,3 +227,14 @@ def test_the_studio_words_are_the_fallback():
 def test_an_unknown_value_lands_mid_rank_rather_than_reading_as_low():
     assert priority_rank("whatever") == 1
     assert priority_rank(None) == 1
+
+
+def test_split_people_aligned_keeps_empty_slots():
+    """The email column pairs positionally with the name column. Dropping an
+    empty slot would shift every later person onto the wrong address.
+    """
+    from pipeline.report.derive import split_people_aligned
+
+    assert split_people_aligned("a@x; ; c@x") == ["a@x", "", "c@x"]
+    assert split_people_aligned("") == []
+    assert split_people_aligned("; ;") == ["", "", ""]

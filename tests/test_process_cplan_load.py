@@ -263,3 +263,59 @@ def test_the_snapshot_import_lets_the_mapped_fields_through():
     assert "time_zone" in mapped and "time_zone" in ALLOWED_FIELDS
     assert "audience" in mapped and "audience" in ALLOWED_FIELDS
     assert "audience_type" in mapped and "audience_type" not in ALLOWED_FIELDS
+
+
+# --- person emails: aligned extraction for multi-person columns -------------
+
+def test_person_emails_are_extracted_for_every_person_in_an_array():
+    """A multi-person field exports a JSON array. The single-object parser
+    returned "" for it, so a multi-person column silently carried no emails.
+    """
+    from pipeline.scripts.process_cplan import parse_sp_person_emails
+
+    raw = (
+        '[{"Claims": "i:0#.f|membership|a@example.invalid", "DisplayName": "A, One"},'
+        ' {"Claims": "i:0#.f|membership|b@example.invalid", "DisplayName": "B, Two"}]'
+    )
+
+    assert parse_sp_person_emails(raw) == "a@example.invalid; b@example.invalid"
+
+
+def test_a_person_without_an_email_keeps_its_slot():
+    from pipeline.scripts.process_cplan import parse_sp_person_emails
+
+    raw = (
+        '[{"DisplayName": "A, One"},'
+        ' {"Claims": "i:0#.f|membership|b@example.invalid", "DisplayName": "B, Two"}]'
+    )
+
+    assert parse_sp_person_emails(raw) == "; b@example.invalid"
+
+
+def test_a_single_person_object_still_works():
+    from pipeline.scripts.process_cplan import parse_sp_person_emails
+
+    raw = '{"Claims": "i:0#.f|membership|a@example.invalid", "DisplayName": "A, One"}'
+
+    assert parse_sp_person_emails(raw) == "a@example.invalid"
+
+
+def test_plain_text_yields_no_emails():
+    """A rich-text source column is a real shape -- it must yield nothing
+    rather than raise, so the name path can carry the match alone.
+    """
+    from pipeline.scripts.process_cplan import parse_sp_person_emails
+
+    assert parse_sp_person_emails("Example, Ada; Sample, Ben") == ""
+    assert parse_sp_person_emails("") == ""
+
+
+def test_the_leadership_column_gains_an_email_column():
+    row = _mapped_cells(
+        ["ID", "Title", "Start date", "BOD / GEB"],
+        ["1", "A", "2025-03-05",
+         '[{"Claims": "i:0#.f|membership|a@example.invalid", "DisplayName": "A, One"}]'],
+    )
+
+    assert row["bod_geb"] == "A, One"
+    assert row["bod_geb_email"] == "a@example.invalid"
