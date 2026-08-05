@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import uuid
@@ -27,18 +28,22 @@ from pydantic import (
 )
 from sqlalchemy import Boolean, DateTime, Index, Integer, String, Text, Uuid, delete as sqlalchemy_delete, func, select, text, update
 from sqlalchemy.engine import URL
-from sqlalchemy.exc import IntegrityError, ProgrammingError
+from sqlalchemy.exc import IntegrityError, ProgrammingError, SQLAlchemyError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
 from .auth import (
     AuthSettings,
+    CredentialCheck,
     auth_settings_from_environment,
+    check_credentials,
     create_session_token,
-    verify_credentials,
 )
 from .database import backend_from_url, create_cplan_engine, database_url_from_environment, ensure_schema
+from .login_guard import LoginGuard, client_source
 from .session import CurrentUser, build_session_dependencies
 from .views import ensure_analysis_views
+
+logger = logging.getLogger(__name__)
 
 
 def as_utc(value: datetime | None) -> datetime | None:
@@ -601,6 +606,15 @@ def create_app(database_url: str | URL | None = None, auth_settings: AuthSetting
     app.state.engine = engine
 
     current_user, db_session = build_session_dependencies(engine, auth)
+    # The studio's login is the portal's login: same PostgreSQL roles, same
+    # verify path, same `cplan_session` cookie signed with the same secret, on
+    # a port that the container image binds to 0.0.0.0. Throttling one door
+    # and not the other is not a rate limit, it is a choice of port number, so
+    # both share the counters in the database (pipeline/api/login_guard.py).
+    # None in solo mode: there are no credentials to guess when `auth` is off,
+    # and the SQLite backend has neither login roles nor a portal schema.
+    guard = LoginGuard(engine) if auth is not None else None
+    app.state.login_guard = guard
 
     @app.exception_handler(ProgrammingError)
     async def insufficient_privilege_handler(request: Request, exc: ProgrammingError):
@@ -609,11 +623,34 @@ def create_app(database_url: str | URL | None = None, auth_settings: AuthSetting
         raise exc
 
     @app.post("/api/login")
-    def login(payload: LoginPayload, response: Response):
-        if auth is None:
+    def login(payload: LoginPayload, request: Request, response: Response):
+        if auth is None or guard is None:
             return {"username": "studio"}
-        if not verify_credentials(resolved_url, payload.username, payload.password):
+        # Same order and same reasoning as the portal's handler
+        # (pipeline/portal/app.py): reserve first, so a blocked attempt costs
+        # no credential probe and is timed identically whether or not the name
+        # is a role; hand the reservation back when the attempt turns out not
+        # to have been a guess.
+        source = client_source(request)
+        try:
+            admitted = guard.begin_attempt(payload.username, source)
+        except SQLAlchemyError:
+            logger.exception("login throttle unavailable; refusing the attempt")
+            raise HTTPException(status_code=503, detail={"code": "login_unavailable"})
+        if not admitted:
+            raise HTTPException(
+                status_code=429,
+                detail={"code": "too_many_attempts"},
+                headers={"Retry-After": str(guard.retry_after_seconds)},
+            )
+        outcome = check_credentials(resolved_url, payload.username, payload.password)
+        if outcome is CredentialCheck.UNAVAILABLE:
+            guard.end_attempt(payload.username, source)
+            logger.warning("credential check unavailable; refusing the attempt")
+            raise HTTPException(status_code=503, detail={"code": "login_unavailable"})
+        if outcome is CredentialCheck.REJECTED:
             raise HTTPException(status_code=401, detail={"code": "invalid_credentials"})
+        guard.end_attempt(payload.username, source)
         response.set_cookie(
             auth.cookie_name,
             create_session_token(auth, payload.username),

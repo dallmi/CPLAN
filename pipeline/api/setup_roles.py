@@ -5,10 +5,14 @@ only covers objects that exist at run time, so re-run after new tables/views).
 PostgreSQL only — the SQLite fallback intentionally has no roles (solo mode).
 
 DDL cannot be parameterized; identifiers go through the dialect's identifier
-preparer, password literals double their single quotes. Group roles carry the
-privileges, user roles are LOGIN roles granted into exactly one group; every
-user role is also granted TO cplan_authenticator so the pooled API identity
-may SET ROLE into it (PostgREST pattern).
+preparer. Group roles carry the privileges, user roles are LOGIN roles granted
+into exactly one group; every user role is also granted TO cplan_authenticator
+so the pooled API identity may SET ROLE into it (PostgREST pattern).
+
+`CREATE ROLE ... PASSWORD` and `ALTER ROLE ... PASSWORD` never see a cleartext
+password: the DDL is statement text and statement text is logged, so what goes
+into the literal is a SCRAM-SHA-256 verifier computed here first
+(pipeline/api/scram.py). The `--password`/getpass value stops at this module.
 """
 
 from __future__ import annotations
@@ -21,6 +25,7 @@ from sqlalchemy import Engine, text
 from sqlalchemy.engine import Connection
 
 from pipeline.api.database import create_cplan_engine, database_url_from_environment
+from pipeline.api.scram import verifier_for
 
 GROUP_ROLES = ("cplan_viewer", "cplan_contributor", "cplan_editor", "cplan_admin", "cplan_sync")
 AUTHENTICATOR = "cplan_authenticator"
@@ -39,8 +44,14 @@ def _quote(connection: Connection, identifier: str) -> str:
     return connection.dialect.identifier_preparer.quote(identifier)
 
 
-def _pw_literal(password: str) -> str:
-    return "'" + password.replace("'", "''") + "'"
+def _verifier_literal(verifier: str) -> str:
+    """A SQL string literal holding a SCRAM verifier.
+
+    A verifier is base64 plus `$:=` and so can never contain a quote; the
+    doubling stays because a literal built by hand is only ever as safe as its
+    escaping, and this one is spliced into DDL.
+    """
+    return "'" + verifier.replace("'", "''") + "'"
 
 
 def _role_exists(connection: Connection, name: str) -> bool:
@@ -137,7 +148,7 @@ def create_user(engine: Engine, username: str, password: str, role_key: str) -> 
         if _role_exists(c, username):
             raise ValueError(f"Role {username!r} already exists; use set-role/reset-password instead")
         q = _quote(c, username)
-        c.exec_driver_sql(f"CREATE ROLE {q} LOGIN PASSWORD {_pw_literal(password)}")
+        c.exec_driver_sql(f"CREATE ROLE {q} LOGIN PASSWORD {_verifier_literal(verifier_for(c, password))}")
         c.exec_driver_sql(f"GRANT {group} TO {q}")
         c.exec_driver_sql(f"GRANT {q} TO {AUTHENTICATOR}")
 
@@ -155,7 +166,9 @@ def set_user_role(engine: Engine, username: str, role_key: str) -> None:
 def set_user_password(engine: Engine, username: str, password: str) -> None:
     _reject_reserved(username)
     with engine.begin() as c:
-        c.exec_driver_sql(f"ALTER ROLE {_quote(c, username)} PASSWORD {_pw_literal(password)}")
+        c.exec_driver_sql(
+            f"ALTER ROLE {_quote(c, username)} PASSWORD {_verifier_literal(verifier_for(c, password))}"
+        )
 
 
 def set_user_active(engine: Engine, username: str, active: bool) -> None:

@@ -173,7 +173,7 @@ python -c "import secrets; print(secrets.token_urlsafe(48))"   # generate a secr
 export CPLAN_AUTH_SECRET=<the generated string>                # set before starting the API
 ```
 
-`CPLAN_AUTH_SECRET` signs session cookies (`itsdangerous`, 12h expiry) — keep it out of Git the same way `CPLAN_DB_PASSWORD` is kept out. Once it is set and the backend is PostgreSQL, `POST /api/login` starts checking real credentials, `GET /api/me` reports the caller's role, and every write is attributed to the logged-in username instead of `studio`.
+`CPLAN_AUTH_SECRET` signs session cookies (`itsdangerous`, 12h expiry) — keep it out of Git the same way `CPLAN_DB_PASSWORD` is kept out. Once it is set and the backend is PostgreSQL, `POST /api/login` starts checking real credentials — under the shared limit described in [Failed sign-in throttling](#failed-sign-in-throttling), which the studio's login endpoint is subject to exactly as the portal's is — `GET /api/me` reports the caller's role, and every write is attributed to the logged-in username instead of `studio`. Because the counters live in the database, this also means the studio needs the portal's schema step (`setup_portal`) whenever authentication is enabled, and refuses to start without it.
 
 ### Set up roles + first admin
 
@@ -205,17 +205,23 @@ PYTHONPATH=. .venv/bin/python -m pipeline.api.setup_roles --activate <name>     
 
 All five accept `--password` to supply the value non-interactively instead of the getpass prompt, and `--database-url` to target a database other than the resolved default (`CPLAN_DATABASE_URL`, then `CPLAN_DB_*`, then the persisted backend settings — same resolution `setup_backend`/`import_snapshot` use). Usernames are plain PostgreSQL login roles, so they follow PostgreSQL identifier rules; the internal group roles and `cplan_authenticator` are rejected as usernames (`RESERVED_ROLES`) since a real user could otherwise collide with the privilege model itself.
 
+The password never travels to the server: `setup_roles` hashes it into a SCRAM-SHA-256 verifier locally and puts *that* into the `CREATE ROLE`/`ALTER ROLE` statement — see [Passwords never reach the server log](#passwords-never-reach-the-server-log). `--password` does still put it in your shell history and in the process list, so the prompt stays the better option outside a script.
+
 ### Portal
 
 The portal is a small landing page — project tiles plus browser-based user administration — that sits next to the studio and shares its login. PostgreSQL only, same as the rest of this section.
 
-**One-time setup**, once after `setup_roles` has created the first admin:
+**Setup — after `setup_roles` has created the first admin, and again after every update:**
 
 ```bash
 PYTHONPATH=. .venv/bin/python -m pipeline.api.setup_portal
 ```
 
-Idempotent, and run as the same admin/superuser identity as `setup_roles` — never by the portal service itself. It creates the `portal_owner` role, the `portal` schema, the project registry (seeded with the CPLAN entry), the `portal.users` view, and the four `SECURITY DEFINER` user-management functions (`portal.create_user`, `portal.set_project_role`, `portal.reset_password`, `portal.set_active`), with `EXECUTE` granted only to `cplan_admin`.
+Idempotent, and run as the same admin/superuser identity as `setup_roles` — never by the portal service itself. It creates the `portal_owner` role, the `portal` schema, the project registry (seeded with the CPLAN entry), the `portal.users` view, the `SECURITY DEFINER` user-management functions (`portal.create_user`, `portal.set_project_role`, `portal.revoke_project_role`, `portal.reset_password`, `portal.set_active`, `portal.set_display_name`) with `EXECUTE` granted only to `cplan_admin`, `portal.record_sign_in` granted to the service role — and the failed-sign-in counters (`portal.login_attempts`, `portal.begin_login_attempt`, `portal.end_login_attempt`, `portal.clear_login_attempts`; see [Failed sign-in throttling](#failed-sign-in-throttling)).
+
+`portal.create_user` and `portal.reset_password` take a SCRAM-SHA-256 verifier, not a password, and refuse anything else (SQLSTATE `P0001`, surfaced as `422`) — see [Passwords never reach the server log](#passwords-never-reach-the-server-log). Upgrading an installation that predates this renames those two functions' second parameter, which `CREATE OR REPLACE` cannot do, so `apply_portal` drops and recreates them inside its own transaction; nothing else about the step changes.
+
+**This is not once-only, despite the name.** A release that adds a `portal.*` object needs another pass, and this one does: an installation that receives the new files without re-running `setup_portal` has a portal and a studio whose login endpoints cannot consult their rate limit. Both refuse to start in that state and print the command above rather than serving sign-in without a limit — so "the portal window closed / says the login throttle is not installed" after an update means exactly this step is missing. `setup.cmd` runs it; `check.cmd` verifies the files on disk, not the database.
 
 **Run:**
 
@@ -249,6 +255,39 @@ Note the current single-project scope of user *administration* specifically (dis
 
 **Bootstrap admin caveat:** the portal manages users it can already see through `portal.users`, but it cannot create the very first admin from an empty database — that first login still comes from `setup_roles --create-user <name> --role admin` (`Set up roles + first admin` above).
 
+### Failed sign-in throttling
+
+Accounts here *are* PostgreSQL login roles, so a guessed password is a database session at that account's privilege level — and initial passwords are administrator-generated and handed over by phone or chat. Both `POST /api/login` endpoints (the studio's on 8780 and the portal's on 8781) therefore share one set of counters, held in `portal.login_attempts` and read and written only through `portal.begin_login_attempt`/`portal.end_login_attempt`. Throttling one door and not the other would have been no limit at all: both check the same roles and mint the same `cplan_session` cookie, which the other accepts. The policy lives in `pipeline/api/login_guard.py`, whose module docstring carries the full reasoning; this is what an operator needs at 2am.
+
+**The limits.** Three counters, each over a fixed **15-minute** window:
+
+| Counter | Limit | What it stops |
+|---|---|---|
+| one address against one username | **5** failures | a sequential guessing run — the counter a real person could plausibly reach, and the reason it is not lower |
+| one username, all addresses | **20** failures | a run spread over several addresses |
+| one address, all usernames | **20** failures | password spraying — one guess against each of many names |
+
+Only failures count. A correct password, and a credential check the database could not answer at all (a restart, an exhausted connection limit), hand their attempt back, so neither spends anyone's budget.
+
+**What a user sees.** A throttled attempt is `429` with `{"detail": {"code": "too_many_attempts"}}` and `Retry-After: 900`, identical whether or not the username exists — the browser shows *Too many failed sign-in attempts*. `503 login_unavailable` (*Sign-in is temporarily unavailable*) is a different thing entirely: it means the server could not consult the counters, which in practice means this database never ran the `setup_portal` above.
+
+**Three properties worth knowing before you debug one.**
+
+- **A block always releases on its own within 15 minutes, and hammering cannot extend it.** The window is fixed from the counter's first attempt, and a blocked attempt is not counted at all.
+- **Five failures do not lock the account.** They lock *the address that produced them* out of *that name*, so a stranger who knows a username cannot deny its owner service; the account-wide counter that does apply to everyone sits four times higher.
+- **The per-address counter ignores addresses that identify nobody** — loopback above all. Both servers bind `127.0.0.1`, so every peer they can see reports `127.0.0.1`; a shared budget of twenty on that key would mean twenty typos anywhere in the deployment answering every remaining user, administrators included, with `429`. The per-username counters still apply to every attempt whatever its source. For the same reason both launchers pass `proxy_headers=False`: uvicorn's default would let any caller of a loopback-bound server rewrite its own source address with an `X-Forwarded-For` header. Putting a real reverse proxy in front of either server means establishing a trusted-proxy chain first.
+
+**Releasing a block immediately**, for the case waiting cannot fix — an administrator locked out of the portal that is the tool for fixing things:
+
+```bash
+PYTHONPATH=. .venv/bin/python -m pipeline.api.setup_portal --clear-login-block <username-or-address>
+PYTHONPATH=. .venv/bin/python -m pipeline.api.setup_portal --clear-login-block --all   # every counter
+```
+
+Run as the same admin/superuser identity as `setup_portal` itself. There is deliberately no portal endpoint and no admin UI for it: the person who needs it is the person the portal is refusing, and `EXECUTE` on `portal.clear_login_attempts` is granted to nobody — not even the service role, which would otherwise be a way to hand a guessing run its budget back.
+
+`tests/test_login_throttle.py` covers all of the above against a real PostgreSQL, including four simulated hours of continuous guessing and thirty concurrent attempts.
+
 ### The role model
 
 | Role | Read | Create | Edit own rows | Edit any row | Delete |
@@ -266,6 +305,23 @@ Roles are additive group memberships (`viewer` ⊂ `contributor` ⊂ `editor` �
 A contributor's attempt to edit or delete a row they don't own fails as a normal HTTP error, not a leak: the app's ownership check (`update_activity`) returns `403 forbidden_not_owner` before the query even runs, and any privilege PostgreSQL itself rejects (e.g. a raw `DELETE` attempt) surfaces via the global `ProgrammingError` handler as `403 forbidden` (SQLSTATE `42501`) rather than a raw 500.
 
 Delete is intentionally hard to lose data from: `DELETE /api/activities/{id}` is `admin`-only, and even then the row is not silently gone — the handler writes an `activity_changes` audit row (`change_type "deleted"`, a JSON snapshot of `tracking_id`/`activity_name` in `old_value`) in the same transaction as the delete, so the deletion itself remains visible in the History panel and `v_change_log` after the activity row is gone.
+
+### Passwords never reach the server log
+
+`CREATE ROLE … PASSWORD 'secret'` puts the cleartext inside the statement *text*, and statement text is exactly what gets logged: `log_statement = 'ddl'` or `'all'`, a low enough `log_min_duration_statement`, or an audit extension such as pgaudit (which logs statements executed *inside* functions too, where the portal builds its DDL). The server log is a file operators read routinely and central collection ships onwards, so a password that lands there is disclosed broadly, permanently, and invisibly.
+
+Both paths that set a password therefore hash it first, in this process, and send only the result:
+
+- `pipeline/api/scram.py` builds the SCRAM-SHA-256 verifier PostgreSQL would have built itself — RFC 5802/7677, SASLprep included, at the server's own configured `scram_iterations`. PostgreSQL stores a string it recognises as a verifier verbatim, so the account is byte-for-byte what a cleartext `PASSWORD` would have produced.
+- `setup_roles` (the CLI) and the portal endpoints (`POST /api/portal/users`, `…/password`) both call it. The cleartext exists only in the request handler and the `getpass` prompt; from there on, only the verifier travels.
+- `portal.create_user` and `portal.reset_password` **refuse** a value that is not a verifier rather than passing it on, so the leak cannot return through a caller that forgets to hash. An out-of-date client gets `422`, and the account it was changing is untouched.
+
+Hashing in the request handler moves work in front of Postgres's authorization check, so both endpoints bound it and place it after that check:
+
+- `MAX_PASSWORD_LENGTH` (`pipeline/portal/app.py`) caps what either endpoint will look at. SASLprep is a per-character Python loop over nine `stringprep` predicates that holds the GIL throughout, so its cost is linear in the submitted body — and nothing else in the stack bounds a request body. Being a Pydantic constraint it is enforced during request validation, so an oversized password is a `422` that never reaches `verifier_for`. `/api/login` is deliberately *not* capped: it hashes nothing, libpq prepares the password in C, and a limit there would lock out an account whose password was set by the CLI.
+- Both endpoints ask `has_function_privilege` for the caller's `EXECUTE` on `portal.create_user` / `portal.reset_password` **before** hashing. That is the same check `EXECUTE` performs, on the same `SET ROLE`'d `current_user`, asked one catalog lookup early — not a second rule that could drift, and not the authority either, since the real check still runs underneath. Without it a signed-in viewer could spend the process's CPU and be told `403` afterwards, which on a shared instance is a denial of service against the administrators.
+
+Two more things are worth knowing when changing this. A malformed verifier is *not* rejected by PostgreSQL — anything it cannot parse as one is treated as a cleartext password and hashed, which locks the account out silently — so `tests/test_scram.py` proves a real sign-in and compares byte-for-byte against a verifier the server built itself, rather than asserting on the shape of the string. And nothing here changes how sign-in works: `pipeline/api/auth.py` still verifies a password by opening a real connection, and PostgreSQL is still the only authority on passwords.
 
 ### Central-server hardening
 
@@ -311,12 +367,12 @@ node --check pipeline/studio/app.js
 
 `tests/test_postgres_embedded.py` starts a real embedded PostgreSQL server end-to-end (setup, connect, clean stop) and skips itself automatically when `pgserver` is not installed, so CI without that optional dependency stays green. `tests/test_database.py` and `tests/test_setup_backend.py` cover the same URL-conversion and settings logic against a stubbed `pgserver` module — no real server needed for those.
 
-The role/RBAC/portal/session test modules (`tests/test_setup_roles.py`, `tests/test_setup_portal.py`, `tests/test_rbac_matrix.py`, `tests/test_portal_api.py`, `tests/test_portal_project_page.py`, `tests/test_session.py`, `tests/test_api_auth.py`) need a real PostgreSQL server the same way `test_postgres_embedded.py` does, and skip — not fail — the same way when `pgserver` is missing: `postgres_required` (`tests/conftest.py`) skips a whole module when neither `pgserver` is importable nor `CPLAN_TEST_DATABASE_URL` is set, so a run that expects the portal's own tests to execute can go quietly green on 0 assertions instead. `pgserver` has no wheel for every platform (e.g. Python 3.13 on macOS arm64, as of 2026) — on such a machine it is simply not installed, and every test gated on it skips by default; watch for that when a change under `pipeline/portal/` reports full green but the skip count went up. On a machine without a `pgserver` wheel, set `CPLAN_TEST_DATABASE_URL` to a SQLAlchemy URL for a disposable PostgreSQL server instead — this repository's own `compose.yaml` provides one:
+The role/RBAC/portal/session test modules (`tests/test_setup_roles.py`, `tests/test_setup_portal.py`, `tests/test_rbac_matrix.py`, `tests/test_portal_api.py`, `tests/test_portal_project_page.py`, `tests/test_session.py`, `tests/test_api_auth.py`, `tests/test_login_throttle.py`) need a real PostgreSQL server the same way `test_postgres_embedded.py` does, and skip — not fail — the same way when `pgserver` is missing: `postgres_required` (`tests/conftest.py`) skips a whole module when neither `pgserver` is importable nor `CPLAN_TEST_DATABASE_URL` is set, so a run that expects the portal's own tests to execute can go quietly green on 0 assertions instead. `pgserver` has no wheel for every platform (e.g. Python 3.13 on macOS arm64, as of 2026) — on such a machine it is simply not installed, and every test gated on it skips by default; watch for that when a change under `pipeline/portal/` reports full green but the skip count went up. On a machine without a `pgserver` wheel, set `CPLAN_TEST_DATABASE_URL` to a SQLAlchemy URL for a disposable PostgreSQL server instead — this repository's own `compose.yaml` provides one:
 
 ```bash
 CPLAN_DB_PASSWORD=<pick one> docker compose up -d db   # publishes 127.0.0.1:55432, db "cplan", user "cplan" (superuser)
 CPLAN_TEST_DATABASE_URL=postgresql+psycopg://cplan:<password>@127.0.0.1:55432/cplan \
-    PYTHONPATH=. .venv/bin/python -m pytest tests/test_setup_roles.py tests/test_setup_portal.py tests/test_rbac_matrix.py tests/test_portal_api.py tests/test_portal_project_page.py tests/test_session.py tests/test_api_auth.py -q
+    PYTHONPATH=. .venv/bin/python -m pytest tests/test_setup_roles.py tests/test_setup_portal.py tests/test_rbac_matrix.py tests/test_portal_api.py tests/test_portal_project_page.py tests/test_session.py tests/test_api_auth.py tests/test_login_throttle.py -q
 ```
 
 Each affected module's fixture then creates its own freshly named database on that server (and drops it afterwards, along with every role it created), so it is safe to point the whole suite at the same server and run it more than once in a row — see `tests/conftest.py` for the isolation approach. `test_postgres_embedded.py` itself is the one exception: it tests the embedded `pgserver` backend's own start/stop mechanics, which have no external-database equivalent, so it keeps skipping without `pgserver` regardless of `CPLAN_TEST_DATABASE_URL`.

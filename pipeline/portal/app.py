@@ -20,17 +20,21 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.engine import URL
-from sqlalchemy.exc import ProgrammingError
+from sqlalchemy.exc import ProgrammingError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from pipeline.api.auth import (
     AuthSettings,
+    CredentialCheck,
     auth_settings_from_environment,
+    check_credentials,
     create_session_token,
-    verify_credentials,
 )
 from pipeline.api.database import backend_from_url, create_cplan_engine
+from pipeline.api.login_guard import LoginGuard, client_source
+from pipeline.api.scram import verifier_for
 from pipeline.api.session import CurrentUser, build_session_dependencies
+from pipeline.api.setup_portal import CREATE_USER_SIGNATURE, RESET_PASSWORD_SIGNATURE
 from pipeline.portal.resolvers import RESOLVERS
 from pipeline.portal.resources import PROJECTS_ROOT, load_manifest, manifest_path, resolve_tiles
 
@@ -67,8 +71,35 @@ PROJECT_ROLE = (
 )
 
 
+# How long a password the two password-setting endpoints will look at.
+#
+# Not a policy about passwords -- it is what stops a request body from deciding
+# how much CPU this process spends. Those endpoints hash before the statement
+# is sent, and SASLprep (pipeline/api/scram.py) is a per-character
+# Python loop over nine `stringprep` predicates that holds the GIL throughout,
+# so its cost is linear in the length of the body and is paid on the event
+# loop's threadpool: a multi-megabyte password costs seconds of CPU, and
+# enough of them in flight stop the single-worker process (pipeline/scripts/
+# start_portal.py) answering anything at all, sign-ins included. Nothing else
+# in the stack bounds it -- uvicorn caps no request body, and `username` (63)
+# and `display_name` (200) beside it were the only fields that carried a limit.
+#
+# As a Pydantic constraint this is enforced during request validation, before
+# the endpoint body runs, so an oversized password is a 422 that never reaches
+# `verifier_for`. It is comfortably above anything the portal itself generates
+# (ui.js builds a four-word passphrase) or an administrator types, and PBKDF2
+# over 512 characters costs the same as over eight -- the input is hashed to a
+# fixed-size block first -- so the limit costs no strength.
+MAX_PASSWORD_LENGTH = 512
+
+
 class LoginPayload(BaseModel):
     username: str = Field(min_length=1, max_length=63)
+    # Deliberately unbounded, unlike the two below: login does not hash
+    # anything here (pipeline/api/auth.py hands the password to libpq, which
+    # prepares it in C and off the GIL, and only after the throttle has
+    # admitted the attempt), and a limit here would lock out an account whose
+    # password was set by the `setup_roles` CLI, which has no limit either.
     password: str
 
 
@@ -82,7 +113,7 @@ class CreateUserPayload(BaseModel):
     # this is the enforcement that actually matters: the API is not relying
     # on the browser.
     username: str = Field(min_length=1, max_length=63, pattern=r"^[A-Za-z0-9._-]+$")
-    password: str = Field(min_length=1)
+    password: str = Field(min_length=1, max_length=MAX_PASSWORD_LENGTH)
     project: str = Field(min_length=1)
     role: str = Field(min_length=1)
     display_name: str | None = Field(default=None, max_length=200)
@@ -102,14 +133,17 @@ class RevokePayload(BaseModel):
 
 
 class PasswordPayload(BaseModel):
-    password: str = Field(min_length=1)
+    password: str = Field(min_length=1, max_length=MAX_PASSWORD_LENGTH)
 
 
 class ActivePayload(BaseModel):
     active: bool
 
 
-def create_portal_app(database_url: str | URL | None = None, auth_settings: AuthSettings | None = None) -> FastAPI:
+def create_portal_app(
+    database_url: str | URL | None = None,
+    auth_settings: AuthSettings | None = None,
+) -> FastAPI:
     resolved_url = database_url or os.environ.get("CPLAN_DATABASE_URL")
     if not resolved_url:
         raise RuntimeError("CPLAN database is not configured; set CPLAN_DATABASE_URL")
@@ -136,6 +170,8 @@ def create_portal_app(database_url: str | URL | None = None, auth_settings: Auth
     app = FastAPI(title="CPLAN Portal", version="0.1.0", lifespan=lifespan)
     app.state.engine = engine
     current_user, db_session = build_session_dependencies(engine, auth)
+    guard = LoginGuard(engine)
+    app.state.login_guard = guard
 
     @app.exception_handler(ProgrammingError)
     async def insufficient_privilege_handler(_: Request, exc: ProgrammingError):
@@ -144,9 +180,56 @@ def create_portal_app(database_url: str | URL | None = None, auth_settings: Auth
         raise exc
 
     @app.post("/api/login")
-    def login(payload: LoginPayload, response: Response):
-        if not verify_credentials(resolved_url, payload.username, payload.password):
+    def login(payload: LoginPayload, request: Request, response: Response):
+        # Throttling comes first, and a blocked attempt returns without ever
+        # calling the credential probe: that is what bounds the number of
+        # guesses (rather than merely their reward), and it is also what keeps
+        # a blocked attempt on a real account timed identically to a blocked
+        # attempt on a name that was never a role -- neither one opens a
+        # database connection. See pipeline/api/login_guard.py for the policy
+        # and for why the counters live in Postgres.
+        source = client_source(request)
+        try:
+            admitted = guard.begin_attempt(payload.username, source)
+        except SQLAlchemyError:
+            # Fail closed. The guard is the control, not bookkeeping like
+            # record_sign_in below, so a portal that cannot consult it must
+            # not fall back to an unlimited login endpoint. The realistic
+            # cause is a database that has not run the current apply_portal --
+            # which start_portal.py now refuses to start against, so this is
+            # the second line of defence rather than the first.
+            logger.exception("login throttle unavailable; refusing the attempt")
+            raise HTTPException(status_code=503, detail={"code": "login_unavailable"})
+        if not admitted:
+            # Identical for every caller: same status, same body, same
+            # Retry-After, whether or not the username exists. It says the
+            # attempt was throttled -- which an attacker learns anyway by
+            # counting -- and nothing about who the account belongs to.
+            raise HTTPException(
+                status_code=429,
+                detail={"code": "too_many_attempts"},
+                headers={"Retry-After": str(guard.retry_after_seconds)},
+            )
+        outcome = check_credentials(resolved_url, payload.username, payload.password)
+        if outcome is CredentialCheck.UNAVAILABLE:
+            # The database never answered, so nothing was guessed here: hand
+            # the reservation back rather than spend a real user's budget on
+            # the server's own outage (a pg restart, an exhausted connection
+            # limit), which used to lock the account for fifteen minutes past
+            # recovery. The client is told the same thing the fail-closed
+            # branch above tells it.
+            guard.end_attempt(payload.username, source)
+            logger.warning("credential check unavailable; refusing the attempt")
+            raise HTTPException(status_code=503, detail={"code": "login_unavailable"})
+        if outcome is CredentialCheck.REJECTED:
+            # The reservation stands: this one was a guess.
             raise HTTPException(status_code=401, detail={"code": "invalid_credentials"})
+        # Correct password: give back the one reservation this attempt took, so
+        # signing in normally never eats into the budget. Deliberately only
+        # this attempt's own reservation and not the whole counter -- clearing
+        # it would let anyone watch a name's remaining headroom to learn that
+        # its owner had just signed in, and that the name is an account at all.
+        guard.end_attempt(payload.username, source)
         # Stamped only once credentials are verified -- a wrong password never
         # reaches here, so a failed attempt never masquerades as a sign-in. This
         # runs on the engine, not a request session: the request has no SET
@@ -363,15 +446,58 @@ def create_portal_app(database_url: str | URL | None = None, auth_settings: Auth
         """Invoke a single portal.* SECURITY DEFINER function. See `_call_many`."""
         _call_many(session, [(sql, params)])
 
+    def _require_execute(session: Session, signature: str) -> None:
+        """403 now if the caller may not EXECUTE `signature`, rather than after the work.
+
+        Authorization for every endpoint below is Postgres's own EXECUTE check:
+        the portal.* functions are `REVOKE ALL FROM PUBLIC` with EXECUTE granted
+        to cplan_admin alone, so a non-admin's call raises 42501 and the handler
+        above turns that into 403. That check happens when the statement runs --
+        which, for the two endpoints that hash a password, is *after* the
+        hashing. This asks Postgres the same question first, for one catalog
+        lookup, so a caller who is going to be refused is refused before
+        anything costly happens on their behalf.
+
+        `has_function_privilege` is not a second, parallel rule that could drift
+        from the first: it *is* the check EXECUTE performs, asked about the same
+        `current_user` this session has already SET ROLE'd to. And it is not the
+        authority either -- the real check still runs underneath, so a grant
+        revoked in the microseconds between the two still ends in 403, and this
+        being wrong in the permissive direction changes nothing. The signature
+        comes from pipeline/api/setup_portal.py's own constant, so it names the
+        function that module actually creates.
+        """
+        allowed = session.execute(
+            text("SELECT has_function_privilege(CAST(:signature AS text), 'EXECUTE')"),
+            {"signature": signature},
+        ).scalar()
+        if not allowed:
+            raise HTTPException(status_code=403, detail={"code": "forbidden"})
+
     @app.post("/api/portal/users", status_code=status.HTTP_201_CREATED)
     def create_user_endpoint(payload: CreateUserPayload, session: Session = Depends(db_session)):
         # One transaction for both calls: if set_display_name fails, create_user
         # is rolled back with it, so the client never sees "created" turn into
         # a stuck half-created account that then fails a retry as "already exists".
+        #
+        # The password is hashed here, not by the server: portal.create_user
+        # builds `CREATE ROLE ... PASSWORD %L` DDL, and that statement text is
+        # what statement logging and audit extensions write to the server log.
+        # See pipeline/api/scram.py. This is the last point at which the
+        # cleartext exists at all -- past it, only the verifier travels.
+        #
+        # Authorization first, hashing second -- see `_require_execute`, and
+        # `MAX_PASSWORD_LENGTH` for the bound on what can be hashed at all.
+        _require_execute(session, CREATE_USER_SIGNATURE)
         statements = [
             (
-                "SELECT portal.create_user(:n, :p, :proj, :r)",
-                {"n": payload.username, "p": payload.password, "proj": payload.project, "r": payload.role},
+                "SELECT portal.create_user(:n, :v, :proj, :r)",
+                {
+                    "n": payload.username,
+                    "v": verifier_for(session, payload.password),
+                    "proj": payload.project,
+                    "r": payload.role,
+                },
             )
         ]
         if payload.display_name:
@@ -393,7 +519,17 @@ def create_portal_app(database_url: str | URL | None = None, auth_settings: Auth
 
     @app.post("/api/portal/users/{username}/password")
     def set_password_endpoint(username: str, payload: PasswordPayload, session: Session = Depends(db_session)):
-        _call(session, "SELECT portal.reset_password(:n, :p)", {"n": username, "p": payload.password})
+        # Hashed here for the same reason as create_user above: what reaches
+        # the server, and any log it writes, is the verifier and never the
+        # password (pipeline/api/scram.py). And refused first if the caller may
+        # not reset passwords at all, so the hashing is work done only for
+        # someone entitled to it.
+        _require_execute(session, RESET_PASSWORD_SIGNATURE)
+        _call(
+            session,
+            "SELECT portal.reset_password(:n, :v)",
+            {"n": username, "v": verifier_for(session, payload.password)},
+        )
         return {"status": "ok"}
 
     @app.post("/api/portal/users/{username}/active")

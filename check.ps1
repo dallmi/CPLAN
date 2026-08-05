@@ -28,26 +28,67 @@ $manifest = @(
     @{ Path = "pipeline\api\session.py";       Marker = "build_session_dependencies";        Why = "shared SET ROLE session module" },
     @{ Path = "pipeline\api\setup_portal.py";  Marker = "not accounts";                      Why = "disable guards + user list hides group roles" },
     @{ Path = "pipeline\portal\app.py";        Marker = "Refusing to start";                 Why = "portal fails closed without auth" },
-    # The portal frontend, complete. The redesign split one app.js into nine ES
-    # modules that import each other, so a hand-copy that misses any one of them
-    # leaves a portal that loads and then fails on a module it cannot resolve.
-    # This block previously named `static\app.js`, which no longer exists, and
-    # gave the stylesheet a marker that lives in the *studio* stylesheet -- two
-    # entries crying wolf, which is how an operator learns to ignore red.
-    @{ Path = "pipeline\portal\static\index.html"; Marker = 'src="js/app.js"';                Why = "portal landing page; also proves the page points at the split module, not the old single file" },
-    @{ Path = "pipeline\portal\static\styles.css"; Marker = ".drawer-identity";               Why = "portal styling incl. the person drawer and the access matrix" },
+    # The failed-sign-in throttle. These files ship together or not at all: the
+    # portal and the studio import login_guard, login_guard needs the counters
+    # setup_portal creates, and both need auth.py's three-way credential probe.
+    # A machine that received some of them and not the others must be reported
+    # as stale, not as "all files current" -- that half-copied state is a
+    # portal that starts, serves its landing page, and then answers every
+    # sign-in with an error.
+    @{ Path = "pipeline\api\login_guard.py";   Marker = "MISSING_GUARD_MESSAGE";             Why = "the shared login rate limit - a NEW file; without it neither server starts" },
+    @{ Path = "pipeline\api\auth.py";          Marker = "CredentialCheck";                   Why = "a database that could not answer is not counted as a password guess" },
+    @{ Path = "pipeline\api\setup_portal.py";  Marker = "begin_login_attempt";               Why = "the login counters + --clear-login-block; re-run setup.cmd after copying this one" },
+    @{ Path = "pipeline\api\app.py";           Marker = "too_many_attempts";                 Why = "the studio's login shares the portal's limit - otherwise it is bypassed by changing the port" },
+    @{ Path = "pipeline\portal\app.py";        Marker = "too_many_attempts";                 Why = "the portal's login is throttled" },
+    @{ Path = "pipeline\scripts\start_cplan.py";  Marker = "proxy_headers";                  Why = "studio refuses to start without the throttle, and never trusts X-Forwarded-For" },
+    @{ Path = "pipeline\scripts\start_portal.py"; Marker = "proxy_headers";                  Why = "portal refuses to start without the throttle, and never trusts X-Forwarded-For" },
+    # Passwords are hashed before they reach a SQL statement, so that the
+    # cleartext can never be written to the server log. These four ship
+    # together, and each half-copied combination breaks something different:
+    #   - scram.py missing: setup_roles and the portal both import it at module
+    #     scope, so setup.cmd's role step and start.cmd both die with
+    #     ModuleNotFoundError - and setup.ps1 reports that as "is the database
+    #     reachable?", which sends the operator to the wrong place entirely.
+    #   - new setup_portal.py, old portal\app.py: the portal starts and serves
+    #     normally, but its create_user/reset_password calls still send
+    #     cleartext, which the new functions refuse - so every Invite and every
+    #     Reset password answers 422 forever, an admin can create no accounts,
+    #     and a locked-out user cannot be given a new password.
+    #   - new portal\app.py, old setup_portal.py: the old functions take the
+    #     verifier for a password and hash it again, and the account is created
+    #     with a password nobody knows, silently and with no error anywhere.
+    # None of that is visible from the outside, so it must be caught here.
+    @{ Path = "pipeline\api\scram.py";         Marker = "def verifier_for";                  Why = "the SCRAM verifier builder - a NEW file; without it neither setup_roles nor the portal can even be imported" },
+    @{ Path = "pipeline\api\setup_portal.py";  Marker = "p_verifier";                        Why = "create_user/reset_password refuse cleartext; re-run setup.cmd after copying this one" },
+    @{ Path = "pipeline\portal\app.py";        Marker = "verifier_for";                      Why = "the portal hashes before it sends - an older copy sends cleartext and every Invite/Reset answers 422" },
+    @{ Path = "pipeline\api\setup_roles.py";   Marker = "_verifier_literal";                 Why = "the --create-user/--reset-password CLI hashes too - otherwise the bootstrap admin's password lands in the log" },
+    # static\app.js was split into static\js\*.js; the entry pointed at the old
+    # path and so reported MISSING on every run, which trains an operator to
+    # read a red result as normal -- exactly the habit the entries above rely
+    # on not existing.
+    @{ Path = "pipeline\portal\static\js\home.js"; Marker = 'target="_blank"';                Why = "tiles open in a new tab; server messages on row actions" },
+    @{ Path = "pipeline\portal\static\index.html"; Marker = 'rel="icon"';                     Why = "portal landing page incl. favicon" },
+    # Marker was "kit-pass", a class the design-system adoption deleted, so this
+    # entry reported STALE forever -- same problem as the entry above it.
+    @{ Path = "pipeline\portal\static\styles.css"; Marker = "--bordeaux-1";                  Why = "portal styling on the design-system tokens" },
+    # The rest of the split frontend. home.js above is one of nine ES modules
+    # that import each other; naming only the one whose marker happened to
+    # survive the split would report "all files current" for a copy missing any
+    # of the other eight -- a portal that loads its shell and then dies on a
+    # module it cannot resolve. The second index.html entry pins that the page
+    # points at the split module at all, which the favicon marker cannot see.
+    @{ Path = "pipeline\portal\static\index.html"; Marker = 'src="js/app.js"';                Why = "the landing page loads the split module, not the old single file" },
     @{ Path = "pipeline\portal\static\js\app.js"; Marker = "wireInvite";                      Why = "portal entry module -- imports the eight below, so a missing one breaks the page at load" },
     @{ Path = "pipeline\portal\static\js\api.js"; Marker = "revokeRole";                      Why = "portal server calls" },
     @{ Path = "pipeline\portal\static\js\state.js"; Marker = "accountsFromRows";              Why = "portal client state, role ranking and sign-in formatting" },
     @{ Path = "pipeline\portal\static\js\ui.js"; Marker = "generatePassword";                 Why = "portal shared rendering, toasts, layer stack and the initial-password generator" },
-    @{ Path = "pipeline\portal\static\js\home.js"; Marker = "renderHome";                     Why = "portal project tiles" },
     @{ Path = "pipeline\portal\static\js\users.js"; Marker = "wireUsers";                     Why = "portal users table incl. search, filters and sorting" },
     @{ Path = "pipeline\portal\static\js\matrix.js"; Marker = "wireMatrix";                   Why = "portal user x project access matrix" },
     @{ Path = "pipeline\portal\static\js\drawer.js"; Marker = "wireDrawer";                   Why = "portal person drawer incl. the confirmed destructive actions" },
     @{ Path = "pipeline\portal\static\js\invite.js"; Marker = "wireInvite";                   Why = "portal invite flow" },
     @{ Path = "pipeline\portal\static\js\password-words.js"; Marker = "PASSWORD_WORDS";       Why = "word list behind the initial-password generator -- without it ui.js fails to resolve its import" },
     @{ Path = "pipeline\portal\static\project.html"; Marker = 'src="/project.js"';            Why = "portal project page" },
-    @{ Path = "pipeline\portal\static\project.js"; Marker = "project";                        Why = "portal project page behaviour" },
+    @{ Path = "pipeline\portal\static\project.js"; Marker = "function loadUserChip";          Why = "portal project page behaviour" },
     @{ Path = "pipeline\studio\app.js";        Marker = "bod_geb:'GEB/GEB-1'";           Why = "four-tab studio, pack drawer, Excel exports, the read-only snapshot switch, and the GEB/GEB-1 relabel" },
     @{ Path = "pipeline\studio\styles.css";    Marker = "channel-chip";                  Why = "channel colour, packs table, pack drawer, five-tile row" },
     @{ Path = "pipeline\studio\index.html";    Marker = "<label>GEB/GEB-1<input";        Why = "four-tab nav, view switcher, pack drawer, both Excel exports, snapshot script tag, and the GEB/GEB-1 relabel" },
@@ -193,7 +234,13 @@ else {
 
 Write-Host ""
 if ($stale.Count -eq 0 -and -not $missingPackages) {
-    Write-Host "RESULT: all files current. Safe to run fix-db.cmd, then setup.cmd (or start.cmd)." -ForegroundColor Green
+    # Deliberately no longer "setup.cmd (or start.cmd)": setup.cmd is the only
+    # branch that re-applies the database schema, and an update can add objects
+    # the servers refuse to start without (the login throttle did). Taking the
+    # start.cmd shortcut after copying new files is how an installation ends up
+    # with new code on an old database.
+    Write-Host "RESULT: all files current. Run fix-db.cmd, then setup.cmd (it re-applies the schema," -ForegroundColor Green
+    Write-Host "        which an update can require), then start.cmd." -ForegroundColor Green
 }
 else {
     if ($stale.Count -gt 0) {

@@ -33,7 +33,7 @@ from pipeline.api.app import Base
 from pipeline.api.database import create_cplan_engine
 from pipeline.api.setup_portal import PORTAL_OWNER, apply_portal, register_project
 from pipeline.api.setup_roles import apply_roles, create_user, set_user_active
-from tests.conftest import postgres_required, postgres_test_database
+from tests.conftest import postgres_required, postgres_test_database, scram_literal
 
 pytestmark = postgres_required
 
@@ -105,7 +105,7 @@ def test_bootstrap_admin_can_be_demoted_and_revoked_through_the_portal(engine):
     # guard's own behaviour is covered separately, below.
     first = _as(engine, "boot_admin")
     try:
-        first.exec_driver_sql("SELECT portal.create_user('second_admin', 'pw-2nd', 'cplan', 'admin')")
+        first.exec_driver_sql(f"SELECT portal.create_user('second_admin', {scram_literal('pw-2nd')}, 'cplan', 'admin')")
         first.commit()
     finally:
         first.exec_driver_sql("RESET ROLE")
@@ -311,7 +311,7 @@ def test_second_project_supports_full_user_lifecycle_via_the_portal(engine):
 
     admin = _as(engine, "proj2_admin")
     try:
-        admin.exec_driver_sql("SELECT portal.create_user('p2_user', 'pw-p2u', 'secondp', 'viewer')")
+        admin.exec_driver_sql(f"SELECT portal.create_user('p2_user', {scram_literal('pw-p2u')}, 'secondp', 'viewer')")
         admin.commit()
         admin.exec_driver_sql("SELECT portal.set_project_role('p2_user', 'secondp', 'editor')")
         admin.commit()
@@ -359,7 +359,7 @@ def test_a_project_registered_before_its_roles_exist_works_after_apply_portal(en
 
     admin = _as(engine, "proj3_admin")
     try:
-        admin.exec_driver_sql("SELECT portal.create_user('p3_user', 'pw-p3u', 'thirdp', 'viewer')")
+        admin.exec_driver_sql(f"SELECT portal.create_user('p3_user', {scram_literal('pw-p3u')}, 'thirdp', 'viewer')")
         admin.commit()
     finally:
         admin.exec_driver_sql("RESET ROLE")

@@ -1,83 +1,104 @@
-"""The Windows preflight's manifest, checked against the tree it describes.
+"""check.ps1's manifest actually matches the files it names.
 
-`check.ps1` is how an operator on a machine without `git pull` learns whether the
-files they hand-copied are the current ones. It works by looking for a marker
-string that only the current version of each listed file contains.
+`check.ps1` is the only thing that tells an operator on a machine without git
+which files to hand-copy, and the only thing that prints their download URLs.
+It decides "current" vs "stale" by looking for one marker string per file, and
+that pairing is maintained by hand -- so it has exactly two failure modes, and
+the repository has seen both:
 
-That makes it a claim about the repository, and claims rot. Two ways, both of
-which had already happened when this test was written:
+* **A marker that is no longer in the file.** The entry then reports STALE on
+  every run, on every machine, forever. Two of the comments in check.ps1 are
+  about precisely this ("Marker was 'kit-pass', a class the design-system
+  adoption deleted"), and it is worse than useless: it trains an operator to
+  read a red result as normal, which is the habit the entries that *do* matter
+  depend on not existing.
+* **A file changed without its marker being updated**, so a pre-change copy and
+  a post-change copy look identical to the check. That is the half-copied
+  upgrade the manifest exists to catch, reported as "all files current".
 
-* a listed file is renamed or removed, and the entry points at nothing;
-* a marker is edited out of the file it identifies, so the entry reports STALE
-  forever, on a file that is in fact current.
+Only the first is mechanically detectable, and that is what this checks: every
+entry names a file that exists and contains its marker. The second is a review
+question, but pinning the first makes the manifest a thing that can be *tested*
+rather than only read, and it is what catches a marker chosen from a version of
+the file that never landed.
 
-Either way the operator sees red on something that is fine, learns that red
-means nothing, and stops reading the output -- at which point the preflight has
-become worse than not having one, because it still looks like assurance.
-
-Nothing here checks that the manifest is *complete*; no test can know which
-files matter. It checks only that every claim it does make is true.
+No PowerShell required -- the manifest is parsed out of the script text, which
+is also why the shape it accepts is asserted (a silently unparsed manifest
+would make every assertion below vacuous).
 """
+
+from __future__ import annotations
 
 import re
 from pathlib import Path
 
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-CHECK_SCRIPT = REPO_ROOT / "check.ps1"
+CHECK_PS1 = Path(__file__).resolve().parents[1] / "check.ps1"
 
-# Mirrors the PowerShell hashtable literal:
-#     @{ Path = "a\b.py"; Marker = "x"; Why = "..." }
-# Either quote style, because the manifest uses single quotes where the marker
-# itself contains a double quote.
-ENTRY = re.compile(
-    r'Path\s*=\s*(["\'])(?P<path>.+?)\1\s*;\s*'
-    r'Marker\s*=\s*(["\'])(?P<marker>.+?)\3'
+# @{ Path = "a\b.py"; Marker = "..."; Why = "..." }, with the marker in either
+# quoting style -- both are in use, because a marker containing a double quote
+# has to be single-quoted and vice versa.
+_ENTRY = re.compile(
+    r"""@\{\s*Path\s*=\s*"(?P<path>[^"]+)"\s*;\s*Marker\s*=\s*(?P<quote>["'])(?P<marker>.*?)(?P=quote)\s*;""",
 )
 
 
-def _entries():
-    text = CHECK_SCRIPT.read_text(encoding="utf-8")
-    return [(m.group("path"), m.group("marker")) for m in ENTRY.finditer(text)]
+def manifest_entries() -> list[tuple[str, str, str]]:
+    """(repo-relative path, marker, quote character) for every manifest entry."""
+    text = CHECK_PS1.read_text(encoding="utf-8")
+    return [(m.group("path"), m.group("marker"), m.group("quote")) for m in _ENTRY.finditer(text)]
 
 
-def test_the_manifest_parses_at_all():
-    """A parser that silently matches nothing would make every test below pass.
-
-    The count is a floor, not a pin: entries are added as the project grows, and
-    a test that had to be edited for every addition would be edited without
-    thought. It only has to be high enough that a broken regex cannot slip by.
-    """
-    entries = _entries()
-
-    assert len(entries) >= 30, f"only parsed {len(entries)} manifest entries"
+ENTRIES = manifest_entries()
 
 
-@pytest.mark.parametrize("path,marker", _entries(),
-                         ids=[f"{p}::{m[:24]}" for p, m in _entries()])
-def test_every_manifest_entry_names_a_file_that_carries_its_marker(path, marker):
-    """One case per entry, so a failure names the offender rather than a count.
+def test_the_manifest_was_actually_parsed():
+    """Guards every other test here: a regex that matched nothing would make
+    them all pass while checking exactly nothing."""
+    assert len(ENTRIES) > 20, f"parsed only {len(ENTRIES)} manifest entries out of {CHECK_PS1.name}"
+    assert any(path.endswith("scram.py") for path, _, _ in ENTRIES)
 
-    The marker test is a literal substring search, matching what `check.ps1`
-    does: `Select-String -Pattern ([regex]::Escape($entry.Marker))`.
-    """
-    target = REPO_ROOT / Path(path.replace("\\", "/"))
 
-    assert target.exists(), (
-        f"check.ps1 lists {path}, which does not exist. An entry pointing at a "
-        f"renamed or deleted file reports MISSING on every run."
-    )
+@pytest.mark.parametrize("path,marker,quote", ENTRIES, ids=[f"{p}::{m}" for p, m, _ in ENTRIES])
+def test_every_manifest_entry_names_a_file_that_contains_its_marker(path: str, marker: str, quote: str):
+    target = CHECK_PS1.parent / Path(path.replace("\\", "/"))
+    assert target.is_file(), f"check.ps1 lists {path}, which does not exist -- it would report MISSING forever"
     body = target.read_text(encoding="utf-8", errors="replace")
     assert marker in body, (
-        f"check.ps1 identifies {path} by {marker!r}, which the file does not "
-        f"contain. The entry reports STALE forever, on a file that is current."
+        f"check.ps1's marker {marker!r} is not in {path} -- that entry reports STALE on every machine, "
+        "on every run, and teaches operators to ignore a red result"
+    )
+
+
+@pytest.mark.parametrize("path,marker,quote", ENTRIES, ids=[f"{p}::{m}" for p, m, _ in ENTRIES])
+def test_a_double_quoted_marker_carries_no_powershell_expansion(path: str, marker: str, quote: str):
+    """`"$foo"` and `"a`b"` are not literals in PowerShell.
+
+    A marker is compared with `[regex]::Escape($entry.Marker)`, so the *regex*
+    is safe -- but the string reaches that call already expanded. A `$` or a
+    backtick in a double-quoted marker therefore silently becomes something
+    other than what is written here, and the entry reports STALE forever. The
+    obvious marker for `pipeline\\api\\scram.py` -- its `SCRAM-SHA-256$` prefix
+    -- is exactly this trap.
+    """
+    if quote != '"':
+        return  # single-quoted PowerShell strings are literal
+    assert "$" not in marker and "`" not in marker, (
+        f"{path}: the double-quoted marker {marker!r} would be expanded by PowerShell before it is "
+        "compared; single-quote it instead"
     )
 
 
 def test_no_manifest_path_is_absolute():
-    """Paths are repo-relative; `check.ps1` joins them onto its own location."""
-    absolute = [path for path, _ in _entries()
+    """`check.ps1` joins every path onto its own location with `Join-Path`.
+
+    An absolute path survives that join unchanged, so the entry would silently
+    check a file outside the copy being verified -- on the author's machine it
+    passes, on the operator's it reports MISSING for a reason no one can see
+    from the output.
+    """
+    absolute = [path for path, _, _ in ENTRIES
                 if path.startswith(("/", "\\")) or ":" in path[:3]]
 
     assert not absolute, f"absolute paths in the manifest: {absolute}"

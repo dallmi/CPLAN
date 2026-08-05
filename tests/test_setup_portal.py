@@ -10,7 +10,7 @@ from pipeline.api.app import Base
 from pipeline.api.database import create_cplan_engine
 from pipeline.api.setup_portal import PORTAL_OWNER, apply_portal, register_project
 from pipeline.api.setup_roles import AUTHENTICATOR, apply_roles, create_user
-from tests.conftest import postgres_required, postgres_test_database
+from tests.conftest import postgres_required, postgres_test_database, scram_literal
 
 pytestmark = postgres_required
 
@@ -50,7 +50,7 @@ def test_apply_portal_is_idempotent_and_creates_objects(engine):
 def test_admin_creates_user_via_definer_function(engine):
     admin = _as(engine, "p_admin")
     try:
-        admin.exec_driver_sql("SELECT portal.create_user('newbie', 'pw-newbie', 'cplan', 'contributor')")
+        admin.exec_driver_sql(f"SELECT portal.create_user('newbie', {scram_literal('pw-newbie')}, 'cplan', 'contributor')")
         admin.commit()
     finally:
         admin.rollback(); admin.exec_driver_sql("RESET ROLE"); admin.commit(); admin.close()
@@ -64,7 +64,7 @@ def test_non_admin_cannot_execute_functions(engine):
     viewer = _as(engine, "p_viewer")
     try:
         with pytest.raises(ProgrammingError) as exc:
-            viewer.exec_driver_sql("SELECT portal.create_user('hacker', 'pw', 'cplan', 'admin')")
+            viewer.exec_driver_sql(f"SELECT portal.create_user('hacker', {scram_literal('pw')}, 'cplan', 'admin')")
         assert exc.value.orig.sqlstate == "42501"
     finally:
         viewer.rollback(); viewer.exec_driver_sql("RESET ROLE"); viewer.commit(); viewer.close()
@@ -81,10 +81,10 @@ def test_non_admin_cannot_execute_any_definer_function(engine):
     viewer = _as(engine, "p_viewer")
     try:
         for sql in (
-            "SELECT portal.create_user('priv_probe', 'pw', 'cplan', 'viewer')",
+            f"SELECT portal.create_user('priv_probe', {scram_literal('pw')}, 'cplan', 'viewer')",
             "SELECT portal.set_project_role('p_admin', 'cplan', 'viewer')",
             "SELECT portal.revoke_project_role('p_admin', 'cplan')",
-            "SELECT portal.reset_password('p_admin', 'pw')",
+            f"SELECT portal.reset_password('p_admin', {scram_literal('pw')})",
             "SELECT portal.set_active('p_admin', false)",
             "SELECT portal.set_display_name('p_admin', 'Someone Else')",
         ):
@@ -151,9 +151,9 @@ def test_function_rejects_unknown_project_role_and_reserved_name(engine):
     admin = _as(engine, "p_admin")
     try:
         for sql in (
-            "SELECT portal.create_user('x1', 'pw', 'nope', 'viewer')",       # unknown project
-            "SELECT portal.create_user('x2', 'pw', 'cplan', 'superuser')",    # unknown role
-            "SELECT portal.create_user('cplan_admin', 'pw', 'cplan', 'viewer')",  # reserved name
+            f"SELECT portal.create_user('x1', {scram_literal('pw')}, 'nope', 'viewer')",       # unknown project
+            f"SELECT portal.create_user('x2', {scram_literal('pw')}, 'cplan', 'superuser')",    # unknown role
+            f"SELECT portal.create_user('cplan_admin', {scram_literal('pw')}, 'cplan', 'viewer')",  # reserved name
         ):
             with pytest.raises(ProgrammingError):
                 admin.exec_driver_sql(sql)
@@ -165,9 +165,9 @@ def test_function_rejects_unknown_project_role_and_reserved_name(engine):
 def test_create_user_rejects_duplicate_name(engine):
     admin = _as(engine, "p_admin")
     try:
-        admin.exec_driver_sql("SELECT portal.create_user('dupe', 'pw', 'cplan', 'viewer')"); admin.commit()
+        admin.exec_driver_sql(f"SELECT portal.create_user('dupe', {scram_literal('pw')}, 'cplan', 'viewer')"); admin.commit()
         with pytest.raises(ProgrammingError) as exc:
-            admin.exec_driver_sql("SELECT portal.create_user('dupe', 'pw2', 'cplan', 'editor')")
+            admin.exec_driver_sql(f"SELECT portal.create_user('dupe', {scram_literal('pw2')}, 'cplan', 'editor')")
         # Clean validation raise (P0001), not a raw CREATE ROLE 42710 duplicate_object.
         assert exc.value.orig.sqlstate == "P0001"
         assert "already exists" in str(exc.value.orig)
@@ -182,7 +182,7 @@ def test_mutators_reject_unknown_user(engine):
         for sql in (
             "SELECT portal.set_project_role('ghost', 'cplan', 'editor')",
             "SELECT portal.revoke_project_role('ghost', 'cplan')",
-            "SELECT portal.reset_password('ghost', 'pw')",
+            f"SELECT portal.reset_password('ghost', {scram_literal('pw')})",
             "SELECT portal.set_active('ghost', false)",
         ):
             with pytest.raises(ProgrammingError) as exc:
@@ -197,9 +197,9 @@ def test_mutators_reject_unknown_user(engine):
 def test_set_role_password_and_active_functions(engine):
     admin = _as(engine, "p_admin")
     try:
-        admin.exec_driver_sql("SELECT portal.create_user('mutable', 'pw0', 'cplan', 'viewer')"); admin.commit()
+        admin.exec_driver_sql(f"SELECT portal.create_user('mutable', {scram_literal('pw0')}, 'cplan', 'viewer')"); admin.commit()
         admin.exec_driver_sql("SELECT portal.set_project_role('mutable', 'cplan', 'editor')"); admin.commit()
-        admin.exec_driver_sql("SELECT portal.reset_password('mutable', 'pw1')"); admin.commit()
+        admin.exec_driver_sql(f"SELECT portal.reset_password('mutable', {scram_literal('pw1')})"); admin.commit()
         admin.exec_driver_sql("SELECT portal.set_active('mutable', false)"); admin.commit()
     finally:
         admin.rollback(); admin.exec_driver_sql("RESET ROLE"); admin.commit(); admin.close()
@@ -268,7 +268,7 @@ def test_set_role_allows_demoting_a_non_last_admin(engine):
     try:
         admin = _as(engine, "p_admin")
         try:
-            admin.exec_driver_sql("SELECT portal.create_user('extra_admin', 'pw-extra', 'cplan', 'admin')"); admin.commit()
+            admin.exec_driver_sql(f"SELECT portal.create_user('extra_admin', {scram_literal('pw-extra')}, 'cplan', 'admin')"); admin.commit()
             admin.exec_driver_sql("SELECT portal.set_project_role('extra_admin', 'cplan', 'viewer')"); admin.commit()
         finally:
             admin.rollback(); admin.exec_driver_sql("RESET ROLE"); admin.commit(); admin.close()
@@ -315,7 +315,7 @@ def test_revoke_role_rejects_unknown_project_and_reserved_name(engine):
 def test_revoke_role_removes_group_membership_and_preserves_account(engine):
     admin = _as(engine, "p_admin")
     try:
-        admin.exec_driver_sql("SELECT portal.create_user('revocable', 'pw0', 'cplan', 'contributor')"); admin.commit()
+        admin.exec_driver_sql(f"SELECT portal.create_user('revocable', {scram_literal('pw0')}, 'cplan', 'contributor')"); admin.commit()
         admin.exec_driver_sql("SELECT portal.revoke_project_role('revocable', 'cplan')"); admin.commit()
     finally:
         admin.rollback(); admin.exec_driver_sql("RESET ROLE"); admin.commit(); admin.close()
@@ -353,7 +353,7 @@ def test_revoke_role_blocks_last_active_admin(engine):
     try:
         admin = _as(engine, "p_admin")
         try:
-            admin.exec_driver_sql("SELECT portal.create_user('revoke_guard_admin', 'pw-guard', 'cplan', 'admin')"); admin.commit()
+            admin.exec_driver_sql(f"SELECT portal.create_user('revoke_guard_admin', {scram_literal('pw-guard')}, 'cplan', 'admin')"); admin.commit()
             admin.exec_driver_sql("SELECT portal.set_active('revoke_guard_admin', false)"); admin.commit()
             with pytest.raises(ProgrammingError) as exc:
                 admin.exec_driver_sql("SELECT portal.revoke_project_role('p_admin', 'cplan')")
@@ -381,7 +381,7 @@ def test_revoke_role_allowed_when_another_active_admin_exists(engine):
     # p_admin and is not a lockout.
     admin = _as(engine, "p_admin")
     try:
-        admin.exec_driver_sql("SELECT portal.create_user('temp_admin', 'pw-temp', 'cplan', 'admin')"); admin.commit()
+        admin.exec_driver_sql(f"SELECT portal.create_user('temp_admin', {scram_literal('pw-temp')}, 'cplan', 'admin')"); admin.commit()
         admin.exec_driver_sql("SELECT portal.revoke_project_role('temp_admin', 'cplan')"); admin.commit()
     finally:
         admin.rollback(); admin.exec_driver_sql("RESET ROLE"); admin.commit(); admin.close()
@@ -443,7 +443,7 @@ def test_set_active_blocks_disabling_last_active_admin(engine):
 def test_set_active_allows_disable_when_another_active_admin_exists(engine):
     admin = _as(engine, "p_admin")
     try:
-        admin.exec_driver_sql("SELECT portal.create_user('second_admin', 'pw-2nd', 'cplan', 'admin')"); admin.commit()
+        admin.exec_driver_sql(f"SELECT portal.create_user('second_admin', {scram_literal('pw-2nd')}, 'cplan', 'admin')"); admin.commit()
         admin.exec_driver_sql("SELECT portal.set_active('second_admin', false)"); admin.commit()
         # Re-enabling is never guarded.
         admin.exec_driver_sql("SELECT portal.set_active('second_admin', true)"); admin.commit()
@@ -595,3 +595,56 @@ def test_portal_users_view_excludes_group_and_service_roles(engine):
         {"cplan_viewer", "cplan_contributor", "cplan_editor", "cplan_admin", "cplan_sync"}
     )
     assert "p_admin" in usernames
+
+
+def test_apply_portal_upgrades_a_database_whose_functions_still_take_a_password(engine):
+    """The one upgrade step `CREATE OR REPLACE FUNCTION` cannot perform on its own.
+
+    `portal.create_user`/`portal.reset_password` took `p_password` before they
+    took `p_verifier`; renaming an input parameter is refused outright ("cannot
+    change name of input parameter"), so `apply_portal` has to DROP them first
+    (`_RENAMED_PARAMETER_SIGNATURES`). Every existing installation goes through
+    exactly this path, and no test that only ever builds a database from
+    scratch would ever execute it -- so this one builds the older shape on
+    purpose and then upgrades it.
+    """
+    with engine.begin() as c:
+        c.exec_driver_sql("DROP FUNCTION portal.create_user(text, text, text, text)")
+        c.exec_driver_sql(
+            "CREATE FUNCTION portal.create_user(p_name text, p_password text, p_project text, p_role text) "
+            "RETURNS void LANGUAGE plpgsql AS $fn$ BEGIN END; $fn$"
+        )
+        arguments = c.execute(
+            text("SELECT pg_get_function_arguments(oid) FROM pg_proc WHERE oid = 'portal.create_user(text,text,text,text)'::regprocedure")
+        ).scalar_one()
+        assert "p_password" in arguments  # the downgrade actually took
+
+    apply_portal(engine)  # must upgrade in place, not fail on the rename
+
+    with engine.connect() as c:
+        arguments = c.execute(
+            text("SELECT pg_get_function_arguments(oid) FROM pg_proc WHERE oid = 'portal.create_user(text,text,text,text)'::regprocedure")
+        ).scalar_one()
+        assert "p_verifier" in arguments and "p_password" not in arguments
+        # No stray overload left behind, and the admin grant the DROP removed is back.
+        assert c.execute(
+            text("SELECT count(*) FROM pg_proc WHERE proname = 'create_user' AND pronamespace = 'portal'::regnamespace")
+        ).scalar_one() == 1
+        assert c.execute(
+            text(
+                "SELECT has_function_privilege('cplan_admin', "
+                "'portal.create_user(text, text, text, text)', 'EXECUTE')"
+            )
+        ).scalar_one() is True
+
+    # And it still works: the upgraded function creates a real account.
+    admin = _as(engine, "p_admin")
+    try:
+        admin.exec_driver_sql(
+            f"SELECT portal.create_user('upgraded', {scram_literal('pw-upgraded')}, 'cplan', 'viewer')"
+        )
+        admin.commit()
+    finally:
+        admin.rollback(); admin.exec_driver_sql("RESET ROLE"); admin.commit(); admin.close()
+    with engine.connect() as c:
+        assert c.execute(text("SELECT rolcanlogin FROM pg_roles WHERE rolname = 'upgraded'")).scalar_one() is True
