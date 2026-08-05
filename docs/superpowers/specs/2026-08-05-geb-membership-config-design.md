@@ -111,11 +111,22 @@ match a name-only entry, and nothing in the data could distinguish them. Giving
 every entry an email removes the risk. The unmatched-entry count does not catch
 this — it finds entries that match too little, never one that matches too much.
 
-`bod_geb` joins `SP_PERSON_COLUMNS` in the ETL, which produces `bod_geb_email`
-from the SharePoint `Claims` identity the same way `lead_email` is produced
-today. The column is added after the `keep` projection, so it needs no schema
-change; the report reads the CSVs directly through `load_activities` and never
-touches the database.
+The ETL gains `bod_geb_email` from the SharePoint `Claims` identity. It is
+produced for `SP_MULTI_PERSON_COLUMNS` — not by adding `bod_geb` to
+`SP_PERSON_COLUMNS`, as an earlier draft of this document said. The existing
+`parse_sp_person_email` handles a JSON *object* only and returns `""` for the
+*array* a multi-person field exports, so reusing it would have produced an
+always-empty column while every match fell silently to the name path. A plural
+variant emits one slot per person in display-name order, blank where no address
+is known, and the two columns are read as pairs.
+
+Where the two counts disagree, every email on that row is dropped and the names
+carry the match alone: no alignment can be trusted, and guessing an offset would
+attribute one person's address to another.
+
+The column is added after the `keep` projection, so it needs no schema change;
+the report reads the CSVs directly through `load_activities` and never touches
+the database.
 
 If that column arrives empty — because the source is a rich-text field rather
 than a person picker — every match falls to the name path and the feature still
