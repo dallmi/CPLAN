@@ -225,7 +225,7 @@ PYTHONPATH=. .venv/bin/python pipeline/scripts/start_portal.py
 
 Serves on port 8781 by default (`--port` to override) — the studio keeps port 8780, so both run side by side. Requires `CPLAN_AUTH_SECRET` to be set: the portal reads the same signed session cookie as the studio (`CPLAN_AUTH_SECRET`, `Enable` above), so logging in on either one signs you into both.
 
-**What the portal does:** an admin manages users entirely in the browser — create, change role, reset password, enable/disable — without touching the CLI. The portal service itself holds no DDL rights; every change is routed through the `portal.*` `SECURITY DEFINER` functions above, so a non-admin caller is rejected by PostgreSQL's own privilege check (SQLSTATE `42501`) before any change happens, surfaced to the browser as `403`.
+**What the portal does:** an admin manages users entirely in the browser — invite, change role per project, reset password, enable/disable — without touching the CLI. The users list and the user × project access matrix show every account against every registered project, and a matrix cell can be set to any role. Emptying a cell (revoking a grant) is wired up in the browser, but the server does not yet expose a revoke endpoint, so it currently fails against a real deployment — a follow-up, not shipped. The portal service itself holds no DDL rights; every change that does reach the server is routed through the `portal.*` `SECURITY DEFINER` functions above, so a non-admin caller is rejected by PostgreSQL's own privilege check (SQLSTATE `42501`) before any change happens, surfaced to the browser as `403`.
 
 #### The project page
 

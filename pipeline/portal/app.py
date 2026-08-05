@@ -70,7 +70,15 @@ class LoginPayload(BaseModel):
 
 
 class CreateUserPayload(BaseModel):
-    username: str = Field(min_length=1, max_length=63)
+    # The access matrix encodes a grant as `username:slug` in a data-cell
+    # attribute and splits it on ':' (pipeline/portal/static/js/matrix.js);
+    # a colon in the username would silently break that lookup. The pattern
+    # keeps a username to what a system identifier needs -- letters, digits,
+    # dot, hyphen, underscore -- so it can never contain one. invite.js checks
+    # the same pattern client-side so the admin is told before submitting, but
+    # this is the enforcement that actually matters: the API is not relying
+    # on the browser.
+    username: str = Field(min_length=1, max_length=63, pattern=r"^[A-Za-z0-9._-]+$")
     password: str = Field(min_length=1)
     project: str = Field(min_length=1)
     role: str = Field(min_length=1)

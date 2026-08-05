@@ -318,6 +318,15 @@ class PortalFrontendTests(unittest.TestCase):
         # account, not one per list item.
         self.assertEqual(drawer.count('data-act="remove"'), 1)
 
+    def test_invite_modal_replaces_the_browser_prompt(self):
+        invite = (JS / "invite.js").read_text(encoding="utf-8")
+        self.assertIn("createUser", invite)
+        self.assertIn("ROLE_DESC", invite)      # each role explained in a sentence
+        self.assertIn("iv-generate", invite)    # generated password
+        for module in ("api.js", "state.js", "ui.js", "home.js", "users.js", "matrix.js", "drawer.js", "invite.js", "app.js"):
+            source = (JS / module).read_text(encoding="utf-8")
+            self.assertNotIn("window.prompt", source, f"{module} still collects input via window.prompt")
+
 
 class ProjectPageStaticTests(unittest.TestCase):
     """Moved here from tests/test_portal_project_page.py: none of these needs a database."""

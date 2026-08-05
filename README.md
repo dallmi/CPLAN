@@ -25,7 +25,7 @@ PYTHONPATH=. .venv/bin/python pipeline/scripts/start_cplan.py
 
 Multi-user access control (login, viewer/contributor/editor/admin) is documented in [`pipeline/api/README.md`](pipeline/api/README.md#authentication--roles).
 
-A portal (landing page with project tiles and browser-based user administration) is available — see [`pipeline/api/README.md`](pipeline/api/README.md#portal). Its project page carries a hand-authored user manual illustrated with real screenshots; after a portal or studio UI change, refresh them with:
+A portal (landing page with project tiles, a users list and a user × project access matrix) is available — see [`pipeline/api/README.md`](pipeline/api/README.md#portal). Its project page carries a hand-authored user manual illustrated with real screenshots; after a portal or studio UI change, refresh them with:
 
 ```bash
 CPLAN_DB_PASSWORD=<password> docker compose up -d db

@@ -103,6 +103,19 @@ def test_invalid_role_is_422_or_400_not_500(portal):
     assert bad.json()["detail"]["code"] == "invalid_input"
 
 
+def test_username_with_a_colon_is_rejected_before_it_reaches_postgres(portal):
+    # The access matrix encodes a grant as `username:slug` in a data-cell
+    # attribute and splits it on ':' (matrix.js); a colon in the username
+    # would silently break that lookup. CreateUserPayload's pattern rejects
+    # it at the pydantic layer -- a request validation error (422), never
+    # reaching portal.create_user -- so this is distinct from the P0001
+    # "invalid_input" 422s above and does not carry that detail shape.
+    admin = login(portal, "pa_admin")
+    bad = admin.post("/api/portal/users", json={"username": "pa:evil", "password": "x", "project": "cplan", "role": "viewer"})
+    assert bad.status_code == 422, bad.text
+    assert "pa:evil" not in {u["username"] for u in admin.get("/api/portal/users").json()["users"]}
+
+
 def test_duplicate_username_is_clean_422_not_500(portal):
     admin = login(portal, "pa_admin")
     first = admin.post("/api/portal/users", json={"username": "pa_dupe", "password": "pw1", "project": "cplan", "role": "viewer"})
