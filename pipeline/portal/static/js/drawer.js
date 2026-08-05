@@ -2,10 +2,11 @@
    first: unlike a role change, disabling an account and removing every grant
    are not something a toast-undo should be the only guard for.
 
-   accessFor() returns a direct role or null for every project -- every grant
-   shown here is direct, with nothing else to attribute it to. */
+   Phase 1 scope: groups do not exist yet. accessFor() returns a direct role
+   or null for every project -- there is no inherited-from-a-group case, so
+   this drawer has no Groups section and no per-group "Remove" button. */
 import { resetPassword, setActive, revokeRole } from './api.js';
-import { state, accessFor } from './state.js';
+import { state, accessFor, project } from './state.js';
 import { esc, initials, roleChip, statusCell, signInLabel, toast } from './ui.js';
 
 function generatePassword() {
@@ -99,11 +100,25 @@ async function runAction(action, account) {
     const slugs = Object.keys(account.grants);
     if (!slugs.length) { toast(`${account.name} has no access to remove.`); return; }
     if (!window.confirm(`Remove ${account.name} from all ${slugs.length} project(s)? The account itself stays.`)) return;
+
+    // Sequential and deliberate: a failure stops the loop rather than firing
+    // every remaining revoke. But whatever already succeeded is now real on
+    // the server, so the UI must be refreshed -- and the message must say
+    // what actually happened -- whether the loop ran to completion or not.
+    const removedNames = [];
+    let failure = null;
     for (const slug of slugs) {
       const result = await revokeRole(account.username, slug);
-      if (!result.ok) { toast(result.message); return; }
+      if (!result.ok) { failure = result; break; }
+      removedNames.push(project(slug)?.name || slug);
     }
     await refresh();
+    if (failure) {
+      toast(removedNames.length
+        ? `Removed ${account.name} from ${removedNames.join(', ')}, then stopped: ${failure.message}`
+        : failure.message);
+      return;
+    }
     toast(`All access removed for ${account.name}.`);
   }
 }

@@ -297,14 +297,26 @@ class PortalFrontendTests(unittest.TestCase):
         self.assertIn("Danger zone", drawer)
 
     def test_drawer_has_no_group_section(self):
-        # Phase 1 has no groups concept: every grant is direct, so the drawer
-        # must not render a Groups section, group memberships, a per-group
-        # "Remove" button, or describe access as inherited from a group. That
-        # is a later phase's feature and must not creep back in as a stub.
+        # Phase 1 has no groups concept: every grant is direct. This checks
+        # the markup a Groups section would actually need -- a heading of its
+        # own, a membership list, a remove control scoped to one entry rather
+        # than the whole account -- not the word "group" in the source. A raw
+        # word grep trips on a legitimate explanatory comment, and it would
+        # wave through a Groups section relabelled under a different heading.
         drawer = (JS / "drawer.js").read_text(encoding="utf-8")
-        self.assertNotIn("Groups", drawer)
-        self.assertNotIn("group", drawer.lower())
-        self.assertNotIn("inherited from", drawer.lower())
+
+        # Phase 1 ships exactly these three sections, in this order. A Groups
+        # section, however labelled, would add a fourth heading here.
+        self.assertEqual(drawer.count('class="drawer-section"'), 3)
+        self.assertEqual(
+            re.findall(r"<h3>([^<]+)</h3>", drawer),
+            ["Account", "Project access", "Danger zone"],
+        )
+
+        # A membership list needs its own per-entry remove control; the
+        # danger zone offers exactly one remove action, scoped to the whole
+        # account, not one per list item.
+        self.assertEqual(drawer.count('data-act="remove"'), 1)
 
 
 class ProjectPageStaticTests(unittest.TestCase):
