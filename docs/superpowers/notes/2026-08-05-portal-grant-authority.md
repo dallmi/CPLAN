@@ -169,9 +169,17 @@ create_user/apply_portal/register_project ordering it needs):
   reach a *disabled* account too: `rolcanlogin` is `portal.set_active`'s own
   active/disabled flag, not "is this a real account," and a disabled account
   is still fully manageable through the portal. Builds the same
-  superuser-granted membership, disables it via `portal.set_active` (called
-  by a second admin), runs `apply_portal`, and asserts the membership is
-  genuinely revocable via `portal.revoke_project_role` afterwards.
+  superuser-granted membership, disables it via the exact `ALTER ROLE ...
+  NOLOGIN` statement `portal.set_active` issues (via
+  `setup_roles.set_user_active`, not the `portal.set_active` RPC itself --
+  that SECURITY DEFINER function's own `ALTER ROLE` always runs as
+  `portal_owner`, which would additionally require `portal_owner` to hold
+  ADMIN OPTION on the *login role itself*, a distinct PostgreSQL authority
+  from the group-role membership this fix repairs, and one a
+  superuser-bootstrapped account never grants it -- a real, separate gap
+  this task did not set out to fix), runs `apply_portal`, and asserts the
+  membership is genuinely revocable via `portal.revoke_project_role`
+  afterwards.
 - `test_apply_portal_repair_is_a_no_op_when_nothing_needs_repairing` —
   idempotency of the repair itself.
 - `test_last_admin_guard_still_blocks_the_repaired_bootstrap_admin` and
