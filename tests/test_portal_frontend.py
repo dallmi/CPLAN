@@ -288,6 +288,24 @@ class PortalFrontendTests(unittest.TestCase):
         self.assertIsNotNone(option_match, "no-access popover option not found")
         self.assertIn("No access", option_match.group(1))
 
+    def test_drawer_shows_access_and_guards_destructive_actions(self):
+        drawer = (JS / "drawer.js").read_text(encoding="utf-8")
+        self.assertIn("openDrawer", drawer)
+        self.assertIn("resetPassword", drawer)
+        self.assertIn("setActive", drawer)
+        self.assertIn("window.confirm", drawer)   # destructive steps are confirmed
+        self.assertIn("Danger zone", drawer)
+
+    def test_drawer_has_no_group_section(self):
+        # Phase 1 has no groups concept: every grant is direct, so the drawer
+        # must not render a Groups section, group memberships, a per-group
+        # "Remove" button, or describe access as inherited from a group. That
+        # is a later phase's feature and must not creep back in as a stub.
+        drawer = (JS / "drawer.js").read_text(encoding="utf-8")
+        self.assertNotIn("Groups", drawer)
+        self.assertNotIn("group", drawer.lower())
+        self.assertNotIn("inherited from", drawer.lower())
+
 
 class ProjectPageStaticTests(unittest.TestCase):
     """Moved here from tests/test_portal_project_page.py: none of these needs a database."""
