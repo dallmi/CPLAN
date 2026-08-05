@@ -18,7 +18,8 @@
 - **A week belongs to the month containing its Thursday** (ISO 8601); a month to that month's quarter.
 - Run tests with `PYTHONPATH=. .venv/bin/python -m pytest`. There is no `pytest.ini` and no `conftest.py`; tests import via the `pipeline.` package path, matching `tests/test_daily_refresh.py`.
 - Field names follow the ETL, not the ORM: `is_archived`, not `is_archive`.
-- Python identifiers use `executives` for the `bod_geb` source field. Sheet labels say "GEB" — superseded 2026-08-03 on Michael's instruction; they previously said "senior executives". Do not expand the abbreviation anywhere, in either layer.
+- Python identifiers use `executives` for the `bod_geb` source field. Sheet labels say **"GEB/GEB-1"** — superseded 2026-08-05: the source column carries both levels with no marker saying which, so the bare "GEB" the labels used between 2026-08-03 and 2026-08-05 claimed something the data does not support. (Before 2026-08-03 they said "senior executives".) Do not narrow the labels back to "GEB", and do not expand the abbreviation anywhere, in either layer.
+- The companion field `other_executives` is labelled **"Other senior executives"**, never "(non-GEB)": it is the source's own separate list, not the complement of `bod_geb`.
 
 ---
 

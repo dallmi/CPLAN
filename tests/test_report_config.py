@@ -97,7 +97,7 @@ def test_describe_reports_the_applied_criteria():
     labels = dict(_config(executives="with").describe())
 
     assert labels["Period"] == "2025-01-01 to 2025-12-31"
-    assert labels["GEB"] == "with"
+    assert labels["GEB/GEB-1"] == "with"
     assert labels["Audience bands"] == "all"
 
 

@@ -450,8 +450,10 @@ COLUMN_MAP = {
     "Campaign":                 "campaign",
     "Campaign*LTID":            "campaign_ltid",
     "Communication pack:C":     "communication_pack_cpid",
+    # Despite the label, this column carries GEB *and* GEB-1 level people with
+    # no marker saying which. Everything downstream must say "GEB/GEB-1".
     "BOD*GEB":                  "bod_geb",
-    # Senior executives who are NOT on the GEB. The source misspells "senior",
+    # The source's separate "other executives" list. It misspells "senior",
     # and the two lists carry it under names that differ by a trailing digit
     # (internal vs external), so this matches on "Other ... execut" rather than
     # on either spelling. Each export is transformed on its own, so one label

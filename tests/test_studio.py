@@ -132,9 +132,9 @@ class StudioTests(unittest.TestCase):
 
     def test_leadership_fields_are_present_end_to_end(self):
         """Neither leadership field used to appear in the studio at all: the
-        database had a column for GEB, the source filled it, and nobody could
-        see it. Both are now a form field, a detail row, editable, and counted
-        among the fields the create form collects.
+        database had a column for GEB/GEB-1, the source filled it, and nobody
+        could see it. Both are now a form field, a detail row, editable, and
+        counted among the fields the create form collects.
         """
         app_js = (DASHBOARD / "app.js").read_text(encoding="utf-8")
         index_html = (DASHBOARD / "index.html").read_text(encoding="utf-8")
@@ -145,7 +145,7 @@ class StudioTests(unittest.TestCase):
 
         detail = _slice(app_js, "const DETAIL_SECTIONS", "];")
         self.assertIn("Leadership", detail)
-        self.assertIn("'bod_geb','GEB'", detail.replace(" ", ""))
+        self.assertIn("'bod_geb','GEB/GEB-1'", detail.replace(" ", ""))
 
         editable = _slice(app_js, "const EDITABLE_DETAIL_FIELDS", ");")
         for field in ("bod_geb", "other_executives"):
@@ -156,15 +156,17 @@ class StudioTests(unittest.TestCase):
             self.assertIn(f"'{field}'", create, f"{field}: not collected on create")
 
     def test_the_two_leadership_fields_are_never_merged(self):
-        """They are different people: GEB members, and senior executives who
-        are not on the GEB. A label or section that ran them together would
-        invite exactly the confusion the source already causes.
+        """They are two separate source lists, and neither label may overclaim:
+        `bod_geb` mixes GEB and GEB-1 without saying which, and
+        `other_executives` is its own list rather than the complement. A label
+        or section that ran them together would invite exactly the confusion
+        the source already causes.
         """
         app_js = (DASHBOARD / "app.js").read_text(encoding="utf-8")
         labels = _slice(app_js, "const FIELD_LABELS", "};")
 
-        self.assertIn("bod_geb:'GEB'", labels.replace(" ", ""))
-        self.assertIn("other_executives:'Seniorexecutives(non-GEB)'",
+        self.assertIn("bod_geb:'GEB/GEB-1'", labels.replace(" ", ""))
+        self.assertIn("other_executives:'Otherseniorexecutives'",
                       labels.replace(" ", ""))
 
     def test_no_emoji_codepoints(self):

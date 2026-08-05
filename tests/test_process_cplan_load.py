@@ -185,10 +185,10 @@ def test_both_spellings_of_the_non_geb_executive_column_map_to_one_field():
 
 def test_the_non_geb_column_does_not_capture_the_geb_one():
     row = _mapped("ID,Title,Start date,BOD / GEB,Other seinor executives",
-                  "1,A,2025-03-05,A GEB person,A non-GEB person")
+                  "1,A,2025-03-05,A leadership person,Another executive")
 
-    assert row["bod_geb"] == "A GEB person"
-    assert row["other_executives"] == "A non-GEB person"
+    assert row["bod_geb"] == "A leadership person"
+    assert row["other_executives"] == "Another executive"
 
 
 def test_the_non_geb_column_is_html_stripped_like_its_sibling():

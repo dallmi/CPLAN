@@ -865,8 +865,9 @@ def test_get_activity_changes_orders_newest_first_and_404s_for_unknown(client):
 
 
 def test_the_leadership_fields_round_trip_through_the_api(client):
-    """Two separate source fields, and the API must keep them apart. GEB and
-    the non-GEB senior executives are different people with different meaning;
+    """Two separate source fields, and the API must keep them apart. `bod_geb`
+    (GEB and GEB-1, mixed) and the other-executives list are different people
+    with different meaning;
     a schema that dropped one would look like an empty field, not a bug.
     """
     response = client.post(

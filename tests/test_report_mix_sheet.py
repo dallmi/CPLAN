@@ -161,8 +161,8 @@ def test_the_activities_sheet_carries_the_derived_columns(tmp_path):
 
     assert headers == [header for _, header in ACTIVITY_COLUMNS]
     assert "Audience band" in headers
-    assert "GEB involved" in headers
-    assert "GEB members" in headers
+    assert "GEB/GEB-1 involved" in headers
+    assert "GEB/GEB-1 members" in headers
 
 
 def _empty_scope():

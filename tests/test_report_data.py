@@ -119,7 +119,7 @@ def test_the_executive_filter_keeps_only_involved_rows():
     scope = build_scope(load, _config(executives="with"))
 
     assert list(scope.frame["tracking_id"]) == ["A"]
-    assert scope.excluded["GEB"] == 1
+    assert scope.excluded["GEB/GEB-1"] == 1
 
 
 def test_the_executive_filter_can_be_inverted():
@@ -172,35 +172,36 @@ def test_an_export_without_the_objectives_column_still_produces_a_scope():
 
 
 def test_the_two_leadership_fields_are_derived_separately():
-    """GEB and non-GEB senior executives are different source fields and must
-    never bleed into each other -- the GEB filter counts only the former.
+    """`bod_geb` (GEB and GEB-1, mixed) and the source's separate other-executives
+    list are different fields and must never bleed into each other -- the
+    GEB/GEB-1 filter counts only the former.
     """
     frame = pd.DataFrame([{
         "tracking_id": "A", "activity_name": "A",
         "start_date": pd.Timestamp("2025-03-05"),
-        "bod_geb": "A GEB person",
-        "other_executives": "A non-GEB person; Another one",
+        "bod_geb": "A leadership person",
+        "other_executives": "Another executive; And one more",
     }])
 
     scope = build_scope(ActivityLoad(frame, {}, {}), _config())
     row = scope.frame.iloc[0]
 
-    assert row["executives"] == "A GEB person"
-    assert row["senior_executives"] == "A non-GEB person; Another one"
+    assert row["executives"] == "A leadership person"
+    assert row["senior_executives"] == "Another executive; And one more"
     assert row["has_executives"] is True or row["has_executives"] == True  # noqa: E712
 
 
-def test_a_non_geb_executive_alone_does_not_count_as_geb_involvement():
+def test_an_other_executive_alone_does_not_count_as_geb_involvement():
     frame = pd.DataFrame([{
         "tracking_id": "A", "activity_name": "A",
         "start_date": pd.Timestamp("2025-03-05"),
-        "bod_geb": "", "other_executives": "A non-GEB person",
+        "bod_geb": "", "other_executives": "Another executive",
     }])
 
     scope = build_scope(ActivityLoad(frame, {}, {}), _config(executives="with"))
 
     assert len(scope.frame) == 0
-    assert scope.excluded["GEB"] == 1
+    assert scope.excluded["GEB/GEB-1"] == 1
 
 
 def test_the_priority_filter_drops_the_numbers_it_names():
@@ -337,7 +338,7 @@ def test_the_exclusion_counts_partition_the_rows_that_were_read():
     assert scope.excluded["date window"] == 1       # C, not also "archived"
     assert scope.excluded["archived"] == 1          # D, not also "audience band"
     assert scope.excluded["audience band"] == 1     # E
-    assert scope.excluded["GEB"] == 0
+    assert scope.excluded["GEB/GEB-1"] == 0
 
 
 def test_the_exclusion_counts_partition_the_rows_read_under_every_criterion():
@@ -353,7 +354,7 @@ def test_the_exclusion_counts_partition_the_rows_read_under_every_criterion():
     scope = build_scope(load, _config(executives="with"))
 
     assert sum(scope.excluded.values()) + len(scope.frame) == scope.rows_read
-    assert scope.excluded["GEB"] == 1
+    assert scope.excluded["GEB/GEB-1"] == 1
     assert scope.excluded["no start date"] == 1
 
 

@@ -41,7 +41,7 @@ FIELD_TITLES = {
     "region": "REGION",
     "region_group": "REGION",
     "country": "COUNTRY",
-    "executives": "GEB",
+    "executives": "GEB/GEB-1",
 }
 
 # Most blocks read best alphabetically. The region groups do not: they have a
@@ -199,11 +199,11 @@ def _mark_collapsed(dimension):
 
 
 def _detail_label(activity):
-    """An activity's row label, with the GEB members named where there are any.
+    """An activity's row label, naming the GEB/GEB-1 people where there are any.
 
-    The BY GEB block already answers "which activities are this person's". This
-    answers the reverse from inside every other block: expanding a division
-    shows at a glance which of its activities carry GEB involvement, and whose.
+    The BY GEB/GEB-1 block already answers "which activities are this person's".
+    This answers the reverse from inside every other block: expanding a division
+    shows at a glance which of its activities carry that involvement, and whose.
     Text rather than colour -- a colour can say "somebody", never "who", and the
     Total column's data bars already own the sheet's one visual channel.
     """

@@ -31,7 +31,7 @@ COMPLETENESS_FIELDS_INTERNAL = COMPLETENESS_FIELDS_COMMON + (
 )
 
 EXCLUSION_ORDER = (
-    "no start date", "date window", "archived", "GEB", "audience band",
+    "no start date", "date window", "archived", "GEB/GEB-1", "audience band",
     "objectives", "priority",
 )
 
@@ -165,15 +165,16 @@ def build_scope(load, config):
     frame["executives"] = _column(frame, "bod_geb").apply(derive.executive_names)
     frame["has_executives"] = frame["executives"] != ""
 
-    # The other half of the leadership pair: senior executives who are not on
-    # the GEB. Same derivation, a different source field -- the two never mix,
-    # and the `executives` filter above deliberately still means GEB only.
+    # The other half of the leadership pair: the source's separate "other
+    # executives" field. Same derivation, a different source field -- the two
+    # never mix, and the `executives` filter above deliberately still means
+    # `bod_geb` only.
     frame["senior_executives"] = (
         _column(frame, "other_executives").apply(derive.executive_names))
     if config.executives == "with":
-        drop(~frame["has_executives"], "GEB")
+        drop(~frame["has_executives"], "GEB/GEB-1")
     elif config.executives == "without":
-        drop(frame["has_executives"], "GEB")
+        drop(frame["has_executives"], "GEB/GEB-1")
 
     # `audience` now carries the source's "Estimated audience size", which is
     # what it was always meant to hold; the source's own "Audience" column is a

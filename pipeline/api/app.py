@@ -147,9 +147,12 @@ class Activity(Base):
     campaign: Mapped[str | None] = mapped_column(Text, nullable=True)
     campaign_ltid: Mapped[str | None] = mapped_column(Text, nullable=True)
     communication_pack_cpid: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Holds GEB *and* GEB-1 level people, mixed, with no level marker -- the
+    # column name is the source's, not a claim about who is on it. Labelled
+    # "GEB/GEB-1" everywhere it is shown.
     bod_geb: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # Senior executives who are not on the GEB -- a separate source field,
-    # counted separately everywhere.
+    # The source's separate "other executives" field -- counted separately
+    # everywhere, and not the complement of bod_geb.
     other_executives: Mapped[str | None] = mapped_column(Text, nullable=True)
     communication_pack: Mapped[str | None] = mapped_column(Text, nullable=True)
     communication_ref: Mapped[str | None] = mapped_column(Text, nullable=True)

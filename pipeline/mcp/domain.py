@@ -162,9 +162,13 @@ tools do not agree:
 So: filter these two columns on a combination `field_values` actually lists, or
 do not filter them at all and read the split counts instead.
 
-Executive involvement is split across **two** columns — `bod_geb` (executive-board
-members) and `other_executives` (senior leaders who are not on that board) — and
-they are counted separately everywhere. The `executive=` filter searches both.
+Executive involvement is split across **two** columns — `bod_geb` and
+`other_executives` — counted separately everywhere. The `executive=` filter
+searches both. `bod_geb` holds people at **GEB and GEB-1 level, mixed**, with
+nothing in the data saying which: never report a name from it as a GEB member,
+and never answer "how many activities involve the GEB" from it — the honest
+answer is "GEB or GEB-1". `other_executives` is the source's separate "other
+executives" field; treat it as a third list, not as the complement of `bod_geb`.
 
 ## Trap 5 — `audience` is an estimate whose shape you must check, not assume
 

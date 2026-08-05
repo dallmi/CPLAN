@@ -288,10 +288,10 @@ def test_the_outline_declares_its_depth_and_marks_its_groups_collapsed(tmp_path)
         assert ws.row_dimensions[labels[header]].collapsed is True, header
 
 
-# --- the GEB block -----------------------------------------------------------
+# --- the GEB/GEB-1 block -----------------------------------------------------------
 
 def _geb_sheet(sources):
-    """A calendar built from nothing but start dates and the GEB source field."""
+    """A calendar built from nothing but start dates and `bod_geb`."""
     import pandas as pd
 
     from pipeline.report.data import build_scope
@@ -313,13 +313,13 @@ def _geb_sheet(sources):
 def test_the_calendar_carries_a_geb_block(tmp_path):
     ws, _ = _sheet(tmp_path)
 
-    assert "BY GEB — multiple values possible" in _labels(ws)
+    assert "BY GEB/GEB-1 — multiple values possible" in _labels(ws)
 
 
 def test_each_member_gets_a_row_under_the_geb_block():
     ws = _geb_sheet(["A. Person", "A. Person", "B. Person", ""])
     labels = _labels(ws)
-    header = labels["BY GEB — multiple values possible"]
+    header = labels["BY GEB/GEB-1 — multiple values possible"]
 
     assert labels["A. Person"] > header
     assert labels["B. Person"] > header
@@ -354,7 +354,7 @@ def test_the_geb_block_header_counts_activities_once_despite_the_overlap():
 
     assert _week_total(ws, labels["A. Person"]) == 1
     assert _week_total(ws, labels["B. Person"]) == 1
-    assert _week_total(ws, labels["BY GEB — multiple values possible"]) == 1
+    assert _week_total(ws, labels["BY GEB/GEB-1 — multiple values possible"]) == 1
 
 
 def test_a_detail_row_names_the_members_behind_the_activity():

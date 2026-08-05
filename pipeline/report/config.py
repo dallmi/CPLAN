@@ -1,6 +1,6 @@
 """The calendar report's configuration and its vocabulary.
 
-Every criterion the report is built around -- start date, GEB involvement,
+Every criterion the report is built around -- start date, GEB/GEB-1 involvement,
 audience size, strategic objectives, archived state -- is a hard filter: a row
 that fails any of them is absent from every sheet. They live together in one
 dataclass so there is a single place to look for "what is this workbook
@@ -149,7 +149,7 @@ class ReportConfig:
         bands = "all" if self.audience_bands is None else ", ".join(self.audience_bands)
         return [
             ("Period", self.period_label()),
-            ("GEB", self.executives),
+            ("GEB/GEB-1", self.executives),
             ("Audience bands", bands),
             ("Unknown audience band", "included" if self.include_unknown_audience else "excluded"),
             ("Excluded objectives",

@@ -89,7 +89,7 @@ def build_executive_summary(wb, scope, config):
     # Unknown, and printing the same number twice on one sheet reads as an error.
     row = style.write_section_header(ws, row, "LEADERSHIP & AUDIENCE", 2)
     executives = int(frame["has_executives"].sum()) if len(frame) else 0
-    _write_share_row(ws, row, total_row, "With GEB involvement", executives, sub=False)
+    _write_share_row(ws, row, total_row, "With GEB/GEB-1 involvement", executives, sub=False)
     row += 1
     large = int(frame["audience_band"].isin(LARGE_AUDIENCE_BANDS).sum()) if len(frame) else 0
     _write_share_row(ws, row, total_row, "Large audience (top two bands)", large,
@@ -212,8 +212,8 @@ def _quarter_label(quarter):
 
 
 def build_audience(wb, scope, config):
-    """Audience size and GEB involvement -- two of the three criteria the whole
-    report is built around.
+    """Audience size and GEB/GEB-1 involvement -- two of the three criteria the
+    whole report is built around.
 
     The most interesting figure here is the share per division: involvement as
     a share of *that division's own volume*, not of the portfolio. A large
@@ -223,7 +223,9 @@ def build_audience(wb, scope, config):
     The last block names the people. It is the one place the report answers
     "whose activity is this", which the yes/no columns elsewhere cannot.
     """
-    ws = wb.create_sheet("Audience & GEB")
+    # Not "Audience & GEB/GEB-1": Excel forbids "/" in a sheet name. The tab
+    # covers both leadership source fields anyway, so it is named for the pair.
+    ws = wb.create_sheet("Audience & leadership")
     frame = scope.frame
     if frame.empty or "audience_band" not in frame.columns:
         style.note_missing(ws, "No audience data available (audience column missing)")
@@ -290,8 +292,8 @@ def build_audience(wb, scope, config):
         row += 1
     row += 1
 
-    row = style.write_section_header(ws, row, "GEB INVOLVEMENT BY QUARTER", 4)
-    row = style.write_header_row(ws, row, ["Quarter", "With GEB", "All activities",
+    row = style.write_section_header(ws, row, "GEB/GEB-1 INVOLVEMENT BY QUARTER", 4)
+    row = style.write_header_row(ws, row, ["Quarter", "With GEB/GEB-1", "All activities",
                                            "Share of the quarter"])
     for quarter in quarters:
         in_quarter = frame["_quarter"] == quarter
@@ -304,8 +306,8 @@ def build_audience(wb, scope, config):
         row += 1
     row += 1
 
-    row = style.write_section_header(ws, row, "GEB INVOLVEMENT BY DIVISION", 4)
-    row = style.write_header_row(ws, row, ["Division", "With GEB",
+    row = style.write_section_header(ws, row, "GEB/GEB-1 INVOLVEMENT BY DIVISION", 4)
+    row = style.write_header_row(ws, row, ["Division", "With GEB/GEB-1",
                                            "All activities", "Share of the division"])
     divisions = {}
     for index, activity in frame.iterrows():
@@ -325,15 +327,16 @@ def build_audience(wb, scope, config):
 
     row = _write_people_block(
         ws, row, frame, "executives",
-        "ACTIVITIES BY GEB MEMBER", "GEB member", "All activities with GEB",
-        "No GEB member named on any in-scope activity")
+        "ACTIVITIES BY GEB/GEB-1 MEMBER", "GEB/GEB-1 member",
+        "All activities with GEB/GEB-1",
+        "No GEB/GEB-1 member named on any in-scope activity")
     row += 1
 
     row = _write_people_block(
         ws, row, frame, "senior_executives",
-        "ACTIVITIES BY SENIOR EXECUTIVE (NON-GEB)", "Senior executive",
-        "All activities with a senior executive",
-        "No senior executive named on any in-scope activity")
+        "ACTIVITIES BY OTHER SENIOR EXECUTIVE", "Senior executive",
+        "All activities with other senior executives",
+        "No other senior executive named on any in-scope activity")
 
     style.finalize_sheet(ws, freeze="B3", widths={"A": 26})
 
@@ -400,10 +403,13 @@ GLOSSARY_SECTIONS = (
     )),
     ("MEASURES", (
         ("Audience band", "The size band of the target audience."),
-        ("GEB", "At least one GEB member is named. The Activities sheet and the "
-                "calendar's BY GEB block name who."),
-        ("Senior executives (non-GEB)", "A senior executive who is not on the GEB. "
-                                        "A separate source field, counted separately."),
+        # The caveat, not the pointer, earns the scarce characters here: a reader
+        # who reads this as "GEB" draws a wrong conclusion, whereas one who does
+        # not know where the names are listed merely has to look.
+        ("GEB/GEB-1", "At least one person at GEB or GEB-1 level. The source mixes "
+                      "the two, so not everyone named is on the GEB."),
+        ("Other senior executives", "A senior executive from the source's separate "
+                                    "other-executives field. Counted separately."),
         ("Lead time", "Days from creating the record to the activity's start."),
         ("Planning completeness", "Share of the required fields that are filled in."),
         ("Weekly counts", "Each activity counts once, in the week it starts."),
@@ -572,9 +578,9 @@ ACTIVITY_COLUMNS = (
     ("region", "Regions (as recorded)"),
     ("region_group", "Region"),
     ("country", "Country"),
-    ("_executives", "GEB involved"),
-    ("executives", "GEB members"),
-    ("senior_executives", "Senior executives (non-GEB)"),
+    ("_executives", "GEB/GEB-1 involved"),
+    ("executives", "GEB/GEB-1 members"),
+    ("senior_executives", "Other senior executives"),
     ("communication_pack_cpid", "Pack ID"),
     ("campaign", "Campaign"),
     ("strategic_objectives", "Communications pillars"),

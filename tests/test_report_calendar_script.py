@@ -12,7 +12,7 @@ from tests.report_fixtures import write_activity_csvs
 
 EXPECTED_SHEETS = [
     "Executive Summary", "Calendar", "Data Quality",
-    "Audience & GEB", "Mix & Lead Time", "Activities", "Glossary",
+    "Audience & leadership", "Mix & Lead Time", "Activities", "Glossary",
 ]
 
 
@@ -74,15 +74,15 @@ def test_the_shipped_workbook_carries_the_geb_block_and_names(tmp_path):
     calendar = wb["Calendar"]
     labels = [calendar.cell(row=r, column=1).value
               for r in range(1, calendar.max_row + 1)]
-    assert "BY GEB — multiple values possible" in labels
+    assert "BY GEB/GEB-1 — multiple values possible" in labels
 
     activities = wb["Activities"]
     headers = [activities.cell(row=1, column=c).value
                for c in range(1, activities.max_column + 1)]
-    members = headers.index("GEB members") + 1
+    members = headers.index("GEB/GEB-1 members") + 1
     named = [activities.cell(row=r, column=members).value
              for r in range(2, activities.max_row + 1)]
-    assert any(name for name in named), "no activity carries a GEB member"
+    assert any(name for name in named), "no activity carries a GEB/GEB-1 member"
 
 
 def test_the_shipped_config_actually_excludes_the_catch_all_objective():

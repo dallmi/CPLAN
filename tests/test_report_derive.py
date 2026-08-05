@@ -1,4 +1,4 @@
-"""Per-row derivations: audience band, GEB involvement, objectives, priority."""
+"""Per-row derivations: audience band, GEB/GEB-1 involvement, objectives, priority."""
 
 import pytest
 

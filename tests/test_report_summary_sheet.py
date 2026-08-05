@@ -34,7 +34,7 @@ def test_the_summary_states_the_applied_criteria(tmp_path):
     pairs = _pairs(ws)
 
     assert pairs["Period"] == "2025-01-01 to 2025-12-31"
-    assert pairs["GEB"] == "any"
+    assert pairs["GEB/GEB-1"] == "any"
 
 
 def test_the_summary_names_every_source_file(tmp_path):
@@ -76,7 +76,7 @@ def test_the_summary_still_renders_the_report_section_on_an_empty_scope():
     ws = wb.worksheets[0]
     pairs = _pairs(ws)
     assert pairs["Period"] == "2025-01-01 to 2025-12-31"
-    assert pairs["GEB"] == "any"
+    assert pairs["GEB/GEB-1"] == "any"
     assert pairs["Excluded: no start date"] == 0
     assert pairs["Excluded: date window"] == 0
     assert pairs["Rows read"] == 0
@@ -156,7 +156,7 @@ def test_the_glossary_defines_the_terms_a_reader_meets_on_the_sheets(tmp_path):
     text = "\n".join(f"{t} {d}" for t, d in _glossary_entries(ws)).lower()
 
     for term in ("In scope", "Overlap", "Audience band",
-                 "GEB", "Lead time", "Planning completeness",
+                 "GEB/GEB-1", "Lead time", "Planning completeness",
                  "Weekly counts", "Quarter delta", "Packs"):
         assert term in terms, f"the Glossary does not define {term!r}"
 
@@ -204,14 +204,14 @@ def test_the_glossary_lists_fields_the_export_does_not_carry():
 # --- shares ride in the label, so column C is never one lonely percentage ----
 
 def test_the_leadership_figures_carry_their_share_in_the_label(tmp_path):
-    """The GEB count used to sit as a bare number with a lone percentage in
+    """The GEB/GEB-1 count used to sit as a bare number with a lone percentage in
     column C beside it, next to two rows that had none. Both figures now use
     the same TEXT() label formula the VOLUME breakdown uses.
     """
     ws, _ = _build(tmp_path, build_executive_summary)
     labels = [str(ws.cell(row=r, column=1).value) for r in range(1, ws.max_row + 1)]
 
-    geb = [label for label in labels if "With GEB involvement" in label]
+    geb = [label for label in labels if "With GEB/GEB-1 involvement" in label]
     large = [label for label in labels if "Large audience" in label]
 
     assert geb and large
