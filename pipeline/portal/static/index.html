@@ -8,68 +8,235 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <div id="login-overlay" class="login-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="login-title">
-    <form id="login-form" class="login-card">
-      <h2 id="login-title">Sign in</h2>
-      <p class="login-subtitle">CPLAN Portal</p>
-      <label for="login-username">Username</label>
-      <input id="login-username" name="username" autocomplete="username" required />
-      <label for="login-password">Password</label>
-      <input id="login-password" name="password" type="password" autocomplete="current-password" required />
-      <p id="login-error" class="login-error hidden">Invalid username or password.</p>
-      <button type="submit" class="btn-primary">Sign in</button>
+<!-- Sign in ------------------------------------------------------------- -->
+<div class="signin" id="screen-signin" hidden>
+  <div class="signin-brand">
+    <div class="signin-brand-top">
+      <span class="brand-mark"></span>
+      <h1>CPLAN</h1>
+    </div>
+    <div>
+      <p class="signin-claim">One place for every communication plan.</p>
+      <p>Plan, track and report communication activity across the organisation — with access granted per project, not per spreadsheet.</p>
+    </div>
+    <p class="footnote">Internal platform · Corporate Communications</p>
+  </div>
+  <div class="signin-form-col">
+    <form class="signin-form" id="signin-form">
+      <h2>Sign in</h2>
+      <p>Use your CPLAN account.</p>
+      <div class="field">
+        <label for="si-user">Username</label>
+        <input type="text" id="si-user" autocomplete="username" value="a.keller" />
+      </div>
+      <div class="field">
+        <label for="si-pass">Password</label>
+        <input type="password" id="si-pass" autocomplete="current-password" value="prototype" />
+        <span class="field-error" id="si-error" hidden>Username or password is not correct.</span>
+      </div>
+      <button type="submit" class="btn primary">Sign in</button>
+      <p class="signin-foot">Accounts are created by a portal administrator. If you cannot sign in, ask the administrator of the project you need.</p>
     </form>
   </div>
+</div>
 
+<!-- Application ---------------------------------------------------------- -->
+<div class="app-shell" id="screen-app" hidden>
   <header class="topbar">
-    <div class="brand"><span class="brand-mark"></span><h1>CPLAN Portal</h1></div>
-    <div id="user-chip" class="user-chip hidden">
-      <span id="user-chip-name"></span>
-      <button id="user-chip-logout" class="btn-ghost" type="button">Sign out</button>
+    <div class="brand-block">
+      <span class="brand-mark"></span>
+      <div>
+        <h1>CPLAN Portal</h1>
+        <p>Communication planning</p>
+      </div>
+    </div>
+    <div class="top-actions">
+      <div class="user-chip">
+        <span class="avatar" aria-hidden="true">AK</span>
+        <span><strong>a.keller</strong><br />Portal administrator</span>
+      </div>
+      <button class="btn quiet" type="button" id="sign-out">Sign out</button>
     </div>
   </header>
 
+  <nav class="main-nav" aria-label="Portal sections">
+    <button class="nav-item active" type="button" data-page="home">Home</button>
+    <button class="nav-item" type="button" data-page="users">Users</button>
+    <button class="nav-item" type="button" data-page="matrix">Access matrix</button>
+  </nav>
+
   <main class="content">
-    <section class="panel">
-      <div class="panel-head"><h2>Your projects</h2><p class="subtitle">Open a workspace you have access to.</p></div>
-      <div id="project-tiles" class="tiles"></div>
+
+    <!-- Home ------------------------------------------------------------- -->
+    <section class="page active" id="page-home" aria-labelledby="home-title">
+      <div class="page-head">
+        <h1 class="page-title" id="home-title">Good morning, Andrea</h1>
+        <p class="page-subtitle">You have access to three of the four registered projects.</p>
+      </div>
+      <div class="section">
+        <div class="section-head">
+          <h2 class="section-heading">Your projects</h2>
+          <p class="footnote">Opens in a new tab</p>
+        </div>
+        <div class="tiles" id="project-tiles"></div>
+      </div>
     </section>
 
-    <section id="user-admin" class="panel hidden">
-      <div class="panel-head">
-        <div><h2>User administration</h2><p class="subtitle">Create and manage CPLAN accounts.</p></div>
-        <button id="user-new" class="btn-primary" type="button">New user</button>
+    <!-- Users ------------------------------------------------------------ -->
+    <section class="page" id="page-users" aria-labelledby="users-title">
+      <div class="page-head">
+        <div class="page-head-row">
+          <div>
+            <h1 class="page-title" id="users-title">Users</h1>
+            <p class="page-subtitle">Everyone with a CPLAN account, and what they can reach.</p>
+          </div>
+          <button class="btn primary" type="button" id="invite-open">Invite user</button>
+        </div>
+        <div class="toolbar">
+          <div class="search">
+            <input type="search" id="user-search" placeholder="Search by name or username" aria-label="Search users" />
+          </div>
+          <select id="user-filter-role" aria-label="Filter by role">
+            <option value="">All roles</option>
+            <option value="admin">Admin</option>
+            <option value="editor">Editor</option>
+            <option value="contributor">Contributor</option>
+            <option value="viewer">Viewer</option>
+          </select>
+          <select id="user-filter-status" aria-label="Filter by status">
+            <option value="">All statuses</option>
+            <option value="active">Active</option>
+            <option value="disabled">Disabled</option>
+            <option value="pending">Invitation pending</option>
+          </select>
+          <span class="spacer"></span>
+          <span class="result-count" id="user-count"></span>
+        </div>
       </div>
-      <table class="user-table">
-        <thead><tr><th>Username</th><th>Project</th><th>Role</th><th>Status</th><th class="actions-col"></th></tr></thead>
-        <tbody id="user-rows"></tbody>
-      </table>
+      <div class="table-wrap">
+        <table id="user-table">
+          <thead>
+            <tr>
+              <th class="sortable" data-sort="name" aria-sort="ascending">Name<span class="sort-arrow">↑</span></th>
+              <th>Highest role</th>
+              <th class="num">Projects</th>
+              <th>Groups</th>
+              <th>Status</th>
+              <th class="num">Last sign-in</th>
+              <th class="cell-actions"><span class="footnote">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody id="user-rows"></tbody>
+        </table>
+      </div>
+      <div class="empty" id="user-empty" hidden>
+        <p class="empty-title">No users match those filters.</p>
+        <p class="empty-text">Try a different search term, or clear the role and status filters.</p>
+        <button class="btn sm" type="button" id="user-clear-filters">Clear filters</button>
+      </div>
     </section>
+
+    <!-- Access matrix ---------------------------------------------------- -->
+    <section class="page" id="page-matrix" aria-labelledby="matrix-title">
+      <div class="page-head">
+        <div class="page-head-row">
+          <div>
+            <h1 class="page-title" id="matrix-title">Access matrix</h1>
+            <p class="page-subtitle">Who can reach which project, and at what level. Select a cell to change it.</p>
+          </div>
+          <button class="btn" type="button" id="matrix-export">Export as CSV</button>
+        </div>
+        <div class="toolbar">
+          <div class="search">
+            <input type="search" id="matrix-search" placeholder="Search users" aria-label="Search users in the matrix" />
+          </div>
+          <select id="matrix-filter-project" aria-label="Filter by project">
+            <option value="">All projects</option>
+          </select>
+          <span class="spacer"></span>
+          <span class="result-count" id="matrix-count"></span>
+        </div>
+      </div>
+      <div class="matrix-wrap">
+        <table class="matrix" id="matrix-table">
+          <thead><tr id="matrix-head"></tr></thead>
+          <tbody id="matrix-rows"></tbody>
+        </table>
+      </div>
+      <div class="matrix-legend">
+        <span class="legend-item"><span class="legend-swatch" style="background:var(--grey-6)"></span>Admin</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:var(--grey-3)"></span>Editor</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:var(--surface)"></span>Contributor</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:var(--white);border-color:var(--grey-1)"></span>Viewer</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:var(--bronze-1);width:3px"></span>Inherited from a group</span>
+      </div>
+      <p class="footnote" style="margin-top:14px">Effective access is the strongest grant from any source. A group cannot be undercut by a direct grant — remove the person from the group instead.</p>
+    </section>
+
   </main>
+</div>
 
-  <div id="user-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="user-modal-title">
-    <form id="user-form" class="modal-card">
-      <h2 id="user-modal-title">New user</h2>
-      <label>Username<input id="uf-username" autocomplete="off" required /></label>
-      <label>Password<input id="uf-password" type="text" autocomplete="off" required /></label>
-      <label>Role
-        <select id="uf-role">
-          <option value="viewer">Viewer</option>
-          <option value="contributor">Contributor</option>
-          <option value="editor">Editor</option>
-          <option value="admin">Admin</option>
-        </select>
-      </label>
-      <input type="hidden" id="uf-project" value="cplan" />
-      <p id="uf-error" class="login-error hidden"></p>
-      <div class="modal-actions">
-        <button type="button" class="btn-ghost" id="uf-cancel">Cancel</button>
-        <button type="submit" class="btn-primary">Create user</button>
+<!-- Person drawer -------------------------------------------------------- -->
+<div class="drawer" id="person-drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-name">
+  <div class="drawer-backdrop" data-close-drawer></div>
+  <div class="drawer-panel">
+    <div class="drawer-head">
+      <div class="drawer-head-row">
+        <div class="drawer-identity">
+          <span class="avatar" id="drawer-avatar" aria-hidden="true"></span>
+          <div>
+            <h2 id="drawer-name"></h2>
+            <p id="drawer-meta"></p>
+          </div>
+        </div>
+        <button class="icon-btn" type="button" data-close-drawer aria-label="Close">×</button>
       </div>
-    </form>
+    </div>
+    <div class="drawer-body" id="drawer-body"></div>
   </div>
+</div>
 
-  <div class="toast" id="toast" role="status"></div>
-  <script src="app.js"></script>
+<!-- Invite modal --------------------------------------------------------- -->
+<div class="modal-overlay" id="invite-modal" role="dialog" aria-modal="true" aria-labelledby="invite-title">
+  <form class="modal-card" id="invite-form">
+    <div class="modal-head">
+      <h2 id="invite-title">Invite user</h2>
+      <p>They receive an account for one project. Add more access afterwards from the matrix.</p>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label for="iv-username">Username <span class="req">(required)</span></label>
+        <input type="text" id="iv-username" autocomplete="off" placeholder="first-initial.surname" />
+        <span class="field-error" id="iv-error" hidden></span>
+      </div>
+      <div class="field">
+        <label for="iv-password">Initial password <span class="req">(required)</span></label>
+        <div class="pw-row">
+          <input type="text" id="iv-password" autocomplete="off" />
+          <button class="btn sm" type="button" id="iv-generate">Generate</button>
+        </div>
+        <span class="field-help">Shown once. Pass it on yourself — the portal sends no email.</span>
+      </div>
+      <div class="field">
+        <label for="iv-project">Project <span class="req">(required)</span></label>
+        <select id="iv-project"></select>
+      </div>
+      <div class="field">
+        <label>Role <span class="req">(required)</span></label>
+        <div class="role-picker" id="iv-roles"></div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" type="button" data-close-modal>Cancel</button>
+      <button class="btn primary" type="submit">Create account</button>
+    </div>
+  </form>
+</div>
+
+<div class="toast" id="toast" role="status">
+  <span id="toast-text"></span>
+  <button class="toast-action" type="button" id="toast-undo">Undo</button>
+</div>
+  <script type="module" src="js/app.js"></script>
 </body>
 </html>

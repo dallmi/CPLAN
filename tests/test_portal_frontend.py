@@ -77,28 +77,28 @@ def stylesheets_in(html: str) -> str:
 
 
 class PortalFrontendTests(unittest.TestCase):
-    def test_login_and_tiles_markup(self):
+    def test_shell_markup_has_every_screen(self):
         html = (STATIC / "index.html").read_text(encoding="utf-8")
-        app = (STATIC / "app.js").read_text(encoding="utf-8")
-        self.assertIn('id="login-overlay"', html)
+        for element_id in (
+            "screen-signin", "screen-app", "project-tiles", "user-rows",
+            "matrix-rows", "person-drawer", "invite-modal", "toast",
+        ):
+            self.assertIn(f'id="{element_id}"', html)
         self.assertIn('autocomplete="current-password"', html)
-        self.assertIn('id="project-tiles"', html)
-        self.assertIn("/api/portal/projects", app)
-        self.assertIn("/api/me", app)
-        self.assertIn("Sign in", html)
-        self.assertNotIn("Anmelden", html)
+        self.assertIn('type="module"', html)
+        self.assertIsNone(EMOJI.search(html))
 
-    def test_user_admin_panel_present_and_admin_gated(self):
+    def test_navigation_covers_the_three_pages(self):
         html = (STATIC / "index.html").read_text(encoding="utf-8")
-        app = (STATIC / "app.js").read_text(encoding="utf-8")
-        self.assertIn('id="user-admin"', html)
-        self.assertIn("/api/portal/users", app)
-        self.assertIn("function canAdmin", app)
-        self.assertIn('method: "POST"', app)
-        # role change / password reset / activate wired
-        self.assertIn("/role", app)
-        self.assertIn("/password", app)
-        self.assertIn("/active", app)
+        for page in ("home", "users", "matrix"):
+            self.assertIn(f'data-page="{page}"', html)
+
+    def test_boot_module_has_no_emoji(self):
+        # The old test_no_emoji_and_corporate_palette covered index.html and
+        # app.js; this task retires both as the portal's entry point, so the
+        # guard moves to the files that replaced them.
+        app_js = (STATIC / "js" / "app.js").read_text(encoding="utf-8")
+        self.assertIsNone(EMOJI.search(app_js))
 
     def test_stylesheet_follows_the_design_system(self):
         css = (STATIC / "styles.css").read_text(encoding="utf-8")
@@ -129,6 +129,18 @@ class PortalFrontendTests(unittest.TestCase):
             ".tile-status", ".tile-primary", ".prose", ".hidden",
         ):
             self.assertIn(cls, css)
+
+    def test_document_stylesheet_follows_the_design_system(self):
+        css = (STATIC / "document.css").read_text(encoding="utf-8")
+        for rule in ("box-shadow", "linear-gradient", "radial-gradient"):
+            self.assertNotIn(rule, css, f"{rule} is forbidden by the design system")
+
+    def test_project_page_uses_the_portal_shell(self):
+        html = (STATIC / "project.html").read_text(encoding="utf-8")
+        self.assertIn('class="topbar"', html)
+        self.assertIn('class="brand-block"', html)
+        self.assertIn('class="btn quiet"', html)
+        self.assertNotIn("btn-ghost", html)   # superseded button class
 
     def test_home_tiles_open_the_project_page_and_favicon_present(self):
         # The new tab now belongs to the application tile on the project page

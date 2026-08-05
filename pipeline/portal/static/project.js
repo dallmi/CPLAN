@@ -51,6 +51,8 @@
     if (response.status === 401) { location.href = '/'; return; }
     const user = await response.json();
     document.getElementById('user-chip-name').textContent = user.username;
+    document.getElementById('user-chip-avatar').textContent =
+      user.username.split(/[\s.]+/).filter(Boolean).map((p) => p[0]).join('').slice(0, 2).toUpperCase();
     document.getElementById('user-chip').classList.remove('hidden');
   }
 

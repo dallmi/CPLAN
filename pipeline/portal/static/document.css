@@ -14,12 +14,13 @@
   --bg: #F7F7F5; --surface: #ECEBE4; --surface-alt: #F5F0E1; --row-alt: #F8F7F2;
   --bronze-1: #B98E2C;
   --info: #0C7EC6; --info-dark: #07476F;
+  --font: "Frutiger 45 Light", "Frutiger", "Helvetica Neue", Arial, "Segoe UI", system-ui, sans-serif;
   --mono: "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", "Courier New", monospace;
   --radius: 2px;
 }
 
 * { box-sizing: border-box; }
-html, body { margin: 0; min-height: 100%; font-family: system-ui, sans-serif; background: var(--bg); color: var(--black); }
+html, body { margin: 0; min-height: 100%; font-family: var(--font); background: var(--bg); color: var(--black); }
 button { cursor: pointer; font: inherit; }
 
 /* ---------- Top bar ---------- */
