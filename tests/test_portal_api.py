@@ -259,11 +259,12 @@ def test_revoke_leaves_other_project_access_and_the_account_intact(portal):
             json={"username": "pa_multi", "password": "pw-multi", "project": "cplan", "role": "viewer"},
         )
         assert created.status_code == 201, created.text
-        # Granted directly rather than through the /role endpoint: portal_owner
-        # only holds ADMIN OPTION on the cplan_* groups apply_portal wires up
-        # (see _ASSIGNABLE_GROUPS), not on this test's ad hoc revokeproj_*
-        # groups, so portal.set_project_role's GRANT would 42501 for reasons
-        # unrelated to what this test is checking.
+        # Granted directly rather than through the /role endpoint: this test is
+        # about what revoking ONE project's role leaves behind, not about
+        # exercising set_project_role -- register_project above already
+        # extended portal_owner's ADMIN OPTION to revokeproj_* (see
+        # setup_portal._grant_admin_option), so the API path would work here
+        # too, but the direct grant keeps this test focused.
         with portal.state.engine.begin() as c:
             c.exec_driver_sql(f"GRANT {prefix}_viewer TO pa_multi")
 

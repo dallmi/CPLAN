@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 
 from sqlalchemy import Engine, text
+from sqlalchemy.engine import Connection
 
 from pipeline.api.database import create_cplan_engine, database_url_from_environment
 from pipeline.api.setup_roles import ASSIGNABLE_ROLES, AUTHENTICATOR, GROUP_ROLES
@@ -20,8 +21,12 @@ from pipeline.api.setup_roles import ASSIGNABLE_ROLES, AUTHENTICATOR, GROUP_ROLE
 PORTAL_OWNER = "portal_owner"
 PORTAL_RESERVED = frozenset(GROUP_ROLES) | {AUTHENTICATOR, PORTAL_OWNER}
 
-# The four assignable CPLAN group roles portal_owner must be able to grant.
-_ASSIGNABLE_GROUPS = tuple(ASSIGNABLE_ROLES.values())  # cplan_viewer/contributor/editor/admin
+# The four assignable-role suffixes, in the fixed order every FOREACH in this
+# module's SQL functions already hardcodes (ASSIGNABLE_ROLES' own key order).
+# Combined with a project's role_prefix this names its four group roles --
+# used to extend portal_owner's authority to ANY registered project, not just
+# CPLAN's (see _grant_admin_option/_repair_grantor below).
+_ROLE_SUFFIXES = tuple(ASSIGNABLE_ROLES)
 
 # CPLAN seed for the project registry.
 _CPLAN = {"slug": "cplan", "name": "CPLAN Studio", "url": "http://127.0.0.1:8780/", "role_prefix": "cplan"}
@@ -355,14 +360,106 @@ _FUNCTIONS = (
 _LEGACY_SIGNATURES = ("portal.set_active(text, boolean)",)
 
 
+def _existing_group_roles(connection: Connection, role_prefix: str) -> list[str]:
+    """The subset of `<role_prefix>_{viewer,contributor,editor,admin}` that already exist as roles.
+
+    A project can be registered (a row in `portal.projects`) before its group
+    roles are created -- the README documents that as the normal two-step
+    process for adding a project -- so every caller here must tolerate some
+    or all of the four not existing yet, rather than erroring on a GRANT or
+    REVOKE against a role that is not there.
+    """
+    names = [f"{role_prefix}_{suffix}" for suffix in _ROLE_SUFFIXES]
+    existing = set(
+        connection.execute(
+            text("SELECT rolname FROM pg_roles WHERE rolname = ANY(:names)"), {"names": names}
+        ).scalars()
+    )
+    return [name for name in names if name in existing]
+
+
+def _grant_admin_option(connection: Connection, role_prefix: str) -> None:
+    """Ensure portal_owner holds ADMIN OPTION on this project's assignable group roles.
+
+    Needed for two things: the portal.* SECURITY DEFINER functions -- which
+    execute as portal_owner -- can GRANT these roles at all only if
+    portal_owner holds ADMIN OPTION on them; and portal_owner can be named as
+    the GRANTED BY of a fresh grant (see _repair_grantor below) only because
+    PostgreSQL requires the named grantor to already hold ADMIN OPTION on the
+    role being granted.
+
+    Originally this only ever ran for CPLAN's own four roles. A second
+    registered project needs the identical extension on its own four roles,
+    or every portal.create_user/set_project_role/revoke_project_role call
+    against it fails Postgres's own privilege check with SQLSTATE 42501 --
+    surfacing as a 403 that looks like the caller lacking permission rather
+    than the installation being incomplete.
+
+    Idempotent: re-granting ADMIN OPTION on a role portal_owner already holds
+    it on is a no-op. Silently does nothing for a role that does not exist
+    yet (see _existing_group_roles) -- apply_portal's per-project loop and a
+    later register_project/apply_portal call are what pick it up once it does.
+    """
+    quote = connection.dialect.identifier_preparer.quote
+    for group in _existing_group_roles(connection, role_prefix):
+        connection.exec_driver_sql(f"GRANT {quote(group)} TO {quote(PORTAL_OWNER)} WITH ADMIN OPTION")
+
+
+def _repair_grantor(connection: Connection, role_prefix: str) -> None:
+    """Re-attribute this project's group-role memberships granted by someone other than portal_owner.
+
+    The canonical case: `setup_roles.create_user` -- the command-line path
+    that creates the very first admin, before the portal can be used at all
+    -- issues its GRANT while connected as the superuser, so the superuser is
+    the grantor. PostgreSQL's REVOKE honours the grantor, and every portal.*
+    user-management function runs as portal_owner, so portal_owner cannot
+    revoke a membership it did not grant -- that account would sit
+    permanently outside the access administration the portal provides (and,
+    worse, a REVOKE attempted by a grantor that does not match produces no
+    error at all, just a silent warning and an unchanged membership -- so the
+    failure is invisible until someone notices the account is still there).
+
+    Fixing it means re-granting with portal_owner as the explicit GRANTED BY,
+    which requires portal_owner to already hold ADMIN OPTION on the role --
+    _grant_admin_option is always called first for every project in
+    apply_portal, below, so that precondition holds by the time this runs.
+
+    Scoped to LOGIN roles only (u.rolcanlogin): the viewer/contributor/
+    editor/admin hierarchy itself (e.g. GRANT cplan_viewer TO
+    cplan_contributor, all NOLOGIN roles) is never something the portal
+    manages -- only real accounts are in scope here.
+
+    Safe to re-run: a membership already granted by portal_owner fails the
+    `grantor <> portal_owner` filter and is never touched, so a database with
+    nothing to repair does nothing here. The REVOKE and the re-GRANT run
+    inside apply_portal's single enclosing transaction, so a failure partway
+    through (the REVOKE lands, the GRANT does not) rolls the whole
+    apply_portal call back rather than ever persisting a membership that was
+    revoked but never re-granted.
+    """
+    quote = connection.dialect.identifier_preparer.quote
+    for group in _existing_group_roles(connection, role_prefix):
+        members = connection.execute(
+            text(
+                "SELECT u.rolname FROM pg_auth_members m "
+                "JOIN pg_roles g ON g.oid = m.roleid "
+                "JOIN pg_roles u ON u.oid = m.member "
+                "JOIN pg_roles gr ON gr.oid = m.grantor "
+                "WHERE g.rolname = :group AND u.rolcanlogin AND gr.rolname <> :owner"
+            ),
+            {"group": group, "owner": PORTAL_OWNER},
+        ).scalars().all()
+        for member in members:
+            q_member = quote(member)
+            connection.exec_driver_sql(f"REVOKE {quote(group)} FROM {q_member}")
+            connection.exec_driver_sql(f"GRANT {quote(group)} TO {q_member} GRANTED BY {quote(PORTAL_OWNER)}")
+
+
 def apply_portal(engine: Engine) -> None:
     with engine.begin() as c:
         exists = c.execute(text("SELECT 1 FROM pg_roles WHERE rolname = :n"), {"n": PORTAL_OWNER}).first()
         if not exists:
             c.exec_driver_sql(f"CREATE ROLE {PORTAL_OWNER} NOLOGIN CREATEROLE")
-        # portal_owner must be able to GRANT the assignable group roles to new users.
-        for group in _ASSIGNABLE_GROUPS:
-            c.exec_driver_sql(f"GRANT {group} TO {PORTAL_OWNER} WITH ADMIN OPTION")
 
         c.exec_driver_sql("CREATE SCHEMA IF NOT EXISTS portal AUTHORIZATION portal_owner")
         c.exec_driver_sql("GRANT USAGE ON SCHEMA portal TO PUBLIC")
@@ -410,6 +507,21 @@ def apply_portal(engine: Engine) -> None:
             ),
             _CPLAN,
         )
+
+        # Extend portal_owner's authority to every registered project's group
+        # roles -- CPLAN's own four (just seeded above, on a fresh database)
+        # and any other project register_project has ever added -- and repair
+        # any membership on them still attributed to the wrong grantor.
+        # Reads portal.projects fresh here (after the CPLAN upsert), so this
+        # covers a project registered by an earlier apply_portal run or by
+        # register_project directly, exactly as it covers CPLAN itself on a
+        # brand new database. Order matters: _grant_admin_option must run
+        # before _repair_grantor, since the repair's re-GRANT needs
+        # portal_owner to already hold ADMIN OPTION on the role it names
+        # itself as GRANTED BY for.
+        for role_prefix in c.execute(text("SELECT role_prefix FROM portal.projects")).scalars().all():
+            _grant_admin_option(c, role_prefix)
+            _repair_grantor(c, role_prefix)
 
         c.exec_driver_sql(_USERS_VIEW)
         c.exec_driver_sql("ALTER VIEW portal.users OWNER TO portal_owner")
@@ -471,6 +583,16 @@ def register_project(engine: Engine, slug: str, name: str, url: str, role_prefix
             ),
             {"slug": slug, "name": name, "url": url, "role_prefix": role_prefix},
         )
+        # If this project's group roles already exist -- registering after
+        # creating them is a valid order too -- extend portal_owner's ADMIN
+        # OPTION to them immediately, so portal.create_user/set_project_role/
+        # revoke_project_role work right away instead of needing a separate
+        # apply_portal run. When the roles do not exist yet (the README's
+        # documented order: register, then create the roles), this is a
+        # no-op; apply_portal's own sweep over every registered project is
+        # what closes the gap once they exist, and is also what covers a
+        # project that was registered before this call existed at all.
+        _grant_admin_option(c, role_prefix)
 
 
 def _resolve_url(explicit: str | None) -> str:
