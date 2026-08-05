@@ -82,7 +82,8 @@ python pipeline/scripts/build_standalone.py
 On Windows, double-click `report.cmd` — it resolves the interpreter the same
 way the other launchers do (`CPLAN_PYTHON`, then an active venv, then the
 repo's `.venv`) and opens the workbook when it is done. `report.cmd -NoOpen`
-writes it without opening; `-Out` and `-InputDir` are passed through.
+writes it without opening; `-Out`, `-InputDir` and `-GebMembers` are passed
+through.
 
 ```bash
 # Generate the .xlsx planning report from the CSV exports (no database needed)
@@ -97,11 +98,14 @@ criterion. The design is documented in
 
 The combined leadership field can be split into GEB and GEB-1 with
 `--geb-members path/to/list.csv` (or `report.ps1 -GebMembers ...`). The file
-names each GEB member by email and/or display name; `geb-members.csv` beside
-the repository root is the default when the flag is omitted, and it is
+names each GEB member by email and/or display name; `geb-members.csv` in the
+repository root is the default when the flag is omitted, and it is
 gitignored because it names real people. `geb-members.csv.example` is the
-committed template — copy it and fill in the real list. Without the file, or
-without the flag, the two levels stay combined exactly as before.
+committed template — copy it and fill in the real list. With the flag
+omitted and no default file present, the two levels stay combined exactly as
+before. A `--geb-members` path that does not exist is treated as a typo, not
+as "no list": the report aborts with an error instead of silently falling
+back to the combined field.
 
 ## Daily workflow
 

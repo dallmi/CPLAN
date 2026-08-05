@@ -109,27 +109,36 @@ def load_membership(path):
     if not path.exists():
         return None
 
-    with path.open(newline="", encoding="utf-8-sig") as handle:
-        reader = csv.DictReader(handle)
-        fieldnames = [(name or "").strip().lower() for name in (reader.fieldnames or [])]
-        for column in REQUIRED_COLUMNS:
-            if column not in fieldnames:
-                raise MembershipError(
-                    f"{path}: missing the required column {column!r} "
-                    f"(found: {', '.join(fieldnames) or 'nothing'})"
-                )
+    # A directory where a file was expected, a permissions problem, or a CSV
+    # saved by Excel as "CSV (Comma delimited)" (Windows-1252) rather than
+    # "CSV UTF-8" -- one accented name is enough -- must all become a message
+    # naming the file, not a raw traceback. report.ps1's catch block otherwise
+    # prints its "no input files found / OneDrive placeholders" hint, which is
+    # actively misleading for a problem that has nothing to do with OneDrive.
+    try:
+        with path.open(newline="", encoding="utf-8-sig") as handle:
+            reader = csv.DictReader(handle)
+            fieldnames = [(name or "").strip().lower() for name in (reader.fieldnames or [])]
+            for column in REQUIRED_COLUMNS:
+                if column not in fieldnames:
+                    raise MembershipError(
+                        f"{path}: missing the required column {column!r} "
+                        f"(found: {', '.join(fieldnames) or 'nothing'})"
+                    )
 
-        entries = []
-        # DictReader yields the first data row as row 2 of the file; naming the
-        # file's own line number is what makes the message actionable.
-        for offset, raw in enumerate(reader, start=2):
-            email = normalise_email(_cell(raw, fieldnames, "email"))
-            name = normalise_name(_cell(raw, fieldnames, "name"))
-            if not email and not name:
-                raise MembershipError(
-                    f"{path}: row {offset} carries neither an email nor a name"
-                )
-            entries.append(Entry(email=email, name=name))
+            entries = []
+            # DictReader yields the first data row as row 2 of the file; naming
+            # the file's own line number is what makes the message actionable.
+            for offset, raw in enumerate(reader, start=2):
+                email = normalise_email(_cell(raw, fieldnames, "email"))
+                name = normalise_name(_cell(raw, fieldnames, "name"))
+                if not email and not name:
+                    raise MembershipError(
+                        f"{path}: row {offset} carries neither an email nor a name"
+                    )
+                entries.append(Entry(email=email, name=name))
+    except (OSError, UnicodeDecodeError) as error:
+        raise MembershipError(f"{path}: {error}") from error
 
     if not entries:
         raise MembershipError(f"{path}: no entries")

@@ -16,6 +16,23 @@ EXPECTED_SHEETS = [
 ]
 
 
+@pytest.fixture(autouse=True)
+def _sealed_repo_dir(tmp_path, monkeypatch):
+    """The default GEB list path is `REPO_DIR / DEFAULT_FILENAME` -- ambient
+    state that lives outside `tmp_path`. The README tells the user to run
+    exactly `cp geb-members.csv.example geb-members.csv` in the repository
+    root, and a developer who has done that (or left a real list behind from
+    an earlier manual run) would otherwise leak a real membership list into
+    every test exercising the default path -- including
+    `test_without_a_list_the_workbook_is_unchanged`, the regression that
+    matters most, which would then silently stop testing the absent-list case
+    its name promises. Pointing REPO_DIR at this test's own `tmp_path` keeps
+    the default path sealed inside the sandbox no matter what sits in the
+    real repository root.
+    """
+    monkeypatch.setattr(report_calendar, "REPO_DIR", tmp_path)
+
+
 def test_the_script_writes_all_seven_sheets(tmp_path):
     write_activity_csvs(tmp_path / "input")
     out = tmp_path / "report.xlsx"
@@ -293,7 +310,10 @@ def test_a_normal_span_says_nothing(tmp_path, capsys):
     report_calendar.main(["--input-dir", str(tmp_path / "input"), "--all",
                           "--out", str(tmp_path / "r.xlsx")])
 
-    assert "WARNING" not in capsys.readouterr().out
+    # Narrowed to the wide-grid warning specifically -- not a blanket
+    # "WARNING" absence, which would also (correctly) trip on an unrelated
+    # GEB-list warning were one ever in play here.
+    assert "years wide" not in capsys.readouterr().out
 
 
 def test_a_bounded_run_never_warns_however_wide_it_is(tmp_path, capsys):
@@ -304,7 +324,7 @@ def test_a_bounded_run_never_warns_however_wide_it_is(tmp_path, capsys):
                           "--from", "2000-01-01", "--to", "2049-12-31",
                           "--out", str(tmp_path / "r.xlsx")])
 
-    assert "WARNING" not in capsys.readouterr().out
+    assert "years wide" not in capsys.readouterr().out
 
 
 # --- the GEB membership list on the command line ----------------------------
@@ -365,7 +385,10 @@ def test_a_broken_list_aborts_with_a_message(tmp_path, capsys):
 
     assert code == 1
     assert not out.exists()
-    assert "name" in capsys.readouterr().out
+    # The real message, not a substring a raw traceback could also contain --
+    # "fieldnames" (a DictReader attribute that would appear in an unguarded
+    # traceback) also contains "name".
+    assert "missing the required column 'name'" in capsys.readouterr().out
 
 
 def test_a_named_list_that_does_not_exist_aborts(tmp_path):
@@ -380,3 +403,24 @@ def test_a_named_list_that_does_not_exist_aborts(tmp_path):
         "--geb-members", str(tmp_path / "nope.csv"), "--out", str(out)])
 
     assert code == 1
+    assert not out.exists()
+
+
+def test_the_unmatched_count_is_logged_as_a_warning(tmp_path, capsys):
+    """The console warning at report_calendar.py's unmatched-count check --
+    the operator running the report is the person who can fix the list, and
+    that only works if the console actually says so.
+    """
+    write_activity_csvs(tmp_path / "input")
+    members = tmp_path / "geb-members.csv"
+    members.write_text(
+        'email,name\n,"Example, Ada"\n,"Nobody, Really"\n', encoding="utf-8")
+    out = tmp_path / "report.xlsx"
+
+    code = report_calendar.main([
+        "--input-dir", str(tmp_path / "input"), "--all",
+        "--geb-members", str(members), "--out", str(out)])
+
+    assert code == 0
+    log = capsys.readouterr().out
+    assert "WARNING: 1 of 2 GEB list entries matched nothing in scope" in log

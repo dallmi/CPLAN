@@ -137,6 +137,33 @@ def test_an_empty_person_never_matches(tmp_path):
     assert members.is_member("", "") is False
 
 
+def test_a_directory_path_raises_a_membership_error(tmp_path):
+    """A directory where a file was expected must be reported, not raised as
+    a raw IsADirectoryError that escapes to a traceback and sends report.ps1's
+    catch block into its misleading OneDrive hint.
+    """
+    directory = tmp_path / "geb-members.csv"
+    directory.mkdir()
+
+    with pytest.raises(MembershipError) as excinfo:
+        load_membership(directory)
+    assert str(directory) in str(excinfo.value)
+
+
+def test_a_non_utf8_file_raises_a_membership_error(tmp_path):
+    """Excel's 'CSV (Comma delimited)' save option writes Windows-1252, not
+    UTF-8. One accented name is enough to break `utf-8-sig` decoding -- a
+    likely first-run mistake, not an edge case -- and it must produce a
+    message naming the file rather than a raw UnicodeDecodeError traceback.
+    """
+    path = tmp_path / "geb-members.csv"
+    path.write_bytes(b'email,name\n,"B\xe9atrice"\n')
+
+    with pytest.raises(MembershipError) as excinfo:
+        load_membership(path)
+    assert str(path) in str(excinfo.value)
+
+
 def test_the_shipped_example_loads_and_holds_thirteen_rows():
     """The committed example is the thing the user copies. If it does not load,
     the first thing anyone tries fails.

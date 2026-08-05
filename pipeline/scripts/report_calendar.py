@@ -147,7 +147,7 @@ def build_parser():
         "--geb-members", type=str, default=None,
         help=("CSV naming the GEB members, so the report can split the "
               "leadership field into GEB and GEB-1. Defaults to "
-              f"{membership.DEFAULT_FILENAME} beside this repository; without "
+              f"{membership.DEFAULT_FILENAME} in this repository's root; without "
               "it the two levels stay combined."))
     return parser
 
