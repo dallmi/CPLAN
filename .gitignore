@@ -34,6 +34,9 @@ cplan-settings.json
 pipeline/data/cplan-settings.json
 pipeline/data/cplan-settings.json.tmp
 cplan.config
+# The GEB membership list names real people. The .example beside it carries
+# placeholders and is committed; this one never is.
+geb-members.csv
 *.sqlite3
 *.sqlite3-shm
 *.sqlite3-wal
