@@ -294,18 +294,31 @@ def test_the_instructions_name_no_period_they_will_outlive(tmp_path):
     assert agent_pack.SUMMARY_NAME in text, "they must point at where the period is"
 
 
-def test_the_evaluation_set_matches_what_the_import_accepts(tmp_path):
-    """Two headings in this order, and the documented ceilings."""
+def test_the_evaluation_set_matches_the_products_own_template(tmp_path):
+    """Three columns in this order, the ceilings, and a BOM.
+
+    Taken from the template Copilot Studio hands out, not from documentation:
+    the documented format belongs to a different harness, and every field of it
+    was wrong here -- the column names, their number, and the character cap.
+    """
     _, out_dir, scope, config = _pack(tmp_path)
-    with (out_dir / agent_pack.EVALUATION_NAME).open(encoding="utf-8") as handle:
+    path = out_dir / agent_pack.EVALUATION_NAME
+    assert path.read_bytes().startswith(b"\xef\xbb\xbf"), (
+        "no BOM: Excel and the import dialog fall back to Windows-1252, which "
+        "turns an em dash in a team name into mojibake")
+    with path.open(encoding="utf-8-sig", newline="") as handle:
         rows = list(csv.reader(handle))
     assert tuple(rows[0]) == agent_pack.EVALUATION_HEADER
     cases = rows[1:]
     assert cases, "no test cases written"
     assert len(cases) <= agent_pack.EVALUATION_MAX_CASES
-    for question, expected in cases:
+    for number, question, response in cases:
         assert len(question) <= agent_pack.EVALUATION_MAX_QUESTION_CHARS
-        assert expected.strip(), f"no expected response for {question!r}"
+        assert response.strip(), f"no reference reply for {question!r}"
+    numbers = [row[0] for row in cases]
+    assert len(set(numbers)) == len(numbers), (
+        "rows sharing a conversationNumber run as one conversation, so these "
+        "independent questions would carry each other's context")
     assert len(cases) == len(agent_pack.checklist_questions(scope, config))
 
 
@@ -317,13 +330,14 @@ def test_the_evaluation_questions_do_not_carry_their_own_answers(tmp_path):
     agent -- unless it has been written into the question.
     """
     _, out_dir, scope, config = _pack(tmp_path)
-    with (out_dir / agent_pack.EVALUATION_NAME).open(encoding="utf-8") as handle:
+    with (out_dir / agent_pack.EVALUATION_NAME).open(encoding="utf-8-sig",
+                                                     newline="") as handle:
         cases = list(csv.DictReader(handle))
     answers = [str(answer) for _, answer, _, _, _ in
                agent_pack.checklist_questions(scope, config)]
     for case, answer in zip(cases, answers):
-        assert not agent_pack._states(case["Question"], answer), (
-            f"the question gives its own answer away: {case['Question']!r}")
+        assert not agent_pack._states(case["question"], answer), (
+            f"the question gives its own answer away: {case['question']!r}")
 
 
 def test_the_pack_says_when_it_was_generated(tmp_path):

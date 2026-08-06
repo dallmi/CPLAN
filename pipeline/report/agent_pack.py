@@ -62,16 +62,24 @@ CHECKLIST_NAME = "checklist.md"
 INSTRUCTIONS_NAME = "agent-instructions.md"
 EVALUATION_NAME = "evaluation.csv"
 
-# Copilot Studio's evaluation import: these two headings, in this order, up to
-# 100 cases, 1000 characters per question.
+# Copilot Studio's evaluation import, taken from the template the product
+# itself hands out -- not from the documentation, which describes a different
+# harness and got every one of these wrong on the first attempt.
+#
+# `conversationNumber` groups rows into one multi-turn test case. Every
+# question here is independent, so each takes its own number rather than
+# sharing one: rows sharing a number run as a single conversation, and seven
+# unrelated questions asked in sequence would carry each other's context.
 #
 # Safe to upload although it carries the answers, and the checklist is not:
-# an evaluation set is never grounded on. The agent is handed the Question
-# column and nothing else, and the expected response is read by whoever reviews
-# the run. Put an answer in the question text and that stops being true.
-EVALUATION_HEADER = ("Question", "Expected response")
+# an evaluation set is never grounded on. The agent is handed the question
+# column and nothing else, and the reference reply is read by whoever reviews
+# the run -- the template says outright that the agent's response "isn't
+# compared to this reference answer". Put an answer in the question and that
+# stops being true.
+EVALUATION_HEADER = ("conversationNumber", "question", "response")
 EVALUATION_MAX_CASES = 100
-EVALUATION_MAX_QUESTION_CHARS = 1000
+EVALUATION_MAX_QUESTION_CHARS = 500
 
 README_NAME = "00-README.txt"
 SUMMARY_NAME = "01-summary.txt"
@@ -878,8 +886,17 @@ def activity_rows(scope):
 # Writing
 # --------------------------------------------------------------------------
 
-def _write_csv(path, header, rows):
-    with path.open("w", newline="", encoding="utf-8") as handle:
+def _write_csv(path, header, rows, bom=False):
+    """Write a CSV, optionally with the byte-order mark Windows tooling wants.
+
+    The pack's own CSVs are read by a code interpreter, where a BOM is one more
+    thing for a naive parser to trip over, so they stay without one. The
+    evaluation set is read by Excel and by an import dialog, both of which fall
+    back to Windows-1252 without it -- which turned an em dash in a team name
+    into `â€"` and made the file look corrupt before it was even rejected.
+    """
+    encoding = "utf-8-sig" if bom else "utf-8"
+    with path.open("w", newline="", encoding=encoding) as handle:
         writer = csv.writer(handle)
         writer.writerow(header)
         writer.writerows(rows)
@@ -933,7 +950,7 @@ def write_pack(scope, config, out_dir, generated=None):
     # rules stop being rules.
     (out_dir / INSTRUCTIONS_NAME).write_text(INSTRUCTIONS_TEXT, encoding="utf-8")
     _write_csv(out_dir / EVALUATION_NAME, EVALUATION_HEADER,
-               evaluation_rows(scope, config))
+               evaluation_rows(scope, config), bom=True)
     return pack_dir
 
 
@@ -1059,14 +1076,16 @@ def evaluation_rows(scope, config):
     gives either of them nothing to match a sentence against.
 
     Which questions are controls is deliberately NOT encoded here. The import
-    takes two columns and no more, and a marker in the question text would
+    takes the three columns it takes, and a marker in the question text would
     reach the agent -- `checklist.md` is where a reader learns which is which.
     """
     rows = []
-    for question, answer, _control, _note, _probe in checklist_questions(scope, config):
-        rows.append((question[:EVALUATION_MAX_QUESTION_CHARS],
+    for number, (question, answer, _control, _note, _probe) in enumerate(
+            checklist_questions(scope, config)[:EVALUATION_MAX_CASES], 1):
+        rows.append((number,
+                     question[:EVALUATION_MAX_QUESTION_CHARS],
                      f"{answer}, for {config.period_label()}."))
-    return rows[:EVALUATION_MAX_CASES]
+    return rows
 
 
 def checklist_text(scope, config):
