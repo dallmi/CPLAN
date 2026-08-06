@@ -67,3 +67,7 @@ Thumbs.db
 # Eval reports are run artefacts, not documentation.
 evals/results/
 evals/last-run.log
+
+# Agent worktrees are checkouts of this same repository, created and removed by
+# tooling. Committing one nests a working copy inside the working copy.
+.claude/worktrees/
