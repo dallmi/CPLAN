@@ -133,7 +133,46 @@ $manifest = @(
     @{ Path = "start.ps1";                     Marker = "Start-CplanServer";                 Why = "server windows stay open on a crash, so the traceback is readable" },
     @{ Path = "stop.ps1";                      Marker = "Stop-CplanServerOnPort";            Why = "clean shutdown launcher - without it the servers keep their ports and the next start dies with winerror 10048" },
     @{ Path = "refresh.ps1";                   Marker = "-NoExit";                           Why = "daily refresh; studio window stays open on a crash" },
-    @{ Path = "portal.ps1";                    Marker = "Start-CplanServer";                 Why = "portal launcher; server window stays open on a crash" }
+    @{ Path = "portal.ps1";                    Marker = "Start-CplanServer";                 Why = "portal launcher; server window stays open on a crash" },
+    # Second markers for files that changed after their first marker was chosen.
+    # Every one of the entries below names a string the file's *previous*
+    # version did not contain; the marker above it, by then, named something
+    # both versions had. Thirty of the fifty-five listed files were in that
+    # state at once -- reported "current" on a machine holding the copy from
+    # before the change, which is the one answer this script exists not to give.
+    # Added rather than substituted, so each file keeps every claim already made
+    # about it. `tests/test_check_manifest.py` now fails when a listed file
+    # changes and no marker follows, so this cannot silently accumulate again.
+    @{ Path = "pipeline\api\views.py";         Marker = "def drop_analysis_views";           Why = "the view teardown a whole-schema drop has to go through first" },
+    @{ Path = "pipeline\api\session.py";       Marker = "role vanished (user deleted)";      Why = "the dead-session case on the SET ROLE 401 branch is named, not silent" },
+    @{ Path = "pipeline\api\setup_portal.py";  Marker = "_NO_KEY_GIVEN";                     Why = "--clear-login-block tells 'no key given' apart from an empty key" },
+    @{ Path = "pipeline\api\scram.py";         Marker = "def _bidi_ok(mapped: str) -> bool:"; Why = "saslprep checks the mapped string, in PostgreSQL's step order rather than the RFC's" },
+    @{ Path = "pipeline\portal\app.py";        Marker = "Insights Portal service:";          Why = "the service names itself for what it holds; CPLAN_* env vars deliberately keep their names" },
+    @{ Path = "pipeline\portal\static\styles.css"; Marker = "/* Insights Portal";            Why = "the stylesheet header follows the portal name" },
+    @{ Path = "pipeline\portal\static\js\home.js"; Marker = "projectsLoadFailed";            Why = "a failed project read renders as an error state, not as a false empty result" },
+    @{ Path = "pipeline\portal\static\js\app.js"; Marker = "!result.ok && result.message";   Why = "the sign-in form repeats which refusal it got - 401, 429 or 503" },
+    @{ Path = "pipeline\portal\static\js\api.js"; Marker = "status === 429";                 Why = "the throttled answer is worded identically for every caller" },
+    @{ Path = "pipeline\portal\static\js\state.js"; Marker = "projectsLoadFailed: false";    Why = "the load-failure flags home, users and matrix render from" },
+    @{ Path = "pipeline\portal\static\js\ui.js"; Marker = "PASSWORD_WORDS";                  Why = "the initial password is four words from the shared list (~44 bits), not the old scheme" },
+    @{ Path = "pipeline\portal\static\js\users.js"; Marker = "usersLoadFailed";              Why = "the users table distinguishes 'read failed' from 'no users'" },
+    @{ Path = "pipeline\portal\static\js\matrix.js"; Marker = "popoverLayerToken";           Why = "closing the role popover returns focus to the cell that opened it" },
+    @{ Path = "pipeline\portal\static\js\drawer.js"; Marker = "drawerLayerToken";            Why = "the drawer remembers its trigger across a reopen, so focus has somewhere to go back to" },
+    @{ Path = "pipeline\portal\static\js\invite.js"; Marker = "inviteLayerToken";            Why = "the invite modal gives focus back on every close path" },
+    @{ Path = "pipeline\studio\app.js";        Marker = "LOGIN_ERRORS";                      Why = "the studio's sign-in words 429 and 503 exactly as the portal does" },
+    @{ Path = "pipeline\studio\styles.css";    Marker = "max(280px";                         Why = "the viewport cap keeps a floor, so a narrow window cannot clamp the list to zero height" },
+    @{ Path = "pipeline\studio\xlsx.js";       Marker = 'xSplit="1"';                        Why = "the first column is frozen alongside the header row" },
+    @{ Path = "pipeline\studio\analytics.js";  Marker = "function comingUp";                 Why = "the Overview's rolling windows live where a node test can run them" },
+    @{ Path = "pipeline\scripts\cplan_db.py";  Marker = "def start(pgdata";                  Why = "--start brings the database up on its own, for pgAdmin after a reboot" },
+    @{ Path = "pipeline\scripts\report_calendar.py"; Marker = "in this repository's root";   Why = "an unreadable member list is reported by name and path, not skipped" },
+    @{ Path = "pipeline\scripts\process_cplan.py"; Marker = "same filter to the same elements"; Why = "the email slots track parse_sp_lookup's dropped elements - otherwise every later address lands under the wrong name" },
+    @{ Path = "pipeline\report\membership.py"; Marker = "DictReader stashes any field";      Why = "a row with an extra column is rejected instead of silently truncated" },
+    @{ Path = "pipeline\report\config.py";     Marker = "two hardcoded copies would.";       Why = "the field titles have one home, which describe() and the sheets share" },
+    @{ Path = "pipeline\report\data.py";       Marker = "def _people_with_emails(bod_geb, bod_geb_email)"; Why = "the split is derived from the two raw cells after every filter has run" },
+    @{ Path = "pipeline\report\calendar_sheet.py"; Marker = "EXECUTIVES_SPLIT, FIELD_TITLES"; Why = "the calendar reads the titles from config.py instead of keeping its own copy" },
+    @{ Path = "pipeline\report\grid.py";       Marker = "_by_monday";                        Why = "week lookup is a cached map - the scan it replaced crawled once the grid spanned years" },
+    @{ Path = "pipeline\report\metrics.py";    Marker = '"bod_geb", "other_executives"';     Why = "both leadership fields are carried, not just the combined one" },
+    @{ Path = "pipeline\report\style.py";      Marker = "_ILLEGAL";                          Why = "control characters are blanked, so one bad byte cannot cost the whole workbook" },
+    @{ Path = "setup.ps1";                     Marker = "means the packages are missing (run check.cmd)"; Why = "a missing package is reported as such, not as 'is the database reachable?'" }
 )
 
 Write-Host ""
