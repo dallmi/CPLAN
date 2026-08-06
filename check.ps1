@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-06.11"
+$manifestVersion = "2026-08-06.12"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-06.11"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-06.11"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-06.12"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -165,6 +165,13 @@ $manifest = @(
     @{ Path = "pipeline\scripts\report_calendar.py"; Marker = "def resolve_scope";           Why = "the scope resolution the pack shares with the workbook - without it build_agent_pack.py fails to import" },
     @{ Path = "pipeline\report\agent_pack.py"; Marker = "def write_pack";                    Why = "the agent pack itself: values instead of formulas, long instead of wide, the layout rules written out as sentences" },
     @{ Path = "pipeline\report\agent_pack.py"; Marker = "CHECKLIST_NAME";                    Why = "the answer key is written OUTSIDE the uploaded folder - inside it, an agent grounds on it and passes the test by reading the answers" },
+    # Both halves of what a first real run taught, and a copy missing either
+    # one still produces a pack and a checklist that look right. The glossary
+    # rule is what stops an agent reporting the previous year's quarter on an
+    # in-scope activity as a data error; the derived grading is what stops the
+    # checklist calling a question a count while the summary states its answer.
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "overlap test, not a start-date test"; Why = "scope is an overlap test - without the sentence, an agent flags a Q4-2025 label inside a 2026 report as an anomaly worth reviewing" },
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "def _states";                       Why = "control vs counting question is derived from what the pack states, not asserted by hand - an older copy mis-grades a retrieved answer as a computed one" },
     @{ Path = "pipeline\scripts\build_agent_pack.py"; Marker = "DEFAULT_OUTPUT_DIR";         Why = "the pack entry point; without it agentpack.cmd reports a missing file instead of building anything" },
     @{ Path = "agentpack.ps1";                 Marker = "cplan-skill.zip";                   Why = "the pack launcher, and the one place that says which of the three artefacts must NOT be uploaded" },
     # The team signature. Added as second markers rather than replacing the

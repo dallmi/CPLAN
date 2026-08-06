@@ -29,6 +29,7 @@ implementation -- `tests/test_agent_pack.py` holds the two to each other.
 """
 
 import csv
+import re
 import zipfile
 
 from openpyxl import Workbook
@@ -171,8 +172,13 @@ def _summary_sections(scope, config):
 
     report = list(config.describe())
     report.append(("Weeks covered", len(scope.grid.weeks)))
-    for key, name in scope.source_files:
-        report.append((f"Source: {key}", name))
+    # No "Source: <file>" rows, for the reason the workbook dropped them on
+    # 2026-08-06 and then some: they name the operator's export files to an
+    # audience that has never seen that directory, and this file is uploaded
+    # to where that audience reads. A filename carrying a date or someone's
+    # initials invites a question the pack cannot answer, and hands an agent a
+    # local path to quote. `build_agent_pack.py` logs them to the console, in
+    # front of the person who chose them.
     report.append(("Rows read", scope.rows_read))
     for reason in EXCLUSION_ORDER:
         report.append((f"Excluded: {reason}", scope.excluded[reason]))
@@ -272,6 +278,12 @@ def glossary_text(scope, config):
     title = "RULES THE WORKBOOK STATES ONLY BY LAYOUT"
     lines += ["", title, "-" * len(title)]
     for rule in (
+        "Scope is an overlap test, not a start-date test. An activity whose run "
+        "touches the period is in scope even when it starts before it, so a "
+        "report for one year legitimately contains activities whose quarter or "
+        "ISO week names the year before: those columns label the START, and the "
+        "start may lie outside the period. That is not a data error, and it "
+        "does not need reviewing.",
         f"Overlapping rows do not sum. In {CALENDAR_NAME} a row with "
         "overlaps=yes belongs to a block where an activity naming two values "
         f"appears under both. Only block={TOTAL_BLOCK} is a true total.",
@@ -386,9 +398,12 @@ figures were computed by tested code. A number you derive yourself from
 Read `{GLOSSARY_NAME}` first. It carries the definitions and the seven rules
 this data does not survive without, and the two that cost the most are:
 
-**Scope is a hard filter.** The period is named at the top of `{SUMMARY_NAME}`.
-An activity outside it is absent from every file here, so a question about a
-date outside the period is OUT OF SCOPE. Never answer it with zero.
+**Scope is a hard filter, and an overlap test.** The period is named at the top
+of `{SUMMARY_NAME}`. An activity outside it is absent from every file here, so a
+question about a date outside the period is OUT OF SCOPE -- never answer it with
+zero. An activity whose run merely touches the period IS in scope, so a quarter
+or ISO week naming the year before the period is normal, not an anomaly: those
+columns label the start, and the start may lie outside.
 
 **Overlapping rows do not sum.** In `{CALENDAR_NAME}`, a row with
 `overlaps=yes` belongs to a block where one activity can appear under two
@@ -524,27 +539,60 @@ def _write_skill_zip(pack_dir, zip_path):
 # The checklist -- deliberately not part of the pack
 # --------------------------------------------------------------------------
 
-def checklist_questions(scope, config):
-    """Questions with a computed answer, and whether the pack pre-computes it.
+def _states(haystack, *parts):
+    """Does one line of the pack carry all of `parts`, each as a whole word?
 
-    Half the set is answerable by retrieval alone, because those are the
-    controls: an agent that gets only those right has retrieved rather than
-    counted, which is exactly the distinction this list exists to expose.
+    Line by line rather than anywhere-in-the-file: a figure is only
+    "pre-computed" if the pack states it *about the thing being asked*. The
+    number 275 appearing somewhere and the line `External: 275` are different
+    claims, and only the second makes a question answerable by reading.
+
+    Whole words rather than substrings, because both halves collide otherwise.
+    A team called "Team" is inside every `lead_team` label, and 18 is inside
+    180 -- and a single line carrying `lead_team | 18 | 1 | 5%` then "states"
+    that Team owns 18 activities, which it does not.
+
+    Lookarounds rather than `\\b`, because a probe need not end in a word
+    character: `\\bW07 (10 Feb)\\b` never matches the line it was built from,
+    since `\\b` after the closing bracket demands a word character that is not
+    there. That failure is silent and one-directional -- it grades a question
+    the pack does answer as one only counting can -- so it has to be the
+    boundary that does not care what the probe ends in.
+    """
+    patterns = [re.compile(rf"(?<!\w){re.escape(str(part))}(?!\w)", re.IGNORECASE)
+                for part in parts]
+    return any(all(pattern.search(line) for pattern in patterns)
+               for line in haystack.splitlines())
+
+
+def checklist_questions(scope, config):
+    """Questions with a computed answer, split into controls and the rest.
+
+    Which is which is DERIVED from the pack rather than asserted here. Hand
+    labelling got it wrong on the first real run: "how many external activities"
+    was written down as a counting question while `01-summary.txt` states
+    `External: 275` outright, so an agent that only ever reads files answered it
+    correctly and looked like it had counted. A control is exactly a question
+    the pack already answers, and the only way to know that is to look.
     """
     frame = scope.frame
     total = len(frame)
-    questions = [("How many activities does the report cover in total?", total, True,
-                  f"stated in {SUMMARY_NAME} -- a control question")]
+    haystack = summary_text(scope, config) + data_quality_text(scope, config)
+
+    # (question, answer, probe, reason). The probe is what the pack would have
+    # to state, on one line, for reading to be enough.
+    candidates = [("How many activities does the report cover in total?", total,
+                   ("Activities in scope", total), "the portfolio total")]
 
     stats = metrics.load_stats(scope)
-    questions.append(("Which week has the most activities starting in it?",
-                      f"{stats['peak_week_label']} with {stats['peak_week_count']}",
-                      True, f"stated in {SUMMARY_NAME} -- a control question"))
+    candidates.append(("Which week has the most activities starting in it?",
+                       f"{stats['peak_week_label']} with {stats['peak_week_count']}",
+                       ("Peak week", stats["peak_week_label"]), "the busiest week"))
 
     if total:
         external = int((frame["source_type"] == "external").sum())
-        questions.append(("How many external activities are in scope?", external, False,
-                          "one condition over every row"))
+        candidates.append(("How many external activities are in scope?", external,
+                           ("External", external), "one condition over every row"))
 
         teams = {}
         for value in frame.get("lead_team", []):
@@ -553,15 +601,15 @@ def checklist_questions(scope, config):
                 teams[name] = teams.get(name, 0) + 1
         if teams:
             top = max(sorted(teams), key=lambda n: teams[n])
-            questions.append(("Which lead team owns the most activities, and how many?",
-                              f"{top} with {teams[top]}", False,
-                              "an aggregation over every row"))
+            candidates.append(("Which lead team owns the most activities, and how many?",
+                               f"{top} with {teams[top]}", (top, teams[top]),
+                               "an aggregation over every row"))
 
         blank_lead = sum(
             1 for value in frame.get("lead", [])
             if str(value).strip().lower() in ("", "nan", "none", "null"))
-        questions.append(("For how many activities is the lead missing?", blank_lead,
-                          False, "a data-quality question, row by row"))
+        candidates.append(("For how many activities is the lead missing?", blank_lead,
+                           ("lead", blank_lead), "a data-quality question, row by row"))
 
         quarters = {}
         for quarter in frame["_quarter"]:
@@ -570,20 +618,26 @@ def checklist_questions(scope, config):
                 quarters[label] = quarters.get(label, 0) + 1
         if quarters:
             label = sorted(quarters)[0]
-            questions.append((f"How many activities start in {label}?", quarters[label],
-                              False, "one condition over every row"))
-            if total:
-                both = sum(1 for q, source in zip(frame["_quarter"], frame["source_type"])
+            candidates.append((f"How many activities start in {label}?", quarters[label],
+                               (label, quarters[label]), "one condition over every row"))
+            internal = sum(1 for q, source in zip(frame["_quarter"], frame["source_type"])
                            if q and f"Q{q[1]} {q[0]}" == label and source == "internal")
-                questions.append((f"How many INTERNAL activities start in {label}?", both,
-                                  False, "two conditions combined -- pre-computed nowhere"))
+            candidates.append((f"How many INTERNAL activities start in {label}?", internal,
+                               (label, internal), "two conditions combined"))
+
+    questions = []
+    for question, answer, probe, reason in candidates:
+        control = _states(haystack, *probe)
+        note = (f"{reason} -- stated in the pack, so reading it is enough"
+                if control else f"{reason} -- stated nowhere; only counting answers it")
+        questions.append((question, answer, control, note, probe))
     return questions
 
 
 def checklist_text(scope, config):
     questions = checklist_questions(scope, config)
     total = len(scope.frame)
-    controls = [i for i, q in enumerate(questions, 1) if q[2]]
+    controls = [i for i, question in enumerate(questions, 1) if question[2]]
     lines = [
         f"# Does the agent really compute over all {total} rows?",
         "",
@@ -595,14 +649,20 @@ def checklist_text(scope, config):
         "",
         f"Question{'s' if len(controls) != 1 else ''} "
         f"{', '.join(str(i) for i in controls)} "
-        f"{'are' if len(controls) != 1 else 'is'} pre-computed in the pack. An "
-        "agent that gets those right and the others wrong has retrieved rather "
-        "than counted -- which is the whole distinction being measured.",
+        f"{'are' if len(controls) != 1 else 'is'} answered by the pack itself, "
+        "so reading is enough -- they are the controls. The rest are stated "
+        "nowhere and can only be answered by computing over the rows. An agent "
+        "that gets the controls right and the rest wrong has retrieved rather "
+        "than counted, which is the whole distinction being measured.",
+        "",
+        "Which question is which is worked out by searching the pack, not "
+        "asserted by hand -- a question is a control exactly when the pack "
+        "already answers it.",
         "",
         'Ask after every answer: "How many rows did you examine for that?"',
         "",
     ]
-    for number, (question, answer, _control, why) in enumerate(questions, 1):
+    for number, (question, answer, _control, why, _probe) in enumerate(questions, 1):
         lines += [f"## {number}. {question}",
                   f"- **Correct:** {answer}",
                   f"- {why}",

@@ -220,8 +220,35 @@ def test_the_glossary_states_the_rules_the_layout_only_implies(tmp_path):
     pack_dir, _, _, _ = _pack(tmp_path)
     text = (pack_dir / agent_pack.GLOSSARY_NAME).read_text(encoding="utf-8")
     for phrase in ("do not sum", "never measured reach", "Archived activities are included",
-                   "once, in the week it starts", "GEB or GEB-1"):
+                   "once, in the week it starts", "GEB or GEB-1",
+                   # Without this one a reader -- human or agent -- reports the
+                   # previous year's quarter on an in-scope activity as a data
+                   # error. It is the overlap rule working, and a real run
+                   # raised it as an anomaly to be reviewed.
+                   "overlap test, not a start-date test"):
         assert phrase in text, f"the glossary does not state: {phrase}"
+
+
+def test_the_pack_never_names_the_operators_own_files(tmp_path):
+    """The pack is uploaded to where the audience reads; local paths are not.
+
+    The workbook dropped its "Source: <file>" rows for this reason, and the
+    argument is stronger here: a filename carrying a date or someone's initials
+    invites a question the pack cannot answer, and hands an agent a local path
+    to quote back. The agreement test cannot catch this on its own -- it
+    compares only labels both sides carry, so a row the workbook has stopped
+    printing simply drops out of the comparison.
+    """
+    pack_dir, out_dir, scope, _ = _pack(tmp_path)
+    names = {name for _, name in scope.source_files}
+    assert names, "the fixture should have source files, or this proves nothing"
+    for path in list(pack_dir.iterdir()) + [out_dir / agent_pack.CHECKLIST_NAME]:
+        if path.suffix == ".xlsx":
+            continue
+        text = path.read_text(encoding="utf-8")
+        for name in names:
+            assert name not in text, f"{path.name} names the export file {name}"
+        assert "Source:" not in text, f"{path.name} carries a Source: row"
 
 
 def test_the_summary_states_that_scope_is_a_filter(tmp_path):
@@ -247,23 +274,46 @@ def test_the_checklist_is_not_inside_the_pack(tmp_path):
 
 
 def test_the_checklist_answers_are_computed_from_the_data(tmp_path):
-    pack_dir, out_dir, scope, config = _pack(tmp_path)
-    questions = agent_pack.checklist_questions(scope, config)
-    assert len(questions) >= 5
-    assert sum(1 for _, _, control, _ in questions if control) >= 2
-    assert sum(1 for _, _, control, _ in questions if not control) >= 3
+    """The balance of kinds is asserted once, by the test that owns it."""
+    _, out_dir, scope, config = _pack(tmp_path)
+    assert len(agent_pack.checklist_questions(scope, config)) >= 5
     text = (out_dir / agent_pack.CHECKLIST_NAME).read_text(encoding="utf-8")
     assert str(len(scope.frame)) in text
 
 
-def test_the_control_answers_are_findable_in_the_pack(tmp_path):
-    """A control question is only a control if the pack really pre-computes it."""
-    pack_dir, out_dir, scope, config = _pack(tmp_path)
-    summary = (pack_dir / agent_pack.SUMMARY_NAME).read_text(encoding="utf-8")
-    for question, answer, control, _ in agent_pack.checklist_questions(scope, config):
+def _pack_prose(pack_dir):
+    return "\n".join((pack_dir / name).read_text(encoding="utf-8")
+                     for name in (agent_pack.SUMMARY_NAME, agent_pack.QUALITY_NAME))
+
+
+def test_every_question_is_graded_by_what_the_pack_actually_states(tmp_path):
+    """Both directions, on the probe that produced the grade.
+
+    The inverse is the half that was missing, and its absence is what let the
+    first real run mis-grade a question: "how many external activities" was
+    written down as a count while `01-summary.txt` said `External: 275`
+    outright, so an agent that only ever reads files answered it correctly and
+    looked as though it had computed something.
+    """
+    pack_dir, _, scope, config = _pack(tmp_path)
+    prose = _pack_prose(pack_dir)
+    for question, _answer, control, _note, probe in agent_pack.checklist_questions(
+            scope, config):
+        stated = agent_pack._states(prose, *probe)
         if control:
-            assert str(answer).split(" with ")[0] in summary, (
-                f"marked as a control, but the pack does not state it: {question}")
+            assert stated, f"graded as a control, but the pack does not state it: {question}"
+        else:
+            assert not stated, (
+                f"graded as a counting question, but the pack states {probe}: {question}")
+
+
+def test_the_checklist_keeps_questions_of_both_kinds(tmp_path):
+    """A list of only controls measures nothing; only counts has no baseline."""
+    _, _, scope, config = _pack(tmp_path)
+    kinds = [control for _, _, control, _, _ in
+             agent_pack.checklist_questions(scope, config)]
+    assert sum(kinds) >= 2, "no control questions -- nothing to calibrate against"
+    assert kinds.count(False) >= 2, "no counting questions -- nothing to measure"
 
 
 def test_the_skill_package_has_its_manifest_at_the_archive_root(tmp_path):
