@@ -344,6 +344,22 @@ def test_the_pack_says_when_it_was_generated(tmp_path):
     assert "Data as of" in instructions, "nothing tells the agent to state it"
 
 
+def test_the_footer_is_one_line_carrying_both_things(tmp_path):
+    """Vintage and signature share a line, and the vintage comes first.
+
+    Two footers stop being a signature and become a masthead, and a reader who
+    skips one line skips two -- taking the staleness warning with it, which is
+    the half that changes what someone does.
+    """
+    _, out_dir, _, _ = _pack(tmp_path)
+    text = (out_dir / agent_pack.INSTRUCTIONS_NAME).read_text(encoding="utf-8")
+    footer = next(line for line in text.splitlines() if "Powered by" in line)
+    assert "Data as of" in footer, "the signature has its own line"
+    assert footer.index("Data as of") < footer.index("Powered by")
+    assert agent_pack.TEAM_SIGNATURE in footer, "the agent is not signed"
+    assert "never split into two" in text
+
+
 def test_the_instructions_carry_no_organisation_name(tmp_path):
     """This repository is public. The name is filled in where the text is used.
 
@@ -354,7 +370,7 @@ def test_the_instructions_carry_no_organisation_name(tmp_path):
     _, out_dir, _, _ = _pack(tmp_path)
     text = (out_dir / agent_pack.INSTRUCTIONS_NAME).read_text(encoding="utf-8")
     assert agent_pack.ORGANISATION_PLACEHOLDER in text
-    assert "Replace <ORGANISATION> throughout before pasting" in text
+    assert "Before pasting, replace throughout" in text
     for word in ("brand compliance", "-compliant charts", "communication standards"):
         for line in text.splitlines():
             if word in line.lower():

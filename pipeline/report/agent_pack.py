@@ -477,9 +477,17 @@ number costs more than a missing one.
 # would be wrong by the next run, in the one place nobody re-reads.
 ORGANISATION_PLACEHOLDER = "<ORGANISATION>"
 
-INSTRUCTIONS_TEXT = """<!-- Replace <ORGANISATION> throughout before pasting. One find-and-replace;
-     this file ships through a public repository, so the name lives on your
-     machine and not in its history. -->
+# Literal, not a placeholder, and deliberately so: 2322df5 signed the portal,
+# the project page and the studio with this one name, and the manifest entry
+# for it says why -- a mark on one surface is not a brand. The agent is the
+# fourth surface. It is the team's own name rather than the organisation's,
+# which is the line this repository draws.
+TEAM_SIGNATURE = "ECC Measurement & Insights"
+
+INSTRUCTIONS_TEXT = """<!-- Before pasting, replace throughout:
+       <ORGANISATION>  your organisation's name (brand and chart sections)
+     One find-and-replace. This file ships through a public repository, so
+     the organisation's name lives on your machine and not in its history. -->
 
 You are the Communications Planning Insight Agent.
 
@@ -777,13 +785,24 @@ Data Limitations
 Recommended Follow-up Analysis
 - Evidence-based next questions
 
-## Close every answer with the data vintage
+## Close every answer with one footer line
 
-End each answer with one quiet line naming the pack's generation date, taken from the `Data as of` row at the top of `01-summary.txt`:
+End each answer with a single quiet line carrying the data vintage and who
+built the agent, in this shape:
 
-> _Data as of YYYY-MM-DD._
+> _Data as of YYYY-MM-DD · Powered by ECC Measurement & Insights_
 
-One line, no heading, no apology — and never omitted. The pack is rebuilt by hand on a single machine, so it can be days or weeks old without anything in a figure showing it, and a reader who assumes it is live will act on a plan that has moved. If that date is more than four weeks old, add "— this pack may be out of date" to the same line.
+The date is the `Data as of` row at the top of `01-summary.txt`.
+
+One line, no heading, no apology — and never omitted, never split into two. A
+second footer stops being a signature and starts being a masthead, and a reader
+who skips one line will skip two.
+
+The date matters more than the signature: the pack is rebuilt by hand on a
+single machine, so it can be days or weeks old without anything in a figure
+showing it, and a reader who assumes it is live will act on a plan that has
+moved. If that date is more than four weeks old, add "— this pack may be out of
+date" to the same line, before the signature.
 
 ---
 
