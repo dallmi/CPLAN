@@ -326,6 +326,24 @@ def test_the_evaluation_questions_do_not_carry_their_own_answers(tmp_path):
             f"the question gives its own answer away: {case['Question']!r}")
 
 
+def test_the_pack_says_when_it_was_generated(tmp_path):
+    """The one figure no other file can imply.
+
+    Period tells a reader which activities are covered; it never says when
+    anyone last looked. The pack is rebuilt by hand on one machine, so between
+    runs every figure silently ages.
+    """
+    scope, config = _scope(tmp_path)
+    stamp = date(2026, 3, 17)
+    out_dir = tmp_path / "out"
+    pack_dir = agent_pack.write_pack(scope, config, out_dir, generated=stamp)
+    for name in (agent_pack.README_NAME, agent_pack.SUMMARY_NAME):
+        text = (pack_dir / name).read_text(encoding="utf-8")
+        assert "2026-03-17" in text, f"{name} does not say when it was generated"
+    instructions = (out_dir / agent_pack.INSTRUCTIONS_NAME).read_text(encoding="utf-8")
+    assert "Data as of" in instructions, "nothing tells the agent to state it"
+
+
 def test_the_instructions_add_rather_than_replace(tmp_path):
     """An operator's own prompt is not ours to overwrite, and we only see part.
 

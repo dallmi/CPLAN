@@ -31,6 +31,7 @@ implementation -- `tests/test_agent_pack.py` holds the two to each other.
 import csv
 import re
 import zipfile
+from datetime import date
 
 from openpyxl import Workbook
 
@@ -173,7 +174,18 @@ def calendar_rows(scope, config):
 # The prose files
 # --------------------------------------------------------------------------
 
-def _summary_sections(scope, config):
+def vintage(generated):
+    """The one line that says how old these figures are.
+
+    The pack is rebuilt by hand, on one machine, by one person -- who takes
+    holidays. Between two runs every figure here silently ages, and nothing in
+    the files said so: the period tells a reader which activities are covered,
+    never when anyone last looked.
+    """
+    return f"Data as of {generated.isoformat()} (CPLAN pack generation date)"
+
+
+def _summary_sections(scope, config, generated):
     """The Executive Summary's sections, as (title, [(label, value)]) pairs.
 
     Same order and same figures as `build_executive_summary`, from the same
@@ -184,6 +196,7 @@ def _summary_sections(scope, config):
     total = len(frame)
 
     report = list(config.describe())
+    report.append(("Data as of", generated.isoformat()))
     report.append(("Weeks covered", len(scope.grid.weeks)))
     # No "Source: <file>" rows, for the reason the workbook dropped them on
     # 2026-08-06 and then some: they name the operator's export files to an
@@ -246,19 +259,23 @@ def _summary_sections(scope, config):
     ]
 
 
-def summary_text(scope, config):
+def summary_text(scope, config, generated=None):
+    generated = generated or date.today()
     total = len(scope.frame)
     lines = [
         "CPLAN REPORT - EXECUTIVE SUMMARY",
         "",
         f"Period covered: {config.period_label()}. Every figure is a count of "
         "activities.",
+        "",
+        vintage(generated) + ". Activities entered in the source system after "
+        "that date are not represented here.",
     ]
     lines += _rule(
         "Scope is a hard filter. An activity that fails any criterion in REPORT "
         "below is absent from every figure in this pack, so a question about a "
         "date outside the period is OUT OF SCOPE -- not zero.")
-    for title, rows in _summary_sections(scope, config):
+    for title, rows in _summary_sections(scope, config, generated):
         lines += ["", title, "-" * len(title)]
         for label, value in rows:
             share = ""
@@ -354,7 +371,7 @@ def data_quality_text(scope, config):
     return "\n".join(lines)
 
 
-def readme_text(scope, config, activity_rows):
+def readme_text(scope, config, activity_rows, generated):
     return f"""CPLAN AGENT PACK
 
 Machine-readable companion to the CPLAN calendar workbook. Same pipeline run,
@@ -362,6 +379,11 @@ same figures -- a different rendering, not a different report.
 
 Period covered: {config.period_label()}
 Activities in scope: {len(scope.frame)}
+{vintage(generated)}
+
+The pack is rebuilt by hand rather than on a schedule, so this date is the one
+figure here that no other file can imply. Say it in every answer, and treat
+anything entered in the source system after it as not represented.
 
   {README_NAME}        this file
   {GLOSSARY_NAME}      definitions and reading rules - READ FIRST
@@ -484,6 +506,18 @@ this one governs.
   cannot see every row, say so instead of estimating.
 - **When the answer is not in these files**, say so and point to the planning
   studio, which holds the full record. Do not reason your way to a figure.
+
+## End every answer with the data vintage
+
+Close each answer with one quiet line naming the pack's generation date, which
+is the `Data as of` row at the top of `{SUMMARY_NAME}`:
+
+> _Data as of YYYY-MM-DD._
+
+One line, no heading, no apology -- but never omitted. The pack is rebuilt by
+hand on a single machine, so it can be days or weeks old without anything in a
+figure showing it, and a reader who assumes it is live will act on a plan that
+has moved. If the date is more than four weeks old, say so in the same line.
 """
 
 
@@ -557,13 +591,14 @@ def _write_activities_xlsx(path, header, rows):
     book.save(path)
 
 
-def write_pack(scope, config, out_dir):
+def write_pack(scope, config, out_dir, generated=None):
     """Write the pack, the skill package and the checklist under `out_dir`.
 
     Returns the pack directory. The uploaded files go in `pack/`; the skill
     ZIP and the checklist sit beside it, because neither belongs in a folder
     someone is told to point a knowledge source at.
     """
+    generated = generated or date.today()
     out_dir.mkdir(parents=True, exist_ok=True)
     pack_dir = out_dir / PACK_DIRNAME
     pack_dir.mkdir(parents=True, exist_ok=True)
@@ -572,11 +607,12 @@ def write_pack(scope, config, out_dir):
     _write_csv(pack_dir / CALENDAR_NAME, CALENDAR_HEADER, calendar_rows(scope, config))
     _write_csv(pack_dir / ACTIVITIES_CSV_NAME, headers, rows)
     _write_activities_xlsx(pack_dir / ACTIVITIES_XLSX_NAME, headers, rows)
-    (pack_dir / SUMMARY_NAME).write_text(summary_text(scope, config), encoding="utf-8")
+    (pack_dir / SUMMARY_NAME).write_text(summary_text(scope, config, generated),
+                                         encoding="utf-8")
     (pack_dir / GLOSSARY_NAME).write_text(glossary_text(scope, config), encoding="utf-8")
     (pack_dir / QUALITY_NAME).write_text(data_quality_text(scope, config), encoding="utf-8")
-    (pack_dir / README_NAME).write_text(readme_text(scope, config, len(rows)),
-                                        encoding="utf-8")
+    (pack_dir / README_NAME).write_text(
+        readme_text(scope, config, len(rows), generated), encoding="utf-8")
 
     _write_skill_zip(pack_dir, out_dir / SKILL_ZIP_NAME)
     (out_dir / CHECKLIST_NAME).write_text(checklist_text(scope, config), encoding="utf-8")
