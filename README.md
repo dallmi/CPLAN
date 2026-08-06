@@ -131,6 +131,20 @@ PYTHONPATH=. .venv/bin/python -m pipeline.scripts.daily_refresh --skip-pipeline
 PYTHONPATH=. .venv/bin/python -m pipeline.scripts.daily_refresh --skip-standalone
 ```
 
+### Time-zone check (before a refresh, when the export changed)
+
+```bash
+PYTHONPATH=. .venv/bin/python -m pipeline.scripts.check_time_zones
+```
+
+The source's time-zone column is a lookup into a list the organisation
+maintains, so its values are display names — `Hong Kong, China, Taiwan Time -
+GMT+8:00` — and `activities.time_zone` is a fixed-width column. One value longer
+than it ends the refresh on the INSERT before a single row is written, and every
+activity then reads as missing a time zone. This lists what the export carries,
+names anything that will not fit, and exits nonzero when it finds one. On
+Windows, `timezones.cmd`.
+
 ### Standalone studio (read-only)
 
 The third step exports the whole planning studio as one double-clickable file
