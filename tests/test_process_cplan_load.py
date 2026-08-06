@@ -172,6 +172,38 @@ def test_the_time_zone_column_is_matched_whatever_case_the_source_used():
         assert row["time_zone"] == "Europe/London", header
 
 
+def test_the_time_zone_lookup_is_unwrapped_to_its_value():
+    """The source column is a lookup, not free text -- it arrives as the
+    expanded-reference JSON, the same shape as every other lookup here.
+
+    Mapping it without parsing it was worse than not mapping it at all: the
+    ~130-character blob went straight at `activities.time_zone`, a
+    `varchar(64)`, and PostgreSQL rejected the INSERT. That killed the daily
+    refresh outright, so no row was written at all and every activity still
+    read as missing a time zone -- the very symptom the mapping was meant to
+    end.
+    """
+    row = _mapped_cells(
+        ["ID", "Title", "Start date", "Time zone"],
+        [
+            "1", "A", "2025-03-05",
+            '{"@odata.type":"#Microsoft.Azure.Connectors.SharePoint.SPListExpandedReference",'
+            '"Id":1,"Value":"Hong Kong, China, Taiwan Time - GMT+8:00"}',
+        ],
+    )
+
+    assert row["time_zone"] == "Hong Kong, China, Taiwan Time - GMT+8:00"
+
+
+def test_a_plain_text_time_zone_still_survives_the_lookup_parser():
+    """Not every export writes the lookup JSON -- a hand-maintained column
+    carries the bare value, and the parser has to leave it alone.
+    """
+    row = _mapped("ID,Title,Start date,Time zone", "1,A,2025-03-05,Europe/Zurich")
+
+    assert row["time_zone"] == "Europe/Zurich"
+
+
 def test_both_spellings_of_the_non_geb_executive_column_map_to_one_field():
     """The internal and external lists name it differently -- one carries a
     trailing digit -- and the source misspells "senior". Each export is

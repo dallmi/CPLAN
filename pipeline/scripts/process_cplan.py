@@ -529,13 +529,21 @@ COLUMN_MAP = {
 }
 
 # Columns that contain SP lookup JSON and need Value extraction
+#
+# `time_zone` belongs here for the same reason as every other entry -- the
+# source column is a lookup into a time-zone list, so it arrives as the
+# expanded-reference JSON, not as the bare zone. Mapping it without listing it
+# here was worse than leaving it unmapped: the ~130-character blob was handed
+# to a `varchar(64)` column and PostgreSQL refused the INSERT, which ended the
+# daily refresh before a single row was written. `parse_sp_lookup` passes a
+# non-JSON value through untouched, so a plain "Europe/Zurich" still survives.
 SP_LOOKUP_COLUMNS = {
     "target_audience", "extended_audience", "business_division",
     "business_area", "region", "channel", "lead", "lead_team",
     "partner_team", "priority", "strategic_objectives",
     "campaign", "campaign_ltid", "communication_pack_cpid", "bod_geb",
     "communication_ref", "communication_pack", "author", "audience",
-    "audience_type", "other_executives",
+    "audience_type", "other_executives", "time_zone",
 }
 
 # Columns where we also want to extract the email from Claims
