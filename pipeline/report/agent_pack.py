@@ -59,6 +59,18 @@ PACK_DIRNAME = "pack"
 SKILL_ZIP_NAME = "cplan-skill.zip"
 CHECKLIST_NAME = "checklist.md"
 INSTRUCTIONS_NAME = "agent-instructions.md"
+EVALUATION_NAME = "evaluation.csv"
+
+# Copilot Studio's evaluation import: these two headings, in this order, up to
+# 100 cases, 1000 characters per question.
+#
+# Safe to upload although it carries the answers, and the checklist is not:
+# an evaluation set is never grounded on. The agent is handed the Question
+# column and nothing else, and the expected response is read by whoever reviews
+# the run. Put an answer in the question text and that stops being true.
+EVALUATION_HEADER = ("Question", "Expected response")
+EVALUATION_MAX_CASES = 100
+EVALUATION_MAX_QUESTION_CHARS = 1000
 
 README_NAME = "00-README.txt"
 SUMMARY_NAME = "01-summary.txt"
@@ -572,6 +584,8 @@ def write_pack(scope, config, out_dir):
     # instructions reads them as data, quotes them back as findings, and the
     # rules stop being rules.
     (out_dir / INSTRUCTIONS_NAME).write_text(INSTRUCTIONS_TEXT, encoding="utf-8")
+    _write_csv(out_dir / EVALUATION_NAME, EVALUATION_HEADER,
+               evaluation_rows(scope, config))
     return pack_dir
 
 
@@ -687,6 +701,24 @@ def checklist_questions(scope, config):
                 if control else f"{reason} -- stated nowhere; only counting answers it")
         questions.append((question, answer, control, note, probe))
     return questions
+
+
+def evaluation_rows(scope, config):
+    """The same questions as the checklist, as an importable test set.
+
+    A sentence rather than a bare figure in the expected response: the graders
+    that do compare against it work on meaning or on text, and "1380" alone
+    gives either of them nothing to match a sentence against.
+
+    Which questions are controls is deliberately NOT encoded here. The import
+    takes two columns and no more, and a marker in the question text would
+    reach the agent -- `checklist.md` is where a reader learns which is which.
+    """
+    rows = []
+    for question, answer, _control, _note, _probe in checklist_questions(scope, config):
+        rows.append((question[:EVALUATION_MAX_QUESTION_CHARS],
+                     f"{answer}, for {config.period_label()}."))
+    return rows[:EVALUATION_MAX_CASES]
 
 
 def checklist_text(scope, config):

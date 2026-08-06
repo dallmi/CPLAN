@@ -274,7 +274,8 @@ def test_what_must_not_be_uploaded_sits_outside_the_pack(tmp_path):
     pack_dir, out_dir, _, _ = _pack(tmp_path)
     with zipfile.ZipFile(out_dir / agent_pack.SKILL_ZIP_NAME) as archive:
         packaged = archive.namelist()
-    for name in (agent_pack.CHECKLIST_NAME, agent_pack.INSTRUCTIONS_NAME):
+    for name in (agent_pack.CHECKLIST_NAME, agent_pack.INSTRUCTIONS_NAME,
+                 agent_pack.EVALUATION_NAME):
         assert not (pack_dir / name).exists(), f"{name} is inside the uploaded folder"
         assert name not in packaged, f"{name} is inside the skill package"
         assert (out_dir / name).exists(), f"{name} was not written at all"
@@ -291,6 +292,38 @@ def test_the_instructions_name_no_period_they_will_outlive(tmp_path):
     assert config.period_label() not in text
     assert not re.search(r"\b(19|20)\d{2}\b", text), "the instructions name a year"
     assert agent_pack.SUMMARY_NAME in text, "they must point at where the period is"
+
+
+def test_the_evaluation_set_matches_what_the_import_accepts(tmp_path):
+    """Two headings in this order, and the documented ceilings."""
+    _, out_dir, scope, config = _pack(tmp_path)
+    with (out_dir / agent_pack.EVALUATION_NAME).open(encoding="utf-8") as handle:
+        rows = list(csv.reader(handle))
+    assert tuple(rows[0]) == agent_pack.EVALUATION_HEADER
+    cases = rows[1:]
+    assert cases, "no test cases written"
+    assert len(cases) <= agent_pack.EVALUATION_MAX_CASES
+    for question, expected in cases:
+        assert len(question) <= agent_pack.EVALUATION_MAX_QUESTION_CHARS
+        assert expected.strip(), f"no expected response for {question!r}"
+    assert len(cases) == len(agent_pack.checklist_questions(scope, config))
+
+
+def test_the_evaluation_questions_do_not_carry_their_own_answers(tmp_path):
+    """The agent is handed the Question column; an answer in it is a leak.
+
+    This is what makes the evaluation set safe to upload while the checklist is
+    not: the expected response is read by whoever reviews the run, never by the
+    agent -- unless it has been written into the question.
+    """
+    _, out_dir, scope, config = _pack(tmp_path)
+    with (out_dir / agent_pack.EVALUATION_NAME).open(encoding="utf-8") as handle:
+        cases = list(csv.DictReader(handle))
+    answers = [str(answer) for _, answer, _, _, _ in
+               agent_pack.checklist_questions(scope, config)]
+    for case, answer in zip(cases, answers):
+        assert not agent_pack._states(case["Question"], answer), (
+            f"the question gives its own answer away: {case['Question']!r}")
 
 
 def test_the_instructions_add_rather_than_replace(tmp_path):

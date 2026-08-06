@@ -74,7 +74,8 @@ def main(argv=None):
     for name, note in (
             (agent_pack.SKILL_ZIP_NAME, "the same content as a skill package"),
             (agent_pack.INSTRUCTIONS_NAME, "APPEND to the agent's instructions"),
-            (agent_pack.CHECKLIST_NAME, "ANSWER KEY -- do NOT upload")):
+            (agent_pack.EVALUATION_NAME, "import under Evaluate (safe: never grounded on)"),
+            (agent_pack.CHECKLIST_NAME, "ANSWER KEY -- do NOT upload as knowledge")):
         path = out_dir / name
         log(f"  {name:<22} {path.stat().st_size / 1024:>8.1f} KB  {note}")
     log("")
