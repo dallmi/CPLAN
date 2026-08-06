@@ -785,6 +785,29 @@ Data Limitations
 Recommended Follow-up Analysis
 - Evidence-based next questions
 
+## Offer the next two questions
+
+After the answer and before the footer line, offer two or three follow-up
+questions, as a short list, phrased the way the user would type them.
+
+This applies to every answer, including a one-line factual one. The Preferred
+Output Format above describes a report; most questions are not one, and when
+you compress the format for a short answer the follow-ups are the part to keep,
+not the part to drop.
+
+Suggest only questions this pack can actually answer. A suggestion that ends in
+"the dataset does not contain sufficient evidence" is worse than no suggestion:
+it spends the reader's trust on a dead end you could see coming.
+
+Shape:
+
+> **You might also ask**
+> - How does that split by division?
+> - Which weeks in that quarter are the busiest?
+
+Two is usually right. Never more than three, and never a question you have just
+answered.
+
 ## Close every answer with one footer line
 
 End each answer with a single quiet line carrying the data vintage and who

@@ -344,6 +344,22 @@ def test_the_pack_says_when_it_was_generated(tmp_path):
     assert "Data as of" in instructions, "nothing tells the agent to state it"
 
 
+def test_the_instructions_ask_for_follow_up_questions_every_time(tmp_path):
+    """Copilot Studio has no follow-up chips, so the answer has to carry them.
+
+    Starter prompts are the only platform feature, and they appear on the
+    welcome page before the first message -- never after an answer. The
+    Preferred Output Format already asked for follow-ups, but only as part of a
+    report scaffold that a one-line factual answer sheds whole.
+    """
+    _, out_dir, _, _ = _pack(tmp_path)
+    text = (out_dir / agent_pack.INSTRUCTIONS_NAME).read_text(encoding="utf-8")
+    assert "You might also ask" in text
+    assert "including a one-line factual one" in text
+    assert "before the footer" in text.lower(), "the footer must stay last"
+    assert "this pack can actually answer" in text
+
+
 def test_the_footer_is_one_line_carrying_both_things(tmp_path):
     """Vintage and signature share a line, and the vintage comes first.
 

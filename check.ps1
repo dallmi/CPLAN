@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-06.21"
+$manifestVersion = "2026-08-06.22"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-06.21"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-06.21"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-06.22"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -171,6 +171,7 @@ $manifest = @(
     # in-scope activity as a data error; the derived grading is what stops the
     # checklist calling a question a count while the summary states its answer.
     @{ Path = "pipeline\report\agent_pack.py"; Marker = "overlap test, not a start-date test"; Why = "scope is an overlap test - without the sentence, an agent flags a Q4-2025 label inside a 2026 report as an anomaly worth reviewing" },
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "You might also ask";             Why = "every answer offers its own follow-ups - Copilot Studio has no follow-up chips, only starter prompts on the welcome page, so an older copy leaves each answer a dead end" },
     @{ Path = "pipeline\report\agent_pack.py"; Marker = "TEAM_SIGNATURE";                 Why = "the agent is the fourth surface signed with the team name, and the footer carries it beside the data vintage on one line - an older copy omits the credit, and an operator adding it by hand makes it a second footer" },
     @{ Path = "pipeline\report\agent_pack.py"; Marker = "ORGANISATION_PLACEHOLDER";       Why = "the full agent instructions ship organisation-neutral through a public repository - an older copy carries only the addendum and leaves the stale Excel and audience-reach lines in place" },
     @{ Path = "pipeline\report\agent_pack.py"; Marker = "def vintage";                    Why = "the pack states its own generation date and the instructions require it in every answer - it is rebuilt by hand, so without it a reader cannot tell a fresh figure from a month-old one" },
