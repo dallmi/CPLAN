@@ -111,6 +111,40 @@ change the period, the senior-executive criterion and the audience-size
 criterion. The design is documented in
 [`docs/superpowers/specs/2026-07-30-calendar-report-design.md`](docs/superpowers/specs/2026-07-30-calendar-report-design.md).
 
+### Agent pack
+
+The same report in a shape a retrieval agent can read. The workbook cannot be
+grounded on: its meaning lives in merged headers, collapsed outlines and
+formulas, and a formula written by `openpyxl` carries no cached value at all —
+on the Executive Summary the share formula *is* the row label, so an indexer
+reads neither the percentage nor what it describes.
+
+```bash
+python pipeline/scripts/build_agent_pack.py            # same period flags as the report
+```
+
+On Windows, double-click `agentpack.cmd`. It takes the same period flags as
+`report.cmd`; running both with the same flags is what makes them two
+renderings of one report rather than two reports.
+
+Three artefacts land in `pipeline/output/agent-pack/` (gitignored — they carry
+production figures):
+
+| | |
+|---|---|
+| `pack/` | the folder to point a knowledge source at: four `.txt`, two `.csv`, one single-sheet `.xlsx` |
+| `cplan-skill.zip` | the same content as a skill package, `SKILL.md` at the archive root |
+| `checklist.md` | questions with computed answers, half of them pre-computed in the pack and half not. **Not for uploading** — an agent that can read the answer key passes without computing anything |
+
+`.txt` rather than `.md` because Markdown is not on the crawled-extension list,
+and a file that is not crawled is not retrievable. The calendar is long rather
+than wide — one row per block × value × week — so a row keeps its meaning
+wherever the file is chunked, and every row carries an `overlaps` column
+because only `block=TOTAL` sums to the portfolio.
+
+`tests/test_agent_pack.py` holds the pack and the workbook to each other; both
+resolve their scope through the same `resolve_scope`.
+
 The combined leadership field can be split into GEB and GEB-1 with
 `--geb-members path/to/list.xlsx` (or `report.ps1 -GebMembers ...`). The file
 names each GEB member by email and/or display name, in two columns headed

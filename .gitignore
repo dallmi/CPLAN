@@ -15,6 +15,10 @@ pipeline/output/*.json
 pipeline/output/*.html
 pipeline/output/*.xlsx
 pipeline/output/reports/
+# The agent pack carries the same production figures as the workbook, in files
+# that are meant to be uploaded rather than committed -- and checklist.md holds
+# the answer key beside them.
+pipeline/output/agent-pack/
 
 # Pipeline docs (internal only)
 pipeline/docs/

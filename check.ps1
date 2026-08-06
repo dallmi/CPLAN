@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-06.9"
+$manifestVersion = "2026-08-06.10"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-06.9"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-06.9"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-06.10"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -156,6 +156,17 @@ $manifest = @(
     @{ Path = "pipeline\report\metrics.py";    Marker = "REPORTED_FIELDS";                   Why = "load, lead time, pack and completeness figures" },
     @{ Path = "pipeline\report\regions.py";    Marker = "GROUP_UNMAPPED";                    Why = "region grouping and the unmapped-value report" },
     @{ Path = "pipeline\report\style.py";      Marker = "NUM_FMT_PCT";                       Why = "every colour, number format and sheet-finishing helper the workbook is built from" },
+    # The agent pack: the same report rendered for a retrieval index instead of
+    # for a reader. Added as a second marker on report_calendar.py rather than
+    # replacing the one above, so the file keeps both claims -- resolve_scope is
+    # what makes the pack and the workbook two renderings of one report, and a
+    # copy from before it cannot build the pack at all (ImportError), while an
+    # older agentpack.ps1 would run against a report_calendar.py that has it.
+    @{ Path = "pipeline\scripts\report_calendar.py"; Marker = "def resolve_scope";           Why = "the scope resolution the pack shares with the workbook - without it build_agent_pack.py fails to import" },
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "def write_pack";                    Why = "the agent pack itself: values instead of formulas, long instead of wide, the layout rules written out as sentences" },
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "CHECKLIST_NAME";                    Why = "the answer key is written OUTSIDE the uploaded folder - inside it, an agent grounds on it and passes the test by reading the answers" },
+    @{ Path = "pipeline\scripts\build_agent_pack.py"; Marker = "DEFAULT_OUTPUT_DIR";         Why = "the pack entry point; without it agentpack.cmd reports a missing file instead of building anything" },
+    @{ Path = "agentpack.ps1";                 Marker = "cplan-skill.zip";                   Why = "the pack launcher, and the one place that says which of the three artefacts must NOT be uploaded" },
     # The team signature. Added as second markers rather than replacing the
     # ones above, so each file keeps both claims. A brand is only a brand if it
     # is the same everywhere; a hand-copy carrying the old wording would report

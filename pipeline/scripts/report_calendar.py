@@ -179,24 +179,31 @@ def resolve_config(config, args, parser):
     return replace(config, date_from=args.date_from, date_to=args.date_to)
 
 
-def main(argv=None):
-    parser = build_parser()
-    args = parser.parse_args(argv)
-    config = resolve_config(CONFIG, args, parser)
+def resolve_scope(args, config):
+    """Read the exports and filter them to `config`, or report why it cannot.
 
-    print_banner("CPLAN Calendar Report")
-    log(f"Period: {config.period_label()}")
+    Returns `(scope, config)`; `(None, None)` when something the operator has
+    to fix stands in the way, having already logged what. `config` comes back
+    because a loaded GEB list replaces the combined leadership field with its
+    two halves, and every consumer needs the config that describes what it
+    actually got.
+
+    Shared with `build_agent_pack.py` rather than written twice: the pack and
+    the workbook are two renderings of one report, and the guarantee that they
+    hold the same figures starts with them resolving the same scope from the
+    same flags.
+    """
     input_dir = Path(args.input_dir) if args.input_dir else find_input_dir()
     files = find_input_files(input_dir)
     if not files:
         log(f"ERROR: no input files found in {input_dir}")
         log(f"Expected one of: {', '.join(INPUT_FILES.values())}")
-        return 1
+        return None, None
 
     load = load_activities(files)
     if load.frame.empty:
         log("ERROR: the input files contain no activities")
-        return 1
+        return None, None
 
     # An absent default file is the normal state and stays silent. An absent
     # *named* file is a typo on the command line, and producing the unsplit
@@ -205,7 +212,7 @@ def main(argv=None):
         members_path = Path(args.geb_members)
         if not members_path.exists():
             log(f"ERROR: no GEB member list at {members_path}")
-            return 1
+            return None, None
     else:
         # None when the directory holds neither default; an error when it
         # holds both, which is a question only the operator can settle.
@@ -213,12 +220,12 @@ def main(argv=None):
             members_path = membership.default_path(REPO_DIR)
         except membership.MembershipError as error:
             log(f"ERROR: {error}")
-            return 1
+            return None, None
     try:
         members = membership.load_membership(members_path) if members_path else None
     except membership.MembershipError as error:
         log(f"ERROR: {error}")
-        return 1
+        return None, None
     if members is not None:
         log(f"GEB list: {len(members)} members from {members_path.name}")
 
@@ -254,6 +261,19 @@ def main(argv=None):
             log("         at the edges are:")
             for label, day in _edge_activities(scope.frame):
                 log(f"           {day}  {label}")
+    return scope, config
+
+
+def main(argv=None):
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    config = resolve_config(CONFIG, args, parser)
+
+    print_banner("CPLAN Calendar Report")
+    log(f"Period: {config.period_label()}")
+    scope, config = resolve_scope(args, config)
+    if scope is None:
+        return 1
 
     log("Building sheets:")
     wb = build_workbook(scope, config)
