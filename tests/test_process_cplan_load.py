@@ -182,6 +182,26 @@ def test_the_time_zone_lookup_is_unwrapped_to_its_value():
     refresh outright, so no row was written at all and every activity still
     read as missing a time zone -- the very symptom the mapping was meant to
     end.
+
+    An unmapped value on purpose, so this pins the unwrapping alone: a
+    translated one would pass even if the whole JSON blob were being handed to
+    `TIME_ZONE_MAP` and merely missing there.
+    """
+    row = _mapped_cells(
+        ["ID", "Title", "Start date", "Time zone"],
+        [
+            "1", "A", "2025-03-05",
+            '{"@odata.type":"#Microsoft.Azure.Connectors.SharePoint.SPListExpandedReference",'
+            '"Id":1,"Value":"Mars Standard Time - GMT+25:00"}',
+        ],
+    )
+
+    assert row["time_zone"] == "Mars Standard Time - GMT+25:00"
+
+
+def test_the_display_name_is_translated_to_an_iana_zone():
+    """The lookup carries the legacy Java zone descriptions, which no clock
+    library and no `<select>` in the studio knows.
     """
     row = _mapped_cells(
         ["ID", "Title", "Start date", "Time zone"],
@@ -192,7 +212,38 @@ def test_the_time_zone_lookup_is_unwrapped_to_its_value():
         ],
     )
 
-    assert row["time_zone"] == "Hong Kong, China, Taiwan Time - GMT+8:00"
+    assert row["time_zone"] == "Asia/Shanghai"
+
+
+def test_the_zone_its_own_activities_contradict_maps_where_the_rows_are():
+    """"Middle East Time - GMT+3:30" is Tehran by the label. All seven
+    activities using it sit in Abu Dhabi, which is GMT+4 -- the label was
+    picked by its name. The rows outrank it.
+    """
+    row = _mapped("ID,Title,Start date,Time zone", "1,A,2025-03-05,Middle East Time - GMT+3:30")
+
+    assert row["time_zone"] == "Asia/Dubai"
+
+
+def test_the_translation_survives_a_changed_capital_or_a_double_space():
+    """The source writes the label however the list entry was created, and a
+    missed translation looks exactly like a zone nobody has mapped yet.
+    """
+    for label in ("JAPAN STANDARD TIME - GMT+9:00", "Japan  Standard  Time - GMT+9:00"):
+        row = _mapped_cells(["ID", "Title", "Start date", "Time zone"],
+                            ["1", "A", "2025-03-05", label])
+        assert row["time_zone"] == "Asia/Tokyo", label
+
+
+def test_an_unmapped_zone_is_kept_rather_than_dropped():
+    """A zone added to the source list after this table was written must not
+    empty the field: the activity would read as missing one it has, which is
+    the failure this whole chain exists to end. It stays, and the time-zone
+    check reports it as unmapped.
+    """
+    row = _mapped("ID,Title,Start date,Time zone", "1,A,2025-03-05,Mars Standard Time - GMT+25:00")
+
+    assert row["time_zone"] == "Mars Standard Time - GMT+25:00"
 
 
 def test_a_plain_text_time_zone_still_survives_the_lookup_parser():

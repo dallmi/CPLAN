@@ -23,7 +23,9 @@ def _lookup(value: str) -> str:
 
 
 SHORT = "Hong Kong, China, Taiwan Time - GMT+8:00"
+SHORT_ZONE = "Asia/Shanghai"  # what the ETL translates SHORT to, and so what is stored
 LONG = "Belgrade, Bratislava, Budapest, Ljubljana, Prague Time - GMT+1:00"  # 65 characters
+UNMAPPED = "Mars Standard Time - GMT+25:00"  # in no translation table, so it passes through
 
 
 def _export(tmp_path: Path, header: str, *values: str) -> Path:
@@ -57,11 +59,14 @@ def test_values_that_fit_pass(tmp_path, capsys):
 
 
 def test_the_lookup_json_is_measured_unwrapped(tmp_path, capsys):
-    """The blob is ~140 characters; what reaches the column is the 40 inside it."""
-    _export(tmp_path, "Time zone", _lookup(SHORT))
+    """The blob is ~140 characters; what reaches the column is the 30 inside it.
+
+    An unmapped value, so this pins the unwrapping rather than the translation.
+    """
+    _export(tmp_path, "Time zone", _lookup(UNMAPPED))
 
     assert check_time_zones.main(["--input", str(tmp_path)]) == 0
-    assert SHORT in capsys.readouterr().out
+    assert UNMAPPED in capsys.readouterr().out
 
 
 def test_a_plain_text_column_is_read_as_it_stands(tmp_path, capsys):
@@ -77,7 +82,7 @@ def test_the_sharepoint_encoded_column_name_is_matched(tmp_path, capsys):
     _export(tmp_path, "Time_x0020_zone", _lookup(SHORT))
 
     assert check_time_zones.main(["--input", str(tmp_path)]) == 0
-    assert SHORT in capsys.readouterr().out
+    assert SHORT_ZONE in capsys.readouterr().out
 
 
 def test_an_export_without_the_column_fails_rather_than_reporting_all_clear(tmp_path, capsys):
@@ -169,6 +174,35 @@ def test_a_row_without_a_region_is_counted_as_blank_not_dropped(tmp_path, capsys
     assert "(blank) (1)" in capsys.readouterr().out
 
 
+def test_a_zone_the_map_does_not_translate_is_named(tmp_path, capsys):
+    """The one failure that goes quiet: the source list gains an entry, it is
+    stored as its display name, and only the drawer's "Not set" ever says so.
+    """
+    _export(tmp_path, "Time zone", _lookup("Mars Standard Time - GMT+25:00"))
+
+    assert check_time_zones.main(["--input", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "not translated to an IANA zone" in out
+    assert "Mars Standard Time - GMT+25:00" in out
+
+
+def test_a_translated_export_reports_nothing_to_map(tmp_path, capsys):
+    _export(tmp_path, "Time zone", _lookup(SHORT), _lookup("Japan Standard Time - GMT+9:00"))
+
+    assert check_time_zones.main(["--input", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "not translated" not in out
+    assert "Asia/Shanghai" in out and "Asia/Tokyo" in out
+
+
+def test_a_hand_maintained_iana_value_is_not_called_unmapped(tmp_path, capsys):
+    """It translates to nothing because it needs no translation."""
+    _export(tmp_path, "Time zone", "Asia/Singapore")
+
+    assert check_time_zones.main(["--input", str(tmp_path)]) == 0
+    assert "not translated" not in capsys.readouterr().out
+
+
 def test_the_limit_comes_from_the_model_not_from_a_number_typed_here():
     """A widened column must not leave this check failing rows that now fit."""
     from pipeline.api.app import Activity
@@ -177,10 +211,11 @@ def test_the_limit_comes_from_the_model_not_from_a_number_typed_here():
 
 
 def test_the_mapping_is_the_etls_own(tmp_path):
-    """No second implementation of the column matching lives here: what this
-    counts is what `transform()` produced, so the two cannot disagree.
+    """No second implementation of the column matching or the translation lives
+    here: what this counts is what `transform()` produced -- and therefore what
+    the sync would store -- so the two cannot disagree.
     """
     _export(tmp_path, "Time zone", _lookup(SHORT))
     files = {"internal": tmp_path / "InternalCommunicationActivities.csv"}
 
-    assert check_time_zones.collect(files).values == {SHORT: 1}
+    assert check_time_zones.collect(files).values == {SHORT_ZONE: 1}

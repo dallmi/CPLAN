@@ -528,6 +528,80 @@ COLUMN_MAP = {
     "Audience":                 "audience_type",
 }
 
+# The source's time-zone list, translated to IANA zones.
+#
+# The labels are the legacy Java three-letter zone descriptions -- which is why
+# the list reads "Pakistan Lahore Time" and "Near East Time" -- so most of this
+# table is Java's own `ZoneId.SHORT_IDS`, read off rather than guessed. Three
+# entries are not, because the activities using them say otherwise, and the
+# rows outrank the label when they contradict it unambiguously:
+#
+#   - "Middle East Time - GMT+3:30" is Java's Tehran. All seven activities
+#     using it sit in Abu Dhabi, which is GMT+4: the label was picked by its
+#     name, not its offset. Tehran would have written that mistake down as
+#     fact, so it maps where its rows are, alongside "Near East Time".
+#   - "Puerto Rico and US Virgin Islands Time" is used twice, by New York.
+#   - "Hong Kong, China, Taiwan Time" leads with Hong Kong, but its rows are
+#     China first (1219) and the two zones are the same clock anyway.
+#
+# Everything else is translated literally, including "Eastern European Time",
+# whose rows are Swiss-led but global ("All"): a lead team is not a place, and
+# re-labelling 67 activities as Zurich would erase a distinction the source
+# made. `pipeline/scripts/check_time_zones.py --context` is what these counts
+# come from, and is how the next disagreement gets found.
+#
+# An unknown value passes through unchanged: nothing is lost, completeness
+# still counts it as filled, and it shows up unmapped in that same check.
+TIME_ZONE_MAP = {
+    "European Central Time - GMT+1:00":                 "Europe/Zurich",
+    "Greenwich Mean Time - GMT":                        "Europe/London",
+    "Eastern European Time - GMT+2:00":                 "Europe/Athens",
+    "Eastern Standard Time (America) - GMT-5:00":       "America/New_York",
+    "Indiana Eastern Standard Time - GMT-5:00":         "America/Indiana/Indianapolis",
+    "Central Standard Time (America) - GMT-6:00":       "America/Chicago",
+    "Pacific Standard Time - GMT-8:00":                 "America/Los_Angeles",
+    "Puerto Rico and US Virgin Islands Time - GMT-4:00": "America/New_York",
+    "Brazil Eastern Time - GMT-3:00":                   "America/Sao_Paulo",
+    "(Arabic) Egypt Standard Time - GMT+2:00":          "Africa/Cairo",
+    "Eastern African Time - GMT+3:00":                  "Africa/Nairobi",
+    "Middle East Time - GMT+3:30":                      "Asia/Dubai",
+    "Near East Time - GMT+4:00":                        "Asia/Dubai",
+    "Pakistan Lahore Time - GMT+5:00":                  "Asia/Karachi",
+    "India Standard Time - GMT+5:30":                   "Asia/Kolkata",
+    "Bangladesh Standard Time - GMT+6:00":              "Asia/Dhaka",
+    "Vietnam Standard Time - GMT+7:00":                 "Asia/Ho_Chi_Minh",
+    "Hong Kong, China, Taiwan Time - GMT+8:00":         "Asia/Shanghai",
+    "Japan Standard Time - GMT+9:00":                   "Asia/Tokyo",
+    "Australia Central Time - GMT+9:30":                "Australia/Darwin",
+    "Australia Eastern Time - GMT+10:00":               "Australia/Sydney",
+    "Solomon Standard Time - GMT+11:00":                "Pacific/Guadalcanal",
+    "New Zealand Standard Time - GMT+12:00":            "Pacific/Auckland",
+}
+
+
+def _time_zone_key(value):
+    """Case- and spacing-insensitive lookup key.
+
+    The source writes the label whatever way the list entry was created, and a
+    double space or a changed capital must not silently cost a translation --
+    the value would pass through as a display name and look like a new zone.
+    """
+    return " ".join(str(value).split()).casefold()
+
+
+_TIME_ZONE_BY_KEY = {_time_zone_key(label): zone for label, zone in TIME_ZONE_MAP.items()}
+
+
+def map_time_zone(value):
+    """The IANA zone for a source display name; the value unchanged when unknown."""
+    if pd.isna(value):
+        return value
+    text = str(value).strip()
+    if not text:
+        return text
+    return _TIME_ZONE_BY_KEY.get(_time_zone_key(text), text)
+
+
 # Columns that contain SP lookup JSON and need Value extraction
 #
 # `time_zone` belongs here for the same reason as every other entry -- the
@@ -650,6 +724,11 @@ def transform(df, source_type):
         if col in df.columns:
             sep = PERSON_JOIN if col in SP_MULTI_PERSON_COLUMNS else ", "
             df[col] = df[col].apply(lambda v, s=sep: parse_sp_lookup(v, s))
+
+    # Display name -> IANA zone. After the lookup parsing, which is what turns
+    # the expanded reference into the display name this translates.
+    if "time_zone" in df.columns:
+        df["time_zone"] = df["time_zone"].apply(map_time_zone)
 
     # Parse dates — keep full datetime (date + time), convert to CET
     # Formats seen: "DD.MM.YYYY HH:MM", ISO 8601 with tz ("2025-05-06 08:00:00+00:00")

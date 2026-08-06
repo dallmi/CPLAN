@@ -73,6 +73,19 @@ class StudioTests(unittest.TestCase):
         for tz in TIME_ZONE_OPTIONS:
             self.assertIn(f'<option value="{tz}">{tz}</option>', html)
 
+    def test_every_zone_the_etl_maps_to_can_be_chosen_here(self):
+        """The two halves of one decision: the ETL translates the source's
+        display names to IANA zones, and this is where a person picks one.
+
+        A target with no option is a synced activity whose drawer shows "Not
+        set" for a field that is filled, and whose next save clears it.
+        """
+        from pipeline.scripts.process_cplan import TIME_ZONE_MAP
+
+        html = (DASHBOARD / "index.html").read_text(encoding="utf-8")
+        for zone in sorted(set(TIME_ZONE_MAP.values())):
+            self.assertIn(f'<option value="{zone}">{zone}</option>', html, zone)
+
     def test_search_debounce_marker_and_collisions_left_on_ice(self):
         app = (DASHBOARD / "app.js").read_text(encoding="utf-8")
         analytics = (DASHBOARD / "analytics.js").read_text(encoding="utf-8")

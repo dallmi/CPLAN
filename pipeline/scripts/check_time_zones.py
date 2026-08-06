@@ -163,7 +163,42 @@ def report(values: Counter, limit: int) -> bool:
 
     log(f"OK: {len(values)} distinct value(s), longest {max(len(v) for v in values)} of {limit} characters.")
     print()
+    report_unmapped(values)
     return True
+
+
+def looks_like_a_zone(value: str) -> bool:
+    """Whether a value is an IANA zone rather than a source display name.
+
+    By shape, not by membership in `TIME_ZONE_MAP`: a hand-maintained export
+    can carry `Asia/Singapore`, which no source label translates to and which
+    is perfectly fine to store.
+    """
+    return "/" in value or value == "UTC"
+
+
+def report_unmapped(values: Counter) -> None:
+    """Name the values `TIME_ZONE_MAP` does not translate.
+
+    Not an error -- an unmapped value is stored as it stands, so nothing is
+    lost and completeness still counts it. But it is the one thing that goes
+    quiet on its own: the source list gains an entry, the studio's select
+    cannot offer it, and the drawer shows "Not set" for a field that is filled.
+    """
+    unmapped = sorted(value for value in values if not looks_like_a_zone(value))
+    if not unmapped:
+        return
+
+    log(f"{len(unmapped)} value(s) not translated to an IANA zone:")
+    for value in unmapped:
+        print(f"    {values[value]:>5}  {value}")
+    print()
+    print_kv([
+        ("Stored as", "the display name itself -- nothing is lost"),
+        ("But", "the studio's select cannot offer it, so its drawer reads 'Not set'"),
+        ("Fix", "add it to TIME_ZONE_MAP in process_cplan.py and to the select in index.html"),
+    ])
+    print()
 
 
 def report_context(usage: Usage, top: int = 2) -> None:

@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-06.7"
+$manifestVersion = "2026-08-06.8"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-06.7"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-06.7"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-06.8"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -137,6 +137,13 @@ $manifest = @(
     # after the refresh it arrives as a psycopg traceback instead.
     @{ Path = "pipeline\scripts\check_time_zones.py"; Marker = "def column_limit";           Why = "names any time zone too long for the column, before the INSERT does it as a truncation error that ends the whole refresh" },
     @{ Path = "pipeline\scripts\check_time_zones.py"; Marker = "def report_context";         Why = "reads the export through the ETL's own transform() - an older copy re-implements the column matching and counts the lookup's row ids as time zones" },
+    @{ Path = "pipeline\scripts\check_time_zones.py"; Marker = "def report_unmapped";        Why = "names a source zone TIME_ZONE_MAP does not translate - the one failure here that is otherwise silent" },
+    # The two halves of one decision, and the half-copied state is worse than
+    # either old one: the ETL writes IANA zones the studio's select cannot
+    # offer, so a synced activity's drawer reads "Not set" for a field that is
+    # filled, and the next save on that drawer clears it.
+    @{ Path = "pipeline\scripts\process_cplan.py"; Marker = "TIME_ZONE_MAP";                 Why = "the source's display names are translated to IANA zones; without it the studio stores 'Japan Standard Time - GMT+9:00' where a zone belongs" },
+    @{ Path = "pipeline\studio\index.html";    Marker = "Asia/Ho_Chi_Minh";                  Why = "the time-zone select offers every zone the ETL now maps to - an older copy shows 'Not set' on a synced activity that has one" },
     @{ Path = "timezones.ps1";                 Marker = "check_time_zones";                  Why = "the launcher for that check - double-clickable via timezones.cmd" },
     @{ Path = "timezones.ps1";                 Marker = "Context";                           Why = "-Context reaches the per-zone region and lead-team breakdown; without it the switch is silently ignored" },
     @{ Path = "pipeline\report\membership.py"; Marker = "DEFAULT_FILENAME";                  Why = "GEB membership loader -- report_calendar.py imports it at module scope, so a missing copy turns every report run into ModuleNotFoundError" },

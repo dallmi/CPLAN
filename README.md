@@ -157,8 +157,15 @@ PYTHONPATH=. .venv/bin/python -m pipeline.scripts.check_time_zones --context
 
 The source's time-zone column is a lookup into a list the organisation
 maintains, so its values are display names — `Hong Kong, China, Taiwan Time -
-GMT+8:00` — and `activities.time_zone` is a fixed-width column. One value longer
-than it ends the refresh on the INSERT before a single row is written, and every
+GMT+8:00` — which the ETL translates to IANA zones via `TIME_ZONE_MAP` in
+`process_cplan.py`. The studio's select offers every zone that table maps to;
+`tests/test_studio.py` fails if one is missing, because a target with no option
+is a synced activity whose drawer reads "Not set" for a field that is filled.
+
+A value the table does not translate is stored as it stands and reported here as
+unmapped — nothing is lost, but the select cannot offer it either. And since
+`activities.time_zone` is a fixed-width column, an untranslated value longer than
+it ends the refresh on the INSERT before a single row is written, and every
 activity then reads as missing a time zone. This lists what the export carries,
 names anything that will not fit, and exits nonzero when it finds one. On
 Windows, `timezones.cmd` (add `-Context` for the breakdown).
