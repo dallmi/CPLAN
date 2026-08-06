@@ -113,9 +113,10 @@ def test_the_lookups_id_companion_column_is_not_counted_as_a_time_zone(tmp_path,
     assert "1.0" not in out and "4.0" not in out
 
 
-def test_a_second_time_zone_column_is_named_rather_than_measured(tmp_path, capsys):
-    """`transform()` maps the first one only. Reporting a width the database is
-    never asked to hold would send the reader after a problem that is not there.
+def test_only_the_column_the_etl_maps_is_measured(tmp_path, capsys):
+    """`transform()` spends the label on the first matching column, so a second
+    one is never stored. Reporting its width would send the reader after a
+    problem the database is never asked to have.
     """
     path = tmp_path / "InternalCommunicationActivities.csv"
     with open(path, "w", newline="", encoding="utf-8") as handle:
@@ -124,9 +125,48 @@ def test_a_second_time_zone_column_is_named_rather_than_measured(tmp_path, capsy
         writer.writerow(["1", "A", "2025-03-05", SHORT, LONG])
 
     assert check_time_zones.main(["--input", str(tmp_path)]) == 0
+    assert "1 distinct value(s)" in capsys.readouterr().out
+
+
+def test_context_names_the_regions_and_teams_behind_each_zone(tmp_path, capsys):
+    """The labels are inherited descriptions, not places anyone typed -- so only
+    a zone's own rows say whether it means the place in its name.
+    """
+    path = tmp_path / "InternalCommunicationActivities.csv"
+    with open(path, "w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["ID", "Title", "Start date", "Time zone", "Region", "Lead Team"])
+        writer.writerow(["1", "A", "2025-03-05", "Middle East Time - GMT+3:30", "APAC", "Pune Delivery"])
+        writer.writerow(["2", "B", "2025-03-06", "Middle East Time - GMT+3:30", "APAC", "Pune Delivery"])
+
+    assert check_time_zones.main(["--input", str(tmp_path), "--context"]) == 0
     out = capsys.readouterr().out
-    assert "ignoring Time zone display" in out
-    assert "1 distinct value(s)" in out
+    assert "APAC (2)" in out
+    assert "Pune Delivery (2)" in out
+
+
+def test_context_is_off_unless_asked_for(tmp_path, capsys):
+    """The width verdict is what the command is for; it must not scroll away."""
+    path = tmp_path / "InternalCommunicationActivities.csv"
+    with open(path, "w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["ID", "Title", "Start date", "Time zone", "Region"])
+        writer.writerow(["1", "A", "2025-03-05", SHORT, "APAC"])
+
+    assert check_time_zones.main(["--input", str(tmp_path)]) == 0
+    assert "Who uses each zone" not in capsys.readouterr().out
+
+
+def test_a_row_without_a_region_is_counted_as_blank_not_dropped(tmp_path, capsys):
+    """A zone used only by rows that filled nothing else in is its own finding."""
+    path = tmp_path / "InternalCommunicationActivities.csv"
+    with open(path, "w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["ID", "Title", "Start date", "Time zone", "Region"])
+        writer.writerow(["1", "A", "2025-03-05", SHORT, ""])
+
+    assert check_time_zones.main(["--input", str(tmp_path), "--context"]) == 0
+    assert "(blank) (1)" in capsys.readouterr().out
 
 
 def test_the_limit_comes_from_the_model_not_from_a_number_typed_here():
@@ -136,7 +176,11 @@ def test_the_limit_comes_from_the_model_not_from_a_number_typed_here():
     assert check_time_zones.column_limit() == Activity.__table__.c.time_zone.type.length
 
 
-def test_the_column_label_is_read_from_the_etls_own_map():
-    """Renaming the source column in COLUMN_MAP must not need a second edit here."""
-    assert check_time_zones.is_time_zone_column("Time zone")
-    assert not check_time_zones.is_time_zone_column("Region")
+def test_the_mapping_is_the_etls_own(tmp_path):
+    """No second implementation of the column matching lives here: what this
+    counts is what `transform()` produced, so the two cannot disagree.
+    """
+    _export(tmp_path, "Time zone", _lookup(SHORT))
+    files = {"internal": tmp_path / "InternalCommunicationActivities.csv"}
+
+    assert check_time_zones.collect(files).values == {SHORT: 1}

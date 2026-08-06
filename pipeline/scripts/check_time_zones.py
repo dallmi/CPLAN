@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import sys
 from collections import Counter
+from dataclasses import dataclass, field
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -33,17 +34,14 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from pipeline.scripts.process_cplan import (  # noqa: E402
-    COLUMN_MAP,
-    _is_noise_col,
-    decode_sp_column_name,
     find_input_dir,
     find_input_files,
     log,
-    parse_sp_lookup,
     print_banner,
     print_kv,
     print_table,
     read_csv_auto,
+    transform,
 )
 
 # The width to assume when the model cannot be imported -- the API's own
@@ -51,74 +49,69 @@ from pipeline.scripts.process_cplan import (  # noqa: E402
 # a floor, not as the answer: `column_limit()` prefers the model.
 FALLBACK_LIMIT = 64
 
-# Every export the sync feeds from. Archive rows are imported like any other, so
-# an over-long value there stops the same refresh.
-ACTIVITY_FILES = ("internal", "external", "internal_archive", "external_archive")
+# Every export the sync feeds from, and the source type each is read as. Archive
+# rows are imported like any other, so an over-long value there stops the same
+# refresh.
+SOURCE_TYPES = {
+    "internal": "internal",
+    "internal_archive": "internal",
+    "external": "external",
+    "external_archive": "external",
+}
+ACTIVITY_FILES = tuple(SOURCE_TYPES)
+
+# What --context reports each zone's activities by. Both are filled in beside
+# the time zone by the same person: a bucket whose rows all sit in one region
+# says which place the label means, and a bucket that disagrees with its own
+# rows is a mis-pick rather than a place.
+CONTEXT_FIELDS = (("region", "Region"), ("lead_team", "Lead team"))
+BLANK = "(blank)"
 
 
-def _time_zone_label() -> str:
-    """The label the ETL matches the column with, read from the ETL's own table.
+@dataclass
+class Usage:
+    """Every time-zone value the export carries, with its row count and who carries it."""
 
-    Derived rather than repeated: if the source ever renames the column and
-    COLUMN_MAP is updated, this check follows without a second edit, and it can
-    never disagree with what the pipeline actually reads.
+    values: Counter = field(default_factory=Counter)
+    context: dict = field(default_factory=dict)  # value -> field name -> Counter
+
+
+def _text(value) -> str:
+    text = str(value).strip() if value is not None else ""
+    return "" if text.lower() in {"", "nan", "nat", "none", "null"} else text
+
+
+def collect(files: dict) -> Usage:
+    """What the sync would store for the time-zone field, counted per distinct value.
+
+    Read through the ETL's own `transform()` rather than through a second
+    implementation of its column matching. That is what drops the noise columns
+    (a lookup exports as a pair -- the JSON and a `#Id` companion -- and both
+    match the label), what claims one CSV column per output field, and what
+    unwraps the lookup to its Value. Going through it means this file cannot
+    drift from the pipeline it is checking, and cannot be wrong about the
+    mapping in a way the pipeline is not.
     """
-    return next(label for label, field in COLUMN_MAP.items() if field == "time_zone")
-
-
-def is_time_zone_column(name: str) -> bool:
-    """Mirror `transform()`'s wildcard rule: decoded starts with the prefix and contains the suffix."""
-    label = _time_zone_label()
-    prefix, suffix = label.split("*", 1) if "*" in label else (label, "")
-    decoded = decode_sp_column_name(name).strip().upper()
-    return decoded.startswith(prefix.upper()) and suffix.upper() in decoded
-
-
-def time_zone_columns(frame) -> list[str]:
-    """The export's time-zone columns, in the order `transform()` would see them.
-
-    The noise filter comes first, exactly as in `transform()`, and it is the
-    ETL's own predicate rather than a copy of the rule. A lookup arrives as a
-    pair -- `Time zone` carrying the JSON and `Time zone#Id` carrying the row id
-    -- and both match the label. Without the filter the id column is measured as
-    if it were a time zone, which doubles the distinct count and fills the list
-    with `1.0`, `4.0`, `6.0`: harmless for the width verdict, useless for
-    reading, and wrong about what the database will hold.
-    """
-    return [
-        column for column in frame.columns
-        if not _is_noise_col(column) and is_time_zone_column(column)
-    ]
-
-
-def collect(files: dict) -> Counter:
-    """Every time-zone value across the activity exports, unwrapped, with its row count.
-
-    Unwrapped through `parse_sp_lookup`, the same function the ETL uses, so what
-    is measured here is the string that would actually be stored -- not the JSON
-    around it, and not a second opinion about how to read it.
-    """
-    values: Counter = Counter()
+    usage = Usage()
     for key in ACTIVITY_FILES:
         path = files.get(key)
         if path is None:
             continue
-        frame = read_csv_auto(path)
-        columns = time_zone_columns(frame)
-        if not columns:
+        frame = transform(read_csv_auto(path), source_type=SOURCE_TYPES[key])
+        if "time_zone" not in frame.columns:
             log(f"  {path.name}: no time-zone column")
             continue
-        # Only the first, because that is the one `transform()` maps: it claims a
-        # label per column in file order and the label is then spent. Measuring a
-        # second column would report a width the database is never asked to hold.
-        # Named rather than dropped, so an export that grew one is not silent.
-        if len(columns) > 1:
-            log(f"  {path.name}: reading {columns[0]}, ignoring {', '.join(columns[1:])}")
-        for raw in frame[columns[0]]:
-            value = parse_sp_lookup(raw).strip()
-            if value:
-                values[value] += 1
-    return values
+        for row in frame.to_dict(orient="records"):
+            value = _text(row.get("time_zone"))
+            if not value:
+                continue
+            usage.values[value] += 1
+            per_field = usage.context.setdefault(
+                value, {name: Counter() for name, _ in CONTEXT_FIELDS}
+            )
+            for name, _label in CONTEXT_FIELDS:
+                per_field[name][_text(row.get(name)) or BLANK] += 1
+    return usage
 
 
 def column_limit() -> int:
@@ -173,6 +166,33 @@ def report(values: Counter, limit: int) -> bool:
     return True
 
 
+def report_context(usage: Usage, top: int = 2) -> None:
+    """Print who uses each zone: the regions and lead teams its activities sit in.
+
+    The reason to want this is that the labels are inherited descriptions, not
+    places the planner typed -- so a bucket can be picked for the offset, or by
+    accident, and only its own rows say which. A zone whose activities all sit
+    in one region means what it says; one whose rows sit somewhere else entirely
+    is a mis-pick, and mapping it to the place in its name would carry the
+    mistake into the database.
+    """
+    rows = []
+    for value, count in usage.values.most_common():
+        per_field = usage.context.get(value, {})
+        cells = [
+            "; ".join(f"{key} ({n})" for key, n in per_field.get(name, Counter()).most_common(top)) or "--"
+            for name, _label in CONTEXT_FIELDS
+        ]
+        rows.append((str(count), value, *cells))
+
+    print_table(
+        f"Who uses each zone (top {top} per field)",
+        ["Rows", "Zone", *(label for _name, label in CONTEXT_FIELDS)],
+        rows,
+        col_widths=[7, 36, 40, 40],
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
@@ -180,6 +200,11 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         default=None,
         help="read the CSVs from this folder instead of the usual OneDrive/local discovery",
+    )
+    parser.add_argument(
+        "--context",
+        action="store_true",
+        help="also show the regions and lead teams whose activities use each zone",
     )
     args = parser.parse_args(argv)
 
@@ -202,7 +227,13 @@ def main(argv: list[str] | None = None) -> int:
         print()
         return 1
 
-    return 0 if report(collect(files), column_limit()) else 1
+    usage = collect(files)
+    fits = report(usage.values, column_limit())
+    # After the verdict, not before it: the width answer is what the command is
+    # for, and it must not scroll off behind twenty-odd rows of context.
+    if args.context and usage.values:
+        report_context(usage)
+    return 0 if fits else 1
 
 
 if __name__ == "__main__":

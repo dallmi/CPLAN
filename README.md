@@ -135,6 +135,9 @@ PYTHONPATH=. .venv/bin/python -m pipeline.scripts.daily_refresh --skip-standalon
 
 ```bash
 PYTHONPATH=. .venv/bin/python -m pipeline.scripts.check_time_zones
+
+# ...and which regions and lead teams sit behind each zone
+PYTHONPATH=. .venv/bin/python -m pipeline.scripts.check_time_zones --context
 ```
 
 The source's time-zone column is a lookup into a list the organisation
@@ -143,7 +146,14 @@ GMT+8:00` — and `activities.time_zone` is a fixed-width column. One value long
 than it ends the refresh on the INSERT before a single row is written, and every
 activity then reads as missing a time zone. This lists what the export carries,
 names anything that will not fit, and exits nonzero when it finds one. On
-Windows, `timezones.cmd`.
+Windows, `timezones.cmd` (add `-Context` for the breakdown).
+
+`--context` answers a different question. The labels are inherited descriptions
+— they are the legacy Java three-letter zone names — not places a planner typed,
+so a zone can be picked for its offset or by mistake, and only its own rows say
+which. A bucket whose activities all sit in one region means what it says; one
+whose rows sit somewhere else is a mis-pick, and mapping it to the place in its
+name would carry that mistake into the database.
 
 ### Standalone studio (read-only)
 

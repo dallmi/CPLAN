@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-06.5"
+$manifestVersion = "2026-08-06.6"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-06.5"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-06.5"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-06.6"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -135,9 +135,10 @@ $manifest = @(
     # told to fetch it: the answer it gives -- does any time zone in today's
     # export exceed the column -- is only available before the refresh, and
     # after the refresh it arrives as a psycopg traceback instead.
-    @{ Path = "pipeline\scripts\check_time_zones.py"; Marker = "def is_time_zone_column";    Why = "names any time zone too long for the column, before the INSERT does it as a truncation error that ends the whole refresh" },
-    @{ Path = "pipeline\scripts\check_time_zones.py"; Marker = "def time_zone_columns";      Why = "the lookup's #Id companion column is filtered out - an older copy counts the row ids as time zones and doubles the list" },
+    @{ Path = "pipeline\scripts\check_time_zones.py"; Marker = "def column_limit";           Why = "names any time zone too long for the column, before the INSERT does it as a truncation error that ends the whole refresh" },
+    @{ Path = "pipeline\scripts\check_time_zones.py"; Marker = "def report_context";         Why = "reads the export through the ETL's own transform() - an older copy re-implements the column matching and counts the lookup's row ids as time zones" },
     @{ Path = "timezones.ps1";                 Marker = "check_time_zones";                  Why = "the launcher for that check - double-clickable via timezones.cmd" },
+    @{ Path = "timezones.ps1";                 Marker = "Context";                           Why = "-Context reaches the per-zone region and lead-team breakdown; without it the switch is silently ignored" },
     @{ Path = "pipeline\report\membership.py"; Marker = "DEFAULT_FILENAME";                  Why = "GEB membership loader -- report_calendar.py imports it at module scope, so a missing copy turns every report run into ModuleNotFoundError" },
     @{ Path = "pipeline\report\config.py";     Marker = "EXECUTIVES_SPLIT";                  Why = "report criteria, audience bands, the reader-facing field titles, and the split column pair every other module reads" },
     @{ Path = "pipeline\report\data.py";       Marker = "_people_with_emails";               Why = "scope building and the GEB/GEB-1 split -- pairs each person with their own email, or drops all of them when the counts disagree" },

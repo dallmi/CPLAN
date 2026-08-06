@@ -13,11 +13,18 @@ Read-only. Touches nothing but the CSVs it reads.
 
 Usage (from the repo root, or just double-click timezones.cmd):
   .\timezones.ps1
+  .\timezones.ps1 -Context                       # also: which regions and teams use each zone
   .\timezones.ps1 -InputDir "C:\path\to\Input"   # a folder other than the usual one
+
+-Context answers a different question: the labels are inherited descriptions,
+not places anyone typed, so a zone can be picked for its offset or by mistake.
+Only its own rows say which -- a bucket whose activities all sit in one region
+means what it says, one whose rows sit somewhere else is a mis-pick.
 
 Exit code 0 only when the refresh cannot die on this field.
 #>
 param(
+    [switch]$Context,
     [string]$InputDir
 )
 
@@ -50,6 +57,7 @@ $env:PYTHONPATH = "."
 try {
     $args = @("-m", "pipeline.scripts.check_time_zones")
     if ($InputDir) { $args += @("--input", $InputDir) }
+    if ($Context) { $args += "--context" }
 
     & $python @args
     $code = $LASTEXITCODE
