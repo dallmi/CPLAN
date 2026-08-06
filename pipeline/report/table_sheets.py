@@ -50,8 +50,11 @@ def build_executive_summary(wb, scope, config):
     for label, value in config.describe():
         row = style.write_kpi_row(ws, row, label, value)
     row = style.write_kpi_row(ws, row, "Weeks covered", len(scope.grid.weeks))
-    for key, name in scope.source_files:
-        row = style.write_kpi_row(ws, row, f"Source: {key}", name)
+    # No "Source: <file>" rows. They named the operator's export files to an
+    # audience that never sees that directory, and a filename carrying a date
+    # or a person's initials invites a question the workbook cannot answer.
+    # `report_calendar.py` logs them to the console instead, where the person
+    # who chose the files is the one reading. Removed 2026-08-06.
     row = style.write_kpi_row(ws, row, "Rows read", scope.rows_read)
     for reason in EXCLUSION_ORDER:
         row = style.write_kpi_row(ws, row, f"Excluded: {reason}", scope.excluded[reason])
@@ -458,25 +461,31 @@ GLOSSARY_SECTIONS = (
         ("Lead time", "Days from creating the record to the activity's start."),
         ("Planning completeness", "Share of the required fields that are filled in."),
         ("Weekly counts", "Each activity counts once, in the week it starts."),
-        ("Quarter delta", "The change from the first to the last full quarter."),
-        ("Packs", "Not used for grouping — the source data is unreliable. Pack coverage "
-                  "is on the Data Quality sheet."),
+        # Says what a pack is and where its number lives, without characterising
+        # the source system. The old wording ("the source data is unreliable")
+        # was a judgement on a colleague's system printed in a workbook that
+        # gets forwarded; the measured fact is on the Data Quality sheet, and a
+        # reader who wants to know how complete packs are should read it there.
+        ("Packs", "A communications pack. Not used as a grouping dimension; "
+                  "coverage is on the Data Quality sheet."),
     )),
 )
 
 
 # Added to MEASURES only when a membership list is in play -- defining terms
 # the workbook never prints would be its own small lie.
+#
+# GEB alone, on request 2026-08-06. The GEB-1 entry and GEB's "everyone else in
+# the field is GEB-1" clause both went; the sheets still label a GEB-1 block, so
+# that heading now stands without a definition. Deliberate, and not a gap to
+# quietly fill: restoring either is a product decision.
 GEB_SPLIT_TERMS = (
-    ("GEB", "A person named on the GEB list. Everyone else in the field is "
-            "GEB-1."),
-    ("GEB-1", "Named in the leadership field but not on the GEB list. An "
-              "activity naming nobody is outside both blocks."),
+    ("GEB", "A person named on the GEB list."),
 )
 
 
 def _glossary_sections(scope):
-    """The Glossary's sections, with the level terms present only when a
+    """The Glossary's sections, with the GEB term present only when a
     membership list is in play.
 
     Assembled rather than branched at the write site so the section order,
@@ -497,63 +506,31 @@ def _glossary_sections(scope):
     return tuple(sections)
 
 
-# A quarter carrying fewer grid weeks than this is a stub, not a quarter the Δ
-# column can honestly be measured against. Four weeks is roughly a month --
-# short, but enough that a difference against it means something.
-MIN_DELTA_QUARTER_WEEKS = 4
+def _crosstab_block(ws, row, quarters, frame, title, field, sort_key=None):
+    """One label x quarter table with a Total column.
 
-
-def delta_quarters(quarters, grid):
-    """The two quarters the Δ column compares: the first, and the last full one.
-
-    The naive choice -- first versus last quarter present -- is wrong for the
-    report's own default window. A week belongs to the month containing its
-    Thursday (ISO 8601, see the Glossary's "Week to month"), so a full-year
-    window spans FIVE quarters, not four: 29 Dec - 4 Jan has its Thursday in
-    January, which puts one single week into the following year's Q1. Measuring
-    a full quarter against that one-week stub makes every row of every crosstab
-    read strongly negative -- roughly 2% of a year against 25% of it -- and a
-    planner reads that as the mix having collapsed.
-
-    So: the last quarter carrying a reasonably full complement of weeks. If
-    none qualifies, or the only qualifying one is the quarter we are comparing
-    *from*, fall back to the last quarter present -- for a genuinely short
-    window comparing the two ends is still the most informative thing there
-    is, and the header names whichever two quarters it used either way.
-    """
-    weeks_per_quarter = {}
-    for week in grid.weeks:
-        quarter = grid.quarter_of(week)
-        weeks_per_quarter[quarter] = weeks_per_quarter.get(quarter, 0) + 1
-
-    first = quarters[0]
-    full = [q for q in quarters[1:]
-            if weeks_per_quarter.get(q, 0) >= MIN_DELTA_QUARTER_WEEKS]
-    return first, (full[-1] if full else quarters[-1])
-
-
-def _crosstab_block(ws, row, quarters, frame, title, field, delta=None, sort_key=None):
-    """One label x quarter table with a Total and a quarter-to-quarter delta.
-
-    `delta` names the two quarters the Δ column compares (see
-    `delta_quarters`); without it the block compares the first and last
-    quarter present. `sort_key` orders the label rows -- plain alphabetical
-    by default, which is wrong for priority and right for everything else.
+    `sort_key` orders the label rows -- plain alphabetical by default, which
+    is wrong for priority and right for everything else.
 
     Rows overlap for multi-valued fields (channel, division): an activity
     naming two channels counts in both of that field's rows. No TOTAL row is
     written across the label rows for the same reason the Audience sheet's
     division block omits one -- a vertical SUM would print a number larger
     than the portfolio, as if it were a true total.
+
+    There is deliberately no quarter-to-quarter difference column, and adding
+    one back needs a product decision rather than a fix. The one that shipped
+    here compared the first quarter in scope against the last full one, which
+    sets a quarter that is finished against a quarter still being filled in:
+    every row read strongly negative, and what it measured was how far ahead
+    the planning had got, not how the mix had moved. Removed 2026-08-06.
     """
     if not quarters:
         style.write_section_header(ws, row, f"{title} — no data", 3)
         return row + 2
 
-    delta_from, delta_to = delta if delta else (quarters[0], quarters[-1])
-    delta_header = f"Δ {_quarter_label(delta_to)} − {_quarter_label(delta_from)}"
-    headers = ["Value"] + [_quarter_label(q) for q in quarters] + ["Total", delta_header]
-    total_col = len(headers) - 1
+    headers = ["Value"] + [_quarter_label(q) for q in quarters] + ["Total"]
+    total_col = len(headers)
 
     row = style.write_section_header(ws, row, title, len(headers))
     row = style.write_header_row(ws, row, headers)
@@ -565,16 +542,12 @@ def _crosstab_block(ws, row, quarters, frame, title, field, delta=None, sort_key
 
     first_letter = get_column_letter(2)
     last_letter = get_column_letter(total_col - 1)
-    from_letter = get_column_letter(2 + quarters.index(delta_from))
-    to_letter = get_column_letter(2 + quarters.index(delta_to))
     for name in sorted(values, key=sort_key):
         subset = frame.loc[values[name]]
         counts = [int((subset["_quarter"] == q).sum()) for q in quarters]
         style.write_data_rows(ws, row, [[name] + counts])
         span = f"{first_letter}{row}:{last_letter}{row}"
         style.write_formula(ws, row, total_col, f"=SUM({span})", fmt=style.NUM_FMT_INT)
-        style.write_formula(ws, row, total_col + 1, f"={to_letter}{row}-{from_letter}{row}",
-                            fmt=style.NUM_FMT_INT)
         row += 1
     return row + 1
 
@@ -605,15 +578,12 @@ def build_mix(wb, scope, config):
         return
 
     quarters = sorted({q for q in frame["_quarter"] if q is not None})
-    delta = delta_quarters(quarters, scope.grid) if quarters else None
 
-    row = _crosstab_block(ws, 1, quarters, frame, "CHANNEL BY QUARTER", "channel",
-                          delta=delta)
+    row = _crosstab_block(ws, 1, quarters, frame, "CHANNEL BY QUARTER", "channel")
     row = _crosstab_block(ws, row, quarters, frame, "PRIORITY BY QUARTER", "priority",
-                          delta=delta, sort_key=_priority_sort_key)
+                          sort_key=_priority_sort_key)
     row = _crosstab_block(ws, row, quarters, frame,
-                          "INTERNAL VS EXTERNAL BY QUARTER", "source_type",
-                          delta=delta)
+                          "INTERNAL VS EXTERNAL BY QUARTER", "source_type")
 
     row = style.write_section_header(ws, row, "LEAD TIME BY DIVISION", 6)
     row = style.write_header_row(ws, row, [

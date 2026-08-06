@@ -17,7 +17,6 @@ from pipeline.report.table_sheets import (
     _quarter_label,
     build_activities,
     build_mix,
-    delta_quarters,
 )
 from pipeline.scripts.process_cplan import ActivityLoad
 from tests.report_fixtures import load_fixture_scope
@@ -46,85 +45,62 @@ def test_mix_covers_channel_priority_and_source_type(tmp_path):
     assert "LEAD TIME BY DIVISION" in labels
 
 
-def test_the_delta_column_names_the_two_quarters_it_compares(tmp_path):
+def _header_rows(ws):
+    """Every crosstab header row, as a list of its non-empty header cells."""
+    rows = []
+    for r in range(1, ws.max_row + 1):
+        if ws.cell(row=r, column=1).value != "Value":
+            continue
+        headers = [ws.cell(row=r, column=c).value for c in range(1, ws.max_column + 1)]
+        while headers and headers[-1] is None:
+            headers.pop()
+        rows.append((r, headers))
+    return rows
+
+
+def test_the_crosstabs_carry_no_quarter_to_quarter_delta_column(tmp_path):
+    """Removed 2026-08-06 on request; this is the guard against it returning.
+
+    It compared the first quarter in scope against the last full one -- a
+    settled quarter against one still being filled in. Every row therefore read
+    strongly negative, and what the column actually measured was how far ahead
+    the planning had got, not how the mix had moved. Nothing in the column
+    itself lets a reader tell those two readings apart, which is what made it
+    worse than absent. Bringing it back is a product decision, not a fix.
+    """
     ws, _ = _build(tmp_path, build_mix, "Mix & Lead Time")
-    headers = [str(ws.cell(row=r, column=c).value)
-               for r in range(1, ws.max_row + 1) for c in range(1, ws.max_column + 1)]
+    cells = [str(ws.cell(row=r, column=c).value)
+             for r in range(1, ws.max_row + 1)
+             for c in range(1, ws.max_column + 1)]
 
-    assert any(h.startswith("Δ ") and "−" in h for h in headers)
+    assert not any("Δ" in cell for cell in cells)
+    # U+2212, the minus sign the header joined its two quarter labels with. The
+    # em dash the "no data" and "missing" cells use is a different character,
+    # so this does not catch those.
+    assert not any("−" in cell for cell in cells)
 
-
-def test_the_delta_header_names_the_two_quarters_it_actually_compares(tmp_path):
-    """The weak `startswith("Δ ") and "−" in h` check above would pass even
-    with the two quarter labels swapped, wrong, or naming quarters that are
-    not actually the ones compared. Pin the exact text, derived from the scope
-    rather than hardcoded, so this catches a wrong header.
-    """
-    ws, scope = _build(tmp_path, build_mix, "Mix & Lead Time")
-    quarters = sorted({q for q in scope.frame["_quarter"] if q is not None})
-    first, last = delta_quarters(quarters, scope.grid)
-    expected = f"Δ {_quarter_label(last)} − {_quarter_label(first)}"
-
-    headers = [str(ws.cell(row=r, column=c).value)
-               for r in range(1, ws.max_row + 1)
-               for c in range(1, ws.max_column + 1)]
-
-    assert expected in headers
+    rows = _header_rows(ws)
+    assert len(rows) == 3, "expected the channel, priority and source-type blocks"
+    for _, headers in rows:
+        assert headers[-1] == "Total", f"Total is not the last column: {headers}"
 
 
-def test_the_delta_does_not_compare_against_a_one_week_stub_quarter(tmp_path):
-    """A full-year window spans FIVE quarters, not four.
-
-    The Thursday rule puts 29 Dec - 4 Jan into the next year's week 1, whose
-    Thursday is in January -- so the default window ends with a Q1 holding a
-    single week. Taking that as the Δ column's right-hand side makes every row
-    of all three crosstabs read strongly negative (about 2% of a year against
-    25% of it) and a planner reads the mix as having collapsed.
+def test_the_total_sums_exactly_the_quarter_columns(tmp_path):
+    """Dropping the Δ column moved Total one place right. An off-by-one here
+    prints a total that silently includes or omits a quarter, and nothing on
+    the sheet looks wrong -- the number just does not add up.
     """
     ws, scope = _build(tmp_path, build_mix, "Mix & Lead Time")
     quarters = sorted({q for q in scope.frame["_quarter"] if q is not None})
 
-    # The premise: the last quarter present really is a one-week stub.
-    weeks_per_quarter = {}
-    for week in scope.grid.weeks:
-        quarter = scope.grid.quarter_of(week)
-        weeks_per_quarter[quarter] = weeks_per_quarter.get(quarter, 0) + 1
-    assert weeks_per_quarter[quarters[-1]] == 1
-    assert len(quarters) == 5
+    header_row, headers = _header_rows(ws)[0]
+    assert headers == ["Value"] + [_quarter_label(q) for q in quarters] + ["Total"]
 
-    first, last = delta_quarters(quarters, scope.grid)
-
-    assert first == quarters[0] == (2025, 1)
-    assert last == (2025, 4)
-    assert last != quarters[-1]
-    assert weeks_per_quarter[last] >= 4
-
-    headers = [str(ws.cell(row=r, column=c).value)
-               for r in range(1, ws.max_row + 1)
-               for c in range(1, ws.max_column + 1)]
-    assert "Δ Q4 2025 − Q1 2025" in headers
-    assert not any(h.startswith("Δ Q1 2026") for h in headers)
-
-
-def test_the_delta_formula_points_at_the_two_named_quarter_columns(tmp_path):
-    """Naming the right quarters in the header but subtracting the wrong
-    columns would be invisible until someone opened the file in Excel.
-    """
-    ws, scope = _build(tmp_path, build_mix, "Mix & Lead Time")
-    quarters = sorted({q for q in scope.frame["_quarter"] if q is not None})
-    first, last = delta_quarters(quarters, scope.grid)
-
-    header_row = next(r for r in range(1, ws.max_row + 1)
-                      if ws.cell(row=r, column=1).value == "Value")
-    labels = {ws.cell(row=header_row, column=c).value: c
-              for c in range(1, ws.max_column + 1)}
-    from_col = get_column_letter(labels[_quarter_label(first)])
-    to_col = get_column_letter(labels[_quarter_label(last)])
-    delta_col = labels[f"Δ {_quarter_label(last)} − {_quarter_label(first)}"]
-
+    first_col = get_column_letter(2)
+    last_col = get_column_letter(len(quarters) + 1)
     value_row = header_row + 1
-    assert ws.cell(row=value_row, column=delta_col).value == \
-        f"={to_col}{value_row}-{from_col}{value_row}"
+    assert ws.cell(row=value_row, column=len(headers)).value == \
+        f"=SUM({first_col}{value_row}:{last_col}{value_row})"
 
 
 def test_the_priority_block_is_ordered_by_rank_not_alphabetically(tmp_path):

@@ -205,6 +205,13 @@ def resolve_scope(args, config):
         log("ERROR: the input files contain no activities")
         return None, None
 
+    # The Executive Summary used to carry these as "Source: <file>" rows. Which
+    # export a run read is an operator's question -- it is answered here, in
+    # front of the person who picked the directory, rather than on a sheet that
+    # is forwarded to people who have never seen it.
+    for key, path in sorted(load.files.items()):
+        log(f"Source: {key} = {path.name}")
+
     # An absent default file is the normal state and stays silent. An absent
     # *named* file is a typo on the command line, and producing the unsplit
     # workbook anyway would answer a question nobody asked.

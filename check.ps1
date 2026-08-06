@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-06.10"
+$manifestVersion = "2026-08-06.11"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-06.10"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-06.10"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-06.11"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -246,7 +246,15 @@ $manifest = @(
     # the changelog, access and the reports stay unreachable -- exactly the
     # "everything is fine" report the manifest exists to prevent.
     @{ Path = "pipeline\portal\static\js\home.js"; Marker = 'href="/project/';               Why = "a project tile opens the project's own page - an older copy jumps to the workspace and hides the six resource tiles behind a URL nobody is told" },
-    @{ Path = "pipeline\portal\static\index.html"; Marker = "Select one to see everything it holds"; Why = "the tile heading describes where a tile now leads; an older copy still promises a new tab" }
+    @{ Path = "pipeline\portal\static\index.html"; Marker = "Select one to see everything it holds"; Why = "the tile heading describes where a tile now leads; an older copy still promises a new tab" },
+    # What the workbook no longer says. All three removals only take away, so a
+    # stale copy still produces a workbook that opens and looks right -- it just
+    # prints the column, the filenames and the wording that were withdrawn, to
+    # the very audience they were withdrawn from. Nothing about the output
+    # reveals which version built it, so the markers have to.
+    @{ Path = "pipeline\report\table_sheets.py"; Marker = "deliberately no quarter-to-quarter"; Why = "the Mix crosstabs lost the quarter delta; an old copy still prints a settled quarter against one still being planned, and every row reads as a collapse" },
+    @{ Path = "pipeline\report\table_sheets.py"; Marker = 'No "Source: <file>" rows';            Why = "the Executive Summary no longer names the operator's export files to recipients who have never seen that directory" },
+    @{ Path = "pipeline\scripts\report_calendar.py"; Marker = "Source: {key} = {path.name}";     Why = "the source filenames moved to the console, so an old copy drops them entirely instead of relocating them" }
 )
 
 Write-Host ""

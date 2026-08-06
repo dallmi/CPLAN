@@ -87,12 +87,24 @@ def test_the_summary_shows_readable_breakdown_dimension_names_with_a_membership(
     assert pairs["Breakdown dimensions"] == "BUSINESS DIVISION, REGION, COUNTRY, GEB, GEB-1"
 
 
-def test_the_summary_names_every_source_file(tmp_path):
-    ws, scope = _build(tmp_path, build_executive_summary)
-    text = "\n".join(str(ws.cell(row=r, column=2).value) for r in range(1, ws.max_row + 1))
+def test_the_summary_does_not_name_the_operator_s_source_files(tmp_path):
+    """Removed 2026-08-06 on request: the rows confused recipients.
 
+    The workbook is forwarded to people who have never seen the directory it
+    was built from, so an export filename there answers nobody's question and
+    raises several -- and filenames carry dates and initials the sheet then
+    cannot explain. The provenance is not lost: `report_calendar.py` logs it
+    to the console, where the person who chose the files is the one reading.
+    """
+    ws, scope = _build(tmp_path, build_executive_summary)
+    cells = [str(ws.cell(row=r, column=c).value)
+             for r in range(1, ws.max_row + 1) for c in range(1, 3)]
+
+    assert scope.source_files, "the fixture must actually have source files"
     for _, name in scope.source_files:
-        assert name in text
+        assert not any(name in cell for cell in cells), \
+            f"the Executive Summary still names the source file {name!r}"
+    assert not any(cell.startswith("Source") for cell in cells)
 
 
 def test_the_summary_reports_what_each_criterion_excluded(tmp_path):
@@ -223,7 +235,12 @@ def test_every_glossary_definition_stays_short(tmp_path):
     entries_with_list = _glossary_entries(ws_with_list)
     terms_with_list = {t: d for t, d in entries_with_list}
     assert "GEB" in terms_with_list, "the Glossary omits GEB when a list is loaded"
-    assert "GEB-1" in terms_with_list, "the Glossary omits GEB-1 when a list is loaded"
+    # GEB-1 is deliberately undefined since 2026-08-06 (see GEB_SPLIT_TERMS),
+    # and so is the "everyone else in the field is GEB-1" clause GEB carried.
+    # The sheets still print a GEB-1 heading; leaving it undefined was the
+    # request. Restoring either is a product decision, not a regression fix.
+    assert "GEB-1" not in terms_with_list
+    assert "GEB-1" not in terms_with_list["GEB"]
     too_long_with_list = [(t, len(d)) for t, d in entries_with_list
                           if len(d) > MAX_DEFINITION_CHARS]
     assert not too_long_with_list, (
@@ -235,7 +252,9 @@ def test_the_glossary_defines_the_terms_a_reader_meets_on_the_sheets(tmp_path):
 
     Deliberately absent, each removed on request: the data source, the note that
     studio-only activities never reach this report, the Thursday week-to-month
-    rule, and the comma/semicolon splitting caveat. They are recorded in the
+    rule, the comma/semicolon splitting caveat, and "Quarter delta" -- the Mix
+    sheet no longer prints that column, and a glossary that defines a term the
+    workbook never shows sends a reader hunting for it. They are recorded in the
     design document instead. Do not restore them here as a phantom regression --
     if they are wanted back, that is a product decision.
     """
@@ -245,8 +264,11 @@ def test_the_glossary_defines_the_terms_a_reader_meets_on_the_sheets(tmp_path):
 
     for term in ("In scope", "Overlap", "Audience band",
                  "GEB/GEB-1", "Lead time", "Planning completeness",
-                 "Weekly counts", "Quarter delta", "Packs"):
+                 "Weekly counts", "Packs"):
         assert term in terms, f"the Glossary does not define {term!r}"
+
+    assert "Quarter delta" not in terms
+    assert "delta" not in text
 
     assert "thursday" not in text
     assert "studio" not in text
