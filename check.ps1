@@ -13,7 +13,11 @@ Usage (or double-click check.cmd):
 #>
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
-$rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/feature/cplan-v6-postgres"
+# The branch every download URL below is built from. `feature/cplan-v6-postgres`
+# was merged and deleted; every URL this script printed pointed at a ref that no
+# longer exists, which is a 404 at the end of a correct STALE report -- the one
+# moment the operator is actually following instructions.
+$rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
