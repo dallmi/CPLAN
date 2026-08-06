@@ -257,11 +257,22 @@ class PortalFrontendTests(unittest.TestCase):
         self.assertNotIn("function initials(", app_js)
 
     def test_home_tiles_open_the_project_page_and_favicon_present(self):
-        # The new tab now belongs to the application tile on the project page
+        # The new tab belongs to the application tile on the project page
         # (project.js), not to the home tile: a home tile opens the project's
         # own page, in this tab, so the six other resource tiles are reachable.
+        #
+        # This test asserted that only of project.js, and home.js meanwhile
+        # linked straight at p.url in a new tab -- so the whole project page
+        # (manual, technical documentation, data, changelog, access, reports)
+        # was reachable only by typing /project/{slug} by hand. Every half of
+        # the contract is now checked on the file that has to hold it.
+        home = (JS / "home.js").read_text(encoding="utf-8")
         project_js = (STATIC / "project.js").read_text(encoding="utf-8")
         html = (STATIC / "index.html").read_text(encoding="utf-8")
+        # The whole opening tag, so "no new tab" is asserted on the anchor
+        # itself rather than on the file -- the comment above it names
+        # target="_blank" to say where the new tab does belong.
+        self.assertIn('<a class="tile" href="/project/${esc(p.slug)}">', home)
         self.assertIn('target="_blank"', project_js)
         self.assertIn('rel="noopener"', project_js)
         self.assertIn('rel="icon"', html)
@@ -270,8 +281,6 @@ class PortalFrontendTests(unittest.TestCase):
         home = (JS / "home.js").read_text(encoding="utf-8")
         self.assertIn("purpose", home)
         self.assertIn("roleChip", home)
-        self.assertIn('target="_blank"', home)
-        self.assertIn('rel="noopener"', home)
         # The shipped portal printed the raw URL as the tile subtitle.
         self.assertNotIn("tile-url", home)
 

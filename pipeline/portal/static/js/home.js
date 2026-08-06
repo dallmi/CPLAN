@@ -1,5 +1,10 @@
-/* Project tiles. target="_blank" so the workspace opens in its own tab and the
-   portal stays put; rel="noopener" severs the reverse window handle. */
+/* Project tiles. A tile opens the project's own page, in this tab -- not the
+   workspace in a new one. That page is where the manual, the technical
+   documentation, data provenance, access and the generated reports live, and
+   it carries its own application tile that opens the workspace (project.js,
+   target="_blank" + rel="noopener"). Linking a home tile straight at the
+   workspace made those six resources reachable only by typing /project/{slug}
+   by hand, which nothing anywhere tells anyone to do. */
 import { fetchProjects } from './api.js';
 import { state } from './state.js';
 import { esc, roleChip, toast } from './ui.js';
@@ -26,7 +31,7 @@ export function renderHome() {
     return;
   }
   tiles.innerHTML = state.projects.map((p) => `
-    <a class="tile" href="${esc(p.url)}" target="_blank" rel="noopener">
+    <a class="tile" href="/project/${esc(p.slug)}">
       <div class="tile-head">${logoMark(p)}<div class="tile-name">${esc(p.name)}</div></div>
       <div class="tile-purpose">${esc(p.purpose || '')}</div>
       <div class="tile-foot">${roleChip(p.role)}<span class="tile-open">Open →</span></div>

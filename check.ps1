@@ -228,7 +228,14 @@ $manifest = @(
     @{ Path = "pipeline\portal\pages.py";      Marker = "named_file(assets_dir";             Why = "the gated asset route serves every picture a project publishes, not the manual's alone" },
     @{ Path = "pipeline\portal\app.py";        Marker = "def _project_summary";              Why = "a project tile carries its logo - an older copy sends no such field and every tile stays unmarked" },
     @{ Path = "pipeline\portal\static\js\home.js"; Marker = "tile-logo";                     Why = "the tile renders the mark the API sends, and nothing when there is none" },
-    @{ Path = "pipeline\portal\static\styles.css"; Marker = ".tile-logo {";                  Why = "the logo is capped in height and width - unstyled, one large PNG blows up the tile grid" }
+    @{ Path = "pipeline\portal\static\styles.css"; Marker = ".tile-logo {";                  Why = "the logo is capped in height and width - unstyled, one large PNG blows up the tile grid" },
+    # A home tile leads to the project page, not straight to the workspace. The
+    # stale copy here is invisible rather than broken: it opens the studio in a
+    # new tab and works, while the manual, the technical documentation, data,
+    # the changelog, access and the reports stay unreachable -- exactly the
+    # "everything is fine" report the manifest exists to prevent.
+    @{ Path = "pipeline\portal\static\js\home.js"; Marker = 'href="/project/';               Why = "a project tile opens the project's own page - an older copy jumps to the workspace and hides the six resource tiles behind a URL nobody is told" },
+    @{ Path = "pipeline\portal\static\index.html"; Marker = "Select one to see everything it holds"; Why = "the tile heading describes where a tile now leads; an older copy still promises a new tab" }
 )
 
 Write-Host ""
