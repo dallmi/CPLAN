@@ -34,6 +34,7 @@ if str(_REPO_ROOT) not in sys.path:
 
 from pipeline.scripts.process_cplan import (  # noqa: E402
     COLUMN_MAP,
+    _is_noise_col,
     decode_sp_column_name,
     find_input_dir,
     find_input_files,
@@ -73,6 +74,23 @@ def is_time_zone_column(name: str) -> bool:
     return decoded.startswith(prefix.upper()) and suffix.upper() in decoded
 
 
+def time_zone_columns(frame) -> list[str]:
+    """The export's time-zone columns, in the order `transform()` would see them.
+
+    The noise filter comes first, exactly as in `transform()`, and it is the
+    ETL's own predicate rather than a copy of the rule. A lookup arrives as a
+    pair -- `Time zone` carrying the JSON and `Time zone#Id` carrying the row id
+    -- and both match the label. Without the filter the id column is measured as
+    if it were a time zone, which doubles the distinct count and fills the list
+    with `1.0`, `4.0`, `6.0`: harmless for the width verdict, useless for
+    reading, and wrong about what the database will hold.
+    """
+    return [
+        column for column in frame.columns
+        if not _is_noise_col(column) and is_time_zone_column(column)
+    ]
+
+
 def collect(files: dict) -> Counter:
     """Every time-zone value across the activity exports, unwrapped, with its row count.
 
@@ -86,15 +104,20 @@ def collect(files: dict) -> Counter:
         if path is None:
             continue
         frame = read_csv_auto(path)
-        columns = [column for column in frame.columns if is_time_zone_column(column)]
+        columns = time_zone_columns(frame)
         if not columns:
             log(f"  {path.name}: no time-zone column")
             continue
-        for column in columns:
-            for raw in frame[column]:
-                value = parse_sp_lookup(raw).strip()
-                if value:
-                    values[value] += 1
+        # Only the first, because that is the one `transform()` maps: it claims a
+        # label per column in file order and the label is then spent. Measuring a
+        # second column would report a width the database is never asked to hold.
+        # Named rather than dropped, so an export that grew one is not silent.
+        if len(columns) > 1:
+            log(f"  {path.name}: reading {columns[0]}, ignoring {', '.join(columns[1:])}")
+        for raw in frame[columns[0]]:
+            value = parse_sp_lookup(raw).strip()
+            if value:
+                values[value] += 1
     return values
 
 

@@ -93,6 +93,42 @@ def test_a_folder_without_an_activity_export_says_so(tmp_path, capsys):
     assert "no activity export found" in capsys.readouterr().out
 
 
+def test_the_lookups_id_companion_column_is_not_counted_as_a_time_zone(tmp_path, capsys):
+    """A lookup exports as a pair: the JSON, and `<label>#Id` beside it.
+
+    Both match the label, so without the ETL's noise filter the ids are measured
+    as values -- the distinct count doubles and the list fills with 1.0 and 4.0.
+    Seen on a real export: 46 reported where 23 exist.
+    """
+    path = tmp_path / "InternalCommunicationActivities.csv"
+    with open(path, "w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["ID", "Title", "Start date", "Time_x0020_zone", "Time_x0020_zone#Id"])
+        writer.writerow(["1", "A", "2025-03-05", _lookup(SHORT), "1"])
+        writer.writerow(["2", "B", "2025-03-06", _lookup("Japan Standard Time - GMT+9:00"), "4"])
+
+    assert check_time_zones.main(["--input", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "2 distinct value(s)" in out
+    assert "1.0" not in out and "4.0" not in out
+
+
+def test_a_second_time_zone_column_is_named_rather_than_measured(tmp_path, capsys):
+    """`transform()` maps the first one only. Reporting a width the database is
+    never asked to hold would send the reader after a problem that is not there.
+    """
+    path = tmp_path / "InternalCommunicationActivities.csv"
+    with open(path, "w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["ID", "Title", "Start date", "Time zone", "Time zone display"])
+        writer.writerow(["1", "A", "2025-03-05", SHORT, LONG])
+
+    assert check_time_zones.main(["--input", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "ignoring Time zone display" in out
+    assert "1 distinct value(s)" in out
+
+
 def test_the_limit_comes_from_the_model_not_from_a_number_typed_here():
     """A widened column must not leave this check failing rows that now fit."""
     from pipeline.api.app import Activity
