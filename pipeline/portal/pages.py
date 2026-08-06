@@ -23,7 +23,14 @@ from sqlalchemy.orm import Session
 
 from pipeline.portal.documents import published_documents, render_document, render_markdown_file
 from pipeline.portal.resolvers import ROLE_LABEL, humanise_age, report_files
-from pipeline.portal.resources import PROJECTS_ROOT, load_manifest, manifest_path, tile_specs
+from pipeline.portal.resources import (
+    PROJECTS_ROOT,
+    assets_dir,
+    load_manifest,
+    manifest_path,
+    named_file,
+    tile_specs,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -58,22 +65,23 @@ def register_pages(app: FastAPI, db_session, project_row, tile_context) -> None:
         return FileResponse(path)
 
     @app.get("/project/{slug}/assets/{name}")
-    def project_manual_asset(slug: str, name: str, session: Session = Depends(db_session)):
-        """One illustration from the manual, gated exactly like the manual is.
+    def project_asset(slug: str, name: str, session: Session = Depends(db_session)):
+        """One picture the project publishes, gated exactly like the project is.
 
-        These were served from the portal's public static tree, so nine
-        screenshots of the application — including a viewer session showing its
-        role interface — were readable with no session at all, and by anyone
-        entitled to any project. Per-project asset directories plus this route
-        make an illustration exactly as private as the document that uses it.
+        The manual's illustrations were once served from the portal's public
+        static tree, so nine screenshots of the application — including a viewer
+        session showing its role interface — were readable with no session at
+        all, and by anyone entitled to any project. Per-project asset
+        directories plus this route make a picture exactly as private as the
+        project it belongs to. Everything the project shows lives behind it: the
+        manual's screenshots and the logo on its tile alike.
 
         The name is matched against the directory's own listing, never joined
         onto it: an entry that does not exist under that exact name simply has
         no match, so no traversal is expressible here.
         """
         require_project(session, slug)
-        directory = manifest_path(slug, "manual", root=PROJECTS_ROOT, field="assets")
-        match = _named(directory, name)
+        match = named_file(assets_dir(slug, root=PROJECTS_ROOT), name)
         if match is None:
             raise HTTPException(status_code=404, detail={"code": "not_found"})
         return FileResponse(match)
@@ -152,19 +160,6 @@ def register_pages(app: FastAPI, db_session, project_row, tile_context) -> None:
     def project_access(slug: str, session: Session = Depends(db_session)):
         row = require_project(session, slug)
         return HTMLResponse(_access_page(row, tile_context(session, row)))
-
-
-def _named(directory: Path | None, name: str) -> Path | None:
-    """The file called `name` in `directory`, found by listing rather than by joining.
-
-    `directory / name` would accept `../../pipeline/api/app.py`; comparing
-    against the names the directory actually reports cannot, whatever the
-    caller sends. A missing directory has no matches, so it is a 404 like any
-    other unknown name.
-    """
-    if directory is None or not directory.is_dir():
-        return None
-    return next((path for path in directory.iterdir() if path.is_file() and path.name == name), None)
 
 
 def _tile_title(manifest: dict, kind: str, default: str) -> str:

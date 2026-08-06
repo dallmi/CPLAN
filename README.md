@@ -35,6 +35,21 @@ CPLAN_TEST_DATABASE_URL=postgresql+psycopg://cplan:<password>@127.0.0.1:55432/cp
 
 `pipeline/scripts/capture_manual_shots.py` provisions a disposable PostgreSQL database (schema, roles, seed data), drives the studio and the portal through Playwright, saves nine PNGs to `pipeline/portal/projects/cplan/assets/`, and drops the database again — repeatable, and safe on a shared server. Playwright is a development-only dependency (`requirements-dev.txt`, `pip install -r requirements-dev.txt` then `playwright install chromium`); it is never imported by the portal itself. The captured PNGs are committed, so a checkout with no Playwright installed still serves a working manual with its existing pictures — only regenerating them needs the dev dependency. Inspect every PNG by hand before committing: the seed data is organisation-neutral by construction, but a screenshot is still a screenshot.
 
+### Pictures a project publishes
+
+Every image a project shows lives in one directory, declared at the top of its `resources.json`:
+
+```json
+{
+  "assets": "pipeline/portal/projects/cplan/assets",
+  "logo": "logo.png"
+}
+```
+
+`assets` is the store — the manual's nine screenshots are in it, and so is anything added later. `logo` names the file within it that stands for the project: the portal puts it on the project's tile, left of the name. It is a *file name*, not a path, so a picture cannot be declared from somewhere else in the repository, and the whole store stays in one place.
+
+Drop a new picture in, name it in the manifest, and it is served — behind the session, at `/project/{slug}/assets/{name}`, exactly as private as the project itself. Nothing is public: a logo is a hint about what the organisation runs. Declaring a file that is not there yet is not an error; the tile reads as it did before, so the declaration and the picture can land in either order. Sizing is the portal's job (28 px tall, capped at 104 px wide, undistorted), so any reasonable PNG or SVG fits without being prepared first — but check a picture for organisation branding before committing it, the same rule the screenshots follow.
+
 `--backend postgres-embedded` is the recommended corp default: a real PostgreSQL 16, run as an unprivileged local process via [`pgserver`](https://pypi.org/project/pgserver/) — no admin rights, no installer, no external service. SQLite (`--backend sqlite`) remains the zero-dependency fallback when even that is not wanted. See [`pipeline/api/README.md`](pipeline/api/README.md#embedded-postgresql---backend-postgres-embedded) for the data-directory story, `cplan_db.py --status`/`--stop`, and the pg_dump-to-production path.
 
 `GET /api/activities` deliberately returns the full result set with no pagination — the deployment target is local, single-user use. Revisit if the dataset outgrows an unpaginated response.

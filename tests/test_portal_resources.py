@@ -7,11 +7,15 @@ from pathlib import Path
 
 import pytest
 
+from pipeline.portal import resources
 from pipeline.portal.resources import (
     PROJECTS_ROOT,
     Tile,
+    assets_dir,
     load_manifest,
     manifest_path,
+    named_file,
+    project_logo,
     resolve_tiles,
 )
 
@@ -457,3 +461,119 @@ def test_people_section_degraded_branch_still_agrees_with_a_plural_headcount():
     row = SimpleNamespace(slug="cplan")
     heading, body = _people_section(row, _FakeSession(), member_count=3)
     assert "3 people have access to this project." in body
+
+
+# --- The project's picture store ---------------------------------------------
+
+
+def test_assets_directory_is_declared_at_the_top_of_the_manifest(tmp_path):
+    # A picture belongs to the project, not to whichever tile needed one first,
+    # so the directory is declared once beside `purpose` and `logo`.
+    write_manifest(tmp_path, "demo", {"assets": "pipeline/portal/projects/cplan/assets"})
+    directory = assets_dir("demo", root=tmp_path)
+    assert directory is not None
+    assert directory.name == "assets"
+
+
+def test_a_manifest_without_a_project_assets_key_still_serves_the_manual_shots(tmp_path):
+    # Every manifest written before the top-level key declared its screenshots
+    # on the manual tile. Those keep resolving, from exactly where they did.
+    write_manifest(
+        tmp_path,
+        "legacy",
+        {"tiles": [{"kind": "manual", "assets": "pipeline/portal/projects/cplan/assets"}]},
+    )
+    directory = assets_dir("legacy", root=tmp_path)
+    assert directory is not None
+    assert directory.name == "assets"
+
+
+def test_a_project_level_assets_key_wins_over_the_manual_tiles(tmp_path):
+    write_manifest(
+        tmp_path,
+        "both",
+        {
+            "assets": "pipeline/portal/projects/cplan/assets",
+            "tiles": [{"kind": "manual", "assets": "pipeline/docs"}],
+        },
+    )
+    assert assets_dir("both", root=tmp_path).name == "assets"
+
+
+def test_a_project_declaring_no_assets_has_no_picture_directory(tmp_path):
+    write_manifest(tmp_path, "bare", {"tiles": []})
+    assert assets_dir("bare", root=tmp_path) is None
+
+
+def test_an_assets_directory_outside_the_repository_is_no_directory(tmp_path):
+    write_manifest(tmp_path, "escapee", {"assets": "../../../../etc"})
+    assert assets_dir("escapee", root=tmp_path) is None
+
+
+def logo_project(root: Path, slug: str, manifest: dict) -> Path:
+    """A project whose assets directory is real, so a logo can be put in it."""
+    assets = root / slug / "assets"
+    assets.mkdir(parents=True)
+    directory = root / slug
+    (directory / "resources.json").write_text(json.dumps(manifest), encoding="utf-8")
+    return assets
+
+
+def test_a_declared_logo_resolves_to_the_file_in_the_assets_directory(tmp_path, monkeypatch):
+    monkeypatch.setattr(resources, "REPO_ROOT", tmp_path)
+    assets = logo_project(tmp_path, "demo", {"assets": "demo/assets", "logo": "logo.png"})
+    (assets / "logo.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    found = project_logo("demo", root=tmp_path)
+    assert found is not None
+    assert found.name == "logo.png"
+
+
+def test_a_declared_logo_whose_file_has_not_landed_yet_is_simply_no_logo(tmp_path, monkeypatch):
+    # Declaring the picture before it exists is the ordinary order of work, and
+    # it must leave the tile reading exactly as it did before -- not raise, and
+    # not point the tile at a 404.
+    monkeypatch.setattr(resources, "REPO_ROOT", tmp_path)
+    logo_project(tmp_path, "demo", {"assets": "demo/assets", "logo": "logo.png"})
+    assert project_logo("demo", root=tmp_path) is None
+
+
+def test_a_project_declaring_no_logo_has_none(tmp_path, monkeypatch):
+    monkeypatch.setattr(resources, "REPO_ROOT", tmp_path)
+    assets = logo_project(tmp_path, "demo", {"assets": "demo/assets"})
+    (assets / "logo.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    # The file being there is not the declaration; the manifest is.
+    assert project_logo("demo", root=tmp_path) is None
+
+
+@pytest.mark.parametrize("name", ["../resources.json", "..", "sub/logo.png", "", 7, None])
+def test_a_logo_name_cannot_reach_outside_the_assets_directory(tmp_path, monkeypatch, name):
+    # The manifest names a file, not a path. `named_file` matches against the
+    # directory's own listing, so a name carrying `..` or a separator has no
+    # match at all rather than resolving somewhere else in the repository.
+    monkeypatch.setattr(resources, "REPO_ROOT", tmp_path)
+    assets = logo_project(tmp_path, "demo", {"assets": "demo/assets", "logo": name})
+    (assets / "logo.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    (tmp_path / "demo" / "assets" / "sub").mkdir()
+    (tmp_path / "demo" / "assets" / "sub" / "logo.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    assert project_logo("demo", root=tmp_path) is None
+
+
+def test_named_file_finds_only_files_directly_in_the_directory(tmp_path):
+    (tmp_path / "logo.png").write_bytes(b"\x89PNG")
+    (tmp_path / "nested").mkdir()
+    assert named_file(tmp_path, "logo.png").name == "logo.png"
+    assert named_file(tmp_path, "nested") is None
+    assert named_file(tmp_path, "absent.png") is None
+    assert named_file(None, "logo.png") is None
+    assert named_file(tmp_path / "nosuch", "logo.png") is None
+
+
+def test_the_shipped_cplan_manifest_declares_its_picture_store():
+    # The real manifest, not a fixture: the assets directory it names must be
+    # the one the manual's committed screenshots actually live in, or the
+    # portal serves a manual with nine broken images.
+    manifest = load_manifest("cplan")
+    directory = assets_dir("cplan", manifest=manifest)
+    assert directory is not None and directory.is_dir()
+    assert (directory / "roles.png").is_file()
+    assert manifest.get("logo") == "logo.png"

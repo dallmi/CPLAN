@@ -71,11 +71,85 @@ def test_projects_endpoint_returns_purpose_and_callers_role(portal):
     assert cplan["role"] == "admin"
     assert cplan["purpose"]
 
+    # Present whether or not the project publishes a mark, so the tile has one
+    # shape to render rather than two.
+    assert "logo" in cplan
+
     viewer = login(portal, "pa_viewer")
     cplan_as_viewer = next(
         p for p in viewer.get("/api/portal/projects").json()["projects"] if p["slug"] == "cplan"
     )
     assert cplan_as_viewer["role"] == "viewer"
+
+
+PNG = b"\x89PNG\r\n\x1a\n"
+
+
+def picture_project(tmp_path, monkeypatch, manifest: str) -> None:
+    """Point the portal at a projects tree under tmp_path holding one cplan manifest.
+
+    Both module globals have to move together: `app.py` reads PROJECTS_ROOT to
+    find the manifest, `pages.py` reads its own copy to serve the picture, and
+    `resources.REPO_ROOT` is what every declared path resolves against. Patching
+    only one leaves the API describing a logo the asset route cannot find.
+    """
+    from pipeline.portal import app as portal_app
+    from pipeline.portal import pages as portal_pages
+    from pipeline.portal import resources
+
+    projects_root = tmp_path / "projects"
+    (projects_root / "cplan" / "assets").mkdir(parents=True)
+    (projects_root / "cplan" / "resources.json").write_text(manifest, encoding="utf-8")
+    monkeypatch.setattr(portal_app, "PROJECTS_ROOT", projects_root)
+    monkeypatch.setattr(portal_pages, "PROJECTS_ROOT", projects_root)
+    monkeypatch.setattr(resources, "REPO_ROOT", tmp_path)
+
+
+def test_a_projects_logo_reaches_its_tile_and_is_served_as_privately_as_the_project(
+    portal, tmp_path, monkeypatch
+):
+    picture_project(
+        tmp_path,
+        monkeypatch,
+        '{"purpose": "Plan things.", "assets": "projects/cplan/assets", "logo": "logo.png"}',
+    )
+    (tmp_path / "projects" / "cplan" / "assets" / "logo.png").write_bytes(PNG)
+
+    client = login(portal, "pa_admin")
+    cplan = next(
+        p for p in client.get("/api/portal/projects").json()["projects"] if p["slug"] == "cplan"
+    )
+    assert cplan["logo"] == "/project/cplan/assets/logo.png"
+
+    # The URL the tile is handed must actually answer, and answer with the
+    # picture -- a logo that 404s is worse than no logo at all.
+    served = client.get(cplan["logo"])
+    assert served.status_code == 200
+    assert served.content[:4] == b"\x89PNG"
+
+    # And it is behind the session, like every other picture the project
+    # publishes: a logo is a hint about what the organisation runs.
+    anonymous = TestClient(portal).get(cplan["logo"], follow_redirects=False)
+    assert anonymous.status_code != 200
+
+
+def test_a_logo_declared_before_the_picture_arrives_leaves_the_tile_as_it_was(
+    portal, tmp_path, monkeypatch
+):
+    # Declaring the mark and adding the file are two separate moments. In
+    # between, the tile must read exactly as it did before -- not point at a
+    # URL that 404s under it.
+    picture_project(
+        tmp_path,
+        monkeypatch,
+        '{"purpose": "Plan things.", "assets": "projects/cplan/assets", "logo": "logo.png"}',
+    )
+    client = login(portal, "pa_admin")
+    cplan = next(
+        p for p in client.get("/api/portal/projects").json()["projects"] if p["slug"] == "cplan"
+    )
+    assert cplan["logo"] is None
+    assert cplan["purpose"] == "Plan things."
 
 
 def test_only_admin_lists_users(portal):

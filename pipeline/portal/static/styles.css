@@ -113,6 +113,18 @@ input:focus, select:focus { outline: 2px solid var(--info); outline-offset: -1px
 .tile:hover { background: var(--row-alt); }
 .tile:hover .tile-open { color: var(--black); }
 .tile-name { font-size: 18px; font-weight: 600; line-height: 1.25; }
+/* A project's logo, left of its name. Sized by height so a wide mark and a
+   square one sit on the same line as the name, and capped in width so an
+   unusually wide one cannot crowd the name out of the tile. `object-fit:
+   contain` keeps the supplied picture undistorted whatever its proportions —
+   the portal never knows in advance what shape a project's mark is. A tile
+   with no logo renders no .tile-logo at all, so the head is the bare name and
+   the gap collapses. */
+/* min-height, not just the image's own: a row mixing projects that publish a
+   logo with projects that do not would otherwise set their names on two
+   different baselines, the logo-less ones riding ~6px higher. */
+.tile-head { display: flex; align-items: center; gap: 12px; min-height: 28px; }
+.tile-logo { height: 28px; width: auto; max-width: 104px; object-fit: contain; flex: none; }
 .tile-purpose { font-size: 13px; color: var(--grey-5); line-height: 1.45; margin-top: 8px; flex: 1; }
 .tile-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 20px; padding-top: 12px; border-top: 1px solid var(--surface); }
 .tile-open { font-size: 12px; font-weight: 600; color: var(--grey-4); }

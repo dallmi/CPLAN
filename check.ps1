@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-06.6"
+$manifestVersion = "2026-08-06.7"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-06.6"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-06.6"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-06.7"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -210,7 +210,18 @@ $manifest = @(
     # silently ignoring the .xlsx the operator put next to report.cmd, which
     # is the one symptom this pair has to be able to tell apart.
     @{ Path = "pipeline\report\membership.py"; Marker = "def _read_xlsx";                  Why = "the workbook reader -- without it a geb-members.xlsx is ignored and the report runs unsplit, saying nothing" },
-    @{ Path = "pipeline\scripts\report_calendar.py"; Marker = "membership.default_path";   Why = "the default search finds either format, and refuses to guess when both are present" }
+    @{ Path = "pipeline\scripts\report_calendar.py"; Marker = "membership.default_path";   Why = "the default search finds either format, and refuses to guess when both are present" },
+    # A project publishes pictures from one declared directory, and the logo on
+    # its tile is one of them. Five files move together here, and two of them
+    # were never listed at all: resources.py holds the resolution, pages.py
+    # serves the file, and app.py imports the first to fill a field the tile
+    # reads. A copy with the new app.py and an old resources.py does not render
+    # a logo-less tile -- it fails to import, and the portal does not start.
+    @{ Path = "pipeline\portal\resources.py";  Marker = "def assets_dir";                    Why = "the project's picture directory is declared once, at the top of its manifest - without this the portal cannot start, because app.py imports it" },
+    @{ Path = "pipeline\portal\pages.py";      Marker = "named_file(assets_dir";             Why = "the gated asset route serves every picture a project publishes, not the manual's alone" },
+    @{ Path = "pipeline\portal\app.py";        Marker = "def _project_summary";              Why = "a project tile carries its logo - an older copy sends no such field and every tile stays unmarked" },
+    @{ Path = "pipeline\portal\static\js\home.js"; Marker = "tile-logo";                     Why = "the tile renders the mark the API sends, and nothing when there is none" },
+    @{ Path = "pipeline\portal\static\styles.css"; Marker = ".tile-logo {";                  Why = "the logo is capped in height and width - unstyled, one large PNG blows up the tile grid" }
 )
 
 Write-Host ""

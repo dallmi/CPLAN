@@ -1,6 +1,8 @@
 {
   "purpose": "Plan and track internal and external communication activity across the year.",
   "app_title": "Open the planning studio",
+  "assets": "pipeline/portal/projects/cplan/assets",
+  "logo": "logo.png",
   "tiles": [
     {
       "kind": "manual",

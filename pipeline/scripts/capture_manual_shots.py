@@ -62,10 +62,12 @@ from pathlib import Path
 from typing import Iterator
 
 ROOT = Path(__file__).resolve().parents[2]
-# The manual's own asset directory, declared by the project manifest
-# (resources.json, the manual tile's "assets") and served by the portal's
-# gated /project/{slug}/assets route -- NOT the public static tree, where
-# these screenshots of the application were readable without a session.
+# The project's picture directory, declared by the project manifest
+# (resources.json, top-level "assets") and served by the portal's gated
+# /project/{slug}/assets route -- NOT the public static tree, where these
+# screenshots of the application were readable without a session. Shared with
+# every other picture the project publishes, its logo among them: only the
+# named SHOTS below are written here, so a re-capture never disturbs them.
 OUT = ROOT / "pipeline" / "portal" / "projects" / "cplan" / "assets"
 STUDIO_PORT = 8788
 PORTAL_PORT = 8789

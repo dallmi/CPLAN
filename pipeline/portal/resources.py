@@ -5,6 +5,10 @@ are repository artefacts, so a project declares its tiles in a `resources.json`
 that versions alongside them. Resolution is a runtime fact, supplied by the
 callables in `pipeline/portal/resolvers.py`.
 
+Pictures are declared the same way and in one place: `assets` names the single
+directory a project publishes images from, and `logo` names the file within it
+that stands for the project itself.
+
 A document is addressed by its manifest key, never by a path taken from a URL.
 `manifest_path` is therefore a lookup, not a join: an unknown key resolves to
 nothing, and a declared path that escapes the repository resolves to nothing
@@ -144,6 +148,18 @@ def manifest_path(
         declared = next(
             (d.get("path") for d in tile_documents(spec) if d.get("key") == key), None
         )
+    return repo_path(slug, declared)
+
+
+def repo_path(slug: str, declared: Any) -> Path | None:
+    """A path declared in a manifest, resolved inside the repository or not at all.
+
+    The single gate every declared path passes through, wherever on the
+    manifest it was written: a tile's `path`, a document's, or the project's
+    own assets directory. Anything that is not a string, and anything that
+    resolves outside the repository, is no path — a mistake in a manifest
+    cannot become a file disclosure.
+    """
     if not declared or not isinstance(declared, str):
         return None
     resolved = (REPO_ROOT / declared).resolve()
@@ -151,6 +167,66 @@ def manifest_path(
         logger.error("Manifest for %r declares a path outside the repository: %r", slug, declared)
         return None
     return resolved
+
+
+def named_file(directory: Path | None, name: str) -> Path | None:
+    """The file called `name` in `directory`, found by listing rather than by joining.
+
+    `directory / name` would accept `../../pipeline/api/app.py`; comparing
+    against the names the directory actually reports cannot, whatever the
+    caller sends. A missing directory has no matches, so it is a 404 like any
+    other unknown name.
+    """
+    if directory is None or not directory.is_dir():
+        return None
+    return next((path for path in directory.iterdir() if path.is_file() and path.name == name), None)
+
+
+def assets_dir(
+    slug: str,
+    root: Path = PROJECTS_ROOT,
+    manifest: dict[str, Any] | None = None,
+) -> Path | None:
+    """The one directory a project publishes pictures from.
+
+    Declared at the top of the manifest rather than on a tile, because a
+    picture is a project-level fact: the logo on the project's tile belongs to
+    the project, not to the manual that happened to need illustrations first.
+    A manifest that declares no project-level `assets` still gets the manual
+    tile's, so every manifest written before this key keeps serving its
+    screenshots from exactly where it always did.
+    """
+    if manifest is None:
+        manifest = load_manifest(slug, root=root)
+    declared = repo_path(slug, manifest.get("assets"))
+    if declared is not None:
+        return declared
+    return manifest_path(slug, "manual", root=root, manifest=manifest, field="assets")
+
+
+def project_logo(
+    slug: str,
+    root: Path = PROJECTS_ROOT,
+    manifest: dict[str, Any] | None = None,
+) -> Path | None:
+    """The project's own mark, if it declares one and the file is really there.
+
+    The manifest names a *file*, not a path: the logo lives in the project's
+    assets directory or nowhere. That keeps every picture in one place, and it
+    keeps the declaration from reaching across the repository the way a free
+    path could — `named_file` matches against the directory's own listing, so
+    a name with `..` in it simply has no match.
+
+    A declared name with no file behind it is not an error. The tile carries no
+    logo and reads exactly as it did before one was declared, which is what
+    should happen while a picture is still on its way.
+    """
+    if manifest is None:
+        manifest = load_manifest(slug, root=root)
+    name = manifest.get("logo")
+    if not name or not isinstance(name, str):
+        return None
+    return named_file(assets_dir(slug, root=root, manifest=manifest), name)
 
 
 def resolve_tiles(

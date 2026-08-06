@@ -40,7 +40,13 @@ from pipeline.api.scram import verifier_for
 from pipeline.api.session import CurrentUser, build_session_dependencies
 from pipeline.api.setup_portal import CREATE_USER_SIGNATURE, RESET_PASSWORD_SIGNATURE
 from pipeline.portal.resolvers import RESOLVERS
-from pipeline.portal.resources import PROJECTS_ROOT, load_manifest, manifest_path, resolve_tiles
+from pipeline.portal.resources import (
+    PROJECTS_ROOT,
+    load_manifest,
+    manifest_path,
+    project_logo,
+    resolve_tiles,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -293,17 +299,31 @@ def create_portal_app(
                 "ORDER BY p.name"
             )
         ).all()
+        return {"projects": [_project_summary(r) for r in rows]}
+
+    def _project_summary(row) -> dict:
+        """One project as its tile needs it: what it is, and what it looks like.
+
+        The manifest is read once and passed on rather than re-read per field —
+        `purpose` and the logo both come out of it, and a second read per
+        project would parse the same file twice on every home page.
+
+        `logo` is a URL into the project's own gated asset route, so the picture
+        on a tile is exactly as private as the project it stands for, and it is
+        None unless the project declares a logo *and* the file is there. A tile
+        with no logo is the shape the portal has always rendered, so a project
+        that declares none — or one whose picture has not landed yet — needs no
+        special case anywhere downstream.
+        """
+        manifest = load_manifest(row.slug, root=PROJECTS_ROOT)
+        logo = project_logo(row.slug, root=PROJECTS_ROOT, manifest=manifest)
         return {
-            "projects": [
-                {
-                    "slug": r.slug,
-                    "name": r.name,
-                    "url": r.url,
-                    "purpose": load_manifest(r.slug, root=PROJECTS_ROOT).get("purpose"),
-                    "role": r.role,
-                }
-                for r in rows
-            ]
+            "slug": row.slug,
+            "name": row.name,
+            "url": row.url,
+            "purpose": manifest.get("purpose"),
+            "role": row.role,
+            "logo": f"/project/{row.slug}/assets/{logo.name}" if logo is not None else None,
         }
 
     PROJECT_SQL = text(

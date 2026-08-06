@@ -275,6 +275,28 @@ class PortalFrontendTests(unittest.TestCase):
         # The shipped portal printed the raw URL as the tile subtitle.
         self.assertNotIn("tile-url", home)
 
+    def test_a_tile_carries_the_projects_logo_only_when_there_is_one(self):
+        # The API sends `logo: null` for a project that publishes no mark, so
+        # the template must branch rather than emit an <img src="null"> that
+        # renders as a broken-image glyph on every tile without a picture.
+        home = (JS / "home.js").read_text(encoding="utf-8")
+        self.assertIn("tile-logo", home)
+        self.assertIn("if (!p.logo) return ''", home)
+        # The name sits right beside it, so the picture is decorative: alt=""
+        # keeps a screen reader from announcing the project twice.
+        self.assertIn('alt=""', home)
+        # The URL comes from the API and still goes through the escaper.
+        self.assertIn("esc(p.logo)", home)
+
+    def test_the_logo_is_styled_to_fit_a_tile_whatever_shape_it_is(self):
+        # A logo is supplied by whoever owns the project, in whatever
+        # proportions they have. Without a height, a width cap and `contain`,
+        # one wide or one very large PNG blows up the whole tile grid.
+        css = (STATIC / "styles.css").read_text(encoding="utf-8")
+        block = css.split("\n.tile-logo {")[1].split("}")[0]
+        for rule in ("height:", "max-width:", "object-fit: contain"):
+            self.assertIn(rule, block)
+
     def test_users_table_can_search_filter_and_sort(self):
         users = (JS / "users.js").read_text(encoding="utf-8")
         for hook in ("user-search", "user-filter-role", "user-filter-status", "user-count", "user-empty"):
