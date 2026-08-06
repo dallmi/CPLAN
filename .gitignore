@@ -35,8 +35,11 @@ pipeline/data/cplan-settings.json
 pipeline/data/cplan-settings.json.tmp
 cplan.config
 # The GEB membership list names real people. The .example beside it carries
-# placeholders and is committed; this one never is.
+# placeholders and is committed; these never are. Both formats are ignored
+# because the report reads either -- ignoring only the one the loader used to
+# accept would leave the other sitting in `git status` waiting to be added.
 geb-members.csv
+geb-members.xlsx
 *.sqlite3
 *.sqlite3-shm
 *.sqlite3-wal

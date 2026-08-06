@@ -18,10 +18,11 @@ EXPECTED_SHEETS = [
 
 @pytest.fixture(autouse=True)
 def _sealed_repo_dir(tmp_path, monkeypatch):
-    """The default GEB list path is `REPO_DIR / DEFAULT_FILENAME` -- ambient
-    state that lives outside `tmp_path`. The README tells the user to run
-    exactly `cp geb-members.csv.example geb-members.csv` in the repository
-    root, and a developer who has done that (or left a real list behind from
+    """The default GEB list is whatever `default_path(REPO_DIR)` finds --
+    ambient state that lives outside `tmp_path`, in either format. The README
+    tells the user to keep `geb-members.xlsx` or `geb-members.csv` in the
+    repository root, and a developer who has done that (or left a real list
+    behind from
     an earlier manual run) would otherwise leak a real membership list into
     every test exercising the default path -- including
     `test_without_a_list_the_workbook_is_unchanged`, the regression that

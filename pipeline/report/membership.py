@@ -1,15 +1,25 @@
 """Who is on the GEB -- the one thing the source data cannot say.
 
 `bod_geb` carries people at GEB and GEB-1 level with no marker distinguishing
-them. The distinction cannot be derived, so it is supplied: a local CSV names
+them. The distinction cannot be derived, so it is supplied: a local list names
 the members, and everyone else in the field is GEB-1.
+
+The list is read as either a workbook or a CSV, chosen by the file extension.
+The workbook is the easier file to keep by hand, and the reason is specific:
+the two ways a hand-edited CSV breaks -- Excel's "CSV (Comma delimited)" save
+writing Windows-1252 rather than UTF-8, and its semicolon separator on a German
+locale -- are both properties of the CSV *export*, not of the data. A workbook
+carries its own encoding and needs no separator, so neither failure exists
+there. The CSV path stays because the committed `.example` is a CSV: it is the
+one copy that has to stay readable in a diff.
 
 The file names real people, so it never enters git. It sits beside a committed
 `.example` carrying placeholders, the same pairing `cplan.config` uses.
 
 Deliberately free of pandas and of any report import beyond `derive`: this is a
-small pure function over a text file, and keeping it that way is what makes it
-testable without building a frame.
+small pure function over a file, and keeping it that way is what makes it
+testable without building a frame. openpyxl is not a new dependency -- the
+report is written with it.
 """
 
 from __future__ import annotations
@@ -20,7 +30,10 @@ from pathlib import Path
 
 from pipeline.report.derive import person_name
 
-DEFAULT_FILENAME = "geb-members.csv"
+# Searched in this order, so a directory holding one of them needs no flag.
+# The workbook comes first only to make the search deterministic; holding both
+# is an error rather than a precedence question -- see default_path.
+DEFAULT_FILENAMES = ("geb-members.xlsx", "geb-members.csv")
 
 REQUIRED_COLUMNS = ("email", "name")
 
@@ -104,6 +117,26 @@ class Membership:
         )
 
 
+def default_path(directory):
+    """Which default list a directory holds, or None when it holds neither.
+
+    Holding both is an error rather than a precedence rule. The two files would
+    only both exist because one was converted from the other, and the moment
+    they disagree, quietly reading the one the operator is not editing splits
+    the report on a list nobody checked -- the same silent-wrong-answer failure
+    the rest of this module is built to refuse.
+    """
+    directory = Path(directory)
+    found = [directory / name for name in DEFAULT_FILENAMES
+             if (directory / name).exists()]
+    if len(found) > 1:
+        raise MembershipError(
+            f"{directory} holds both {DEFAULT_FILENAMES[0]} and "
+            f"{DEFAULT_FILENAMES[1]}; keep one, or name the one to use"
+        )
+    return found[0] if found else None
+
+
 def load_membership(path):
     """The configured members, or None when there is no file.
 
@@ -114,6 +147,38 @@ def load_membership(path):
     if not path.exists():
         return None
 
+    read = _read_xlsx if path.suffix.lower() == ".xlsx" else _read_csv
+
+    entries = []
+    for offset, raw_email, raw_name in read(path):
+        email = normalise_email(raw_email)
+        name = normalise_name(raw_name)
+        if not email and not name:
+            raise MembershipError(
+                f"{path}: row {offset} carries neither an email nor a name"
+            )
+        entries.append(Entry(email=email, name=name))
+
+    if not entries:
+        raise MembershipError(f"{path}: no entries")
+    return Membership(entries=tuple(entries))
+
+
+def _require_columns(path, fieldnames):
+    for column in REQUIRED_COLUMNS:
+        if column not in fieldnames:
+            raise MembershipError(
+                f"{path}: missing the required column {column!r} "
+                f"(found: {', '.join(fieldnames) or 'nothing'})"
+            )
+
+
+def _read_csv(path):
+    """(row number, email, name) per data row, or a MembershipError.
+
+    Row numbers are the file's own: the first data row is row 2, which is what
+    makes a message actionable in the editor the operator is looking at.
+    """
     # A directory where a file was expected, a permissions problem, or a CSV
     # saved by Excel as "CSV (Comma delimited)" (Windows-1252) rather than
     # "CSV UTF-8" -- one accented name is enough -- must all become a message
@@ -124,16 +189,9 @@ def load_membership(path):
         with path.open(newline="", encoding="utf-8-sig") as handle:
             reader = csv.DictReader(handle)
             fieldnames = [(name or "").strip().lower() for name in (reader.fieldnames or [])]
-            for column in REQUIRED_COLUMNS:
-                if column not in fieldnames:
-                    raise MembershipError(
-                        f"{path}: missing the required column {column!r} "
-                        f"(found: {', '.join(fieldnames) or 'nothing'})"
-                    )
+            _require_columns(path, fieldnames)
 
-            entries = []
-            # DictReader yields the first data row as row 2 of the file; naming
-            # the file's own line number is what makes the message actionable.
+            rows = []
             for offset, raw in enumerate(reader, start=2):
                 # DictReader stashes any field past the header count under the
                 # None key instead of raising. The one way a row grows an extra
@@ -145,19 +203,86 @@ def load_membership(path):
                         f"{path}: row {offset} has more fields than the header "
                         f"-- a \"Last, First\" name likely needs quotes"
                     )
-                email = normalise_email(_cell(raw, fieldnames, "email"))
-                name = normalise_name(_cell(raw, fieldnames, "name"))
-                if not email and not name:
-                    raise MembershipError(
-                        f"{path}: row {offset} carries neither an email nor a name"
-                    )
-                entries.append(Entry(email=email, name=name))
+                rows.append((offset,
+                             _cell(raw, fieldnames, "email"),
+                             _cell(raw, fieldnames, "name")))
+            return rows
     except (OSError, UnicodeDecodeError) as error:
         raise MembershipError(f"{path}: {error}") from error
 
-    if not entries:
-        raise MembershipError(f"{path}: no entries")
-    return Membership(entries=tuple(entries))
+
+def _read_xlsx(path):
+    """The same, from the first sheet of a workbook.
+
+    Imported here rather than at module scope so the CSV path -- and every
+    caller that only ever touches it -- keeps working if openpyxl is missing.
+    """
+    import zipfile
+
+    import openpyxl
+    from openpyxl.utils.exceptions import InvalidFileException
+
+    workbook = None
+    try:
+        # data_only: a formula cell must yield what Excel last displayed, not
+        # its source text. read_only: the list is small, but the flag also
+        # keeps openpyxl from materialising the blank rows Excel leaves behind.
+        workbook = openpyxl.load_workbook(path, read_only=True, data_only=True)
+        sheet = workbook.worksheets[0]
+        rows = sheet.iter_rows(values_only=True)
+        header = next(rows, None) or ()
+        fieldnames = [_text(value).lower() for value in header]
+        _require_columns(path, fieldnames)
+
+        found = []
+        for offset, raw in enumerate(rows, start=2):
+            cells = [_text(value) for value in raw]
+            # Excel hands back every row the sheet has ever held, so a list
+            # edited down from a longer one arrives with blank rows below the
+            # data. Skipping them is what makes the format usable by hand --
+            # but only when the whole row is blank. A row with a note and no
+            # name falls through to the "neither an email nor a name" error,
+            # because that one is a real member about to be filed under GEB-1.
+            if not any(cells):
+                continue
+            found.append((offset,
+                          _column(cells, fieldnames, "email"),
+                          _column(cells, fieldnames, "name")))
+        return found
+    except (OSError, zipfile.BadZipFile, InvalidFileException,
+            ValueError, KeyError, TypeError) as error:
+        # A CSV saved and renamed to .xlsx is the obvious wrong move; an .xls
+        # renamed likewise is the other one. They surface as BadZipFile (which
+        # descends straight from Exception, so it needs naming) and as
+        # InvalidFileException respectively. Same reasoning as the CSV path:
+        # name the file, never let a traceback escape.
+        raise MembershipError(f"{path}: {error}") from error
+    finally:
+        if workbook is not None:
+            workbook.close()
+
+
+def _text(value):
+    """A cell as the string a person would have typed into it.
+
+    Excel decides on its own that some cells are numbers or dates; whatever it
+    hands back has to compare against the source data as text.
+    """
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def _column(cells, fieldnames, wanted):
+    """The named cell of a row, tolerating a short row.
+
+    Excel stops a row at its last non-empty cell, so a row whose name is blank
+    can arrive with fewer cells than the header has columns.
+    """
+    if wanted not in fieldnames:
+        return ""
+    index = fieldnames.index(wanted)
+    return cells[index] if index < len(cells) else ""
 
 
 def _cell(raw, fieldnames, wanted):

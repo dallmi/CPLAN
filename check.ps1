@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-06.1"
+$manifestVersion = "2026-08-06.2"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-06.1"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-06.1"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-06.2"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -194,7 +194,14 @@ $manifest = @(
     @{ Path = "pipeline\report\grid.py";       Marker = "_by_monday";                        Why = "week lookup is a cached map - the scan it replaced crawled once the grid spanned years" },
     @{ Path = "pipeline\report\metrics.py";    Marker = '"bod_geb", "other_executives"';     Why = "both leadership fields are carried, not just the combined one" },
     @{ Path = "pipeline\report\style.py";      Marker = "_ILLEGAL";                          Why = "control characters are blanked, so one bad byte cannot cost the whole workbook" },
-    @{ Path = "setup.ps1";                     Marker = "means the packages are missing (run check.cmd)"; Why = "a missing package is reported as such, not as 'is the database reachable?'" }
+    @{ Path = "setup.ps1";                     Marker = "means the packages are missing (run check.cmd)"; Why = "a missing package is reported as such, not as 'is the database reachable?'" },
+    # The GEB member list reads as a workbook as well as a CSV. Added, not
+    # substituted: the markers above still hold, and a copy predating the
+    # workbook reader answers "current" on their strength alone -- while
+    # silently ignoring the .xlsx the operator put next to report.cmd, which
+    # is the one symptom this pair has to be able to tell apart.
+    @{ Path = "pipeline\report\membership.py"; Marker = "def _read_xlsx";                  Why = "the workbook reader -- without it a geb-members.xlsx is ignored and the report runs unsplit, saying nothing" },
+    @{ Path = "pipeline\scripts\report_calendar.py"; Marker = "membership.default_path";   Why = "the default search finds either format, and refuses to guess when both are present" }
 )
 
 Write-Host ""

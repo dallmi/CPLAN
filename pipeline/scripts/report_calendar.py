@@ -145,10 +145,11 @@ def build_parser():
                         help="Read the CSV exports from here instead of discovering OneDrive")
     parser.add_argument(
         "--geb-members", type=str, default=None,
-        help=("CSV naming the GEB members, so the report can split the "
-              "leadership field into GEB and GEB-1. Defaults to "
-              f"{membership.DEFAULT_FILENAME} in this repository's root; without "
-              "it the two levels stay combined."))
+        help=("Workbook (.xlsx) or CSV naming the GEB members, so the report "
+              "can split the leadership field into GEB and GEB-1. Defaults to "
+              f"{' or '.join(membership.DEFAULT_FILENAMES)} "
+              "in this repository's root; without it the two levels stay "
+              "combined."))
     return parser
 
 
@@ -200,13 +201,21 @@ def main(argv=None):
     # An absent default file is the normal state and stays silent. An absent
     # *named* file is a typo on the command line, and producing the unsplit
     # workbook anyway would answer a question nobody asked.
-    members_path = Path(args.geb_members) if args.geb_members else (
-        REPO_DIR / membership.DEFAULT_FILENAME)
-    if args.geb_members and not members_path.exists():
-        log(f"ERROR: no GEB member list at {members_path}")
-        return 1
+    if args.geb_members:
+        members_path = Path(args.geb_members)
+        if not members_path.exists():
+            log(f"ERROR: no GEB member list at {members_path}")
+            return 1
+    else:
+        # None when the directory holds neither default; an error when it
+        # holds both, which is a question only the operator can settle.
+        try:
+            members_path = membership.default_path(REPO_DIR)
+        except membership.MembershipError as error:
+            log(f"ERROR: {error}")
+            return 1
     try:
-        members = membership.load_membership(members_path)
+        members = membership.load_membership(members_path) if members_path else None
     except membership.MembershipError as error:
         log(f"ERROR: {error}")
         return 1

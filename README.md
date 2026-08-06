@@ -97,15 +97,24 @@ criterion. The design is documented in
 [`docs/superpowers/specs/2026-07-30-calendar-report-design.md`](docs/superpowers/specs/2026-07-30-calendar-report-design.md).
 
 The combined leadership field can be split into GEB and GEB-1 with
-`--geb-members path/to/list.csv` (or `report.ps1 -GebMembers ...`). The file
-names each GEB member by email and/or display name; `geb-members.csv` in the
-repository root is the default when the flag is omitted, and it is
-gitignored because it names real people. `geb-members.csv.example` is the
-committed template — copy it and fill in the real list. With the flag
-omitted and no default file present, the two levels stay combined exactly as
-before. A `--geb-members` path that does not exist is treated as a typo, not
-as "no list": the report aborts with an error instead of silently falling
-back to the combined field.
+`--geb-members path/to/list.xlsx` (or `report.ps1 -GebMembers ...`). The file
+names each GEB member by email and/or display name, in two columns headed
+`email` and `name`. Either format is read, chosen by the extension:
+
+- **`geb-members.xlsx`** — the easier one to keep by hand. Excel's own
+  encoding, no separator to get wrong, and a `Last, First` name needs no
+  quoting.
+- **`geb-members.csv`** — must be saved as *CSV UTF-8*, comma-separated. On a
+  German locale Excel writes semicolons, which the reader rejects by name.
+  `geb-members.csv.example` is the committed template.
+
+Both are gitignored because they name real people. Placed in the repository
+root, either is found without passing the flag; holding *both* is an error
+rather than a precedence rule, so a stale copy cannot quietly outrank the list
+being edited. With no default file present, the two levels stay combined
+exactly as before. A `--geb-members` path that does not exist is treated as a
+typo, not as "no list": the report aborts with an error instead of silently
+falling back to the combined field.
 
 ## Daily workflow
 
