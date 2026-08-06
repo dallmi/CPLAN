@@ -344,17 +344,39 @@ def test_the_pack_says_when_it_was_generated(tmp_path):
     assert "Data as of" in instructions, "nothing tells the agent to state it"
 
 
-def test_the_instructions_add_rather_than_replace(tmp_path):
-    """An operator's own prompt is not ours to overwrite, and we only see part.
+def test_the_instructions_carry_no_organisation_name(tmp_path):
+    """This repository is public. The name is filled in where the text is used.
 
-    It also has to correct the one thing a prompt written before this pack
-    cannot get right: there is no workbook behind this agent any more.
+    A placeholder cannot be forgotten -- it is visible in the pasted text and
+    reads as unfinished -- whereas a name committed once stays in every clone
+    and fork of the history, whatever a later commit removes.
     """
     _, out_dir, _, _ = _pack(tmp_path)
     text = (out_dir / agent_pack.INSTRUCTIONS_NAME).read_text(encoding="utf-8")
-    assert "Append this to what the agent already has" in text
-    assert "does not replace it" in text
-    assert "There is no Excel file" in text
+    assert agent_pack.ORGANISATION_PLACEHOLDER in text
+    assert "Replace <ORGANISATION> throughout before pasting" in text
+    for word in ("brand compliance", "-compliant charts", "communication standards"):
+        for line in text.splitlines():
+            if word in line.lower():
+                assert agent_pack.ORGANISATION_PLACEHOLDER in line, (
+                    f"a brand line without the placeholder: {line!r}")
+
+
+def test_the_instructions_are_the_whole_prompt(tmp_path):
+    """A full replacement, so every correction sits where it applies.
+
+    An addendum leaves the contradiction in place three sections above it: an
+    instruction to flag inconsistent dates still reads as an instruction to
+    flag them, however carefully a later paragraph explains the overlap rule.
+    """
+    _, out_dir, _, _ = _pack(tmp_path)
+    text = (out_dir / agent_pack.INSTRUCTIONS_NAME).read_text(encoding="utf-8")
+    assert "You are the Communications Planning Insight Agent" in text
+    assert "There is no Excel workbook behind this agent" in text
+    assert "Do NOT flag the following" in text          # the overlap exemption
+    assert "never described as reach" in text           # the persona correction
+    assert "GEB or GEB-1" in text
+    assert ".xlsx" not in text, "a workbook filename would go stale on the next run"
 
 
 def test_the_checklist_answers_are_computed_from_the_data(tmp_path):

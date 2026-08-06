@@ -73,7 +73,7 @@ def main(argv=None):
     log(f"{out_dir.name}\\  -- beside it")
     for name, note in (
             (agent_pack.SKILL_ZIP_NAME, "the same content as a skill package"),
-            (agent_pack.INSTRUCTIONS_NAME, "APPEND to the agent's instructions"),
+            (agent_pack.INSTRUCTIONS_NAME, "the agent's Instructions -- replace <ORGANISATION>"),
             (agent_pack.EVALUATION_NAME, "import under Evaluate (safe: never grounded on)"),
             (agent_pack.CHECKLIST_NAME, "ANSWER KEY -- do NOT upload as knowledge")):
         path = out_dir / name
