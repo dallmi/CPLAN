@@ -58,6 +58,7 @@ from pipeline.report.table_sheets import ACTIVITY_COLUMNS, GLOSSARY_SECTIONS
 PACK_DIRNAME = "pack"
 SKILL_ZIP_NAME = "cplan-skill.zip"
 CHECKLIST_NAME = "checklist.md"
+INSTRUCTIONS_NAME = "agent-instructions.md"
 
 README_NAME = "00-README.txt"
 SUMMARY_NAME = "01-summary.txt"
@@ -424,6 +425,56 @@ number costs more than a missing one.
 """
 
 
+# An ADDENDUM, not a replacement. Whatever an operator already has in that
+# field was written for their agent and is not ours to overwrite; the rules
+# below are the ones no author of a general reporting prompt could know,
+# because they come from this data rather than from good practice.
+#
+# It belongs at agent level rather than only in SKILL.md because a skill is
+# SELECTED when the orchestrator judges it relevant, while instructions apply to
+# every turn -- so a turn the skill misses is a turn with no rules at all.
+#
+# Deliberately carries no period and no figures. It is pasted into a field once
+# and stays there while the pack is rebuilt underneath it; a period named here
+# would be wrong by the next run, and wrong in the one place nobody re-reads.
+INSTRUCTIONS_TEXT = f"""# CPLAN — add this to the agent's instructions
+
+Append this to what the agent already has. It does not replace it: these are
+the rules that come from the data rather than from good reporting practice, so
+a prompt written without them can be excellent and still be wrong here.
+
+## What the agent reads
+
+The plan arrives through the `cplan-reporting` skill as plain text and CSV --
+`{SUMMARY_NAME}`, `{QUALITY_NAME}`, `{CALENDAR_NAME}`, `{ACTIVITIES_CSV_NAME}` --
+with the reading rules in `{GLOSSARY_NAME}`. **There is no Excel file.** If an
+older instruction still points at a workbook, that sentence is out of date and
+this one governs.
+
+## Rules that override general practice
+
+- **Scope is a hard filter and an overlap test.** The period is at the top of
+  `{SUMMARY_NAME}`. An activity outside it is absent, not zero -- so a question
+  about a date outside the period is out of scope, not an answer of nought. An
+  activity whose run merely touches the period IS in scope, so a quarter or ISO
+  week naming the year before the period is normal. **Do not report it as a data
+  quality issue.**
+- **Overlapping rows do not sum.** In `{CALENDAR_NAME}`, a row marked
+  `overlaps=yes` sits in a block where one activity can appear under two values.
+  Only `block=TOTAL` is a true total.
+- **Audience is a planning estimate, never measured reach.** Summing it counts
+  contacts, not people. Quote the largest single audience as the ceiling on
+  unique people.
+- **GEB/GEB-1 is one field holding both levels**, with nothing in the data
+  saying which. Never name someone as a GEB member, and never answer "how many
+  activities involve the GEB" -- the honest answer is "GEB or GEB-1".
+- **When you count over the activity rows, say how many you examined.** If you
+  cannot see every row, say so instead of estimating.
+- **When the answer is not in these files**, say so and point to the planning
+  studio, which holds the full record. Do not reason your way to a figure.
+"""
+
+
 # --------------------------------------------------------------------------
 # Activities
 # --------------------------------------------------------------------------
@@ -517,6 +568,10 @@ def write_pack(scope, config, out_dir):
 
     _write_skill_zip(pack_dir, out_dir / SKILL_ZIP_NAME)
     (out_dir / CHECKLIST_NAME).write_text(checklist_text(scope, config), encoding="utf-8")
+    # Beside the pack, never inside it: an agent grounded on its own
+    # instructions reads them as data, quotes them back as findings, and the
+    # rules stop being rules.
+    (out_dir / INSTRUCTIONS_NAME).write_text(INSTRUCTIONS_TEXT, encoding="utf-8")
     return pack_dir
 
 

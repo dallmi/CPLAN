@@ -264,13 +264,46 @@ def test_the_summary_states_that_scope_is_a_filter(tmp_path):
 # The checklist and the skill package
 # ---------------------------------------------------------------------------
 
-def test_the_checklist_is_not_inside_the_pack(tmp_path):
-    """An answer key inside the pack is retrieved like anything else."""
+def test_what_must_not_be_uploaded_sits_outside_the_pack(tmp_path):
+    """Two files must never be grounded on, for two different reasons.
+
+    An answer key inside the pack is retrieved like anything else, and the test
+    then measures nothing. Instructions inside the pack are read as data: the
+    agent quotes its own rules back as findings, and they stop being rules.
+    """
     pack_dir, out_dir, _, _ = _pack(tmp_path)
-    assert not (pack_dir / agent_pack.CHECKLIST_NAME).exists()
-    assert (out_dir / agent_pack.CHECKLIST_NAME).exists()
     with zipfile.ZipFile(out_dir / agent_pack.SKILL_ZIP_NAME) as archive:
-        assert agent_pack.CHECKLIST_NAME not in archive.namelist()
+        packaged = archive.namelist()
+    for name in (agent_pack.CHECKLIST_NAME, agent_pack.INSTRUCTIONS_NAME):
+        assert not (pack_dir / name).exists(), f"{name} is inside the uploaded folder"
+        assert name not in packaged, f"{name} is inside the skill package"
+        assert (out_dir / name).exists(), f"{name} was not written at all"
+
+
+def test_the_instructions_name_no_period_they_will_outlive(tmp_path):
+    """Pasted once, kept while the pack is rebuilt underneath it.
+
+    A period or a figure here would be wrong by the next run, and wrong in the
+    one place nobody re-reads. The instructions point at the summary instead.
+    """
+    _, out_dir, _, config = _pack(tmp_path)
+    text = (out_dir / agent_pack.INSTRUCTIONS_NAME).read_text(encoding="utf-8")
+    assert config.period_label() not in text
+    assert not re.search(r"\b(19|20)\d{2}\b", text), "the instructions name a year"
+    assert agent_pack.SUMMARY_NAME in text, "they must point at where the period is"
+
+
+def test_the_instructions_add_rather_than_replace(tmp_path):
+    """An operator's own prompt is not ours to overwrite, and we only see part.
+
+    It also has to correct the one thing a prompt written before this pack
+    cannot get right: there is no workbook behind this agent any more.
+    """
+    _, out_dir, _, _ = _pack(tmp_path)
+    text = (out_dir / agent_pack.INSTRUCTIONS_NAME).read_text(encoding="utf-8")
+    assert "Append this to what the agent already has" in text
+    assert "does not replace it" in text
+    assert "There is no Excel file" in text
 
 
 def test_the_checklist_answers_are_computed_from_the_data(tmp_path):

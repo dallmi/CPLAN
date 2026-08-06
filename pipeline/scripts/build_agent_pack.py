@@ -71,8 +71,10 @@ def main(argv=None):
     for path in sorted(pack_dir.iterdir()):
         log(f"  {path.name:<22} {path.stat().st_size / 1024:>8.1f} KB")
     log(f"{out_dir.name}\\  -- beside it")
-    for name, note in ((agent_pack.SKILL_ZIP_NAME, "the same content as a skill package"),
-                       (agent_pack.CHECKLIST_NAME, "ANSWER KEY -- do NOT upload")):
+    for name, note in (
+            (agent_pack.SKILL_ZIP_NAME, "the same content as a skill package"),
+            (agent_pack.INSTRUCTIONS_NAME, "APPEND to the agent's instructions"),
+            (agent_pack.CHECKLIST_NAME, "ANSWER KEY -- do NOT upload")):
         path = out_dir / name
         log(f"  {name:<22} {path.stat().st_size / 1024:>8.1f} KB  {note}")
     log("")
