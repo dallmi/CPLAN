@@ -75,3 +75,10 @@ evals/last-run.log
 # Agent worktrees are checkouts of this same repository, created and removed by
 # tooling. Committing one nests a working copy inside the working copy.
 .claude/worktrees/
+
+# Local working copies that are deliberately NOT organisation-neutral: agent
+# instructions carrying the brand name and its palette, drafts pasted from an
+# internal tool. Kept in the tree so they can be copied out of it, kept out of
+# the history because a repository can become public and a commit cannot be
+# unmade.
+*.local.md
