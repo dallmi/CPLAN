@@ -173,10 +173,15 @@ def test_every_listed_file_has_a_marker_the_version_it_replaced_lacked(path: str
         return  # new or untracked file: every marker in it is necessarily new
 
     markers = [marker for entry_path, marker, _ in ENTRIES if entry_path == path]
+    fix = (
+        "bump $manifestVersion at the top of check.ps1 -- the date, or the suffix when the date "
+        "is already today's"
+        if relative == CHECK_PS1.name
+        else "add a second entry whose marker is unique to the new version"
+    )
     assert any(marker not in superseded for marker in markers), (
         f"{path} changed, but every marker check.ps1 has for it ({markers}) was already in the "
-        "version this one replaced -- so a copy from before that change reports CURRENT. Add a "
-        "second entry whose marker is unique to the new version."
+        f"version this one replaced -- so a copy from before that change reports CURRENT. To fix: {fix}."
     )
 
 

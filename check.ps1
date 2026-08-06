@@ -6,6 +6,10 @@ file is identified by a marker string that only exists in its latest state),
 purges stale Python bytecode caches, and proves that the Python interpreter
 actually loads the new code. Prints a download URL for every outdated file.
 
+This script is in its own manifest, and reports itself first: an outdated copy
+answers with an outdated list of files, which is the one wrong answer nothing
+else here can catch.
+
 Read-only apart from the __pycache__ cleanup. Safe to run any time.
 
 Usage (or double-click check.cmd):
@@ -19,10 +23,24 @@ $root = $PSScriptRoot
 # moment the operator is actually following instructions.
 $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 
+# This script's own version, and the one entry in the manifest that is about
+# this script. Everything below checks other files; nothing checked this one,
+# so an operator running a months-old check.ps1 got a confident "all files
+# current" from a months-old manifest -- the failure the whole file exists to
+# prevent, aimed at itself.
+#
+# Bump it in the same commit as ANY change to this file: the date, or the
+# suffix when the date is already today's. `tests/test_check_manifest.py` fails
+# until it is bumped, and says so.
+$manifestVersion = "2026-08-06.1"
+
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
 # marker here is updated in the same commit.
 $manifest = @(
+    # First, because an outdated copy of this script answers every question
+    # below with an outdated list, and does it in green.
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-06.1"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -180,7 +198,7 @@ $manifest = @(
 )
 
 Write-Host ""
-Write-Host "=== CPLAN file check ===" -ForegroundColor Cyan
+Write-Host "=== CPLAN file check (manifest $manifestVersion) ===" -ForegroundColor Cyan
 $stale = @()
 $missingPackages = ""
 $checkedPaths = @{}
