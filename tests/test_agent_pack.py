@@ -16,7 +16,7 @@ import pytest
 pytest.importorskip("openpyxl")
 pytest.importorskip("pandas")
 
-from pipeline.report import agent_pack
+from pipeline.report import agent_pack, metrics
 from pipeline.report.calendar_sheet import LABEL_COL, _split_for
 from pipeline.report.config import AUDIENCE_BAND_ORDER, ReportConfig
 from pipeline.scripts.report_calendar import build_workbook
@@ -44,6 +44,19 @@ def _pack(tmp_path, **overrides):
 def _calendar(pack_dir):
     with (pack_dir / agent_pack.CALENDAR_NAME).open(encoding="utf-8") as handle:
         return list(csv.DictReader(handle))
+
+
+def _breakdowns(pack_dir):
+    with (pack_dir / agent_pack.BREAKDOWN_NAME).open(encoding="utf-8") as handle:
+        return list(csv.DictReader(handle))
+
+
+def _figure(rows, block, value, measure):
+    """The one figure for a block/value/measure, or None."""
+    for row in rows:
+        if (row["block"], row["value"], row["measure"]) == (block, value, measure):
+            return int(row["figure"])
+    return None
 
 
 def _summary_pairs(text):
@@ -182,6 +195,99 @@ def test_breakdown_blocks_are_marked_as_overlapping(tmp_path):
     for field in fields:
         assert marks.get(field) == "yes", f"{field} is not marked as overlapping"
     assert marks[agent_pack.TOTAL_BLOCK] == "no"
+
+
+# ---------------------------------------------------------------------------
+# The breakdowns file: the crosses the calendar cannot make
+# ---------------------------------------------------------------------------
+
+def test_breakdown_totals_match_the_frame(tmp_path):
+    """The TOTAL block restates the portfolio, measure by measure.
+
+    Not a tautology: these six figures are the ones every other block's rows
+    are computed the same way, so an error in `_measures` shows up here first
+    and against a number the summary already states independently.
+    """
+    pack_dir, _, scope, _ = _pack(tmp_path)
+    rows = _breakdowns(pack_dir)
+    frame = scope.frame
+
+    assert _figure(rows, "TOTAL", "all activities", "activities") == len(frame)
+    assert _figure(rows, "TOTAL", "all activities", "with_executives") == int(
+        frame["has_executives"].sum())
+    assert _figure(rows, "TOTAL", "all activities", "unknown_audience") == int(
+        (frame["audience_band"] == "Unknown").sum())
+    assert _figure(rows, "TOTAL", "all activities", "without_pack") == (
+        metrics.pack_stats(frame)["without_pack"])
+    assert _figure(rows, "TOTAL", "all activities", "median_completeness") == int(
+        frame["completeness"].median())
+
+
+def test_breakdown_activities_agree_with_the_calendar(tmp_path):
+    """Same blocks, same values, same counts -- the week dimension is all that differs.
+
+    Both files come from `iter_blocks`, and this is the assertion that keeps
+    them from being two implementations of "what is a block".
+    """
+    pack_dir, _, _, _ = _pack(tmp_path)
+    weekly = {}
+    for row in _calendar(pack_dir):
+        key = (row["block"], row["value"])
+        weekly[key] = weekly.get(key, 0) + int(row["activities"])
+
+    for row in _breakdowns(pack_dir):
+        if row["measure"] != "activities":
+            continue
+        key = (row["block"], row["value"])
+        assert key in weekly, f"{key} is in the breakdowns and not in the calendar"
+        assert int(row["figure"]) == weekly[key], f"{key} disagrees with the calendar"
+
+
+def test_breakdown_carries_the_same_overlap_warning(tmp_path):
+    """A block that overlaps in the calendar overlaps here, and says so.
+
+    The column is the only thing standing between a reader and a sum larger
+    than the portfolio, and the two files must not disagree about which blocks
+    need it.
+    """
+    pack_dir, _, _, _ = _pack(tmp_path)
+    calendar = {(r["block"], r["value"]): r["overlaps"] for r in _calendar(pack_dir)}
+    for row in _breakdowns(pack_dir):
+        key = (row["block"], row["value"])
+        assert row["overlaps"] == calendar[key], f"{key} overlaps differently"
+
+
+def test_a_measure_that_restates_its_block_is_not_written(tmp_path):
+    """A row that cannot be wrong cannot inform either, and still costs retrieval.
+
+    `unknown_audience` under the audience bands is the row's own definition;
+    `with_executives` under an executive block is every row in it. The calendar
+    already leaves out rows that say nothing -- empty week/value pairs -- for
+    exactly this reason.
+    """
+    pack_dir, _, _, _ = _pack(tmp_path)
+    rows = _breakdowns(pack_dir)
+    assert rows, "the fixture wrote no breakdown rows at all"
+
+    for row in rows:
+        suppressed = agent_pack.TAUTOLOGICAL_MEASURES.get(row["block"], ())
+        assert row["measure"] not in suppressed, (
+            f"{row['block']}/{row['measure']} restates its own block")
+
+    # And the suppression is narrow: the bands still carry the measures that
+    # genuinely vary inside them.
+    bands = [r for r in rows if r["block"] == "audience_band"]
+    assert any(r["measure"] == "with_executives" for r in bands), (
+        "suppression removed a measure that varies within the block")
+
+
+def test_the_reporting_skill_ships_the_breakdowns_file(tmp_path):
+    """A table of contents naming a file the archive does not hold is worse than
+    no table of contents: the agent looks, fails, and answers from somewhere else.
+    """
+    _, out_dir, _, _ = _pack(tmp_path)
+    with zipfile.ZipFile(out_dir / agent_pack.SKILL_ZIP_NAME) as archive:
+        assert agent_pack.BREAKDOWN_NAME in archive.namelist()
 
 
 def test_activities_file_holds_every_activity_once(tmp_path):
@@ -696,7 +802,7 @@ def test_the_pack_carries_nothing_written_only_for_an_index(tmp_path):
     The single-sheet workbook existed only for that index -- its own docstring
     said so, and the skill archive deliberately left it out because an archive
     is read as text and the CSV beside it carries the same rows. With no index
-    it had no reader at all, so the pack is six files rather than seven.
+    it had no reader at all, so no file here is one, whatever else is added.
     """
     pack_dir, _, _, _ = _pack(tmp_path)
     written = sorted(p.name for p in pack_dir.iterdir())
@@ -704,7 +810,8 @@ def test_the_pack_carries_nothing_written_only_for_an_index(tmp_path):
         f"a workbook is being written for a reader that no longer exists: {written}")
     assert not hasattr(agent_pack, "ACTIVITIES_XLSX_NAME")
     assert written == ["00-README.txt", "01-summary.txt", "02-glossary.txt",
-                       "03-data-quality.txt", "04-calendar.csv", "05-activities.csv"]
+                       "03-data-quality.txt", "04-calendar.csv", "05-activities.csv",
+                       "06-breakdowns.csv"]
 
 
 def test_the_pack_is_written_where_it_can_be_uploaded_from(tmp_path, monkeypatch):

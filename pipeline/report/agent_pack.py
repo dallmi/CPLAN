@@ -50,6 +50,7 @@ from pipeline.report.calendar_sheet import (
 )
 from pipeline.report.config import (
     AUDIENCE_BAND_ORDER,
+    BAND_UNKNOWN,
     FIELD_TITLES,
     LARGE_AUDIENCE_BANDS,
     SHORT_NOTICE_DAYS,
@@ -101,6 +102,7 @@ GLOSSARY_NAME = "02-glossary.txt"
 QUALITY_NAME = "03-data-quality.txt"
 CALENDAR_NAME = "04-calendar.csv"
 ACTIVITIES_CSV_NAME = "05-activities.csv"
+BREAKDOWN_NAME = "06-breakdowns.csv"
 
 # The block name for the row that carries the portfolio itself. Upper case
 # because it is not a field: every other block names the column it groups by,
@@ -111,6 +113,28 @@ TOTAL_VALUE = "all activities"
 
 CALENDAR_HEADER = ("block", "value", "overlaps", "iso_year", "iso_week",
                    "week_start", "activities")
+
+BREAKDOWN_HEADER = ("block", "value", "overlaps", "measure", "figure")
+
+# `figure`, not `count`: five of the six measures are counts and one is a
+# median, and a column named `count` holding a median is a lie in the header
+# row of a file whose whole point is that a machine reads it.
+BREAKDOWN_MEASURES = ("activities", "with_executives", "large_audience",
+                      "without_pack", "unknown_audience", "median_completeness")
+
+# Measures that restate the block they sit in. `large_audience` and
+# `unknown_audience` under the audience bands are the band's own definition;
+# `with_executives` under an executive block is every row in it.
+#
+# Left out for the reason `calendar_rows` leaves out empty week/value pairs: a
+# row that cannot be wrong cannot inform either, and it competes for the same
+# retrieval budget as one that can.
+TAUTOLOGICAL_MEASURES = {
+    "audience_band": ("large_audience", "unknown_audience"),
+    "executives": ("with_executives",),
+    "executives_geb": ("with_executives",),
+    "executives_geb1": ("with_executives",),
+}
 
 
 def _rule(text):
@@ -188,6 +212,44 @@ def calendar_rows(scope, config):
             rows.append((block, value, "yes" if overlaps else "no",
                          week.iso_year, week.label, week.monday.isoformat(),
                          counts[key]))
+    return rows
+
+
+def _measures(subset):
+    """The six figures a breakdown value carries, in written order."""
+    return (
+        ("activities", len(subset)),
+        ("with_executives", int(subset["has_executives"].sum())),
+        ("large_audience",
+         int(subset["audience_band"].isin(LARGE_AUDIENCE_BANDS).sum())),
+        ("without_pack", metrics.pack_stats(subset)["without_pack"]),
+        ("unknown_audience", int((subset["audience_band"] == BAND_UNKNOWN).sum())),
+        ("median_completeness", int(subset["completeness"].median())),
+    )
+
+
+def breakdown_rows(scope, config):
+    """One row per block x value x measure -- the crosses the calendar cannot make.
+
+    `04-calendar.csv` carries one dimension at a time against the weeks, so a
+    question crossing two of them -- "which division binds the most executive
+    attention" -- can only be answered by counting `05-activities.csv` by hand,
+    which the instructions rightly discourage. These are the same blocks, from
+    the same `iter_blocks`, with the week dimension traded for a few measures.
+
+    Empty subsets are skipped rather than written as zeros. An empty scope
+    yields the TOTAL block over an empty frame, and a median over no rows is
+    not a figure at all.
+    """
+    rows = []
+    for block, value, overlaps, subset in iter_blocks(scope, config):
+        if subset.empty:
+            continue
+        suppressed = TAUTOLOGICAL_MEASURES.get(block, ())
+        for measure, figure in _measures(subset):
+            if measure in suppressed:
+                continue
+            rows.append((block, value, "yes" if overlaps else "no", measure, figure))
     return rows
 
 
@@ -1131,6 +1193,8 @@ def write_pack(scope, config, out_dir, generated=None, report_config=None):
     headers, rows = activity_rows(scope, report_config)
     _write_csv(pack_dir / CALENDAR_NAME, CALENDAR_HEADER, calendar_rows(scope, config))
     _write_csv(pack_dir / ACTIVITIES_CSV_NAME, headers, rows)
+    _write_csv(pack_dir / BREAKDOWN_NAME, BREAKDOWN_HEADER,
+               breakdown_rows(scope, config))
     (pack_dir / SUMMARY_NAME).write_text(
         summary_text(scope, config, generated, report_config), encoding="utf-8")
     (pack_dir / GLOSSARY_NAME).write_text(glossary_text(scope, config), encoding="utf-8")
@@ -1161,7 +1225,7 @@ def _write_skill_zip(pack_dir, zip_path):
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("SKILL.md", SKILL_TEXT)
         for name in (GLOSSARY_NAME, SUMMARY_NAME, QUALITY_NAME,
-                     CALENDAR_NAME, ACTIVITIES_CSV_NAME):
+                     CALENDAR_NAME, BREAKDOWN_NAME, ACTIVITIES_CSV_NAME):
             archive.write(pack_dir / name, name)
 
 
