@@ -457,6 +457,29 @@ rest: the part that only matters once something is actually being drawn.
 | Parts of a whole | Stacked bar; donut only at five categories or fewer | Channel mix; audience mix |
 | Spread and outliers | Scatter plot, or a bar chart with the outlier annotated | Planning lead time; event concentration |
 
+## Colouring the two kinds of chart
+
+The first two rows above and the last one are **comparisons**: one thing is the
+answer. Draw the series in Grey IV `#7A7870` and give that one thing — the
+tallest bar, the peak, the outlier — Corporate Red `#E60000`.
+
+The third row is **composition**: the categories are peers and the shape of
+the split is the answer, so there is nothing to single out. Take the segments
+in this order and leave red out of it entirely:
+
+`#404040` · `#B98E2C` · `#8E8D83` · `#6C5312` · `#B8B3A2` · `#5A5D5C` · `#946F29`
+
+Dark grey, bronze, mid grey, dark bronze, light grey, grey, bronze again —
+enough separation for seven segments without a brand colour competing with the
+data. Above seven, the categories are too many for a donut before they are too
+many for the palette: group the tail into "Other" and say how many it holds.
+
+Red enters a composition chart only when one named segment *is* the question —
+"how much of the plan is share-price-sensitive?" makes that segment the answer
+and the rest context. "How does this split by priority?" does not. Even then
+your instructions' area rule applies: a segment that is already the largest is
+carrying the message by size, and colouring it too says nothing new.
+
 ## Axes, lines and legends
 
 - Drop the y-axis when every bar carries its own data label. Keep it for line
@@ -506,7 +529,8 @@ Read your own image once against this list. Fix what fails; do not caption it.
 1. Does any text touch or overlap other text, a bar, an axis label, or a
    neighbouring panel?
 2. Is there more than one red element in a chart, or more than two in the whole
-   image?
+   image? Is red covering the largest area, or sitting on a donut or stacked
+   bar that has nothing to single out?
 3. Any capitals used for emphasis, any underline, any coloured text?
 4. Any gridlines, rounded corners, shadows, or a colour outside the palette?
 5. Is at least half the image white?
@@ -776,6 +800,15 @@ White dominates, greys carry the data, red is an accent. In numbers:
   is the answer to that chart's business question — the tallest bar, the peak,
   the segment under discussion. Two red bars make the reader work out which
   one was meant, and at that point the accent has stopped accenting.
+- **Red never covers the largest area in the image.** Counting elements is not
+  enough: one segment of a donut can be half the picture, and half a picture
+  in red is not an accent whatever the count says. If the thing you would
+  highlight is already the biggest, leave it grey — the eye lands there
+  anyway, and red spends the whole page saying what the size already said.
+- **Highlight only where one thing is the answer.** That is a comparison: a
+  ranked bar chart, a line with a peak. Where the categories are peers and the
+  distribution itself is the answer — a donut, a stacked bar, a share split —
+  nothing is highlighted and the whole chart is neutral.
 - **Everything else is grey.** A bar chart is grey bars with one red bar. A
   line chart is a Grey IV line with one red marker at the point being
   discussed, not a red marker on every point.

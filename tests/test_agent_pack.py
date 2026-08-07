@@ -542,6 +542,38 @@ def test_the_chart_rules_ship_as_their_own_skill(tmp_path):
     assert agent_pack.ORGANISATION_PLACEHOLDER not in skill
 
 
+def test_red_is_bounded_by_area_and_not_only_by_count(tmp_path):
+    """"One red element" was obeyed and still produced a half-red image.
+
+    Asked for a share of activities by priority, the agent drew a donut and
+    highlighted the largest segment: one red element, rule kept, 54% of the
+    picture in Corporate Red. Counting elements bounds nothing, because one
+    segment can be half the image.
+
+    The second half of the miss is that highlighting suits a comparison, where
+    one thing is the answer, and not a composition, where the categories are
+    peers and the split itself is the answer. The studio has drawn donuts from
+    a red-free grey-and-bronze sequence all along; the agent had no such rule,
+    so it reached for the accent it did have.
+    """
+    _, out_dir, _, _ = _pack(tmp_path)
+    text = (out_dir / agent_pack.INSTRUCTIONS_NAME).read_text(encoding="utf-8")
+    assert "Red never covers the largest area in the image." in text
+    assert "Highlight only where one thing is the answer." in text
+
+    with zipfile.ZipFile(out_dir / agent_pack.BRAND_SKILL_ZIP_NAME) as archive:
+        skill = archive.read("SKILL.md").decode("utf-8")
+    assert "Colouring the two kinds of chart" in skill
+    # The sequence the studio already draws donuts from, and no accent in it.
+    for colour in ("#404040", "#B98E2C", "#8E8D83", "#6C5312",
+                   "#B8B3A2", "#5A5D5C", "#946F29"):
+        assert colour in skill, f"the composition sequence is missing {colour}"
+    sequence = skill[skill.index("Colouring the two kinds of chart"):
+                     skill.index("## Axes, lines and legends")]
+    assert "#E60000" in sequence, "the comparison half lost its accent"
+    assert sequence.count("#E60000") == 1, "red crept into the composition sequence"
+
+
 def test_the_visual_rules_are_numbers_rather_than_adjectives(tmp_path):
     """The brand section named one colour and then asked for restraint.
 
