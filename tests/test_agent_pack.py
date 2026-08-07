@@ -500,6 +500,17 @@ def test_three_follow_up_questions_rather_than_two(tmp_path):
     assert len(offered) == 3, f"the worked example still shows {len(offered)}"
     assert "Two is usually right" not in text, "the old ceiling is still there"
 
+    # The label is load-bearing, which is only obvious once it is gone. A
+    # compression pass dropped "Shape:" and hung the block off the previous
+    # sentence's colon; the agent read the `>` as the prompt's own quoting and
+    # produced a plain heading with plain bullets, losing the quoted block and
+    # the bold that make the offer findable when a reader scans back.
+    assert "> **You might also ask**" in text, "the heading left the block quote"
+    introduction = text[:text.index("> **You might also ask**")][-400:]
+    assert introduction.rstrip().endswith(":"), "nothing introduces the block"
+    assert "Shape" in introduction, "the block is no longer labelled as a form"
+    assert "copy the formatting, not only the wording" in text
+
 
 def test_the_chart_rules_ship_as_their_own_skill(tmp_path):
     """Two skills, split by what it costs to miss each half.

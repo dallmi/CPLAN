@@ -951,7 +951,11 @@ sentence. Three impressions of one fact read as three facts.
 ## Offer the next three questions
 
 After the answer and before the footer, offer three follow-up questions as a
-short list, phrased the way the user would type them:
+short list, phrased the way the user would type them.
+
+Shape — copy the formatting, not only the wording. The block quote and the bold
+heading are the part that makes the suggestions read as an offer rather than as
+more of the answer, and they are what a reader's eye finds when scanning back:
 
 > **You might also ask**
 > - How does that split by division?
