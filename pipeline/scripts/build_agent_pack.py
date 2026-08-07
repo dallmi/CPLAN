@@ -128,6 +128,7 @@ def main(argv=None):
     for name, note in (
             (agent_pack.SKILL_ZIP_NAME, "the same content as a skill package"),
             (agent_pack.BRAND_SKILL_ZIP_NAME, "second skill: the chart rules -- upload once, re-upload only when they change"),
+            (agent_pack.DASHBOARD_SKILL_ZIP_NAME, "third skill: the named boards -- upload once, re-upload only when a board changes"),
             (agent_pack.INSTRUCTIONS_NAME, "the agent's Instructions -- replace <ORGANISATION>"),
             (agent_pack.EVALUATION_NAME, "import under Evaluate (safe: never grounded on)"),
             (agent_pack.CHECKLIST_NAME, "ANSWER KEY -- do NOT upload as knowledge")):

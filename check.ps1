@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-07.9"
+$manifestVersion = "2026-08-07.10"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-07.9"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-07.9"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-07.10"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -190,7 +190,15 @@ $manifest = @(
     @{ Path = "pipeline\report\agent_pack.py"; Marker = "def pack_config";              Why = "the pack keeps the deprioritised bucket the workbook plans past, and every row says whether the workbook holds it - an older copy answers zero to a priority-4 question, and a newer pack beside an older agent_pack loses the in_report column that reconciles the two totals" },
     @{ Path = "pipeline\report\agent_pack.py"; Marker = "copy the formatting";        Why = "the follow-up block is labelled as a shape to reproduce - an older copy hangs it off a colon, and the agent reads the block quote as the prompt quoting itself and answers with a plain list nobody spots" },
     @{ Path = "pipeline\report\agent_pack.py"; Marker = "BREAKDOWN_NAME";             Why = "06-breakdowns.csv crosses two dimensions instead of one - an older copy has no such file, so a question crossing two blocks (which division binds the most executive attention) can only be answered by counting 05-activities.csv by hand" },
+    # A third skill, in a file of its own rather than folded into the other two
+    # entries above: the named board catalogue. agent_pack.py imports it at
+    # module scope, so a copy that has the new agent_pack.py but not this new
+    # file cannot even be imported, and a copy that has neither writes two
+    # skills where a board-naming request now expects three.
+    @{ Path = "pipeline\report\dashboard_skill.py"; Marker = "def write_zip";              Why = "the board catalogue - a NEW file; without it agent_pack.py fails to import and no board archive is written" },
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "DASHBOARD_SKILL_ZIP_NAME";        Why = "the third skill archive is wired into write_pack beside the other two - an older copy imports fine but never writes the board catalogue" },
     @{ Path = "pipeline\scripts\build_agent_pack.py"; Marker = "BRAND_SKILL_ZIP_NAME";      Why = "the run names the second skill archive and says it is uploaded once - an older copy writes it and the operator never learns it is there" },
+    @{ Path = "pipeline\scripts\build_agent_pack.py"; Marker = "third skill: the named boards"; Why = "the run also lists the third skill archive - an older copy writes it beside the pack and never tells the operator it exists" },
     @{ Path = "pipeline\scripts\build_agent_pack.py"; Marker = "replace <ORGANISATION>";   Why = "the run says the instructions file needs one find-and-replace before it is pasted - an older copy calls it an addendum and the operator appends a full prompt to a full prompt" },
     @{ Path = "pipeline\scripts\build_agent_pack.py"; Marker = "EVALUATION_NAME";          Why = "the run names the test set and says it is safe to import - an older copy writes it and leaves the operator guessing whether it may be uploaded" },
     @{ Path = "pipeline\scripts\build_agent_pack.py"; Marker = "INSTRUCTIONS_NAME";        Why = "the run names all three artefacts and which one must not be uploaded - an older copy writes the instructions file but never tells the operator it is there" },

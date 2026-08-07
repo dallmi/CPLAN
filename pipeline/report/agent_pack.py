@@ -41,7 +41,7 @@ import zipfile
 from dataclasses import replace
 from datetime import date
 
-from pipeline.report import derive, metrics
+from pipeline.report import dashboard_skill, derive, metrics
 from pipeline.report.calendar_sheet import (
     NOT_SPECIFIED,
     SPLIT_FIELDS,
@@ -73,6 +73,11 @@ SKILL_ZIP_NAME = "cplan-skill.zip"
 # are uploaded as two skills and load independently -- an image can need the
 # chart rules on a turn that never touches the calendar.
 BRAND_SKILL_ZIP_NAME = "chart-standards-skill.zip"
+# A third skill: which panels make up a named board. Its own archive for the
+# reason the chart rules have one -- the three load independently, and a
+# request for a board needs all three while a one-line factual answer needs
+# none of them.
+DASHBOARD_SKILL_ZIP_NAME = "cplan-dashboards-skill.zip"
 CHECKLIST_NAME = "checklist.md"
 INSTRUCTIONS_NAME = "agent-instructions.md"
 EVALUATION_NAME = "evaluation.csv"
@@ -1204,6 +1209,7 @@ def write_pack(scope, config, out_dir, generated=None, report_config=None):
 
     _write_skill_zip(pack_dir, out_dir / SKILL_ZIP_NAME)
     _write_brand_skill_zip(out_dir / BRAND_SKILL_ZIP_NAME)
+    dashboard_skill.write_zip(out_dir / DASHBOARD_SKILL_ZIP_NAME)
     (out_dir / CHECKLIST_NAME).write_text(checklist_text(scope, config), encoding="utf-8")
     # Beside the pack, never inside it: an agent grounded on its own
     # instructions reads them as data, quotes them back as findings, and the

@@ -659,6 +659,96 @@ def test_the_chart_rules_ship_as_their_own_skill(tmp_path):
     assert agent_pack.ORGANISATION_PLACEHOLDER not in skill
 
 
+def test_the_boards_ship_as_their_own_skill(tmp_path):
+    """A third archive: which panels make a board, beside how to draw and what
+    the numbers are.
+
+    Not folded into `chart-standards`, which is deliberately free of both data
+    and organisation and is reusable by anything that draws. A board names pack
+    files and column values, so merging the two would weld the reusable half to
+    the project-specific half and force a re-upload of the visual standards
+    every time a board changed.
+    """
+    _, out_dir, _, _ = _pack(tmp_path)
+    with zipfile.ZipFile(out_dir / agent_pack.DASHBOARD_SKILL_ZIP_NAME) as archive:
+        names = archive.namelist()
+        skill = archive.read("SKILL.md").decode("utf-8")
+        boards = {name: archive.read(name).decode("utf-8")
+                  for name in names if name != "SKILL.md"}
+
+    assert skill.startswith("---\nname: cplan-dashboards\n")
+    assert sorted(boards) == ["board-leadership-attention.md",
+                              "board-plan-trust.md",
+                              "board-portfolio-overview.md"]
+
+    description = next(line for line in skill.splitlines()
+                       if line.startswith("description:"))
+    assert len(description) <= 1024 + len("description: "), "description over the cap"
+    for trigger in ("dashboard", "board", "executive"):
+        assert trigger in description, f"nothing routes {trigger!r} to this skill"
+
+    # The index routes; it does not hold the panels.
+    for name in boards:
+        assert name in skill, f"{name} is in the archive and not in the index"
+
+
+def test_each_board_spends_the_red_budget_exactly_once(tmp_path):
+    """The instructions permit two red elements in an image; a board permits one.
+
+    Stricter than the rule it implements, and deliberately: "at most two" is a
+    budget an improvising agent spends without noticing -- the 2026-08-06 test
+    render put red on five charts and five tile numbers -- while "this panel,
+    no other" is a property of the board that can be checked before drawing.
+    """
+    _, out_dir, _, _ = _pack(tmp_path)
+    with zipfile.ZipFile(out_dir / agent_pack.DASHBOARD_SKILL_ZIP_NAME) as archive:
+        for name in archive.namelist():
+            if name == "SKILL.md":
+                continue
+            text = archive.read(name).decode("utf-8")
+            highlights = [line for line in text.splitlines()
+                          if line.strip().startswith("Highlight:")]
+            assert highlights, f"{name} declares no highlight at all"
+            chosen = [line for line in highlights if line.strip() == "Highlight: yes"]
+            assert len(chosen) == 1, (
+                f"{name} spends the red budget {len(chosen)} times, not once")
+
+
+def test_every_panel_carries_the_whole_contract(tmp_path):
+    """Five fields, each doing one job. A panel missing one is a panel the agent
+    improvises, which is the failure the boards exist to remove.
+
+    The executive read-out keeps all five rather than becoming an exception --
+    its `Source:` line is the list of figures it is allowed to state, which is
+    how "say each figure once" becomes checkable without rendering anything.
+    """
+    _, out_dir, _, _ = _pack(tmp_path)
+    with zipfile.ZipFile(out_dir / agent_pack.DASHBOARD_SKILL_ZIP_NAME) as archive:
+        for name in archive.namelist():
+            if name == "SKILL.md":
+                continue
+            text = archive.read(name).decode("utf-8")
+            panels = re.split(r"^### ", text, flags=re.M)[1:]
+            assert panels, f"{name} defines no panels"
+            for panel in panels:
+                heading = panel.splitlines()[0]
+                for field in ("Business question:", "Chart:", "Source:",
+                              "Footnote:", "Highlight:"):
+                    assert field in panel, f"{name} / {heading}: no {field}"
+
+
+def test_the_boards_carry_no_organisation_name(tmp_path):
+    """The archive is uploaded unmodified, so unlike the instructions file there
+    is no placeholder here anyone could fill in.
+    """
+    _, out_dir, _, _ = _pack(tmp_path)
+    with zipfile.ZipFile(out_dir / agent_pack.DASHBOARD_SKILL_ZIP_NAME) as archive:
+        for name in archive.namelist():
+            text = archive.read(name).decode("utf-8")
+            assert agent_pack.ORGANISATION_PLACEHOLDER not in text, (
+                f"{name} carries a placeholder nobody will replace")
+
+
 def test_red_is_bounded_by_area_and_not_only_by_count(tmp_path):
     """"One red element" was obeyed and still produced a half-red image.
 
