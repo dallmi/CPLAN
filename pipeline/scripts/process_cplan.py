@@ -49,6 +49,11 @@ DB_PATH = PIPELINE_DIR / "data" / "cplan.db"
 # Relative path inside OneDrive to the Power Automate output folder
 ONEDRIVE_INPUT_DIR = Path("Projekte") / "CPLAN" / "Input"
 
+# The agent-builder delivery is not an input to anything and is never read
+# back, so it does not belong beside the export. `Input` is the folder the
+# pipeline reads from; this one is a set of files a person uploads by hand.
+ONEDRIVE_OUTPUT_DIR = Path("Projekte") / "CPLAN" / "Output"
+
 # Known input files and their glob patterns
 INPUT_FILES = {
     "internal": "InternalCommunicationActivities*.csv",

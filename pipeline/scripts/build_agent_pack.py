@@ -27,9 +27,10 @@ REPO_DIR = PIPELINE_DIR.parent
 if str(REPO_DIR) not in sys.path:
     sys.path.insert(0, str(REPO_DIR))
 
-from pipeline.report import agent_pack                             # noqa: E402
+from pipeline.report import agent_builder, agent_pack              # noqa: E402
 from pipeline.scripts.process_cplan import (                       # noqa: E402
     ONEDRIVE_INPUT_DIR,
+    ONEDRIVE_OUTPUT_DIR,
     find_onedrive_root,
     log,
     print_banner,
@@ -76,6 +77,36 @@ def resolve_output_dir():
             return target
         log(f"OneDrive root found ({root}) but {ONEDRIVE_INPUT_DIR} does not exist")
     return LOCAL_OUTPUT_DIR
+
+
+BUILDER_DIRNAME = "agent-builder"
+BUILDER_LOCAL_OUTPUT_DIR = PIPELINE_DIR / "output" / BUILDER_DIRNAME
+
+
+def resolve_builder_output_dir():
+    """`Output/agent-builder`, created -- but only where `Input/` proves it can be.
+
+    `resolve_output_dir` never creates its target, and the reason holds: a path
+    conjured inside a OneDrive that is not really set up syncs nowhere while
+    looking like it worked. `Output/` is different only in that it may
+    legitimately not exist yet, and refusing to create it would drop this
+    delivery into the checkout on every first run -- unsynced, and uploaded
+    from the wrong machine, which is the failure the rule is there to prevent.
+
+    `Input/` is the evidence. The pipeline reads from it, so its presence means
+    the CPLAN folder is really syncing; a sibling of a real folder is safe to
+    create. Without it nothing is conjured and the fallback is reported,
+    exactly as next door.
+    """
+    root = find_onedrive_root()
+    if root:
+        if (root / ONEDRIVE_INPUT_DIR).exists():
+            target = root / ONEDRIVE_OUTPUT_DIR / BUILDER_DIRNAME
+            target.mkdir(parents=True, exist_ok=True)
+            return target
+        log(f"OneDrive root found ({root}) but {ONEDRIVE_INPUT_DIR} does not exist, "
+            f"so {ONEDRIVE_OUTPUT_DIR} is not created either")
+    return BUILDER_LOCAL_OUTPUT_DIR
 
 
 def build_pack_parser():
@@ -136,6 +167,29 @@ def main(argv=None):
         log(f"  {name:<22} {path.stat().st_size / 1024:>8.1f} KB  {note}")
     log("")
     log(f"Written to {out_dir}")
+
+    # The second delivery, from the same pack in the same run. Two commands
+    # would let one be rebuilt and the other forgotten, and two packs built on
+    # two days are two vintages of one figure -- invisible, because both
+    # folders look freshly built.
+    builder_dir = resolve_builder_output_dir()
+    upload_dir = agent_builder.write_builder_pack(pack_dir, builder_dir,
+                                                  scope, config)
+    log("")
+    log(f"{builder_dir.name}\\  -- the Agent Builder delivery, for a surface with no skills")
+    log(f"  {agent_builder.UPLOAD_DIRNAME + chr(92):<22} "
+        f"{len(list(upload_dir.iterdir())):>8} files  upload ALL of these as Knowledge")
+    for name, note in (
+            (agent_builder.INSTRUCTIONS_NAME,
+             f"paste into Instructions -- replace {agent_pack.ORGANISATION_PLACEHOLDER}"),
+            (agent_builder.DESCRIPTION_NAME, "paste into Description"),
+            (agent_builder.STARTER_PROMPTS_NAME, "four prompts, one per line"),
+            (agent_builder.README_NAME, "these four steps, in order"),
+            (agent_pack.CHECKLIST_NAME, "ANSWER KEY -- not uploaded, not pasted")):
+        path = builder_dir / name
+        log(f"  {name:<22} {path.stat().st_size / 1024:>8.1f} KB  {note}")
+    log("")
+    log(f"Written to {builder_dir}")
     return 0
 
 
