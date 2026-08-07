@@ -297,3 +297,29 @@ def test_the_delivery_is_rewritten_in_place(tmp_path):
     first = sorted(p.name for p in upload_dir.iterdir())
     again = agent_builder.write_builder_pack(pack_dir, out_dir)
     assert sorted(p.name for p in again.iterdir()) == first
+
+
+def test_one_run_writes_both_deliveries(tmp_path, monkeypatch, capsys):
+    """Two commands would allow building one and forgetting the other.
+
+    A pack refreshed on one path and not the other hands the two agents two
+    vintages of the same figure, which is the failure this repository is built
+    to prevent -- and it is invisible, because both folders look freshly built.
+    """
+    def _scope(args, config):
+        return load_fixture_scope(tmp_path / "csv", config), config
+
+    monkeypatch.setattr(build, "find_onedrive_root", lambda: None)
+    monkeypatch.setattr(build, "BUILDER_LOCAL_OUTPUT_DIR", tmp_path / "builder")
+    monkeypatch.setattr(build, "resolve_scope", _scope)
+
+    assert build.main(["--out", str(tmp_path / "pack"), "--year", "2025"]) == 0
+
+    builder_dir = tmp_path / "builder"
+    assert (builder_dir / agent_builder.UPLOAD_DIRNAME
+            / agent_builder.READING_GUIDE_NAME).exists()
+    assert (builder_dir / agent_builder.INSTRUCTIONS_NAME).exists()
+
+    out = capsys.readouterr().out
+    assert agent_builder.UPLOAD_DIRNAME in out, "the run never says what to upload"
+    assert "not uploaded" in out.lower(), "the run never names the answer key"

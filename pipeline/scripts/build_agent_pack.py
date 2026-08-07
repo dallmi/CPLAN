@@ -27,7 +27,7 @@ REPO_DIR = PIPELINE_DIR.parent
 if str(REPO_DIR) not in sys.path:
     sys.path.insert(0, str(REPO_DIR))
 
-from pipeline.report import agent_pack                             # noqa: E402
+from pipeline.report import agent_builder, agent_pack              # noqa: E402
 from pipeline.scripts.process_cplan import (                       # noqa: E402
     ONEDRIVE_INPUT_DIR,
     ONEDRIVE_OUTPUT_DIR,
@@ -166,6 +166,29 @@ def main(argv=None):
         log(f"  {name:<22} {path.stat().st_size / 1024:>8.1f} KB  {note}")
     log("")
     log(f"Written to {out_dir}")
+
+    # The second delivery, from the same pack in the same run. Two commands
+    # would let one be rebuilt and the other forgotten, and two packs built on
+    # two days are two vintages of one figure -- invisible, because both
+    # folders look freshly built.
+    builder_dir = resolve_builder_output_dir()
+    upload_dir = agent_builder.write_builder_pack(pack_dir, builder_dir,
+                                                  scope, config)
+    log("")
+    log(f"{builder_dir.name}\\  -- the Agent Builder delivery, for a surface with no skills")
+    log(f"  {agent_builder.UPLOAD_DIRNAME + chr(92):<22} "
+        f"{len(list(upload_dir.iterdir())):>8} files  upload ALL of these as Knowledge")
+    for name, note in (
+            (agent_builder.INSTRUCTIONS_NAME,
+             f"paste into Instructions -- replace {agent_pack.ORGANISATION_PLACEHOLDER}"),
+            (agent_builder.DESCRIPTION_NAME, "paste into Description"),
+            (agent_builder.STARTER_PROMPTS_NAME, "four prompts, one per line"),
+            (agent_builder.README_NAME, "these four steps, in order"),
+            (agent_pack.CHECKLIST_NAME, "ANSWER KEY -- not uploaded, not pasted")):
+        path = builder_dir / name
+        log(f"  {name:<22} {path.stat().st_size / 1024:>8.1f} KB  {note}")
+    log("")
+    log(f"Written to {builder_dir}")
     return 0
 
 
