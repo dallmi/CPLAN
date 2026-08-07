@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-07.6"
+$manifestVersion = "2026-08-07.7"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-07.6"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-07.6"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-07.7"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -163,6 +163,7 @@ $manifest = @(
     # copy from before it cannot build the pack at all (ImportError), while an
     # older agentpack.ps1 would run against a report_calendar.py that has it.
     @{ Path = "pipeline\scripts\report_calendar.py"; Marker = "def resolve_scope";           Why = "the scope resolution the pack shares with the workbook - without it build_agent_pack.py fails to import" },
+    @{ Path = "pipeline\scripts\report_calendar.py"; Marker = "differ, visibly";            Why = "the shared resolution is documented as period-only now that the pack widens the config it passes in - an older copy claims both hold the same figures, which is the one thing they no longer do" },
     @{ Path = "pipeline\report\agent_pack.py"; Marker = "def write_pack";                    Why = "the agent pack itself: values instead of formulas, long instead of wide, the layout rules written out as sentences" },
     @{ Path = "pipeline\report\agent_pack.py"; Marker = "CHECKLIST_NAME";                    Why = "the answer key is written OUTSIDE the uploaded folder - inside it, an agent grounds on it and passes the test by reading the answers" },
     # Both halves of what a first real run taught, and a copy missing either
@@ -186,12 +187,14 @@ $manifest = @(
     @{ Path = "pipeline\report\agent_pack.py"; Marker = "## Who is asking";                 Why = "persona priorities, the analysis steps and the question catalogue moved into the reporting skill - an older copy carries all three on every turn, including the ones that answer nothing from the pack" },
     @{ Path = "pipeline\report\agent_pack.py"; Marker = "never reached for it";           Why = "the pack is no longer a knowledge source and the index-only workbook is gone - an older copy writes a seventh file for a reader that does not exist and describes the folder as something to upload" },
     @{ Path = "pipeline\report\agent_pack.py"; Marker = "largest area in the image";  Why = "red is bounded by area and composition charts take a red-free sequence - an older copy bounds only the COUNT of red elements, which one donut segment satisfies while covering half the picture" },
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "def pack_config";              Why = "the pack keeps the deprioritised bucket the workbook plans past, and every row says whether the workbook holds it - an older copy answers zero to a priority-4 question, and a newer pack beside an older agent_pack loses the in_report column that reconciles the two totals" },
     @{ Path = "pipeline\scripts\build_agent_pack.py"; Marker = "BRAND_SKILL_ZIP_NAME";      Why = "the run names the second skill archive and says it is uploaded once - an older copy writes it and the operator never learns it is there" },
     @{ Path = "pipeline\scripts\build_agent_pack.py"; Marker = "replace <ORGANISATION>";   Why = "the run says the instructions file needs one find-and-replace before it is pasted - an older copy calls it an addendum and the operator appends a full prompt to a full prompt" },
     @{ Path = "pipeline\scripts\build_agent_pack.py"; Marker = "EVALUATION_NAME";          Why = "the run names the test set and says it is safe to import - an older copy writes it and leaves the operator guessing whether it may be uploaded" },
     @{ Path = "pipeline\scripts\build_agent_pack.py"; Marker = "INSTRUCTIONS_NAME";        Why = "the run names all three artefacts and which one must not be uploaded - an older copy writes the instructions file but never tells the operator it is there" },
     @{ Path = "pipeline\scripts\build_agent_pack.py"; Marker = "resolve_output_dir";         Why = "the pack is written into the OneDrive CPLAN folder so it can be uploaded from anywhere - an older copy leaves it inside the checkout, where it is unsynced and the operator uploads a stale one from the wrong machine" },
     @{ Path = "pipeline\scripts\build_agent_pack.py"; Marker = "Nothing to upload";          Why = "the run no longer tells the operator to point a knowledge source at pack\ - an older copy does, which restores the second grounding path and with it two vintages of the same figure" },
+    @{ Path = "pipeline\scripts\build_agent_pack.py"; Marker = "wider than the workbook";  Why = "the pack is built without the priority and objectives filters and the run says so - an older copy builds the workbook scope, and a question about deprioritised activities is answered with nothing" },
     @{ Path = "agentpack.ps1";                 Marker = "cplan-skill.zip";                   Why = "the pack launcher, and the one place that says which of the artefacts must NOT be uploaded" },
     @{ Path = "agentpack.ps1";                 Marker = "resolve_output_dir";               Why = "the launcher asks the builder where it wrote instead of carrying its own copy of the rule - an older copy opens pipeline\output\agent-pack while the run wrote to OneDrive, and the operator uploads whatever was there before" },
     @{ Path = "agentpack.ps1";                 Marker = "NOT a";                            Why = "the header says the pack folder is not a knowledge source - an older copy tells the operator to upload it, which restores the second grounding path and with it two vintages of the same figure" },

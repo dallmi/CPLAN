@@ -1,4 +1,4 @@
-"""The agent pack: same figures as the workbook, none of its formulas.
+"""The agent pack: the workbook's figures without its formulas, over a wider scope.
 
 The pack exists because the workbook cannot be read by a retrieval index. That
 buys nothing if the two drift, so the tests that matter here are the ones that
@@ -623,6 +623,55 @@ def test_a_figure_is_stated_once_rather_than_in_every_section(tmp_path):
     with zipfile.ZipFile(out_dir / agent_pack.BRAND_SKILL_ZIP_NAME) as archive:
         skill = archive.read("SKILL.md").decode("utf-8")
     assert "Does any figure appear twice in the image?" in skill
+
+
+def test_the_pack_keeps_what_the_workbook_plans_past_and_says_so(tmp_path):
+    """The pack answers questions; the workbook plans. Different scopes.
+
+    Priority 4 is the bucket nobody plans against, and the objectives filter
+    drops rows tagged with nothing but the catch-all -- both belong in a
+    planning instrument, and neither belongs in front of someone asking which
+    deprioritised activities are coming up. So the pack drops those two
+    filters, and keeps the period, which is what the report is about.
+
+    That makes the pack and the workbook disagree about "how many activities",
+    which is exactly the failure this repository spends its rules preventing.
+    It is survivable only because it is visible from both ends: every row says
+    whether the workbook keeps it, the summary says how many it does not, and
+    filtering `in_report = Yes` reproduces the workbook's figure. A silent
+    divergence would be a wrong number that looks right.
+    """
+    report_config = _config(exclude_priorities=(4,))
+    scope, config = _scope(tmp_path, exclude_priorities=(4,))
+    assert scope.excluded["priority"], "the fixture has no priority-4 row to keep"
+    dropped_by_report = scope.excluded["priority"]
+    kept_by_report = len(scope.frame)
+
+    wide_scope, wide_config = _scope(tmp_path)
+    assert agent_pack.pack_config(report_config).exclude_priorities == ()
+    out_dir = tmp_path / "wide"
+    pack_dir = agent_pack.write_pack(wide_scope, wide_config, out_dir,
+                                     report_config=report_config)
+
+    with (pack_dir / agent_pack.ACTIVITIES_CSV_NAME).open(encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    assert len(rows) == kept_by_report + dropped_by_report, "the pack is not wider"
+    out = [r for r in rows if r["in_report"] == "No"]
+    assert len(out) == dropped_by_report
+    assert {r["report_exclusion"] for r in out} == {"priority"}
+    assert len([r for r in rows if r["in_report"] == "Yes"]) == kept_by_report, (
+        "in_report = Yes no longer reproduces the workbook's figure")
+
+    summary = (pack_dir / agent_pack.SUMMARY_NAME).read_text(encoding="utf-8")
+    assert "THIS PACK IS WIDER THAN THE DISTRIBUTED WORKBOOK" in summary
+    assert f"priority: {dropped_by_report}" in summary
+    assert "in_report = Yes" in summary
+
+    # Without a report config nothing changes, which is what keeps every other
+    # caller -- and the workbook's own Activities sheet -- untouched.
+    plain_dir = agent_pack.write_pack(wide_scope, wide_config, tmp_path / "plain")
+    with (plain_dir / agent_pack.ACTIVITIES_CSV_NAME).open(encoding="utf-8") as handle:
+        assert "in_report" not in (csv.DictReader(handle).fieldnames or [])
 
 
 def test_the_pack_carries_nothing_written_only_for_an_index(tmp_path):

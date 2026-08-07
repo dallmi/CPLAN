@@ -23,17 +23,25 @@ So this module renders the same figures again, with the opposite priorities:
   extension list, and files that are not crawled are not retrievable. The
   prose files carry Markdown's shape and a `.txt` extension.
 
-Same `scope` and `config` as `build_workbook`, and the figures come from the
-same `metrics` functions the sheets call rather than from a second
-implementation -- `tests/test_agent_pack.py` holds the two to each other.
+Same `metrics` functions the sheets call rather than a second implementation,
+so a figure computed for both is computed once -- `tests/test_agent_pack.py`
+holds the two to each other.
+
+The scope is deliberately NOT the same. The workbook plans and leaves out what
+nobody plans against; the pack answers questions and leaves it in, so
+`pack_config` drops the priority and objectives filters. Every activity row
+then says whether the workbook holds it, and the summary says how many it does
+not -- a divergence that can be reconciled from either end rather than a second
+total nobody can explain.
 """
 
 import csv
 import re
 import zipfile
+from dataclasses import replace
 from datetime import date
 
-from pipeline.report import metrics
+from pipeline.report import derive, metrics
 from pipeline.report.calendar_sheet import (
     NOT_SPECIFIED,
     SPLIT_FIELDS,
@@ -272,7 +280,44 @@ def _summary_sections(scope, config, generated):
     ]
 
 
-def summary_text(scope, config, generated=None):
+def _wider_than_the_report(scope, report_config):
+    """The lines that own up to the pack and the workbook disagreeing.
+
+    They disagree by construction: the pack drops two of the report's filters
+    so that a question about the deprioritised bucket has an answer. Two
+    artefacts with one name and two totals is the failure mode this repository
+    spends most of its rules preventing, and the only thing that makes it
+    survivable is saying so where nobody can miss it -- with the count, the
+    reasons, and the column that reproduces the workbook's figure.
+    """
+    if not report_config:
+        return []
+    counts = {}
+    for _, activity in scope.frame.iterrows():
+        reason = report_exclusion(activity, report_config)
+        if reason:
+            counts[reason] = counts.get(reason, 0) + 1
+    extra = sum(counts.values())
+    lines = _rule(
+        "THIS PACK IS WIDER THAN THE DISTRIBUTED WORKBOOK. The workbook plans, "
+        "and leaves out what nobody plans against; this pack answers questions, "
+        f"and leaves it in. The workbook does not contain {extra} of the "
+        "activities counted here.")
+    if counts:
+        lines.append("")
+        for reason in sorted(counts):
+            lines.append(f"  Kept here, dropped by the workbook - {reason}: "
+                         f"{counts[reason]}")
+    lines += _rule(
+        "Every row in the activities file carries `in_report` (Yes/No) and "
+        "`report_exclusion`. Counting only `in_report = Yes` reproduces the "
+        "workbook's figures exactly. Quote the full count unless the question "
+        "is about the workbook, and say which of the two you used whenever the "
+        "difference could matter.")
+    return lines
+
+
+def summary_text(scope, config, generated=None, report_config=None):
     generated = generated or date.today()
     total = len(scope.frame)
     lines = [
@@ -288,6 +333,7 @@ def summary_text(scope, config, generated=None):
         "Scope is a hard filter. An activity that fails any criterion in REPORT "
         "below is absent from every figure in this pack, so a question about a "
         "date outside the period is OUT OF SCOPE -- not zero.")
+    lines += _wider_than_the_report(scope, report_config)
     for title, rows in _summary_sections(scope, config, generated):
         lines += ["", title, "-" * len(title)]
         for label, value in rows:
@@ -387,8 +433,10 @@ def data_quality_text(scope, config):
 def readme_text(scope, config, activity_rows, generated):
     return f"""CPLAN AGENT PACK
 
-Machine-readable companion to the CPLAN calendar workbook. Same pipeline run,
-same figures -- a different rendering, not a different report.
+Machine-readable companion to the CPLAN calendar workbook. Same pipeline run
+and the same figures for what both cover -- but a wider scope: the workbook
+plans and leaves out what nobody plans against, this pack answers questions and
+keeps it. See `in_report` in the activities file.
 
 Period covered: {config.period_label()}
 Activities in scope: {len(scope.frame)}
@@ -754,6 +802,8 @@ These come from the data rather than from good reporting practice, and they over
 - **GEB/GEB-1 is one field holding both levels**, with nothing in the data saying which. Never name someone as a GEB member, and never answer "how many activities involve the GEB" — the honest answer is "GEB or GEB-1".
 - **`channel` and `target_audience` hold several values in one string.** A value like "Email, Intranet" is one combination, not one channel.
 - **Weekly counts place each activity once, in the week it starts.** A six-week campaign is one activity in one week, not six.
+- **This pack is wider than the distributed workbook.** It keeps activities the report leaves out — the deprioritised bucket, and rows tagged with nothing but the catch-all objective — so that a question about them has an answer. Every row in `05-activities.csv` carries `in_report` (Yes/No) and `report_exclusion`; counting only `in_report = Yes` reproduces the workbook exactly. `01-summary.txt` states how many rows the difference covers.
+- **Quote the full count, and name which one you used** whenever someone might be holding the workbook — a total that silently disagrees with the document in the reader's hand costs more than the extra clause. If a figure is questioned, give both: "1,385 in the plan; 1,362 in the report, which leaves out 23 deprioritised."
 - **When the answer is not in the pack**, say so and point to the planning studio, which holds the full record and can filter it. Do not reason your way to a figure.
 
 ## Visualization Instructions
@@ -957,16 +1007,59 @@ This instruction set should produce answers that are far more useful than generi
 # Activities
 # --------------------------------------------------------------------------
 
-def activity_rows(scope):
+def pack_config(config):
+    """The report's config with the two filters the pack does not apply.
+
+    The workbook plans; the pack answers questions, and the two want different
+    scopes. Priority 4 is the bucket nobody plans against and the objectives
+    filter drops rows tagged with nothing but the catch-all -- both right for a
+    planning instrument, both wrong for an agent someone asks "which
+    deprioritised activities are coming up".
+
+    The period is not touched. It is what the report *is* about, the pack
+    states it at the top, and a pack covering every year answers a question
+    nobody asked while making every figure in it mean something else.
+    """
+    return replace(config, exclude_priorities=(), exclude_objectives=())
+
+
+def report_exclusion(activity, report_config):
+    """Why the distributed workbook would drop this row, or "" if it keeps it.
+
+    The pack is deliberately wider than the workbook, which means the two
+    disagree about "how many activities are there" -- the failure this
+    repository is otherwise built to prevent. It is survivable only because it
+    is visible: this column lets an answer reconcile itself with a workbook
+    somebody is holding, instead of contradicting it with no way to see why.
+    """
+    if not report_config:
+        return ""
+    if report_config.exclude_priorities:
+        if derive.priority_number(activity.get("priority")) in set(
+                report_config.exclude_priorities):
+            return "priority"
+    if report_config.exclude_objectives:
+        if derive.only_excluded_objectives(activity.get("strategic_objectives"),
+                                           report_config.exclude_objectives):
+            return "objectives"
+    return ""
+
+
+def activity_rows(scope, report_config=None):
     """Every in-scope activity, one row each, exactly as the sheet writes them.
 
     Same columns in the same order as the workbook's Activities sheet, so the
     two can be read side by side. Dates become ISO strings rather than Excel
     serials: a retrieval index reads text, and `2025-03-05` is the only form
     that is unambiguous in one.
+
+    Two columns the sheet does not have come last, and only when a report
+    config is supplied: whether the workbook keeps the row, and why not.
     """
     frame = scope.frame
     headers = [header for _, header in ACTIVITY_COLUMNS]
+    if report_config:
+        headers += ["in_report", "report_exclusion"]
     rows = []
     for _, activity in frame.iterrows():
         index = activity["week_index"]
@@ -990,6 +1083,9 @@ def activity_rows(scope):
             else:
                 value = activity.get(field)
                 values.append("" if value is None or value != value else value)
+        if report_config:
+            reason = report_exclusion(activity, report_config)
+            values += ["No" if reason else "Yes", reason]
         rows.append(values)
     return headers, rows
 
@@ -1014,7 +1110,7 @@ def _write_csv(path, header, rows, bom=False):
         writer.writerows(rows)
 
 
-def write_pack(scope, config, out_dir, generated=None):
+def write_pack(scope, config, out_dir, generated=None, report_config=None):
     """Write the pack, the skill package and the checklist under `out_dir`.
 
     Returns the pack directory. The data files go in `pack/`; the skill
@@ -1028,11 +1124,11 @@ def write_pack(scope, config, out_dir, generated=None):
     pack_dir = out_dir / PACK_DIRNAME
     pack_dir.mkdir(parents=True, exist_ok=True)
 
-    headers, rows = activity_rows(scope)
+    headers, rows = activity_rows(scope, report_config)
     _write_csv(pack_dir / CALENDAR_NAME, CALENDAR_HEADER, calendar_rows(scope, config))
     _write_csv(pack_dir / ACTIVITIES_CSV_NAME, headers, rows)
-    (pack_dir / SUMMARY_NAME).write_text(summary_text(scope, config, generated),
-                                         encoding="utf-8")
+    (pack_dir / SUMMARY_NAME).write_text(
+        summary_text(scope, config, generated, report_config), encoding="utf-8")
     (pack_dir / GLOSSARY_NAME).write_text(glossary_text(scope, config), encoding="utf-8")
     (pack_dir / QUALITY_NAME).write_text(data_quality_text(scope, config), encoding="utf-8")
     (pack_dir / README_NAME).write_text(

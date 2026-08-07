@@ -189,9 +189,10 @@ def resolve_scope(args, config):
     actually got.
 
     Shared with `build_agent_pack.py` rather than written twice: the pack and
-    the workbook are two renderings of one report, and the guarantee that they
-    hold the same figures starts with them resolving the same scope from the
-    same flags.
+    the workbook are two renderings of one report, and holding them to the same
+    period starts with them resolving it from the same flags. The pack widens
+    the config it passes in -- see `agent_pack.pack_config` -- so the two agree
+    on the window and differ, visibly, on what inside it counts as planned.
     """
     input_dir = Path(args.input_dir) if args.input_dir else find_input_dir()
     files = find_input_files(input_dir)

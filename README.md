@@ -143,6 +143,19 @@ Without that folder they land in `pipeline/output/agent-pack/` instead
 | `agent-instructions.md` | the whole agent prompt. Paste into Instructions after one find-and-replace of `<ORGANISATION>` |
 | `checklist.md` | questions with computed answers, half of them pre-computed in the pack and half not. **Not for uploading** — an agent that can read the answer key passes without computing anything |
 
+**The pack's scope is wider than the workbook's.** The report is a planning
+instrument and drops what nobody plans against — priority 4, and rows tagged
+with nothing but the catch-all objective. The agent answers questions, and
+"which deprioritised activities are coming up" deserves an answer, so
+`agent_pack.pack_config` drops those two filters. The period is untouched.
+
+That makes the two disagree about how many activities there are, which is
+normally the failure this repository is built to prevent. It is survivable only
+because it is visible from both ends: every row in `05-activities.csv` carries
+`in_report` and `report_exclusion`, counting `in_report = Yes` reproduces the
+workbook exactly, and `01-summary.txt` states how many rows the difference
+covers. A silent divergence would be a wrong number that looks right.
+
 The data reaches the agent through the skill, not through a knowledge source.
 `pack/` was one until two probes showed it was never reached for: a needle
 question found its row by reading the file — and caught that the tracking ID in

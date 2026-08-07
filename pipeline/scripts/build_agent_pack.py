@@ -1,9 +1,10 @@
 """Agent pack: the calendar report in a shape a retrieval agent can read.
 
 Reads the same CSV exports as `report_calendar.py`, through the same scope
-resolution, and writes the same figures as plain text and CSV instead of as a
-styled workbook. Why that is a different artefact rather than a second sheet is
-in `pipeline/report/agent_pack.py`'s module docstring.
+resolution, and writes the figures as plain text and CSV instead of as a
+styled workbook -- over a scope wider by two filters, with every row saying
+whether the workbook holds it. Why this is a different artefact rather than a
+second sheet is in `pipeline/report/agent_pack.py`'s module docstring.
 
 Usage:
     python pipeline/scripts/build_agent_pack.py
@@ -11,8 +12,10 @@ Usage:
     python pipeline/scripts/build_agent_pack.py --from 2026-01-01 --to 2026-06-30
     python pipeline/scripts/build_agent_pack.py --out /path/to/folder
 
-Takes the same period flags as the report. Running both with the same flags is
-what makes them two renderings of one report rather than two reports.
+Takes the same period flags as the report, which is what keeps the two about
+the same year. Only the period: the pack keeps the deprioritised bucket and the
+catch-all-only rows that the report plans past, so its totals are larger by
+design. `in_report = Yes` in the activities file reproduces the workbook.
 """
 
 import sys
@@ -93,12 +96,27 @@ def main(argv=None):
 
     print_banner("CPLAN Agent Pack")
     log(f"Period: {config.period_label()}")
+
+    # The workbook plans and the pack answers questions, so they want different
+    # scopes: priority 4 is the bucket nobody plans against, and the objectives
+    # filter drops rows tagged with nothing but the catch-all. Both belong in a
+    # planning instrument and neither belongs in front of someone asking which
+    # deprioritised activities are coming up. `report_config` is kept so every
+    # row can still say whether the workbook would have held it.
+    report_config = config
+    config = agent_pack.pack_config(config)
     scope, config = resolve_scope(args, config)
     if scope is None:
         return 1
+    if report_config.exclude_priorities or report_config.exclude_objectives:
+        log("Pack scope is wider than the workbook's: "
+            f"priorities {report_config.exclude_priorities or 'none'} and "
+            f"objectives {report_config.exclude_objectives or 'none'} are kept "
+            "here and marked with in_report=No")
 
     out_dir = Path(args.out) if args.out else resolve_output_dir()
-    pack_dir = agent_pack.write_pack(scope, config, out_dir)
+    pack_dir = agent_pack.write_pack(scope, config, out_dir,
+                                     report_config=report_config)
 
     # Listed under the folder each file is actually in, not as one flat list:
     # which of the artefacts may be uploaded is the only decision this command
