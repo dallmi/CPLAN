@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-06.23"
+$manifestVersion = "2026-08-07.1"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-06.23"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-06.23"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-07.1"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -178,6 +178,8 @@ $manifest = @(
     @{ Path = "pipeline\report\agent_pack.py"; Marker = "conversationNumber";             Why = "the evaluation set matches the template the product hands out - the documented format belongs to another harness, and a copy carrying it is rejected on import with a format error" },
     @{ Path = "pipeline\report\agent_pack.py"; Marker = "INSTRUCTIONS_TEXT";              Why = "the agent-level instructions ship with the pack, outside the uploaded folder - a skill is selected when it fits, instructions apply to every turn, and without them nothing guards a turn the skill missed" },
     @{ Path = "pipeline\report\agent_pack.py"; Marker = "def _states";                       Why = "control vs counting question is derived from what the pack states, not asserted by hand - an older copy mis-grades a retrieved answer as a computed one" },
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "One red element per chart";        Why = "the visual rules are countable - hexes, a white-space ratio, a limit of one red element; an older copy names one colour and then asks for restraint, which is the judgement the agent is already getting wrong" },
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "Say each figure once";             Why = "summary, findings and charts divide the work instead of each restating the same number - an older copy produces an image whose tiles, bars and read-out say the same four figures three times over" },
     @{ Path = "pipeline\scripts\build_agent_pack.py"; Marker = "replace <ORGANISATION>";   Why = "the run says the instructions file needs one find-and-replace before it is pasted - an older copy calls it an addendum and the operator appends a full prompt to a full prompt" },
     @{ Path = "pipeline\scripts\build_agent_pack.py"; Marker = "EVALUATION_NAME";          Why = "the run names the test set and says it is safe to import - an older copy writes it and leaves the operator guessing whether it may be uploaded" },
     @{ Path = "pipeline\scripts\build_agent_pack.py"; Marker = "INSTRUCTIONS_NAME";        Why = "the run names all three artefacts and which one must not be uploaded - an older copy writes the instructions file but never tells the operator it is there" },

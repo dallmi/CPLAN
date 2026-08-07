@@ -673,36 +673,100 @@ unless evidence exists.
 
 ## Visualization Instructions
 
-### <ORGANISATION> Brand Compliance
+A chart is the part of an answer a reader screenshots and forwards, so it
+carries the brand further than the prose does. What follows is the
+organisation's design system restated so this agent can follow it without
+having the style guide to hand. Where a rule gives a number, the number is the
+rule: "sparingly", "clean" and "minimal clutter" have never survived a render.
 
-Use:
+### <ORGANISATION> brand compliance — the palette
 
-Colors
+Use these values and no others. Do not sample a colour from a template, do not
+let a plotting library choose its own defaults, and do not invent a shade
+because two bars ended up side by side.
 
-Primary:
-<ORGANISATION> Red (#E60000)
+| Role | Hex | What it is for |
+|---|---|---|
+| White | `#FFFFFF` | Every background, and the dominant colour of every image |
+| Black | `#000000` | Body text, axis line, rules, data labels |
+| Accent red | `#E60000` | The one highlighted element — nothing else |
+| Grey III | `#8E8D83` | Lighter series, secondary bars |
+| Grey IV | `#7A7870` | The default series colour, and footnote text |
+| Grey V | `#5A5D5C` | Average and reference lines |
+| Grey VI | `#404040` | The darkest series, dark fills |
+| Bordeaux I | `#BD000C` | A second red where red genuinely must appear twice |
+| Bronze I | `#B98E2C` | A third series once grey and red are taken |
+| Pastel I | `#ECEBE4` | Tile and panel fills, highlight blocks, alternate table rows |
 
-Supporting:
-<ORGANISATION> Dark Gray
-<ORGANISATION> Black
-<ORGANISATION> White
+The greys are warm, not neutral. A cool grey — `#808080`, `#999999`, a library
+default — is off-brand even though it reads as grey on screen. Pure black is
+for type and rules, not for filling bars.
 
-Accent colors only when necessary.
+Status colours are for data-driven status only, never decoration: red
+`#BD000C`, amber `#E4A911`, green `#6F7A1A`.
 
-Avoid:
-- Neon colors
-- Rainbow palettes
-- 3D effects
-- Decorative gradients
+### How much of each — the ratio
 
-### Visual Design Principles
+White dominates, greys carry the data, red is an accent. In numbers:
 
-- One message per chart
-- Minimal clutter
-- Clear labels
-- Accessible contrast
-- Consistent typography
-- Direct annotations
+- **At least half the image is unmarked white.** Margins, gutters and the
+  space around type count towards it; a filled panel background does not.
+- **One red element per chart. At most two in a whole image.** The red element
+  is the answer to that chart's business question — the tallest bar, the peak,
+  the segment under discussion. Two red bars make the reader work out which
+  one was meant, and at that point the accent has stopped accenting.
+- **Everything else is grey.** A bar chart is grey bars with one red bar. A
+  line chart is a Grey IV line with one red marker at the point being
+  discussed, not a red marker on every point.
+- Do not fill a tile, a header band or a panel with red.
+
+### Typography
+
+- **Never use capitals for emphasis** — not in titles, not in section labels,
+  not in tile captions. `EXECUTIVE READ-OUT` is off-brand; `Executive
+  read-out` is correct. Sentence case throughout.
+- **Never underline. Never combine bold and italic.**
+- **Text is black.** Headings, tile numbers and labels are black; subtitles
+  and footnotes are Grey IV `#7A7870`. Colour is not an emphasis tool in this
+  brand — there is no case in which a red heading or a red number is right.
+- Relative to the chart's body text: image title about 2.5x at light weight,
+  panel heading about 1.2x bold, body 1x, footnote about 0.8x. Every chart in
+  one image shares one body size.
+- Left-align everything. Never justify, never centre a block of text.
+
+### Chart mechanics
+
+- **No gridlines** — neither horizontal nor vertical. A single black baseline
+  of about 1pt is the entire frame.
+- **Flat and two-dimensional.** No 3D, no shadows, no gradients, no rounded
+  corners, no decorative shapes, nothing placed behind text.
+- Drop the y-axis when every bar carries its own data label; keep it for line
+  charts.
+- Average or reference line: Grey V `#5A5D5C`, dashed, labelled inline.
+- Prefer a donut with a large white centre to a pie, and avoid both above five
+  categories.
+- Legends: square swatches with the text to the right. When several charts
+  share the same categories, draw one legend rather than one per chart.
+
+### Laying out more than one chart
+
+The rules above concern a single chart. An image holding six of them fails in
+a different way, and it fails at the seams.
+
+- **A panel is one block**: heading, business question, plot, footnote.
+  Reserve the vertical space for all four before drawing the plot. A footnote
+  added afterwards lands in the panel underneath.
+- **Leave a gutter at least as tall as a panel heading** between panels, both
+  horizontally and vertically. Nothing is ever drawn inside a gutter.
+- **Nothing overlaps anything.** An annotation sits inside its own plot area,
+  clear of the axis labels below it and the subtitle above it. If a peak label
+  will not fit above the peak, put it beside the peak.
+- **Align the row.** Panels in a row share a top edge and a plot height, and
+  their axes line up. Number tiles align on the baseline of their numbers, not
+  on the centre of their boxes — a caption wrapping to two lines must not push
+  its number upwards.
+- **Every annotation carries its value.** A divider labelled `data as of` says
+  nothing; `data as of <date>` says the thing.
 
 ### Preferred Visuals
 
@@ -728,8 +792,6 @@ Questions:
 - Channel mix
 - Audience mix
 
-Avoid pie charts unless ≤5 categories.
-
 Outliers — use:
 - Scatter plot
 - Annotated bar chart
@@ -739,6 +801,8 @@ Questions:
 - Event concentration
 
 ### Chart Requirements
+
+One message per chart. A chart carrying two is two charts.
 
 Every chart must include:
 
@@ -751,6 +815,23 @@ Date range
 Metric definition
 
 Source: the CPLAN report pack, with the generation date from the `Data as of` row at the top of `01-summary.txt`. Never name a workbook filename — this agent does not read one, and a filename copied into an instruction goes stale the next time the pack is rebuilt.
+
+### Before you send a chart
+
+Read your own image once against this list. Fix what fails; do not caption it.
+
+1. Does any text touch or overlap other text, a bar, an axis label, or a
+   neighbouring panel?
+2. Is there more than one red element in a chart, or more than two in the
+   whole image?
+3. Any capitals used for emphasis, any underline, any coloured text?
+4. Any gridlines, rounded corners, shadows, or a colour outside the palette?
+5. Is at least half the image white?
+6. Does every panel carry its heading, business question and source footnote,
+   with none of them sitting in a neighbour's space?
+7. Does any figure appear twice in the image?
+
+A chart failing one of these is redrawn, not explained.
 
 ## High-Value Questions the Agent Should Answer
 
@@ -792,6 +873,23 @@ Data Limitations
 
 Recommended Follow-up Analysis
 - Evidence-based next questions
+
+### Say each figure once
+
+These sections divide the work between them; they do not each get a turn at
+the same sentence. Three impressions of one fact read as three facts, and the
+reader then spends the answer looking for new information that is not there.
+
+- A figure belongs to **one** place: the chart, if it has a shape worth
+  seeing; otherwise a line of prose.
+- A number tile is for a figure that has **no** chart in the image. A tile
+  restating the tallest bar of the chart beside it is a tile to delete.
+- A summary bullet beside a chart says what the chart *means*, not what it
+  shows. "Volume is concentrated in the first quarter" earns its line;
+  "the peak week holds 60 activities" does not, because the chart already
+  said so and said it better.
+- If a panel would restate what a neighbouring panel already gives, drop the
+  panel. The white space left behind is worth more than the repetition.
 
 ## Offer the next two questions
 

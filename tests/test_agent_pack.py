@@ -425,6 +425,47 @@ def test_the_instructions_are_the_whole_prompt(tmp_path):
     assert ".xlsx" not in text, "a workbook filename would go stale on the next run"
 
 
+def test_the_visual_rules_are_numbers_rather_than_adjectives(tmp_path):
+    """The brand section named one colour and then asked for restraint.
+
+    Everything the pack builds itself carries the full design-system tokens;
+    the agent was the one surface without them, and it showed -- capitalised
+    headings, red headings, red on eight elements at once, gridlines, bars in
+    pure black. An agent cannot honour "accent colors only when necessary",
+    because necessary is exactly the judgement it is making. Every rule here
+    is therefore countable: a hex, a ratio, or a count of elements.
+    """
+    _, out_dir, _, _ = _pack(tmp_path)
+    text = (out_dir / agent_pack.INSTRUCTIONS_NAME).read_text(encoding="utf-8")
+    for hex_value in ("#FFFFFF", "#000000", "#E60000", "#8E8D83", "#7A7870",
+                      "#5A5D5C", "#404040", "#BD000C", "#B98E2C", "#ECEBE4"):
+        assert hex_value in text, f"the palette does not name {hex_value}"
+    assert "At least half the image is unmarked white" in text
+    assert "One red element per chart. At most two in a whole image." in text
+    assert "Never use capitals for emphasis" in text
+    assert "No gridlines" in text
+    assert "Leave a gutter at least as tall as a panel heading" in text
+    assert "Nothing overlaps anything" in text
+    assert "Before you send a chart" in text, "no self-check before rendering"
+
+
+def test_a_figure_is_stated_once_rather_than_in_every_section(tmp_path):
+    """The output format asks for a summary, findings and charts of one dataset.
+
+    Nothing said they were different sentences, so the same number arrived as
+    a tile, as a bar and as a bullet -- four of five tiles on the executive
+    image were restated by a chart, two of them a third time in the read-out.
+    Half the page then carries no information, which is a brand failure before
+    it is an editorial one: white space is the thing being spent.
+    """
+    _, out_dir, _, _ = _pack(tmp_path)
+    text = (out_dir / agent_pack.INSTRUCTIONS_NAME).read_text(encoding="utf-8")
+    assert "Say each figure once" in text
+    assert "A figure belongs to **one** place" in text
+    assert "has **no** chart in the image" in text, "nothing bounds a number tile"
+    assert "Does any figure appear twice in the image?" in text
+
+
 def test_the_checklist_answers_are_computed_from_the_data(tmp_path):
     """The balance of kinds is asserted once, by the test that owns it."""
     _, out_dir, scope, config = _pack(tmp_path)
