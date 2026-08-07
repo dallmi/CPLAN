@@ -659,7 +659,10 @@ Read your own image once against this list. Fix what fails; do not caption it.
 4. Any gridlines, rounded corners, shadows, or a colour outside the palette?
 5. Is at least half the image white?
 6. Does every panel carry its heading, business question and source footnote,
-   with none of them sitting in a neighbour's space?
+   with none of them sitting in a neighbour's space? Where it states a total,
+   does the footnote say what that total counts? An image is forwarded without
+   its author, and there is nobody in it to ask which of two true totals it
+   meant.
 7. Does any figure appear twice in the image?
 
 An image failing one of these is redrawn, not explained.
@@ -981,6 +984,8 @@ Date range
 Metric definition
 
 Source: the CPLAN report pack, with the generation date from the `Data as of` row at the top of `01-summary.txt`. Never name a workbook filename — this agent does not read one, and a filename copied into an instruction goes stale the next time the pack is rebuilt.
+
+Scope, whenever the image carries a total. This pack is wider than the distributed workbook, so two different totals are true of the same portfolio on the same day, and an image is forwarded without its author: nobody can ask it which one it meant. The footnote answers before it is asked, in the shape `Activities in scope: N — includes M the report excludes`, with both figures from the summary's own lines. An image whose total silently disagrees with the workbook in someone's hand is the one failure here that survives being forwarded.
 
 ### The rest of the rules are in a skill
 

@@ -749,6 +749,42 @@ def test_the_boards_carry_no_organisation_name(tmp_path):
                 f"{name} carries a placeholder nobody will replace")
 
 
+def test_an_image_that_carries_a_total_says_what_it_counts(tmp_path):
+    """The rule that answers is worth nothing to an image nobody can question.
+
+    The pack is wider than the distributed workbook, so two totals are true of
+    the same portfolio on the same day, and the instructions already require an
+    answer to say which one it used. A chart cannot: it is forwarded without
+    its author, read by someone holding the workbook, and there is nobody in
+    the room to ask. Two dashboards a fortnight apart would then show a
+    portfolio that had apparently grown by every deprioritised activity, with
+    nothing on either image accounting for it.
+
+    So scope joins title, business question, date range, metric and source as
+    something every chart carrying a total must print, and the board checklist
+    asks for it where a headline figure is largest and least questioned.
+    """
+    _, out_dir, _, _ = _pack(tmp_path)
+    text = (out_dir / agent_pack.INSTRUCTIONS_NAME).read_text(encoding="utf-8")
+    requirements = text[text.index("### Chart Requirements"):
+                        text.index("### The rest of the rules")]
+    assert "Scope, whenever the image carries a total." in requirements
+    assert "Activities in scope: N" in requirements, "no shape to copy"
+    assert "wider than the distributed workbook" in requirements
+
+    # Checked in the general list rather than the board one: the board list is
+    # explicitly "on top of" it, so a lone chart carrying a total would
+    # otherwise be the one image nothing asks.
+    with zipfile.ZipFile(out_dir / agent_pack.BRAND_SKILL_ZIP_NAME) as archive:
+        charts = archive.read("SKILL.md").decode("utf-8")
+    assert "does the footnote say what that total counts?" in charts
+    with zipfile.ZipFile(out_dir / agent_pack.DASHBOARD_SKILL_ZIP_NAME) as archive:
+        boards = archive.read("SKILL.md").decode("utf-8")
+    assert "The scope check in `chart-standards` matters most here" in boards
+    assert "Does the board state what its total counts?" not in boards, (
+        "the check is asked twice")
+
+
 def test_red_is_bounded_by_area_and_not_only_by_count(tmp_path):
     """"One red element" was obeyed and still produced a half-red image.
 

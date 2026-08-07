@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-07.13"
+$manifestVersion = "2026-08-07.14"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-07.13"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-07.13"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-07.14"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -166,6 +166,7 @@ $manifest = @(
     @{ Path = "pipeline\scripts\report_calendar.py"; Marker = "differ, visibly";            Why = "the shared resolution is documented as period-only now that the pack widens the config it passes in - an older copy claims both hold the same figures, which is the one thing they no longer do" },
     @{ Path = "pipeline\report\agent_pack.py"; Marker = "def write_pack";                    Why = "the agent pack itself: values instead of formulas, long instead of wide, the layout rules written out as sentences" },
     @{ Path = "pipeline\report\agent_pack.py"; Marker = "CHECKLIST_NAME";                    Why = "the answer key is written OUTSIDE the uploaded folder - inside it, an agent grounds on it and passes the test by reading the answers" },
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "whenever the image carries a total"; Why = "a chart stating a total must say what it counts - an older copy lets an image carry the wider figure with nothing on it accounting for the gap to the workbook in the reader's hand, and an image cannot be asked which total it meant" },
     # Both halves of what a first real run taught, and a copy missing either
     # one still produces a pack and a checklist that look right. The glossary
     # rule is what stops an agent reporting the previous year's quarter on an
@@ -206,6 +207,7 @@ $manifest = @(
     # file cannot even be imported, and a copy that has neither writes two
     # skills where a board-naming request now expects three.
     @{ Path = "pipeline\report\dashboard_skill.py"; Marker = "def write_zip";              Why = "the board catalogue - a NEW file; without it agent_pack.py fails to import and no board archive is written" },
+    @{ Path = "pipeline\report\dashboard_skill.py"; Marker = "matters most here"; Why = "the board file defers the scope check to chart-standards instead of repeating it - a board is the artefact most forwarded and least questioned, so an older copy is where a silent disagreement with the workbook travels furthest" },
     @{ Path = "pipeline\report\dashboard_skill.py"; Marker = "A Source line is not the footnote"; Why = "a board's Source citation and the printed source footnote are both called Source with nothing telling them apart - an older copy lets an agent footnote a panel with a pack filename and column names, breaching the no-filename rule chart-standards states two skills away" },
     @{ Path = "pipeline\report\agent_pack.py"; Marker = "DASHBOARD_SKILL_ZIP_NAME";        Why = "the third skill archive is wired into write_pack beside the other two - an older copy imports fine but never writes the board catalogue" },
     @{ Path = "pipeline\scripts\build_agent_pack.py"; Marker = "BRAND_SKILL_ZIP_NAME";      Why = "the run names the second skill archive and says it is uploaded once - an older copy writes it and the operator never learns it is there" },

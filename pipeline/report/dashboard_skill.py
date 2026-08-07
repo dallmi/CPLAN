@@ -120,6 +120,10 @@ On top of the checklist in `chart-standards`:
 5. Does every panel print its business question and its footnote?
 
 A board failing one of these is redrawn, not explained.
+
+The scope check in `chart-standards` matters most here: a board is the artefact
+most forwarded and least questioned, and its headline figure is larger than the
+workbook's by every activity the report excludes.
 """
 
 PORTFOLIO_OVERVIEW = """# Board — Portfolio overview
