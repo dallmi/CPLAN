@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-07.16"
+$manifestVersion = "2026-08-07.17"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-07.16"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-07.16"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-07.17"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -225,6 +225,11 @@ $manifest = @(
     @{ Path = "pipeline\report\agent_builder.py"; Marker = "INSTRUCTIONS_LIMIT";           Why = "the 8,000-character limit is asserted rather than assumed - an older copy can hold a prompt the field silently truncates, and truncation takes the footer and the follow-ups first because they are last" },
     @{ Path = "pipeline\report\agent_builder.py"; Marker = "CHART_STANDARDS_NAME";         Why = "the chart geometry ships as a knowledge file because this surface has no skills - an older copy leaves the agent holding the palette with no guidance on which chart to draw" },
     @{ Path = "pipeline\report\agent_builder.py"; Marker = "BOARD_FILE_NAMES";             Why = "the three boards ship as their own knowledge files here, not one catalogue - an older copy has no board files at all, and Agent Builder has no skill package to fall back on" },
+    # A knowledge file cannot announce itself. Added as a second marker: the
+    # three board names now live in the instructions prompt too, and an older
+    # copy leaves the agent with boards it can only find if a user already
+    # knows to ask for one by name.
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "Draw a board only from its own file"; Why = "the prompt itself names the boards and says to ask which one - an older copy answers a bare 'give me a dashboard' by drawing from no board file at all" },
     @{ Path = "pipeline\scripts\build_agent_pack.py"; Marker = "resolve_builder_output_dir"; Why = "the Agent Builder delivery lands in OneDrive Output beside the pack's Input - an older copy writes it into the checkout, unsynced, and the operator uploads a stale one from the wrong machine" },
     @{ Path = "pipeline\scripts\build_agent_pack.py"; Marker = "write_builder_pack";        Why = "the run actually writes the second delivery, not merely resolve a folder for it - a copy with the resolver and not the call reports a path it never wrote to" },
     @{ Path = "pipeline\scripts\process_cplan.py"; Marker = "ONEDRIVE_OUTPUT_DIR";         Why = "the Output folder constant - without it build_agent_pack.py fails to import and NO pack is written at all, not merely the second one" },

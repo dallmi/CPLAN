@@ -59,21 +59,15 @@ BOARD_FILE_NAMES = {
 # It carries only what a board needs and the prompt does not already state. The
 # palette, the ratio and the typography rules are in Instructions, where a
 # breach is wrong on sight.
-#
-# The highlight sentence below describes the `Highlight:` field without
-# spelling out its `yes` value verbatim: written as `Highlight: yes`, the
-# literal marker every board's own highlighted panel also carries, the two
-# concatenated would state it twice and trip the test that exists to catch a
-# board spending its one red element on two panels.
 BOARD_RULES_TEXT = """# How to draw a board
 
 Draw the panels this file lists, in the order it lists them, and no others. A
 panel you add is a panel nobody asked for; a panel you drop takes its question
 with it.
 
-Exactly one panel is red -- the one whose `Highlight` field reads yes. Every
-other panel is grey throughout: bars, lines, markers and numbers. Tile numbers
-are black on every board.
+Exactly one panel is red -- the one marked `Highlight: yes`. Every other panel
+is grey throughout: bars, lines, markers and numbers. Tile numbers are black
+on every board.
 
 A `Source:` line says where to read the figure. It is not the footnote and is
 never printed. The printed source footnote is the one your instructions
@@ -117,10 +111,11 @@ You answer questions about communications planning activity using only the CPLAN
 - `{agent_pack.BREAKDOWN_NAME}` — one row per block × value × measure, for crossing two dimensions
 - `{READING_GUIDE_NAME}` — audiences, analysis steps, good follow-up questions
 - `{CHART_STANDARDS_NAME}` — chart choice and multi-panel layout
+- `09`–`11-board-*.txt` — one per named executive board: portfolio overview, leadership attention, plan trust
 
 Prefer `{agent_pack.SUMMARY_NAME}`, `{agent_pack.CALENDAR_NAME}` and `{agent_pack.BREAKDOWN_NAME}` for any figure they already state: those were computed by tested code, and a figure you derive from `{agent_pack.ACTIVITIES_CSV_NAME}` has not been through the report's rules. There is no Excel workbook behind this agent.
 
-Open `{READING_GUIDE_NAME}` before you answer and `{CHART_STANDARDS_NAME}` before you draw. The rules below hold whether or not you reach them.
+Open `{READING_GUIDE_NAME}` before you answer and `{CHART_STANDARDS_NAME}` before you draw. The rules below hold whether or not you reach them. Draw a board only from its own file; if none is named, say which three there are and ask.
 
 ## Non-negotiable rules
 
@@ -200,7 +195,7 @@ Source is the CPLAN report pack with the `Data as of` date from `{agent_pack.SUM
 
 Executive summary (3–5 bullets) · Key findings, with numbers · Visualizations (1–3 {agent_pack.ORGANISATION_PLACEHOLDER}-compliant charts) · Implications · Data limitations · Recommended follow-up analysis.
 
-**Say each figure once.** These sections divide the work; they do not each get a turn at the same sentence. A figure belongs to one place: the chart if it has a shape worth seeing, otherwise a line of prose. A caption says what the chart *means*, not what it shows.
+**Say each figure once.** These sections divide the work; they do not each get a turn at the same sentence. A figure belongs to one place: the chart if it has a shape worth seeing, otherwise a line of prose.
 
 ## Offer the next three questions
 
@@ -219,7 +214,7 @@ End every answer with this line, and nothing after it:
 
 > _Data as of YYYY-MM-DD · Powered by {agent_pack.TEAM_SIGNATURE}_
 
-The date is the `Data as of` row at the top of `{agent_pack.SUMMARY_NAME}`. **Every turn carries it, not just the first** — a follow-up, a correction, an answer drawing on no figure at all. A footer that appears once and then stops is worse than none: the reader has learnt to expect a vintage, so its absence reads as "still current". The vintage does not change inside a conversation, so restate the date you already gave.
+The date is the `Data as of` row at the top of `{agent_pack.SUMMARY_NAME}`. **Every turn carries it, not just the first** — a follow-up, a correction, an answer drawing on no figure at all. The vintage does not change inside a conversation, so restate the date you already gave.
 
 If that date is more than four weeks old, add "— this pack may be out of date" before the signature.
 """
@@ -241,9 +236,11 @@ about planned communication activities; it does not hold measured reach, \
 engagement, or any post-delivery result.
 """
 
-# Four rather than the documented minimum of three: one per audience the pack
-# serves, plus one that crosses two dimensions -- the answer most likely to
-# expose whether retrieval reached the whole file rather than a chunk of it.
+# Five rather than the documented minimum of three: one per audience the pack
+# serves, one that crosses two dimensions -- the answer most likely to expose
+# whether retrieval reached the whole file rather than a chunk of it -- and one
+# naming a board, because the prompt only reacts to a dashboard being asked
+# for and a user who has never heard the word has no other way to find one.
 STARTER_PROMPTS_TEXT = """# Starter prompts
 
 Add each as its own starter prompt on the Configure tab.
@@ -252,6 +249,7 @@ Add each as its own starter prompt on the Configure tab.
 - Which divisions have the most activities with executive involvement?
 - How complete is the plan, and which fields are most often missing?
 - How many activities are in scope, and how many does the distributed report leave out?
+- Show me the leadership attention board.
 """
 
 
@@ -441,7 +439,7 @@ of {UPLOAD_DIRNAME}\\.
    is the instruction: what is in it is what the agent is grounded on.
 
 4. Starter prompts
-   {STARTER_PROMPTS_NAME} holds four, one per line. Add each as its own starter
+   {STARTER_PROMPTS_NAME} holds five, one per line. Add each as its own starter
    prompt.
 
 {agent_pack.CHECKLIST_NAME} is NOT uploaded and NOT pasted. It is the answer key: questions

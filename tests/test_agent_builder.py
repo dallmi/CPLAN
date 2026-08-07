@@ -117,6 +117,41 @@ def test_no_rule_was_lost_in_the_compression():
         assert marker in text, f"the compression dropped {marker!r}"
 
 
+def test_the_prompt_is_what_tells_the_agent_boards_exist(tmp_path):
+    """A knowledge file cannot announce itself.
+
+    Retrieval answers a question; it does not tell the agent which questions
+    have a fixed answer waiting. So the three names, and the instruction to ask
+    when none is given, are the one part of the board design that has to be
+    bought with prompt characters.
+    """
+    text = agent_builder.INSTRUCTIONS_TEXT
+    for board in ("portfolio overview", "leadership attention", "plan trust"):
+        assert board in text, f"the prompt does not name {board!r}"
+    # 600, not some tighter figure: the board names sit in the file list, and
+    # the "ask" instruction closes the same section one paragraph later, past
+    # the unrelated "prefer these files for a figure already stated" aside
+    # that still sits between the two. The window has to clear that aside
+    # without reaching into the next section, `## Non-negotiable rules`.
+    assert "ask" in text[text.index("portfolio overview"):
+                         text.index("portfolio overview") + 600].lower(), (
+        "the prompt names the boards without saying to ask which one")
+
+
+def test_a_starter_prompt_offers_a_board(tmp_path):
+    """The only path by which a user who does not know boards exist finds one.
+
+    The prompt reacts to a dashboard being asked for. Nothing reacts to a user
+    who has never heard the word, and a starter prompt is what the surface
+    shows before the first question.
+    """
+    prompts = [line for line in agent_builder.STARTER_PROMPTS_TEXT.splitlines()
+               if line.strip().startswith("-")]
+    assert len(prompts) >= 5, "the board prompt was not added"
+    assert any("board" in line.lower() for line in prompts), (
+        "no starter prompt offers a board")
+
+
 def test_the_instructions_carry_no_organisation_name():
     """This repository is public. The name is filled in where the text is used.
 
@@ -272,8 +307,14 @@ def test_every_board_file_answers_on_its_own(tmp_path):
     _, upload, _ = _builder(tmp_path)
     for name in agent_builder.BOARD_FILE_NAMES.values():
         text = (upload / name).read_text(encoding="utf-8")
-        assert "Highlight: yes" in text
-        assert text.count("Highlight: yes") == 1, f"{name} spends the red budget twice"
+        # Lines that ARE the field, not the sentence in BOARD_RULES_TEXT that
+        # merely names it: `test_agent_pack.py` counts the same way, over the
+        # same concern -- a substring count would also catch `Highlight: yes`
+        # inside the rules sentence describing the field, always adding one
+        # short of a real second panel spending the budget.
+        chosen = [line for line in text.splitlines()
+                  if line.strip() == "Highlight: yes"]
+        assert len(chosen) == 1, f"{name} spends the red budget {len(chosen)} times"
         # The four rules a board needs and the prompt does not already carry.
         for rule in ("in the order", "grey", "not the footnote", "say so"):
             assert rule in text.lower(), f"{name} does not state {rule!r}"
