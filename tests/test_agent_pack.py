@@ -16,7 +16,7 @@ import pytest
 pytest.importorskip("openpyxl")
 pytest.importorskip("pandas")
 
-from pipeline.report import agent_pack, metrics
+from pipeline.report import agent_pack, dashboard_skill, metrics
 from pipeline.report.calendar_sheet import LABEL_COL, _split_for
 from pipeline.report.config import AUDIENCE_BAND_ORDER, ReportConfig
 from pipeline.scripts.report_calendar import build_workbook
@@ -1034,3 +1034,112 @@ def test_the_pack_is_rewritten_in_place(tmp_path):
     first = sorted(p.name for p in agent_pack.write_pack(scope, config, out_dir).iterdir())
     second = sorted(p.name for p in agent_pack.write_pack(scope, config, out_dir).iterdir())
     assert first == second
+
+
+# ---------------------------------------------------------------------------
+# The boards, held to the pack they cite
+# ---------------------------------------------------------------------------
+
+def _prose_sections(text):
+    """`TITLE -> [line, ...]` for the underlined sections of a prose pack file.
+
+    Both prose files write a title and then a rule of dashes exactly as long,
+    which is what makes the shape detectable without a parser per file.
+    """
+    lines = text.splitlines()
+    sections, current = {}, None
+    for index, line in enumerate(lines):
+        following = lines[index + 1].strip() if index + 1 < len(lines) else ""
+        if line.strip() and following and set(following) == {"-"}:
+            current = line.strip()
+            sections[current] = []
+        elif current is not None and set(line.strip()) != {"-"}:
+            sections[current].append(line)
+    return sections
+
+
+def _citations(text):
+    """Every `Source:` citation in a board file, one per returned string."""
+    found = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("Source:"):
+            continue
+        body = stripped[len("Source:"):].strip()
+        if body == "none":
+            continue
+        found += [part.strip() for part in body.split(";") if part.strip()]
+    return found
+
+
+def _resolve(citation, pack_dir):
+    """Fail with the citation in the message if the pack does not state it."""
+    parts = [part.strip() for part in citation.split("·")]
+    name, rest = parts[0], parts[1:]
+    path = pack_dir / name
+    assert path.exists(), f"{citation}: the pack has no file {name}"
+    assert rest, f"{citation}: names a file and nothing in it"
+
+    if name.endswith(".csv"):
+        with path.open(encoding="utf-8") as handle:
+            rows = list(csv.DictReader(handle))
+        wanted = dict(part.split("=", 1) for part in rest)
+        assert any(all(row.get(key) == value for key, value in wanted.items())
+                   for row in rows), f"{citation}: no row in {name} matches"
+        return
+
+    sections = _prose_sections(path.read_text(encoding="utf-8"))
+    section = rest[0]
+    assert section in sections, f"{citation}: {name} has no section {section!r}"
+    if len(rest) == 1:
+        return
+    label = rest[1]
+    assert any(line.strip().startswith(f"{label}:")
+               or line.strip().startswith(f"{label} |")
+               for line in sections[section]), (
+        f"{citation}: {section} states no {label!r}")
+
+
+def test_every_board_citation_resolves_against_the_pack(tmp_path):
+    """A board reads its figures; it does not compute them. This is what makes
+    that claim true rather than stated.
+
+    It is also the anti-drift test. Rename a summary row and the build fails
+    here, instead of a board quietly pointing at a line that no longer exists
+    -- which nothing but the agent would ever read. It covers labels carrying
+    an interpolated value too, such as `Planned at under 7 days' notice`, which
+    moves with SHORT_NOTICE_DAYS.
+    """
+    pack_dir, _, _, _ = _pack(tmp_path)
+    checked = 0
+    for name, text in dashboard_skill.BOARDS.items():
+        citations = _citations(text)
+        assert citations, f"{name} cites nothing"
+        for citation in citations:
+            try:
+                _resolve(citation, pack_dir)
+            except AssertionError as error:
+                raise AssertionError(f"{name}: {error}") from None
+            checked += 1
+    assert checked >= 20, f"only {checked} citations checked; a board lost its sources"
+
+
+def test_boards_cite_only_measures_the_breakdowns_file_writes(tmp_path):
+    """A measure name is a string in two places, and a typo in the board is
+    invisible until an agent looks for a row that was never written.
+    """
+    pack_dir, _, _, _ = _pack(tmp_path)
+    written = {row["measure"] for row in _breakdowns(pack_dir)}
+    assert written <= set(agent_pack.BREAKDOWN_MEASURES)
+
+    for name, text in dashboard_skill.BOARDS.items():
+        for citation in _citations(text):
+            if agent_pack.BREAKDOWN_NAME not in citation:
+                continue
+            parts = dict(part.strip().split("=", 1)
+                         for part in citation.split("·")[1:])
+            measure, block = parts["measure"], parts["block"]
+            assert measure in written, f"{name} cites unwritten measure {measure!r}"
+            suppressed = agent_pack.TAUTOLOGICAL_MEASURES.get(block, ())
+            assert measure not in suppressed, (
+                f"{name} cites {measure!r} under {block!r}, where it is suppressed")
