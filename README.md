@@ -127,13 +127,20 @@ On Windows, double-click `agentpack.cmd`. It takes the same period flags as
 `report.cmd`; running both with the same flags is what makes them two
 renderings of one report rather than two reports.
 
-Three artefacts land in `pipeline/output/agent-pack/` (gitignored — they carry
-production figures):
+The artefacts land in the OneDrive CPLAN folder — `Projekte/CPLAN/Input`, the
+same one the Power Automate export arrives in — so the pack can be uploaded
+from any machine that syncs it. Nothing in the pipeline deletes from there, and
+no file the pack writes matches an input glob, so the two sets sit side by side.
+Without that folder they land in `pipeline/output/agent-pack/` instead
+(gitignored — they carry production figures).
 
 | | |
 |---|---|
 | `pack/` | the folder to point a knowledge source at: four `.txt`, two `.csv`, one single-sheet `.xlsx` |
 | `cplan-skill.zip` | the same content as a skill package, `SKILL.md` at the archive root |
+| `chart-standards-skill.zip` | the visual rules as a second skill. No data files, so it is rebuilt identically every run — upload it once and again only when the rules change |
+| `evaluation.csv` | the same questions as an importable test set. Safe to upload: an evaluation set is never grounded on |
+| `agent-instructions.md` | the whole agent prompt. Paste into Instructions after one find-and-replace of `<ORGANISATION>` |
 | `checklist.md` | questions with computed answers, half of them pre-computed in the pack and half not. **Not for uploading** — an agent that can read the answer key passes without computing anything |
 
 `.txt` rather than `.md` because Markdown is not on the crawled-extension list,

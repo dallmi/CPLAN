@@ -593,6 +593,54 @@ def test_a_figure_is_stated_once_rather_than_in_every_section(tmp_path):
     assert "Does any figure appear twice in the image?" in skill
 
 
+def test_the_pack_is_written_where_it_can_be_uploaded_from(tmp_path, monkeypatch):
+    """The pack is the one artefact that has to leave the machine.
+
+    It is uploaded to the agent by hand, and a folder inside a git checkout is
+    unsynced and unfindable from anywhere else -- so it lands in the OneDrive
+    folder the source CSVs already arrive in. Never created, only used when it
+    is there: a path conjured inside a OneDrive that is not really set up syncs
+    nowhere while looking to the operator like it worked.
+    """
+    import pipeline.scripts.build_agent_pack as build
+
+    onedrive = tmp_path / "OneDrive - Example"
+    monkeypatch.setattr(build, "find_onedrive_root", lambda: onedrive)
+
+    assert build.resolve_output_dir() == build.LOCAL_OUTPUT_DIR, (
+        "a OneDrive without the CPLAN folder should fall back, not be created")
+    assert not (onedrive / build.ONEDRIVE_INPUT_DIR).exists()
+
+    (onedrive / build.ONEDRIVE_INPUT_DIR).mkdir(parents=True)
+    assert build.resolve_output_dir() == onedrive / build.ONEDRIVE_INPUT_DIR
+
+    monkeypatch.setattr(build, "find_onedrive_root", lambda: None)
+    assert build.resolve_output_dir() == build.LOCAL_OUTPUT_DIR
+
+
+def test_the_pack_cannot_be_mistaken_for_its_own_input(tmp_path):
+    """Output and input now share a folder, so the names must not overlap.
+
+    Nothing in the pipeline deletes from there and the input globs are all
+    specific, so today the two sets sit side by side harmlessly. The failure
+    this guards against is a later rename -- a pack file called
+    `CommunicationPacks.csv` would be read back in as source data on the next
+    run, and the run would succeed, which is the worst way for it to go wrong.
+    """
+    import fnmatch
+
+    from pipeline.scripts.process_cplan import INPUT_FILES
+
+    pack_dir, out_dir, _, _ = _pack(tmp_path)
+    written = [p.name for p in pack_dir.iterdir()] + [p.name for p in out_dir.iterdir()
+                                                      if p.is_file()]
+    assert written, "nothing was written, so this asserts nothing"
+    for name in written:
+        for pattern in INPUT_FILES.values():
+            assert not fnmatch.fnmatch(name, pattern), (
+                f"{name} would be read back as {pattern} source data")
+
+
 def test_the_checklist_answers_are_computed_from_the_data(tmp_path):
     """The balance of kinds is asserted once, by the test that owns it."""
     _, out_dir, scope, config = _pack(tmp_path)

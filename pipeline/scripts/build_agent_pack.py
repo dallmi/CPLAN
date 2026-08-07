@@ -25,7 +25,12 @@ if str(REPO_DIR) not in sys.path:
     sys.path.insert(0, str(REPO_DIR))
 
 from pipeline.report import agent_pack                             # noqa: E402
-from pipeline.scripts.process_cplan import log, print_banner       # noqa: E402
+from pipeline.scripts.process_cplan import (                       # noqa: E402
+    ONEDRIVE_INPUT_DIR,
+    find_onedrive_root,
+    log,
+    print_banner,
+)
 from pipeline.scripts.report_calendar import (                     # noqa: E402
     CONFIG,
     build_parser,
@@ -37,7 +42,37 @@ from pipeline.scripts.report_calendar import (                     # noqa: E402
 # deliberate choice, and a delivered workbook was easy to lose among the
 # pipeline's working data. The pack is a folder of many small files and would
 # have made `reports/` unreadable in exactly the same way.
-DEFAULT_OUTPUT_DIR = PIPELINE_DIR / "output" / "agent-pack"
+#
+# This is now the fallback rather than the destination -- see resolve_output_dir.
+LOCAL_OUTPUT_DIR = PIPELINE_DIR / "output" / "agent-pack"
+
+
+def resolve_output_dir():
+    """The OneDrive CPLAN folder when it is there, the local one otherwise.
+
+    The pack is the only artefact here that has to leave the machine: it is
+    uploaded to the agent by hand, and a folder inside a git checkout is both
+    unsynced and unfindable from anywhere else. It lands in the same OneDrive
+    folder the source CSVs arrive in -- one path, already synced, already
+    backed up, already known to whoever runs this.
+
+    Nothing in the pipeline deletes from that folder, and no file the pack
+    writes matches an input glob, so the two sets sit side by side without
+    either reading or overwriting the other. `test_the_pack_cannot_be_mistaken
+    _for_its_own_input` holds that second half, which is the one a later
+    rename could quietly break.
+
+    The folder is used only when it exists and is never created: a path
+    conjured inside a OneDrive that is not really set up syncs nowhere while
+    looking like it worked. That is `find_input_dir`'s rule, for its reason.
+    """
+    root = find_onedrive_root()
+    if root:
+        target = root / ONEDRIVE_INPUT_DIR
+        if target.exists():
+            return target
+        log(f"OneDrive root found ({root}) but {ONEDRIVE_INPUT_DIR} does not exist")
+    return LOCAL_OUTPUT_DIR
 
 
 def build_pack_parser():
@@ -45,7 +80,8 @@ def build_pack_parser():
     parser = build_parser()
     for action in parser._actions:
         if action.dest == "out":
-            action.help = (f"Output folder (default: {DEFAULT_OUTPUT_DIR})")
+            action.help = (f"Output folder (default: OneDrive\\{ONEDRIVE_INPUT_DIR}, "
+                           f"or {LOCAL_OUTPUT_DIR} when that is not present)")
     parser.description = "Generate the agent pack from the CSV exports"
     return parser
 
@@ -61,7 +97,7 @@ def main(argv=None):
     if scope is None:
         return 1
 
-    out_dir = Path(args.out) if args.out else DEFAULT_OUTPUT_DIR
+    out_dir = Path(args.out) if args.out else resolve_output_dir()
     pack_dir = agent_pack.write_pack(scope, config, out_dir)
 
     # Listed under the folder each file is actually in, not as one flat list:

@@ -16,12 +16,22 @@ Usage (from the repo root, or just double-click agentpack.cmd):
   .\agentpack.ps1 -Out C:\tmp\pack      # somewhere else
   .\agentpack.ps1 -InputDir C:\tmp\csv  # read from here instead of OneDrive
 
-Three things come out, and only two of them are for uploading:
+They land in the OneDrive CPLAN folder -- the same one the Power Automate
+export arrives in -- so the pack can be uploaded from any machine that syncs
+it. Without that folder they land in pipeline\output\agent-pack instead.
 
-  pack\             the folder to point a Copilot knowledge source at
-  cplan-skill.zip   the same content as a Copilot Studio skill package
-  checklist.md      the answer key. Do NOT upload it: an agent that can read
-                    the answers passes the test without computing anything.
+Six things come out, and they are not all for uploading:
+
+  pack\                      the folder to point a Copilot knowledge source at
+  cplan-skill.zip            the same content as a Copilot Studio skill package
+  chart-standards-skill.zip  the visual rules as a second skill. Upload once;
+                             it is rebuilt identically every run
+  evaluation.csv             import under Evaluate. Safe: never grounded on
+  agent-instructions.md      paste into Instructions. Replace <ORGANISATION>
+                             first -- one find-and-replace
+  checklist.md               the answer key. Do NOT upload it: an agent that
+                             can read the answers passes without computing
+                             anything.
 #>
 param(
     [switch]$All,
@@ -78,11 +88,19 @@ try {
     & $python @args
     if ($LASTEXITCODE -ne 0) { throw "build_agent_pack failed (exit code $LASTEXITCODE)" }
 
-    # Open the folder that holds all three artefacts, not the pack subfolder:
-    # the skill package and the checklist are the two a reader has to decide
-    # about, and neither is visible from inside pack\.
+    # Open the folder that holds every artefact, not the pack subfolder: the
+    # skill packages, the instructions and the checklist are what a reader has
+    # to decide about, and none of them is visible from inside pack\.
+    #
+    # The destination is asked for rather than rebuilt here. It is OneDrive
+    # when that folder exists and the checkout otherwise, and a launcher
+    # carrying its own copy of that rule is a launcher that opens the folder
+    # the run did not write to -- silently, and looking entirely correct.
     if (-not $NoOpen) {
-        $written = if ($Out) { $Out } else { Join-Path $root "pipeline\output\agent-pack" }
+        $written = if ($Out) { $Out } else {
+            (& $python -c "from pipeline.scripts.build_agent_pack import resolve_output_dir; print(resolve_output_dir())" |
+                Select-Object -Last 1).Trim()
+        }
         if (Test-Path $written) {
             Write-Host "Opening $written" -ForegroundColor Green
             Start-Process $written

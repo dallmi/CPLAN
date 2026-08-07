@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-07.3"
+$manifestVersion = "2026-08-07.4"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-07.3"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-07.3"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-07.4"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -188,8 +188,9 @@ $manifest = @(
     @{ Path = "pipeline\scripts\build_agent_pack.py"; Marker = "replace <ORGANISATION>";   Why = "the run says the instructions file needs one find-and-replace before it is pasted - an older copy calls it an addendum and the operator appends a full prompt to a full prompt" },
     @{ Path = "pipeline\scripts\build_agent_pack.py"; Marker = "EVALUATION_NAME";          Why = "the run names the test set and says it is safe to import - an older copy writes it and leaves the operator guessing whether it may be uploaded" },
     @{ Path = "pipeline\scripts\build_agent_pack.py"; Marker = "INSTRUCTIONS_NAME";        Why = "the run names all three artefacts and which one must not be uploaded - an older copy writes the instructions file but never tells the operator it is there" },
-    @{ Path = "pipeline\scripts\build_agent_pack.py"; Marker = "DEFAULT_OUTPUT_DIR";         Why = "the pack entry point; without it agentpack.cmd reports a missing file instead of building anything" },
-    @{ Path = "agentpack.ps1";                 Marker = "cplan-skill.zip";                   Why = "the pack launcher, and the one place that says which of the three artefacts must NOT be uploaded" },
+    @{ Path = "pipeline\scripts\build_agent_pack.py"; Marker = "resolve_output_dir";         Why = "the pack is written into the OneDrive CPLAN folder so it can be uploaded from anywhere - an older copy leaves it inside the checkout, where it is unsynced and the operator uploads a stale one from the wrong machine" },
+    @{ Path = "agentpack.ps1";                 Marker = "cplan-skill.zip";                   Why = "the pack launcher, and the one place that says which of the artefacts must NOT be uploaded" },
+    @{ Path = "agentpack.ps1";                 Marker = "resolve_output_dir";               Why = "the launcher asks the builder where it wrote instead of carrying its own copy of the rule - an older copy opens pipeline\output\agent-pack while the run wrote to OneDrive, and the operator uploads whatever was there before" },
     # The team signature. Added as second markers rather than replacing the
     # ones above, so each file keeps both claims. A brand is only a brand if it
     # is the same everywhere; a hand-copy carrying the old wording would report
