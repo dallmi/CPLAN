@@ -174,7 +174,9 @@ A citation takes one of two forms, and the test resolves both:
 
 A panel drawing on more than one figure — a row of number tiles — separates its
 citations with `;` on the one `Source:` line, and each must resolve
-independently.
+independently. Each repeats the file and the block in full: the board tables
+below abbreviate for a reader, the board file cannot, because a parser reading
+`Internal` with no file beside it has nothing to resolve.
 
 The executive read-out keeps all five fields rather than becoming an exception:
 `Chart: none (prose)`, `Highlight: no`, and a `Source:` line naming the figures
@@ -269,9 +271,20 @@ organisation-neutrality rule.
 
 Adding a sixth pack file touches every place that enumerates them:
 `SKILL_TEXT`'s file table, `readme_text`, the pack listing in
-`INSTRUCTIONS_TEXT`, the glossary's rules, and `checklist_text`. The
-instructions also gain one line: load `cplan-dashboards` before drawing a
-board, the way they already require `chart-standards` before drawing anything.
+`INSTRUCTIONS_TEXT`, and the glossary's rules. `_write_skill_zip` must carry it
+into `cplan-skill.zip` as well, or the reporting skill ships a table of
+contents naming a file it does not hold. `build_agent_pack.py` gains the third
+archive in the list it prints, which is the only place an operator learns what
+to upload. The instructions gain one line: load `cplan-dashboards` before
+drawing a board, the way they already require `chart-standards` before drawing
+anything.
+
+`checklist_text` is deliberately left alone. It grades a question as a
+"control" when the pack already states its answer, and it searches
+`01-summary.txt` and `03-data-quality.txt` only — not `04-calendar.csv`, and so
+not `06-breakdowns.csv` either. Adding the new file to that haystack would
+reclassify counting questions as reading questions and blunt the one
+measurement the checklist exists to make.
 
 ## Out of scope
 
