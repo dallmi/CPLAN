@@ -65,14 +65,15 @@ def main(argv=None):
     pack_dir = agent_pack.write_pack(scope, config, out_dir)
 
     # Listed under the folder each file is actually in, not as one flat list:
-    # which of the three artefacts may be uploaded is the only decision this
-    # command leaves to the reader, and a flat list hides it.
+    # which of the artefacts may be uploaded is the only decision this command
+    # leaves to the reader, and a flat list hides it.
     log(f"{agent_pack.PACK_DIRNAME}\\  -- upload this folder as a knowledge source")
     for path in sorted(pack_dir.iterdir()):
         log(f"  {path.name:<22} {path.stat().st_size / 1024:>8.1f} KB")
     log(f"{out_dir.name}\\  -- beside it")
     for name, note in (
             (agent_pack.SKILL_ZIP_NAME, "the same content as a skill package"),
+            (agent_pack.BRAND_SKILL_ZIP_NAME, "second skill: the chart rules -- upload once, re-upload only when they change"),
             (agent_pack.INSTRUCTIONS_NAME, "the agent's Instructions -- replace <ORGANISATION>"),
             (agent_pack.EVALUATION_NAME, "import under Evaluate (safe: never grounded on)"),
             (agent_pack.CHECKLIST_NAME, "ANSWER KEY -- do NOT upload as knowledge")):

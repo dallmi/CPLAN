@@ -425,6 +425,86 @@ def test_the_instructions_are_the_whole_prompt(tmp_path):
     assert ".xlsx" not in text, "a workbook filename would go stale on the next run"
 
 
+def test_the_footer_is_owed_on_every_turn_not_just_the_first(tmp_path):
+    """Observed: the vintage appears on the first answer and then stops.
+
+    The mechanism is mundane -- a follow-up turn does not re-open the summary,
+    so the date is no longer in front of the agent and the line quietly goes.
+    That is worse than never having had it: a reader who has been given a
+    vintage once reads its absence as "still current" rather than as a line
+    somebody dropped. The date does not change inside a conversation, so the
+    rule is to restate it, and the instructions now say which failure they are
+    ruling out rather than only asserting "never omitted".
+    """
+    _, out_dir, _, _ = _pack(tmp_path)
+    text = (out_dir / agent_pack.INSTRUCTIONS_NAME).read_text(encoding="utf-8")
+    assert "Every turn carries it, not just the first." in text
+    assert "restate the date you already gave" in text
+    for turn in ("follow-up answer", "one-line correction", "no figure at all"):
+        assert turn in text, f"the rule does not cover a {turn}"
+
+
+def test_three_follow_up_questions_rather_than_two(tmp_path):
+    """Two was the floor and became the ceiling.
+
+    "Two is usually right, never more than three" reads as permission to stop
+    at two, and it did. Three is now the count, with the instruction to widen
+    the angle when a third is hard rather than to fall back to two -- otherwise
+    the shortfall lands exactly on the narrow questions where a reader most
+    needs somewhere else to go.
+    """
+    _, out_dir, _, _ = _pack(tmp_path)
+    text = (out_dir / agent_pack.INSTRUCTIONS_NAME).read_text(encoding="utf-8")
+    assert "Offer the next three questions" in text
+    assert "offer three follow-up questions" in text
+    assert "Three, every time" in text
+    shape = text[text.index("**You might also ask**"):]
+    offered = [line for line in shape.splitlines()[:5] if line.startswith("> - ")]
+    assert len(offered) == 3, f"the worked example still shows {len(offered)}"
+    assert "Two is usually right" not in text, "the old ceiling is still there"
+
+
+def test_the_chart_rules_ship_as_their_own_skill(tmp_path):
+    """Two skills, split by what it costs to miss each half.
+
+    The palette, the ratio and the typography rules stay in the instructions:
+    they apply to every chart, a breach is visible at a glance, and
+    instructions apply to every turn whereas a skill loads only when the model
+    judges it relevant. What moves here is the half that means nothing until a
+    plot exists -- and is long enough to crowd the prompt if carried always.
+
+    No data files: this archive is identical between runs, so it is uploaded
+    once and re-uploaded only when the rules change, while the report pack
+    beside it goes stale weekly.
+    """
+    _, out_dir, _, _ = _pack(tmp_path)
+    with zipfile.ZipFile(out_dir / agent_pack.BRAND_SKILL_ZIP_NAME) as archive:
+        assert archive.namelist() == ["SKILL.md"], "the chart skill carries data"
+        skill = archive.read("SKILL.md").decode("utf-8")
+
+    assert skill.startswith("---\nname: chart-standards\n")
+    description = next(line for line in skill.splitlines()
+                       if line.startswith("description:"))
+    assert len(description) <= 1024 + len("description: "), "description over the cap"
+    for trigger in ("chart", "dashboard", "plot", "visualise"):
+        assert trigger in description, f"nothing routes {trigger!r} to this skill"
+
+    # The half that moved, and the half that must not have.
+    for moved in ("Laying out more than one chart", "Before you send it",
+                  "Which chart answers which question"):
+        assert moved in skill, f"{moved!r} did not move into the skill"
+    instructions = (out_dir / agent_pack.INSTRUCTIONS_NAME).read_text(encoding="utf-8")
+    for floor in ("#E60000", "#7A7870", "One red element per chart",
+                  "Never use capitals for emphasis", "No gridlines"):
+        assert floor in instructions, f"{floor!r} left the instructions"
+    assert "Load that skill before you draw" in instructions, "nothing points at it"
+    assert agent_pack.BRAND_SKILL_NAME in instructions
+
+    # Organisation-neutral without a placeholder: the operator uploads this zip
+    # unmodified, so there is nothing to find and replace inside it.
+    assert agent_pack.ORGANISATION_PLACEHOLDER not in skill
+
+
 def test_the_visual_rules_are_numbers_rather_than_adjectives(tmp_path):
     """The brand section named one colour and then asked for restraint.
 
@@ -444,9 +524,15 @@ def test_the_visual_rules_are_numbers_rather_than_adjectives(tmp_path):
     assert "One red element per chart. At most two in a whole image." in text
     assert "Never use capitals for emphasis" in text
     assert "No gridlines" in text
-    assert "Leave a gutter at least as tall as a panel heading" in text
-    assert "Nothing overlaps anything" in text
-    assert "Before you send a chart" in text, "no self-check before rendering"
+
+    # The geometry rules and the self-check moved into the chart skill when the
+    # visual section was split; they are asserted where they now live, at the
+    # same strictness, rather than dropped.
+    with zipfile.ZipFile(out_dir / agent_pack.BRAND_SKILL_ZIP_NAME) as archive:
+        skill = archive.read("SKILL.md").decode("utf-8")
+    assert "Leave a gutter at least as tall as a panel heading" in skill
+    assert "Nothing overlaps anything" in skill
+    assert "Before you send it" in skill, "no self-check before rendering"
 
 
 def test_a_figure_is_stated_once_rather_than_in_every_section(tmp_path):
@@ -463,7 +549,11 @@ def test_a_figure_is_stated_once_rather_than_in_every_section(tmp_path):
     assert "Say each figure once" in text
     assert "A figure belongs to **one** place" in text
     assert "has **no** chart in the image" in text, "nothing bounds a number tile"
-    assert "Does any figure appear twice in the image?" in text
+    # The check that enforces it sits in the chart skill's list, beside the
+    # other things read off a finished image.
+    with zipfile.ZipFile(out_dir / agent_pack.BRAND_SKILL_ZIP_NAME) as archive:
+        skill = archive.read("SKILL.md").decode("utf-8")
+    assert "Does any figure appear twice in the image?" in skill
 
 
 def test_the_checklist_answers_are_computed_from_the_data(tmp_path):

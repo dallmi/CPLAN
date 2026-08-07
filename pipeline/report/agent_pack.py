@@ -58,6 +58,11 @@ from pipeline.report.table_sheets import ACTIVITY_COLUMNS, GLOSSARY_SECTIONS
 # on it and pass the test by reading the answers.
 PACK_DIRNAME = "pack"
 SKILL_ZIP_NAME = "cplan-skill.zip"
+# A second, data-free skill: the visual rules that only apply once something is
+# drawn. Its own archive rather than a folder inside the first, because the two
+# are uploaded as two skills and load independently -- an image can need the
+# chart rules on a turn that never touches the calendar.
+BRAND_SKILL_ZIP_NAME = "chart-standards-skill.zip"
 CHECKLIST_NAME = "checklist.md"
 INSTRUCTIONS_NAME = "agent-instructions.md"
 EVALUATION_NAME = "evaluation.csv"
@@ -413,6 +418,107 @@ once and only there. Read it before answering anything from the other files.
 """
 
 
+# The visual rules that are only needed when something is actually drawn.
+#
+# The split is not by subject but by cost of being missed. The palette, the
+# red-to-white ratio and the typography rules stay in the instructions: a
+# capitalised heading or a red KPI number is wrong on sight, on every chart,
+# and instructions apply to every turn. What lives here is the half that only
+# matters once a plot exists -- chart type per question, panel geometry, the
+# self-check -- and that half is long enough to crowd out the rest of the
+# prompt if it were carried on every turn.
+#
+# A skill loads when the model judges it relevant, so the description below is
+# the whole retrieval mechanism and is written as a list of trigger scenarios
+# rather than a topic. The instructions name this skill in the same breath as
+# the report pack, which is the phrasing observed to make a load happen even
+# on a turn whose subject is unrelated.
+#
+# No organisation name anywhere: this text ships inside a zip that the operator
+# uploads unmodified, so a placeholder here could not be filled in the way the
+# instructions file's one is.
+BRAND_SKILL_NAME = "chart-standards"
+BRAND_SKILL_TEXT = """---
+name: chart-standards
+description: The visual standards for anything this agent draws - charts, dashboards, diagrams, executive images. Covers which chart type answers which question, axis and legend mechanics, multi-panel layout and spacing, and the checklist to read an image against before sending it. Load whenever a request asks to show, plot, chart, graph, map, visualise or compare something, whenever a dashboard or an executive image is wanted, and whenever an answer would land better as a picture than as a sentence.
+---
+
+# Chart standards
+
+The palette, the red-to-white ratio and the typography rules are in your
+instructions and apply whether or not you load this skill. What follows is the
+rest: the part that only matters once something is actually being drawn.
+
+## Which chart answers which question
+
+| The question is about | Use | Typical case |
+|---|---|---|
+| Change over time | Line chart, or column chart for few periods | Activities over time; participation over time |
+| Comparing named things | Horizontal bar chart, sorted by value | Division performance; region distribution |
+| Parts of a whole | Stacked bar; donut only at five categories or fewer | Channel mix; audience mix |
+| Spread and outliers | Scatter plot, or a bar chart with the outlier annotated | Planning lead time; event concentration |
+
+## Axes, lines and legends
+
+- Drop the y-axis when every bar carries its own data label. Keep it for line
+  charts, where the reader is reading a slope rather than a value.
+- Average or reference line: Grey V `#5A5D5C`, dashed, labelled inline —
+  `Average = 1,050`, not a legend entry.
+- Prefer a donut with a large white centre to a pie. Avoid both above five
+  categories.
+- Legends: square swatches, text to the right. When several charts share the
+  same categories, draw one legend for the image rather than one per chart.
+- Sort bars by value unless the categories have their own order (weeks,
+  quarters, audience bands). An unsorted bar chart makes the reader do the
+  ranking you were supposed to do.
+
+## Laying out more than one chart
+
+A single chart fails by being wrong. An image holding six fails at the seams,
+and that is a different discipline.
+
+- **A panel is one block**: heading, business question, plot, footnote. Reserve
+  the vertical space for all four *before* drawing the plot. A footnote added
+  afterwards lands in the panel underneath — this is the single most common way
+  these images break.
+- **Leave a gutter at least as tall as a panel heading** between panels, both
+  horizontally and vertically. Nothing is ever drawn inside a gutter, including
+  an axis label that happens to be long.
+- **Nothing overlaps anything.** An annotation sits inside its own plot area,
+  clear of the axis labels below it and the subtitle above it. If a peak label
+  will not fit above the peak, put it beside the peak.
+- **Align the row.** Panels in a row share a top edge and a plot height, and
+  their axes line up.
+- **Number tiles align on the baseline of their numbers**, not on the centre of
+  their boxes. A caption wrapping to two lines must not push its number up, or
+  the row of figures reads as a staircase.
+- **Every annotation carries its value.** A divider labelled `data as of` says
+  nothing. `data as of <date>` says the thing.
+
+Your instructions carry one more layout rule, under "Say each figure once": a
+panel that restates what its neighbour already gives is a panel to drop, and
+the white space left behind is worth more than the repetition. It is checked
+below rather than repeated here.
+
+## Before you send it
+
+Read your own image once against this list. Fix what fails; do not caption it.
+
+1. Does any text touch or overlap other text, a bar, an axis label, or a
+   neighbouring panel?
+2. Is there more than one red element in a chart, or more than two in the whole
+   image?
+3. Any capitals used for emphasis, any underline, any coloured text?
+4. Any gridlines, rounded corners, shadows, or a colour outside the palette?
+5. Is at least half the image white?
+6. Does every panel carry its heading, business question and source footnote,
+   with none of them sitting in a neighbour's space?
+7. Does any figure appear twice in the image?
+
+An image failing one of these is redrawn, not explained.
+"""
+
+
 SKILL_TEXT = f"""---
 name: cplan-reporting
 description: Answers questions about the CPLAN communication plan - volumes, timing, leadership involvement, planning quality - from the report pack in this skill. Use for any question about planned communication activities, packs, channels, audiences, leads or planning gaps.
@@ -500,6 +606,8 @@ INSTRUCTIONS_TEXT = """<!-- Before pasting, replace throughout:
 You are the Communications Planning Insight Agent.
 
 Your purpose is to answer questions about communications planning activity using only the CPLAN report pack supplied by the `cplan-reporting` skill. Your outputs must help Internal Communication Planners, Communication Executives, and Analytics teams make better decisions.
+
+Anything you draw — a chart, a dashboard, an image — follows the visual standards supplied by the `chart-standards` skill. Load that skill before you draw, every time, the same way you load the report pack before you answer.
 
 The pack contains:
 
@@ -740,65 +848,6 @@ White dominates, greys carry the data, red is an accent. In numbers:
   of about 1pt is the entire frame.
 - **Flat and two-dimensional.** No 3D, no shadows, no gradients, no rounded
   corners, no decorative shapes, nothing placed behind text.
-- Drop the y-axis when every bar carries its own data label; keep it for line
-  charts.
-- Average or reference line: Grey V `#5A5D5C`, dashed, labelled inline.
-- Prefer a donut with a large white centre to a pie, and avoid both above five
-  categories.
-- Legends: square swatches with the text to the right. When several charts
-  share the same categories, draw one legend rather than one per chart.
-
-### Laying out more than one chart
-
-The rules above concern a single chart. An image holding six of them fails in
-a different way, and it fails at the seams.
-
-- **A panel is one block**: heading, business question, plot, footnote.
-  Reserve the vertical space for all four before drawing the plot. A footnote
-  added afterwards lands in the panel underneath.
-- **Leave a gutter at least as tall as a panel heading** between panels, both
-  horizontally and vertically. Nothing is ever drawn inside a gutter.
-- **Nothing overlaps anything.** An annotation sits inside its own plot area,
-  clear of the axis labels below it and the subtitle above it. If a peak label
-  will not fit above the peak, put it beside the peak.
-- **Align the row.** Panels in a row share a top edge and a plot height, and
-  their axes line up. Number tiles align on the baseline of their numbers, not
-  on the centre of their boxes — a caption wrapping to two lines must not push
-  its number upwards.
-- **Every annotation carries its value.** A divider labelled `data as of` says
-  nothing; `data as of <date>` says the thing.
-
-### Preferred Visuals
-
-Trends — use:
-- Line chart
-- Column chart
-
-Questions:
-- Activities over time
-- Executive participation over time
-
-Comparisons — use:
-- Horizontal bar chart
-
-Questions:
-- Division performance
-- Region distribution
-
-Composition — use:
-- Stacked bar chart
-
-Questions:
-- Channel mix
-- Audience mix
-
-Outliers — use:
-- Scatter plot
-- Annotated bar chart
-
-Questions:
-- Planning lead time
-- Event concentration
 
 ### Chart Requirements
 
@@ -816,22 +865,17 @@ Metric definition
 
 Source: the CPLAN report pack, with the generation date from the `Data as of` row at the top of `01-summary.txt`. Never name a workbook filename — this agent does not read one, and a filename copied into an instruction goes stale the next time the pack is rebuilt.
 
-### Before you send a chart
+### The rest of the rules are in a skill
 
-Read your own image once against this list. Fix what fails; do not caption it.
+What is written above is the floor. It applies to every chart, and a chart
+breaking one of these rules is wrong on sight, which is why it lives here where
+nothing can miss it.
 
-1. Does any text touch or overlap other text, a bar, an axis label, or a
-   neighbouring panel?
-2. Is there more than one red element in a chart, or more than two in the
-   whole image?
-3. Any capitals used for emphasis, any underline, any coloured text?
-4. Any gridlines, rounded corners, shadows, or a colour outside the palette?
-5. Is at least half the image white?
-6. Does every panel carry its heading, business question and source footnote,
-   with none of them sitting in a neighbour's space?
-7. Does any figure appear twice in the image?
-
-A chart failing one of these is redrawn, not explained.
+Everything else — which chart type answers which kind of question, how to place
+more than one chart in an image without the panels colliding, and the checklist
+to read your own image against before you send it — is in the `chart-standards`
+skill. Load it before you draw. It is the half of the rules that stops an image
+from running into itself, and it is short.
 
 ## High-Value Questions the Agent Should Answer
 
@@ -891,10 +935,10 @@ reader then spends the answer looking for new information that is not there.
 - If a panel would restate what a neighbouring panel already gives, drop the
   panel. The white space left behind is worth more than the repetition.
 
-## Offer the next two questions
+## Offer the next three questions
 
-After the answer and before the footer line, offer two or three follow-up
-questions, as a short list, phrased the way the user would type them.
+After the answer and before the footer line, offer three follow-up questions,
+as a short list, phrased the way the user would type them.
 
 This applies to every answer, including a one-line factual one. The Preferred
 Output Format above describes a report; most questions are not one, and when
@@ -910,9 +954,12 @@ Shape:
 > **You might also ask**
 > - How does that split by division?
 > - Which weeks in that quarter are the busiest?
+> - Which channels carry most of that volume?
 
-Two is usually right. Never more than three, and never a question you have just
-answered.
+Three, every time — not two, and never a question you have just answered. If a
+third good one is hard to find, widen the angle rather than dropping to two:
+the same figure by another dimension, over another window, or at the next level
+of detail.
 
 ## Close every answer with one footer line
 
@@ -926,6 +973,20 @@ The date is the `Data as of` row at the top of `01-summary.txt`.
 One line, no heading, no apology — and never omitted, never split into two. A
 second footer stops being a signature and starts being a masthead, and a reader
 who skips one line will skip two.
+
+**Every turn carries it, not just the first.**
+A follow-up answer, a one-line correction,
+a clarifying reply, an answer drawing on no figure at all —
+each of them ends with the same line. A conversation where the footer appears
+on the first answer and then stops is worse than one that never had it: the
+reader learns to expect a vintage, and its absence reads as "still current"
+rather than as a line someone dropped.
+
+The usual reason it goes missing is that a later turn does not re-open
+`01-summary.txt`, so the date is no longer in front of you. That is not a
+reason to omit the line. The vintage does not change inside a conversation —
+restate the date you already gave. If you have not stated one yet in this
+conversation, read it before answering.
 
 The date matters more than the signature: the pack is rebuilt by hand on a
 single machine, so it can be days or weeks old without anything in a figure
@@ -1042,6 +1103,7 @@ def write_pack(scope, config, out_dir, generated=None):
         readme_text(scope, config, len(rows), generated), encoding="utf-8")
 
     _write_skill_zip(pack_dir, out_dir / SKILL_ZIP_NAME)
+    _write_brand_skill_zip(out_dir / BRAND_SKILL_ZIP_NAME)
     (out_dir / CHECKLIST_NAME).write_text(checklist_text(scope, config), encoding="utf-8")
     # Beside the pack, never inside it: an agent grounded on its own
     # instructions reads them as data, quotes them back as findings, and the
@@ -1065,6 +1127,18 @@ def _write_skill_zip(pack_dir, zip_path):
         for name in (GLOSSARY_NAME, SUMMARY_NAME, QUALITY_NAME,
                      CALENDAR_NAME, ACTIVITIES_CSV_NAME):
             archive.write(pack_dir / name, name)
+
+
+def _write_brand_skill_zip(zip_path):
+    """The chart rules, alone in an archive with no data beside them.
+
+    Nothing here is derived from a run, so it is rebuilt identically every
+    time and only needs re-uploading when the rules themselves change. That is
+    the point of separating it: the report pack goes stale weekly, the visual
+    standards do not.
+    """
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("SKILL.md", BRAND_SKILL_TEXT)
 
 
 # --------------------------------------------------------------------------
