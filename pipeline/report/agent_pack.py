@@ -443,6 +443,14 @@ def glossary_text(scope, config):
         f"Overlapping rows do not sum. In {CALENDAR_NAME} a row with "
         "overlaps=yes belongs to a block where an activity naming two values "
         f"appears under both. Only block={TOTAL_BLOCK} is a true total.",
+        f"Only counts answer \"how many\". In {BREAKDOWN_NAME}, "
+        "measure=median_completeness is a median per value: it does not "
+        "combine, on an overlapping block or a partitioning one. The overlap "
+        "rule above is about a different mistake and does not cover this one.",
+        f"{BREAKDOWN_NAME} states a measure only where it can vary. A measure "
+        "that would restate its own block -- the unknown-audience count inside "
+        "the Unknown band, executive involvement inside an executive block -- "
+        "is not written. Its absence is not a zero.",
         "Audience is a planning estimate, never measured reach. CPLAN holds no "
         "measured reach at all. Summing it counts contacts, not people: one "
         "person inside six activities counts six times. The largest single "
@@ -518,6 +526,7 @@ anything entered in the source system after it as not represented.
   {SUMMARY_NAME}       portfolio figures: volume, load, lead time, leadership
   {QUALITY_NAME}  completeness, pack coverage and record anomalies
   {CALENDAR_NAME}      one row per block x value x week
+  {BREAKDOWN_NAME}    one row per block x value x measure - the crosses the calendar cannot make
   {ACTIVITIES_CSV_NAME}    one row per activity, {activity_rows} rows
 
 Figures here are computed, not spreadsheet formulas. Percentages are of the
@@ -674,11 +683,13 @@ this skill. They come from one pipeline run: same figures, same scope.
 | Totals, load, lead time, leadership involvement | `{SUMMARY_NAME}` |
 | Completeness, pack coverage, anomalies | `{QUALITY_NAME}` |
 | Volume over time by any dimension | `{CALENDAR_NAME}` |
+| Any figure crossing two dimensions | `{BREAKDOWN_NAME}` |
 | A single named activity | `{ACTIVITIES_CSV_NAME}` |
 
-Prefer `{SUMMARY_NAME}` and `{CALENDAR_NAME}` for any counting question. Those
-figures were computed by tested code. A number you derive yourself from
-`{ACTIVITIES_CSV_NAME}` has not been through the report's rules.
+Prefer `{SUMMARY_NAME}`, `{CALENDAR_NAME}` and `{BREAKDOWN_NAME}` for any
+counting question. Those figures were computed by tested code. A number you
+derive yourself from `{ACTIVITIES_CSV_NAME}` has not been through the report's
+rules.
 
 ## Rules you must not break
 
@@ -794,15 +805,18 @@ That skill also carries how to read for each audience, the four analysis steps, 
 
 Anything you draw — a chart, a dashboard, an image — follows the visual standards supplied by the `chart-standards` skill. Load that skill before you draw, every time, the same way you load the report pack before you answer.
 
+When a dashboard, a board or a one-page executive overview is asked for, load the `cplan-dashboards` skill as well. It names the three boards this agent draws and fixes each one's panels, so the layout is not decided again per request. If no board is named, say which three exist and ask — a blended board answers none of the three decisions.
+
 The pack contains:
 
 - `01-summary.txt` — portfolio figures: volume, load, lead time, leadership involvement
 - `02-glossary.txt` — definitions and reading rules. Read this first.
 - `03-data-quality.txt` — completeness, pack coverage, record anomalies
 - `04-calendar.csv` — one row per block × value × week
+- `06-breakdowns.csv` — one row per block × value × measure. The crosses `04-calendar.csv` cannot make: activities, leadership involvement, large audiences, missing pack links, unknown audience and median completeness, per division, region, country and audience band
 - `05-activities.csv` — one row per activity
 
-There is no Excel workbook behind this agent. Prefer `01-summary.txt` and `04-calendar.csv` for any figure they already state: those were computed by tested code. A figure you derive yourself from `05-activities.csv` has not been through the report's rules.
+There is no Excel workbook behind this agent. Prefer `01-summary.txt`, `04-calendar.csv` and `06-breakdowns.csv` for any figure they already state: those were computed by tested code. A figure you derive yourself from `05-activities.csv` has not been through the report's rules.
 
 ## Non-Negotiable Rules
 

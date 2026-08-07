@@ -1143,3 +1143,46 @@ def test_boards_cite_only_measures_the_breakdowns_file_writes(tmp_path):
             suppressed = agent_pack.TAUTOLOGICAL_MEASURES.get(block, ())
             assert measure not in suppressed, (
                 f"{name} cites {measure!r} under {block!r}, where it is suppressed")
+
+
+def test_every_pack_file_is_named_by_the_things_that_index_it(tmp_path):
+    """A file no table of contents names is a file the agent never opens.
+
+    Four documents route the agent to the pack -- the README inside it, the
+    skill manifest, the instructions, and the archive's own file list -- and
+    each is maintained by hand.
+    """
+    pack_dir, out_dir, _, _ = _pack(tmp_path)
+    readme = (pack_dir / agent_pack.README_NAME).read_text(encoding="utf-8")
+    instructions = (out_dir / agent_pack.INSTRUCTIONS_NAME).read_text(encoding="utf-8")
+    with zipfile.ZipFile(out_dir / agent_pack.SKILL_ZIP_NAME) as archive:
+        manifest = archive.read("SKILL.md").decode("utf-8")
+
+    for name in (agent_pack.SUMMARY_NAME, agent_pack.GLOSSARY_NAME,
+                 agent_pack.QUALITY_NAME, agent_pack.CALENDAR_NAME,
+                 agent_pack.BREAKDOWN_NAME, agent_pack.ACTIVITIES_CSV_NAME):
+        assert name in readme, f"the README does not list {name}"
+        assert name in manifest, f"the skill manifest does not list {name}"
+        assert name in instructions, f"the instructions do not list {name}"
+
+
+def test_the_glossary_says_a_median_never_combines(tmp_path):
+    """The overlap rule saves a reader from summing an overlapping block. It
+    does not save them from summing a median, which is wrong on a partitioning
+    block too -- a different mistake, needing its own sentence.
+    """
+    pack_dir, _, _, _ = _pack(tmp_path)
+    glossary = (pack_dir / agent_pack.GLOSSARY_NAME).read_text(encoding="utf-8")
+    assert "median" in glossary.lower()
+    assert agent_pack.BREAKDOWN_NAME in glossary
+
+
+def test_the_instructions_point_at_the_board_skill(tmp_path):
+    """A skill loads when the orchestrator judges it relevant, so the
+    instructions naming it is the whole retrieval mechanism -- the same
+    phrasing that already makes `chart-standards` load.
+    """
+    _, out_dir, _, _ = _pack(tmp_path)
+    instructions = (out_dir / agent_pack.INSTRUCTIONS_NAME).read_text(encoding="utf-8")
+    assert dashboard_skill.SKILL_NAME in instructions
+    assert agent_pack.BRAND_SKILL_NAME in instructions

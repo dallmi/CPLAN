@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-07.10"
+$manifestVersion = "2026-08-07.12"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-07.10"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-07.10"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-07.12"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -190,6 +190,11 @@ $manifest = @(
     @{ Path = "pipeline\report\agent_pack.py"; Marker = "def pack_config";              Why = "the pack keeps the deprioritised bucket the workbook plans past, and every row says whether the workbook holds it - an older copy answers zero to a priority-4 question, and a newer pack beside an older agent_pack loses the in_report column that reconciles the two totals" },
     @{ Path = "pipeline\report\agent_pack.py"; Marker = "copy the formatting";        Why = "the follow-up block is labelled as a shape to reproduce - an older copy hangs it off a colon, and the agent reads the block quote as the prompt quoting itself and answers with a plain list nobody spots" },
     @{ Path = "pipeline\report\agent_pack.py"; Marker = "BREAKDOWN_NAME";             Why = "06-breakdowns.csv crosses two dimensions instead of one - an older copy has no such file, so a question crossing two blocks (which division binds the most executive attention) can only be answered by counting 05-activities.csv by hand" },
+    # The sixth file named everywhere the other five already were: the README
+    # inside the pack, the skill manifest, and the instructions. An older copy
+    # writes 06-breakdowns.csv but never tells the agent it exists, so the file
+    # ships and is never opened.
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "Any figure crossing two dimensions"; Why = "06-breakdowns.csv is named in the skill's own file table, not only produced - an older copy writes the file and leaves every table of contents pointing at five" },
     # A third skill, in a file of its own rather than folded into the other two
     # entries above: the named board catalogue. agent_pack.py imports it at
     # module scope, so a copy that has the new agent_pack.py but not this new
