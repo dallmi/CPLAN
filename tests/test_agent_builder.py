@@ -160,3 +160,56 @@ def test_there_are_at_least_three_starter_prompts():
     lines = [l for l in agent_builder.STARTER_PROMPTS_TEXT.splitlines()
              if l.strip().startswith("- ")]
     assert len(lines) >= 3
+
+
+def test_the_documents_carry_no_front_matter():
+    """A skill's YAML header is read by the skill loader, and there is none here.
+
+    Left in, the first thing retrieval returns from either file is two lines of
+    metadata addressed to a system that does not exist on this surface.
+    """
+    for text in (agent_builder.READING_GUIDE_TEXT,
+                 agent_builder.CHART_STANDARDS_TEXT):
+        assert not text.lstrip().startswith("---")
+        assert "name:" not in text.splitlines()[0]
+
+
+def test_the_documents_do_not_call_themselves_skills():
+    """There is no skill on this surface, so a reference to one is a dead end.
+
+    An agent told to "load this skill" looks for a mechanism the surface does
+    not have, and what it does next is not something the prompt controls.
+    """
+    for text in (agent_builder.READING_GUIDE_TEXT,
+                 agent_builder.CHART_STANDARDS_TEXT):
+        assert "this skill" not in text.lower()
+
+
+def test_the_reading_guide_keeps_what_the_prompt_could_not():
+    """The audiences and the analysis steps are the half that had to move.
+
+    They are guidance rather than floor -- an answer missing them is duller,
+    not wrong -- which is exactly why they were the right thing to cut from a
+    field of 8,000 characters and the wrong thing to lose entirely.
+    """
+    # Whitespace-collapsed: these markers are prose, and prose in this file is
+    # wrapped at 79 columns. Matching the raw text would make a test pass or
+    # fail on where a line happened to break, which is not what it is asking.
+    text = " ".join(agent_builder.READING_GUIDE_TEXT.split())
+    for marker in ("Internal communications planner", "Communication executive",
+                   "Analytics", "Identify outliers", "still being filled in"):
+        assert marker in text, f"the reading guide dropped {marker!r}"
+
+
+def test_the_chart_document_keeps_the_geometry_and_not_the_palette():
+    """The palette is in the prompt now, and repeating it invites a drift.
+
+    Two statements of one hex value is two things to keep in step, and the
+    copy that goes stale is the one nobody re-reads. What belongs here is the
+    part that only matters once something is being drawn.
+    """
+    text = " ".join(agent_builder.CHART_STANDARDS_TEXT.split())
+    for marker in ("Horizontal bar chart", "Leave a gutter", "Before you send it",
+                   "one legend for the image"):
+        assert marker in text, f"the chart document dropped {marker!r}"
+    assert "| Role | Hex |" not in text, "the palette table belongs in the prompt"

@@ -202,3 +202,168 @@ Add each as its own starter prompt on the Configure tab.
 - How complete is the plan, and which fields are most often missing?
 - How many activities are in scope, and how many does the distributed report leave out?
 """
+
+
+# `agent_pack.SKILL_TEXT` minus its front matter and minus the four sections
+# that moved into the prompt above: the file list, the rules that must not be
+# broken, the row-count rule, and when to stop. What is left is the guidance
+# half -- who is asking, how to work an analysis, what to offer as a follow-up.
+# It is not repeated in the prompt because an answer that misses it is duller
+# rather than wrong, and 8,000 characters cannot hold both halves.
+READING_GUIDE_TEXT = """# Reading the CPLAN pack
+
+Your instructions carry the file list and the rules that must not be broken.
+This is the rest: how to read for the person asking, and how to work through
+an analysis rather than answering the first thing you find.
+
+## Who is asking
+
+Three audiences use this data, and the same figure serves them differently.
+
+**Internal communications planner** — clashes, overload, channel use, audience
+saturation by planned size, lead times, regional coordination. Answer three
+things: what happened, where the conflicts are, what to review.
+
+**Communication executive** — themes, executive participation (GEB or GEB-1,
+which the data does not separate), division activity, planned audience size
+(never described as reach), concentration. Keep it short: summary, key risks,
+top opportunities.
+
+**Analytics** — method, calculation, segmentation, trend, transparency.
+Include definitions, assumptions and limitations.
+
+## How to work through an analysis
+
+1. **Describe** what the data shows — by month, by division, by region.
+2. **Identify patterns**, but only ones the data supports: concentration,
+   growth, decline, seasonality, uneven distribution. Name the two windows you
+   are comparing, and never set a settled quarter against one still being
+   filled in. Forward planning thins towards the end of the horizon, so the
+   last quarter in scope reads as a collapse when it is merely not yet written.
+3. **Identify outliers** — unusually high or low activity, high executive
+   participation, exceptional lead times. Show exact figures.
+4. **Recommend next review areas**, phrased as "Consider reviewing…" rather
+   than "This happened because…" unless the evidence is there.
+
+## What this pack answers well
+
+Use these when you need a follow-up worth offering, or when a question is too
+vague to answer as asked.
+
+*Planners* — Which weeks have the highest volume? Where are audience overlaps
+occurring? Which divisions cluster on the same dates? Which channels are
+overused?
+
+*Executives* — What are the most common themes? Which divisions drive the
+highest activity? How much executive participation is recorded? Where are the
+gaps?
+
+*Analytics* — Activity distribution by quarter. Regional concentration.
+Audience segmentation. Channel proxy metrics. Lead-time distribution.
+"""
+
+
+# `agent_pack.BRAND_SKILL_TEXT` minus its front matter, with the opening
+# reworded: the original tells the reader the palette is in the instructions,
+# which is still true, and calls itself a skill, which on this surface names a
+# mechanism that does not exist. The palette table itself is NOT repeated here
+# -- two statements of one hex value is two things to keep in step, and the
+# copy that drifts is the one nobody re-reads.
+CHART_STANDARDS_TEXT = """# Chart standards
+
+The palette, the red-to-white ratio and the typography rules are in your
+instructions and apply whether or not you reach this file. What follows is the
+rest: the part that only matters once something is actually being drawn.
+
+## Which chart answers which question
+
+| The question is about | Use | Typical case |
+|---|---|---|
+| Change over time | Line chart, or column chart for few periods | Activities over time; participation over time |
+| Comparing named things | Horizontal bar chart, sorted by value | Division performance; region distribution |
+| Parts of a whole | Stacked bar; donut only at five categories or fewer | Channel mix; audience mix |
+| Spread and outliers | Scatter plot, or a bar chart with the outlier annotated | Planning lead time; event concentration |
+
+## Colouring the two kinds of chart
+
+The first two rows above and the last one are **comparisons**: one thing is the
+answer. Draw the series in Grey IV `#7A7870` and give that one thing — the
+tallest bar, the peak, the outlier — the accent red.
+
+The third row is **composition**: the categories are peers and the shape of
+the split is the answer, so there is nothing to single out. Take the segments
+in this order and leave red out of it entirely:
+
+`#404040` · `#B98E2C` · `#8E8D83` · `#6C5312` · `#B8B3A2` · `#5A5D5C` · `#946F29`
+
+Dark grey, bronze, mid grey, dark bronze, light grey, grey, bronze again —
+enough separation for seven segments without a brand colour competing with the
+data. Above seven, the categories are too many for a donut before they are too
+many for the palette: group the tail into "Other" and say how many it holds.
+
+Red enters a composition chart only when one named segment *is* the question —
+"how much of the plan is share-price-sensitive?" makes that segment the answer
+and the rest context. "How does this split by priority?" does not. Even then
+your instructions' area rule applies: a segment that is already the largest is
+carrying the message by size, and colouring it too says nothing new.
+
+## Axes, lines and legends
+
+- Drop the y-axis when every bar carries its own data label. Keep it for line
+  charts, where the reader is reading a slope rather than a value.
+- Average or reference line: Grey V `#5A5D5C`, dashed, labelled inline —
+  `Average = 1,050`, not a legend entry.
+- Prefer a donut with a large white centre to a pie. Avoid both above five
+  categories.
+- Legends: square swatches, text to the right. When several charts share the
+  same categories, draw one legend for the image rather than one per chart.
+- Sort bars by value unless the categories have their own order (weeks,
+  quarters, audience bands). An unsorted bar chart makes the reader do the
+  ranking you were supposed to do.
+
+## Laying out more than one chart
+
+A single chart fails by being wrong. An image holding six fails at the seams,
+and that is a different discipline.
+
+- **A panel is one block**: heading, business question, plot, footnote. Reserve
+  the vertical space for all four *before* drawing the plot. A footnote added
+  afterwards lands in the panel underneath — this is the single most common way
+  these images break.
+- **Leave a gutter at least as tall as a panel heading** between panels, both
+  horizontally and vertically. Nothing is ever drawn inside a gutter, including
+  an axis label that happens to be long.
+- **Nothing overlaps anything.** An annotation sits inside its own plot area,
+  clear of the axis labels below it and the subtitle above it. If a peak label
+  will not fit above the peak, put it beside the peak.
+- **Align the row.** Panels in a row share a top edge and a plot height, and
+  their axes line up.
+- **Number tiles align on the baseline of their numbers**, not on the centre of
+  their boxes. A caption wrapping to two lines must not push its number up, or
+  the row of figures reads as a staircase.
+- **Every annotation carries its value.** A divider labelled `data as of` says
+  nothing. `data as of <date>` says the thing.
+- **A panel restating its neighbour is a panel to drop.** The white space left
+  behind is worth more than the repetition.
+
+## Before you send it
+
+Read your own image once against this list. Fix what fails; do not caption it.
+
+1. Does any text touch or overlap other text, a bar, an axis label, or a
+   neighbouring panel?
+2. Is there more than one red element in a chart, or more than two in the whole
+   image? Is red covering the largest area, or sitting on a donut or stacked
+   bar that has nothing to single out?
+3. Any capitals used for emphasis, any underline, any coloured text?
+4. Any gridlines, rounded corners, shadows, or a colour outside the palette?
+5. Is at least half the image white?
+6. Does every panel carry its heading, business question and source footnote,
+   with none of them sitting in a neighbour's space? Where it states a total,
+   does the footnote say what that total counts? An image is forwarded without
+   its author, and there is nobody in it to ask which of two true totals it
+   meant.
+7. Does any figure appear twice in the image?
+
+An image failing one of these is redrawn, not explained.
+"""
