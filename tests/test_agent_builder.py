@@ -134,3 +134,29 @@ def test_the_instructions_are_pasted_as_they_stand():
     text = agent_builder.INSTRUCTIONS_TEXT
     assert not text.lstrip().startswith("<!--")
     assert "Before pasting" not in text
+
+
+def test_the_description_fits_and_says_what_the_agent_is_for():
+    """The orchestrator reads this to decide whether to route a question here.
+
+    A description that praises the agent instead of naming its domain gets it
+    picked for questions it cannot answer, which costs more than being missed.
+    """
+    text = agent_builder.DESCRIPTION_TEXT
+    assert len(text) <= agent_builder.DESCRIPTION_LIMIT, (
+        f"{len(text)} characters against a field that holds "
+        f"{agent_builder.DESCRIPTION_LIMIT}")
+    assert "communication" in text.lower()
+    assert agent_pack.ORGANISATION_PLACEHOLDER not in text, (
+        "the description is not a brand surface, so it needs no replacement")
+
+
+def test_there_are_at_least_three_starter_prompts():
+    """Three is the documented minimum, and they are what a tester tries first.
+
+    They double as the shortest honest statement of scope: a tester who reads
+    them learns what this pack answers without being told what it does not.
+    """
+    lines = [l for l in agent_builder.STARTER_PROMPTS_TEXT.splitlines()
+             if l.strip().startswith("- ")]
+    assert len(lines) >= 3
