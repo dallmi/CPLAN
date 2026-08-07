@@ -367,3 +367,79 @@ Read your own image once against this list. Fix what fails; do not caption it.
 
 An image failing one of these is redrawn, not explained.
 """
+
+
+README_TEXT = f"""CPLAN agent, Agent Builder delivery
+===================================
+
+Four things to do, in this order. Nothing here is uploaded except the contents
+of {UPLOAD_DIRNAME}\\.
+
+1. Instructions
+   Open {INSTRUCTIONS_NAME}, replace every {agent_pack.ORGANISATION_PLACEHOLDER} with the organisation's
+   name, and paste the whole file into the Instructions field on the Configure
+   tab. Paste it as it stands: it is written to fit the field's
+   {INSTRUCTIONS_LIMIT}-character limit as delivered, and it is the whole prompt rather
+   than an addendum to one.
+
+2. Description
+   Paste {DESCRIPTION_NAME} into the Description field. No replacement needed.
+
+3. Knowledge
+   Upload every file in {UPLOAD_DIRNAME}\\ -- all of them, and nothing else. The folder
+   is the instruction: what is in it is what the agent is grounded on.
+
+4. Starter prompts
+   {STARTER_PROMPTS_NAME} holds four, one per line. Add each as its own starter
+   prompt.
+
+{agent_pack.CHECKLIST_NAME} is NOT uploaded and NOT pasted. It is the answer key: questions
+with their computed answers, for checking the agent by hand once it is built.
+An agent that can read it passes every question without computing anything.
+
+Rebuild both deliveries together with agentpack.cmd. The pack next door and
+this folder are two renderings of one run; uploading one built on a different
+day than the other hands the agent two vintages of the same figure.
+"""
+
+
+def write_builder_pack(pack_dir, out_dir, scope=None, config=None):
+    """The delivery Agent Builder takes, from the pack `agent_pack` just wrote.
+
+    `pack_dir` is the source of every data file, copied rather than
+    regenerated: regenerating would mean a second pass over the same scope, and
+    two passes are two chances to differ. A copy can only be wrong by being
+    stale, which the shared run already rules out.
+
+    The upload folder is the instruction. An operator uploading knowledge
+    uploads a folder, so anything sitting in it becomes knowledge whether or
+    not it should -- which is why the answer key and the README are written
+    outside it, beside the file that is pasted rather than uploaded.
+
+    `scope` and `config` are needed only for the checklist. They are optional
+    so that refreshing the upload set needs nothing but the pack it is built
+    from.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    upload_dir = out_dir / UPLOAD_DIRNAME
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    for name in UPLOAD_DATA_FILES:
+        shutil.copyfile(pack_dir / name, upload_dir / name)
+    (upload_dir / READING_GUIDE_NAME).write_text(READING_GUIDE_TEXT,
+                                                 encoding="utf-8")
+    (upload_dir / CHART_STANDARDS_NAME).write_text(CHART_STANDARDS_TEXT,
+                                                   encoding="utf-8")
+
+    # Beside the upload folder, never inside it: an agent grounded on its own
+    # instructions reads them as data, quotes them back as findings, and the
+    # rules stop being rules.
+    (out_dir / INSTRUCTIONS_NAME).write_text(INSTRUCTIONS_TEXT, encoding="utf-8")
+    (out_dir / DESCRIPTION_NAME).write_text(DESCRIPTION_TEXT, encoding="utf-8")
+    (out_dir / STARTER_PROMPTS_NAME).write_text(STARTER_PROMPTS_TEXT,
+                                                encoding="utf-8")
+    (out_dir / README_NAME).write_text(README_TEXT, encoding="utf-8")
+    if scope is not None and config is not None:
+        (out_dir / agent_pack.CHECKLIST_NAME).write_text(
+            agent_pack.checklist_text(scope, config), encoding="utf-8")
+    return upload_dir

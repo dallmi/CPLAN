@@ -6,13 +6,27 @@ file or in the prompt. The tests that matter here are the ones holding this
 delivery to the pack it is built from, and to the limits the surface enforces.
 """
 
+from datetime import date
+
 import pytest
 
 pytest.importorskip("openpyxl")
 pytest.importorskip("pandas")
 
 from pipeline.report import agent_builder, agent_pack
+from pipeline.report.config import ReportConfig
 from pipeline.scripts import build_agent_pack as build
+from tests.report_fixtures import load_fixture_scope
+
+
+def _builder(tmp_path):
+    """Both deliveries from one run, the way the command produces them."""
+    config = ReportConfig(date_from=date(2025, 1, 1), date_to=date(2025, 12, 31))
+    scope = load_fixture_scope(tmp_path / "csv", config)
+    pack_dir = agent_pack.write_pack(scope, config, tmp_path / "pack-out")
+    out_dir = tmp_path / "builder-out"
+    upload_dir = agent_builder.write_builder_pack(pack_dir, out_dir, scope, config)
+    return pack_dir, upload_dir, out_dir
 
 
 def test_the_builder_folder_is_created_only_where_the_sync_is_proven(tmp_path, monkeypatch):
@@ -213,3 +227,73 @@ def test_the_chart_document_keeps_the_geometry_and_not_the_palette():
                    "one legend for the image"):
         assert marker in text, f"the chart document dropped {marker!r}"
     assert "| Role | Hex |" not in text, "the palette table belongs in the prompt"
+
+
+def test_the_upload_folder_holds_exactly_what_is_uploaded(tmp_path):
+    """Eight files, and the folder is the instruction.
+
+    An operator uploading a folder uploads the folder. Anything in it that
+    should not be knowledge becomes knowledge, and the two candidates are both
+    written next door: the answer key, and a README addressed to a person.
+    """
+    _, upload_dir, _ = _builder(tmp_path)
+    names = sorted(p.name for p in upload_dir.iterdir())
+    assert names == sorted(agent_builder.UPLOAD_DATA_FILES
+                           + (agent_builder.READING_GUIDE_NAME,
+                              agent_builder.CHART_STANDARDS_NAME))
+    assert agent_pack.CHECKLIST_NAME not in names, (
+        "an agent that can read the answer key passes without computing anything")
+    assert agent_pack.README_NAME not in names, (
+        "the README explains the pack to a person; the reading guide does it "
+        "for the agent")
+
+
+def test_the_upload_folder_fits_the_knowledge_source_limit(tmp_path):
+    """Twenty is the surface's limit, and this delivery must leave room.
+
+    The boards are three more files if `dashboard-boards-skill` lands, and a
+    delivery already at the limit could not take them.
+    """
+    _, upload_dir, _ = _builder(tmp_path)
+    assert len(list(upload_dir.iterdir())) <= agent_builder.KNOWLEDGE_SOURCE_LIMIT
+
+
+def test_the_uploaded_data_is_the_pack_byte_for_byte(tmp_path):
+    """Two deliveries of one report, or the divergence is the bug.
+
+    A copy that transformed anything on the way through would let the two
+    agents disagree about a figure while both citing the same run, and the
+    disagreement would surface as a wrong number that looks right.
+    """
+    pack_dir, upload_dir, _ = _builder(tmp_path)
+    for name in agent_builder.UPLOAD_DATA_FILES:
+        assert (upload_dir / name).read_bytes() == (pack_dir / name).read_bytes(), (
+            f"{name} differs between the two deliveries")
+
+
+def test_the_loose_files_are_beside_the_upload_folder_not_inside_it(tmp_path):
+    """What is pasted and what is uploaded are different actions.
+
+    The instructions are pasted into a field. Uploaded as knowledge instead,
+    the agent reads its own rules as data and quotes them back as findings.
+    """
+    _, _, out_dir = _builder(tmp_path)
+    loose = sorted(p.name for p in out_dir.iterdir() if p.is_file())
+    assert loose == sorted([agent_builder.INSTRUCTIONS_NAME,
+                            agent_builder.DESCRIPTION_NAME,
+                            agent_builder.STARTER_PROMPTS_NAME,
+                            agent_builder.README_NAME,
+                            agent_pack.CHECKLIST_NAME])
+
+
+def test_the_delivery_is_rewritten_in_place(tmp_path):
+    """A second run replaces it rather than accumulating vintages.
+
+    A knowledge folder holding two runs answers from both without saying so.
+    The re-run passes no scope, which is also how it proves that refreshing
+    the upload set needs nothing but the pack it is built from.
+    """
+    pack_dir, upload_dir, out_dir = _builder(tmp_path)
+    first = sorted(p.name for p in upload_dir.iterdir())
+    again = agent_builder.write_builder_pack(pack_dir, out_dir)
+    assert sorted(p.name for p in again.iterdir()) == first
