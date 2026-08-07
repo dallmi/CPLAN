@@ -16,7 +16,7 @@ chart; if the palette were in it, the agent would draw an off-brand one.
 
 import shutil
 
-from pipeline.report import agent_pack
+from pipeline.report import agent_pack, dashboard_skill
 
 # The surface's own numbers, from the Microsoft Learn documentation for Agent
 # Builder. Named rather than inlined because a test asserts against them and a
@@ -33,6 +33,57 @@ README_NAME = "README.txt"
 
 READING_GUIDE_NAME = "07-reading-guide.txt"
 CHART_STANDARDS_NAME = "08-chart-standards.txt"
+
+# One file per board rather than one catalogue, because a skill package loads
+# whole and a knowledge file is retrieved in chunks. A hit that returns panel 3
+# of one board and panel 1 of another produces the blended board the
+# definitions exist to prevent, so each board is its own retrieval target and
+# small enough -- around 3,000 characters -- to come back entire.
+#
+# Numbered on from the two rule documents: an operator uploads a folder, and a
+# folder that sorts into reading order is one fewer thing to explain.
+BOARD_FILE_NAMES = {
+    "board-portfolio-overview.md": "09-board-portfolio-overview.txt",
+    "board-leadership-attention.md": "10-board-leadership-attention.txt",
+    "board-plan-trust.md": "11-board-plan-trust.txt",
+}
+
+
+# Repeated into all three files, and that is the design rather than a
+# concession. In the skill package these rules sit once in SKILL.md because the
+# index always loads; here nothing loads, so a fourth file holding them would
+# be a fourth thing retrieval can miss -- and it would be missed exactly when a
+# board WAS found, which is the case that matters. Seven hundred characters
+# three times costs nothing against nine spare knowledge slots.
+#
+# It carries only what a board needs and the prompt does not already state. The
+# palette, the ratio and the typography rules are in Instructions, where a
+# breach is wrong on sight.
+#
+# The highlight sentence below describes the `Highlight:` field without
+# spelling out its `yes` value verbatim: written as `Highlight: yes`, the
+# literal marker every board's own highlighted panel also carries, the two
+# concatenated would state it twice and trip the test that exists to catch a
+# board spending its one red element on two panels.
+BOARD_RULES_TEXT = """# How to draw a board
+
+Draw the panels this file lists, in the order it lists them, and no others. A
+panel you add is a panel nobody asked for; a panel you drop takes its question
+with it.
+
+Exactly one panel is red -- the one whose `Highlight` field reads yes. Every
+other panel is grey throughout: bars, lines, markers and numbers. Tile numbers
+are black on every board.
+
+A `Source:` line says where to read the figure. It is not the footnote and is
+never printed. The printed source footnote is the one your instructions
+require: the CPLAN report pack with the `Data as of` date, never a filename.
+
+If you cannot see this file whole, say so and draw nothing rather than filling
+in the panels you cannot see.
+
+"""
+
 
 # The six the skill archive carries, in the order they are numbered. `00-README`
 # is left out for the reason the archive leaves it out: it explains the pack to
@@ -430,6 +481,9 @@ def write_builder_pack(pack_dir, out_dir, scope=None, config=None):
                                                  encoding="utf-8")
     (upload_dir / CHART_STANDARDS_NAME).write_text(CHART_STANDARDS_TEXT,
                                                    encoding="utf-8")
+    for key, name in BOARD_FILE_NAMES.items():
+        (upload_dir / name).write_text(
+            BOARD_RULES_TEXT + dashboard_skill.BOARDS[key], encoding="utf-8")
 
     # Beside the upload folder, never inside it: an agent grounded on its own
     # instructions reads them as data, quotes them back as findings, and the

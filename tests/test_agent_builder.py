@@ -13,7 +13,7 @@ import pytest
 pytest.importorskip("openpyxl")
 pytest.importorskip("pandas")
 
-from pipeline.report import agent_builder, agent_pack
+from pipeline.report import agent_builder, agent_pack, dashboard_skill
 from pipeline.report.config import ReportConfig
 from pipeline.scripts import build_agent_pack as build
 from tests.report_fixtures import load_fixture_scope
@@ -229,8 +229,58 @@ def test_the_chart_document_keeps_the_geometry_and_not_the_palette():
     assert "| Role | Hex |" not in text, "the palette table belongs in the prompt"
 
 
+def test_each_board_travels_as_its_own_file(tmp_path):
+    """One file per board, because retrieval returns chunks and a board is only
+    worth having whole.
+
+    A skill package loads entire; a knowledge file does not. An agent handed
+    panel 3 of one board and panel 1 of another draws the blended board these
+    definitions exist to prevent, so the catalogue is never one document here.
+    """
+    _, upload, _ = _builder(tmp_path)
+    names = sorted(p.name for p in upload.iterdir())
+    for name in agent_builder.BOARD_FILE_NAMES.values():
+        assert name in names, f"{name} is not in the upload folder"
+        assert name.endswith(".txt"), f"{name} is not crawled, so not retrievable"
+    assert len(agent_builder.BOARD_FILE_NAMES) == 3
+
+
+def test_a_board_file_is_the_shared_rules_then_the_board_unaltered(tmp_path):
+    """The panels are `dashboard_skill`'s text, not a second copy of it.
+
+    Two deliveries shipping two versions of one board is the drift this
+    repository is built to prevent, and the citation test over
+    `dashboard_skill.BOARDS` only protects the text it actually holds.
+    """
+    _, upload, _ = _builder(tmp_path)
+    for key, name in agent_builder.BOARD_FILE_NAMES.items():
+        text = (upload / name).read_text(encoding="utf-8")
+        assert agent_builder.BOARD_RULES_TEXT in text, f"{name} lost the shared rules"
+        assert dashboard_skill.BOARDS[key] in text, f"{name} altered the board"
+        assert text.index(agent_builder.BOARD_RULES_TEXT) < text.index(
+            dashboard_skill.BOARDS[key]), f"{name} states the rules after the panels"
+
+
+def test_every_board_file_answers_on_its_own(tmp_path):
+    """The rules are repeated three times on purpose.
+
+    In the skill package they sit once in SKILL.md, because the index always
+    loads. Nothing loads here, so a fourth file holding them would be a fourth
+    thing retrieval can miss -- and it would be missed exactly when a board was
+    found, which is the case that matters.
+    """
+    _, upload, _ = _builder(tmp_path)
+    for name in agent_builder.BOARD_FILE_NAMES.values():
+        text = (upload / name).read_text(encoding="utf-8")
+        assert "Highlight: yes" in text
+        assert text.count("Highlight: yes") == 1, f"{name} spends the red budget twice"
+        # The four rules a board needs and the prompt does not already carry.
+        for rule in ("in the order", "grey", "not the footnote", "say so"):
+            assert rule in text.lower(), f"{name} does not state {rule!r}"
+
+
 def test_the_upload_folder_holds_exactly_what_is_uploaded(tmp_path):
-    """Eight files, and the folder is the instruction.
+    """Eleven files, and the folder is the instruction.
 
     An operator uploading a folder uploads the folder. Anything in it that
     should not be knowledge becomes knowledge, and the two candidates are both
@@ -240,7 +290,8 @@ def test_the_upload_folder_holds_exactly_what_is_uploaded(tmp_path):
     names = sorted(p.name for p in upload_dir.iterdir())
     assert names == sorted(agent_builder.UPLOAD_DATA_FILES
                            + (agent_builder.READING_GUIDE_NAME,
-                              agent_builder.CHART_STANDARDS_NAME))
+                              agent_builder.CHART_STANDARDS_NAME)
+                           + tuple(agent_builder.BOARD_FILE_NAMES.values()))
     assert agent_pack.CHECKLIST_NAME not in names, (
         "an agent that can read the answer key passes without computing anything")
     assert agent_pack.README_NAME not in names, (
@@ -249,10 +300,11 @@ def test_the_upload_folder_holds_exactly_what_is_uploaded(tmp_path):
 
 
 def test_the_upload_folder_fits_the_knowledge_source_limit(tmp_path):
-    """Twenty is the surface's limit, and this delivery must leave room.
+    """Twenty is the surface's limit, and eleven files must still leave room.
 
-    The boards are three more files if `dashboard-boards-skill` lands, and a
-    delivery already at the limit could not take them.
+    The boards landed as three of the eleven -- the largest single addition
+    since the limit was set -- so this is the count a future file has to leave
+    room against.
     """
     _, upload_dir, _ = _builder(tmp_path)
     assert len(list(upload_dir.iterdir())) <= agent_builder.KNOWLEDGE_SOURCE_LIMIT
