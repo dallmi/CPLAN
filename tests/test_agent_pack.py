@@ -420,9 +420,46 @@ def test_the_instructions_are_the_whole_prompt(tmp_path):
     assert "You are the Communications Planning Insight Agent" in text
     assert "There is no Excel workbook behind this agent" in text
     assert "Do NOT flag the following" in text          # the overlap exemption
-    assert "never described as reach" in text           # the persona correction
+    assert "never measured reach" in text               # the audience correction
     assert "GEB or GEB-1" in text
     assert ".xlsx" not in text, "a workbook filename would go stale on the next run"
+    # The persona section moved into the reporting skill; the correction that
+    # was made to it travels with it, and is asserted where it now lives.
+    _, out_dir, _, _ = _pack(tmp_path)
+    with zipfile.ZipFile(out_dir / agent_pack.SKILL_ZIP_NAME) as archive:
+        skill = archive.read("SKILL.md").decode("utf-8")
+    assert "never described as reach" in skill
+
+
+def test_the_ways_of_working_sit_in_the_skill_and_the_guards_in_the_prompt(tmp_path):
+    """Split by what it costs to miss each half, not by subject.
+
+    Persona priorities, the four analysis steps and the catalogue of questions
+    this pack answers well are ways of working: they shape an answer that is
+    already being written from the pack, which is exactly the turn on which
+    that skill loads. Carrying them on every turn spent about 2,400 characters
+    of a prompt that also has to hold the rules a turn cannot afford to miss.
+
+    What must not follow them out is asserted in the same test, because the
+    danger of a split is not the move itself but the second move nobody
+    noticed: the guards -- scope, overlaps, audience, GEB/GEB-1, the footer --
+    stay in the instructions, where they apply whether or not a skill fires.
+    """
+    _, out_dir, _, _ = _pack(tmp_path)
+    text = (out_dir / agent_pack.INSTRUCTIONS_NAME).read_text(encoding="utf-8")
+    with zipfile.ZipFile(out_dir / agent_pack.SKILL_ZIP_NAME) as archive:
+        skill = archive.read("SKILL.md").decode("utf-8")
+
+    for moved in ("Internal communications planner", "Consider reviewing",
+                  "Which weeks have the highest volume?",
+                  "Forward planning thins towards the end of the horizon"):
+        assert moved in skill, f"{moved!r} did not arrive in the skill"
+        assert moved not in text, f"{moved!r} is still carried on every turn"
+
+    for guard in ("Scope is a hard filter", "Overlapping rows do not sum",
+                  "never measured reach", "GEB or GEB-1",
+                  "Powered by", "Data as of"):
+        assert guard in text, f"{guard!r} left the instructions"
 
 
 def test_the_footer_is_owed_on_every_turn_not_just_the_first(tmp_path):
