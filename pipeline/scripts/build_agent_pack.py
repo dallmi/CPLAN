@@ -30,6 +30,7 @@ if str(REPO_DIR) not in sys.path:
 from pipeline.report import agent_pack                             # noqa: E402
 from pipeline.scripts.process_cplan import (                       # noqa: E402
     ONEDRIVE_INPUT_DIR,
+    ONEDRIVE_OUTPUT_DIR,
     find_onedrive_root,
     log,
     print_banner,
@@ -76,6 +77,36 @@ def resolve_output_dir():
             return target
         log(f"OneDrive root found ({root}) but {ONEDRIVE_INPUT_DIR} does not exist")
     return LOCAL_OUTPUT_DIR
+
+
+BUILDER_DIRNAME = "agent-builder"
+BUILDER_LOCAL_OUTPUT_DIR = PIPELINE_DIR / "output" / BUILDER_DIRNAME
+
+
+def resolve_builder_output_dir():
+    """`Output/agent-builder`, created -- but only where `Input/` proves it can be.
+
+    `resolve_output_dir` never creates its target, and the reason holds: a path
+    conjured inside a OneDrive that is not really set up syncs nowhere while
+    looking like it worked. `Output/` is different only in that it may
+    legitimately not exist yet, and refusing to create it would drop this
+    delivery into the checkout on every first run -- unsynced, and uploaded
+    from the wrong machine, which is the failure the rule is there to prevent.
+
+    `Input/` is the evidence. The pipeline reads from it, so its presence means
+    the CPLAN folder is really syncing; a sibling of a real folder is safe to
+    create. Without it nothing is conjured and the fallback is reported,
+    exactly as next door.
+    """
+    root = find_onedrive_root()
+    if root:
+        if (root / ONEDRIVE_INPUT_DIR).exists():
+            target = root / ONEDRIVE_OUTPUT_DIR / BUILDER_DIRNAME
+            target.mkdir(parents=True, exist_ok=True)
+            return target
+        log(f"OneDrive root found ({root}) but {ONEDRIVE_INPUT_DIR} does not exist, "
+            f"so {ONEDRIVE_OUTPUT_DIR} is not created either")
+    return BUILDER_LOCAL_OUTPUT_DIR
 
 
 def build_pack_parser():
