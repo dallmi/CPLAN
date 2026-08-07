@@ -33,8 +33,6 @@ import re
 import zipfile
 from datetime import date
 
-from openpyxl import Workbook
-
 from pipeline.report import metrics
 from pipeline.report.calendar_sheet import (
     NOT_SPECIFIED,
@@ -51,11 +49,14 @@ from pipeline.report.config import (
 from pipeline.report.data import EXCLUSION_ORDER
 from pipeline.report.table_sheets import ACTIVITY_COLUMNS, GLOSSARY_SECTIONS
 
-# The folder that gets uploaded, and the two artefacts that do not. Keeping the
-# uploaded set in its own directory is the whole point: "select this folder" is
-# a instruction someone can follow, "select these seven of nine files" is not,
-# and the checklist is an answer key -- inside the pack the agent would ground
-# on it and pass the test by reading the answers.
+# What the skill archive is built from, and the readable copy of what the agent
+# is holding. It was a knowledge source too until two probes showed the agent
+# never reached for it; the README records what they were and where the size
+# limit of reading a file whole would put it back.
+#
+# It stays in its own directory regardless: the checklist is an answer key, and
+# anywhere inside this folder it would travel into the archive and let the
+# agent pass the test by reading the answers.
 PACK_DIRNAME = "pack"
 SKILL_ZIP_NAME = "cplan-skill.zip"
 # A second, data-free skill: the visual rules that only apply once something is
@@ -92,7 +93,6 @@ GLOSSARY_NAME = "02-glossary.txt"
 QUALITY_NAME = "03-data-quality.txt"
 CALENDAR_NAME = "04-calendar.csv"
 ACTIVITIES_CSV_NAME = "05-activities.csv"
-ACTIVITIES_XLSX_NAME = "05-activities.xlsx"
 
 # The block name for the row that carries the portfolio itself. Upper case
 # because it is not a field: every other block names the column it groups by,
@@ -404,7 +404,6 @@ anything entered in the source system after it as not represented.
   {QUALITY_NAME}  completeness, pack coverage and record anomalies
   {CALENDAR_NAME}      one row per block x value x week
   {ACTIVITIES_CSV_NAME}    one row per activity, {activity_rows} rows
-  {ACTIVITIES_XLSX_NAME}   the same rows as a single-sheet workbook
 
 Figures here are computed, not spreadsheet formulas. Percentages are of the
 in-scope total unless the line says otherwise.
@@ -982,30 +981,14 @@ def _write_csv(path, header, rows, bom=False):
         writer.writerows(rows)
 
 
-def _write_activities_xlsx(path, header, rows):
-    """The activities as a single-sheet workbook.
-
-    One sheet, because Microsoft's own guidance for grounding on Excel is that
-    agents respond best when the data is in one sheet within a workbook. No
-    styling and no formulas: this file exists to be read by a machine, and the
-    workbook next door already exists to be read by a person.
-    """
-    book = Workbook()
-    sheet = book.active
-    sheet.title = "Activities"
-    sheet.append(list(header))
-    for row in rows:
-        sheet.append(["" if value is None else value for value in row])
-    sheet.freeze_panes = "A2"
-    book.save(path)
-
-
 def write_pack(scope, config, out_dir, generated=None):
     """Write the pack, the skill package and the checklist under `out_dir`.
 
-    Returns the pack directory. The uploaded files go in `pack/`; the skill
-    ZIP and the checklist sit beside it, because neither belongs in a folder
-    someone is told to point a knowledge source at.
+    Returns the pack directory. The data files go in `pack/`; the skill
+    archives, the instructions, the evaluation set and the checklist sit
+    beside it, because none of them belongs in the folder the archive is
+    built from -- least of all the answer key, which would travel into the
+    archive and let the agent pass the test by reading it.
     """
     generated = generated or date.today()
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -1015,7 +998,6 @@ def write_pack(scope, config, out_dir, generated=None):
     headers, rows = activity_rows(scope)
     _write_csv(pack_dir / CALENDAR_NAME, CALENDAR_HEADER, calendar_rows(scope, config))
     _write_csv(pack_dir / ACTIVITIES_CSV_NAME, headers, rows)
-    _write_activities_xlsx(pack_dir / ACTIVITIES_XLSX_NAME, headers, rows)
     (pack_dir / SUMMARY_NAME).write_text(summary_text(scope, config, generated),
                                          encoding="utf-8")
     (pack_dir / GLOSSARY_NAME).write_text(glossary_text(scope, config), encoding="utf-8")

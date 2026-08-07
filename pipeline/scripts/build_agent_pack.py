@@ -103,7 +103,7 @@ def main(argv=None):
     # Listed under the folder each file is actually in, not as one flat list:
     # which of the artefacts may be uploaded is the only decision this command
     # leaves to the reader, and a flat list hides it.
-    log(f"{agent_pack.PACK_DIRNAME}\\  -- upload this folder as a knowledge source")
+    log(f"{agent_pack.PACK_DIRNAME}\\  -- what the skill archive is built from. Nothing to upload")
     for path in sorted(pack_dir.iterdir()):
         log(f"  {path.name:<22} {path.stat().st_size / 1024:>8.1f} KB")
     log(f"{out_dir.name}\\  -- beside it")

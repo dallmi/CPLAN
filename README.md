@@ -136,12 +136,31 @@ Without that folder they land in `pipeline/output/agent-pack/` instead
 
 | | |
 |---|---|
-| `pack/` | the folder to point a knowledge source at: four `.txt`, two `.csv`, one single-sheet `.xlsx` |
+| `pack/` | four `.txt` and two `.csv`: what the skill archive is built from, and the readable copy of what the agent holds. **Not uploaded** — see below |
 | `cplan-skill.zip` | the same content as a skill package, `SKILL.md` at the archive root |
 | `chart-standards-skill.zip` | the visual rules as a second skill. No data files, so it is rebuilt identically every run — upload it once and again only when the rules change |
 | `evaluation.csv` | the same questions as an importable test set. Safe to upload: an evaluation set is never grounded on |
 | `agent-instructions.md` | the whole agent prompt. Paste into Instructions after one find-and-replace of `<ORGANISATION>` |
 | `checklist.md` | questions with computed answers, half of them pre-computed in the pack and half not. **Not for uploading** — an agent that can read the answer key passes without computing anything |
+
+The data reaches the agent through the skill, not through a knowledge source.
+`pack/` was one until two probes showed it was never reached for: a needle
+question found its row by reading the file — and caught that the tracking ID in
+the question was missing a letter — and a counting question answered by
+examining all 1,385 rows, which is the one thing chunked retrieval cannot do.
+Both still answered with the knowledge source removed.
+
+A second grounding path that is never taken still has to be re-uploaded on
+every refresh, and a pack refreshed on one path and not the other hands the
+agent two vintages of the same figure. The fallback it bought was also the
+wrong one: if the skill fails to load, its rules do not load either, so an
+answer grounded on the index alone is an answer without them — which looks
+right and is not.
+
+This holds at 1,385 rows. If the plan grows to several thousand the file will
+stop fitting in one read, and a knowledge source becomes the only way to find a
+single row again. The signal is in the answers: the agent stops writing
+"examined all N rows" and starts naming a subset.
 
 `.txt` rather than `.md` because Markdown is not on the crawled-extension list,
 and a file that is not crawled is not retrievable. The calendar is long rather

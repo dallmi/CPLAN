@@ -593,6 +593,28 @@ def test_a_figure_is_stated_once_rather_than_in_every_section(tmp_path):
     assert "Does any figure appear twice in the image?" in skill
 
 
+def test_the_pack_carries_nothing_written_only_for_an_index(tmp_path):
+    """The data reaches the agent through the skill, not a knowledge source.
+
+    `pack/` was one until two probes showed it was never reached for: a needle
+    question found its row by reading the file, and a counting question
+    answered by examining every row, which is the one thing chunked retrieval
+    cannot do. Both still answered with the knowledge source removed.
+
+    The single-sheet workbook existed only for that index -- its own docstring
+    said so, and the skill archive deliberately left it out because an archive
+    is read as text and the CSV beside it carries the same rows. With no index
+    it had no reader at all, so the pack is six files rather than seven.
+    """
+    pack_dir, _, _, _ = _pack(tmp_path)
+    written = sorted(p.name for p in pack_dir.iterdir())
+    assert not [n for n in written if n.endswith(".xlsx")], (
+        f"a workbook is being written for a reader that no longer exists: {written}")
+    assert not hasattr(agent_pack, "ACTIVITIES_XLSX_NAME")
+    assert written == ["00-README.txt", "01-summary.txt", "02-glossary.txt",
+                       "03-data-quality.txt", "04-calendar.csv", "05-activities.csv"]
+
+
 def test_the_pack_is_written_where_it_can_be_uploaded_from(tmp_path, monkeypatch):
     """The pack is the one artefact that has to leave the machine.
 

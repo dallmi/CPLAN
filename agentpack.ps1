@@ -22,8 +22,10 @@ it. Without that folder they land in pipeline\output\agent-pack instead.
 
 Six things come out, and they are not all for uploading:
 
-  pack\                      the folder to point a Copilot knowledge source at
-  cplan-skill.zip            the same content as a Copilot Studio skill package
+  pack\                      what the skill archive is built from, and the
+                             readable copy of what the agent holds. NOT a
+                             knowledge source: the agent never reached for it
+  cplan-skill.zip            the data as a Copilot Studio skill package
   chart-standards-skill.zip  the visual rules as a second skill. Upload once;
                              it is rebuilt identically every run
   evaluation.csv             import under Evaluate. Safe: never grounded on
