@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-07.9"
+$manifestVersion = "2026-08-07.10"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-07.9"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-07.9"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-07.10"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -197,6 +197,15 @@ $manifest = @(
     @{ Path = "pipeline\scripts\build_agent_pack.py"; Marker = "resolve_output_dir";         Why = "the pack is written into the OneDrive CPLAN folder so it can be uploaded from anywhere - an older copy leaves it inside the checkout, where it is unsynced and the operator uploads a stale one from the wrong machine" },
     @{ Path = "pipeline\scripts\build_agent_pack.py"; Marker = "Nothing to upload";          Why = "the run no longer tells the operator to point a knowledge source at pack\ - an older copy does, which restores the second grounding path and with it two vintages of the same figure" },
     @{ Path = "pipeline\scripts\build_agent_pack.py"; Marker = "wider than the workbook";  Why = "the pack is built without the priority and objectives filters and the run says so - an older copy builds the workbook scope, and a question about deprioritised activities is answered with nothing" },
+    # The second delivery, for Agent Builder. A copy without these entries has
+    # no Agent Builder pack at all, and nothing above notices: every file it
+    # does have is current, so the check passes in green.
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "def write_builder_pack";       Why = "the Agent Builder delivery - a NEW file; without it the run writes only the Studio pack and the test users have nothing to install" },
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "INSTRUCTIONS_LIMIT";           Why = "the 8,000-character limit is asserted rather than assumed - an older copy can hold a prompt the field silently truncates, and truncation takes the footer and the follow-ups first because they are last" },
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "CHART_STANDARDS_NAME";         Why = "the chart geometry ships as a knowledge file because this surface has no skills - an older copy leaves the agent holding the palette with no guidance on which chart to draw" },
+    @{ Path = "pipeline\scripts\build_agent_pack.py"; Marker = "resolve_builder_output_dir"; Why = "the Agent Builder delivery lands in OneDrive Output beside the pack's Input - an older copy writes it into the checkout, unsynced, and the operator uploads a stale one from the wrong machine" },
+    @{ Path = "pipeline\scripts\build_agent_pack.py"; Marker = "write_builder_pack";        Why = "the run actually writes the second delivery, not merely resolve a folder for it - a copy with the resolver and not the call reports a path it never wrote to" },
+    @{ Path = "pipeline\scripts\process_cplan.py"; Marker = "ONEDRIVE_OUTPUT_DIR";         Why = "the Output folder constant - without it build_agent_pack.py fails to import and NO pack is written at all, not merely the second one" },
     @{ Path = "agentpack.ps1";                 Marker = "cplan-skill.zip";                   Why = "the pack launcher, and the one place that says which of the artefacts must NOT be uploaded" },
     @{ Path = "agentpack.ps1";                 Marker = "resolve_output_dir";               Why = "the launcher asks the builder where it wrote instead of carrying its own copy of the rule - an older copy opens pipeline\output\agent-pack while the run wrote to OneDrive, and the operator uploads whatever was there before" },
     @{ Path = "agentpack.ps1";                 Marker = "NOT a";                            Why = "the header says the pack folder is not a knowledge source - an older copy tells the operator to upload it, which restores the second grounding path and with it two vintages of the same figure" },

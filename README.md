@@ -204,6 +204,47 @@ exactly as before. A `--geb-members` path that does not exist is treated as a
 typo, not as "no list": the report aborts with an error instead of silently
 falling back to the combined field.
 
+#### The same pack for Agent Builder
+
+Publishing through Copilot Studio needs registration and review. Agent Builder
+in Microsoft 365 Copilot needs neither — an agent built there is shared with
+named people, or exported as a ZIP for an administrator, the day it is
+finished. `agentpack.cmd` writes that delivery too, from the same run, into
+`Projekte/CPLAN/Output/agent-builder` (`pipeline/output/agent-builder/` without
+OneDrive). `README.txt` in that folder is the four steps in order.
+
+Both deliveries come from one command deliberately. Two commands would let one
+be rebuilt and the other forgotten, and two packs built on two days are two
+vintages of one figure with nothing on either folder saying so.
+
+The surface holds 8,000 characters of Instructions and **no skill packages at
+all**, so the two skills have nowhere to go: `07-reading-guide.txt` and
+`08-chart-standards.txt` ship as knowledge files instead, and `upload/` holds
+those two plus the six data files — eight sources against a limit of twenty.
+`00-README.txt` stays out for the reason the skill archive leaves it out, and
+`checklist.md` stays out because an agent that can read the answer key passes
+without computing anything.
+
+The prompt is a separate hand-written literal rather than the Studio one with
+sections removed: which rules survive a compression to 8,000 characters is an
+editorial judgement, and `tests/test_agent_builder.py` holds it to a named list
+of the rules whose absence makes an answer *wrong* rather than merely duller.
+The palette and the red-to-white ratio move up into it, because a knowledge
+file is retrieved rather than loaded — a missed document should cost an ugly
+chart, not an off-brand one.
+
+This inverts two decisions made deliberately next door: the rules were moved
+*out* of Instructions into skills, and the knowledge source was *removed* after
+two probes showed it was never reached for. Both inversions are forced by the
+surface rather than chosen. The consequence to watch is the one those probes
+found — counting over `05-activities.csv` worked because the agent read the
+file whole, and chunked retrieval is the one thing that cannot. `01-summary.txt`
+and `06-breakdowns.csv` pre-compute what they can; the signal that it is not
+enough is the agent no longer writing "examined all N rows".
+
+The design is in
+[`docs/superpowers/specs/2026-08-07-agent-builder-variant-design.md`](docs/superpowers/specs/2026-08-07-agent-builder-variant-design.md).
+
 ## Daily workflow
 
 For the database-backed planning studio, `pipeline/scripts/daily_refresh.py` runs the whole daily refresh as one command: the CSV pipeline above, then the database sync (`pipeline/api/sync_snapshot.py`) that mirrors the result into the CPLAN database.
@@ -287,3 +328,5 @@ Expected files:
 | `pipeline/output/reports/*.xlsx` | Calendar reports — this folder holds nothing else |
 | `pipeline/output/cplan_dashboard_standalone.html` | Standalone dashboard — Parquet + meta.json embedded as base64, runs from `file://` by double-click (CDN libs still require internet) |
 | `pipeline/output/cplan_studio_standalone.html` | Standalone planning studio — read-only, database-fed, fully offline (no CDN at all) |
+| `<OneDrive>/Projekte/CPLAN/Output/agent-builder/upload/` | Agent Builder knowledge — eight files, uploaded whole |
+| `<OneDrive>/Projekte/CPLAN/Output/agent-builder/instructions.md` | Agent Builder Instructions — pasted, after one find-and-replace |
