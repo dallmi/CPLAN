@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-07.12"
+$manifestVersion = "2026-08-07.13"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-07.12"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-07.12"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-07.13"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -195,12 +195,18 @@ $manifest = @(
     # writes 06-breakdowns.csv but never tells the agent it exists, so the file
     # ships and is never opened.
     @{ Path = "pipeline\report\agent_pack.py"; Marker = "Any figure crossing two dimensions"; Why = "06-breakdowns.csv is named in the skill's own file table, not only produced - an older copy writes the file and leaves every table of contents pointing at five" },
+    # A final-review pass over the prose itself: the file count the skill text
+    # states in words, the rule count the glossary claims, and which files
+    # readme_text tells a reader to prefer, all had to move together with
+    # 06-breakdowns.csv and none of them did on the first pass.
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "five files shipped with"; Why = "the skill text counts the files in its own routing table, which gained a fifth row for 06-breakdowns.csv - an older copy still says four, and the agent cannot tell which file is spurious" },
     # A third skill, in a file of its own rather than folded into the other two
     # entries above: the named board catalogue. agent_pack.py imports it at
     # module scope, so a copy that has the new agent_pack.py but not this new
     # file cannot even be imported, and a copy that has neither writes two
     # skills where a board-naming request now expects three.
     @{ Path = "pipeline\report\dashboard_skill.py"; Marker = "def write_zip";              Why = "the board catalogue - a NEW file; without it agent_pack.py fails to import and no board archive is written" },
+    @{ Path = "pipeline\report\dashboard_skill.py"; Marker = "A Source line is not the footnote"; Why = "a board's Source citation and the printed source footnote are both called Source with nothing telling them apart - an older copy lets an agent footnote a panel with a pack filename and column names, breaching the no-filename rule chart-standards states two skills away" },
     @{ Path = "pipeline\report\agent_pack.py"; Marker = "DASHBOARD_SKILL_ZIP_NAME";        Why = "the third skill archive is wired into write_pack beside the other two - an older copy imports fine but never writes the board catalogue" },
     @{ Path = "pipeline\scripts\build_agent_pack.py"; Marker = "BRAND_SKILL_ZIP_NAME";      Why = "the run names the second skill archive and says it is uploaded once - an older copy writes it and the operator never learns it is there" },
     @{ Path = "pipeline\scripts\build_agent_pack.py"; Marker = "third skill: the named boards"; Why = "the run also lists the third skill archive - an older copy writes it beside the pack and never tells the operator it exists" },

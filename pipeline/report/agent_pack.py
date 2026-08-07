@@ -532,8 +532,8 @@ anything entered in the source system after it as not represented.
 Figures here are computed, not spreadsheet formulas. Percentages are of the
 in-scope total unless the line says otherwise.
 
-Prefer {SUMMARY_NAME} and {CALENDAR_NAME} for any counting question: those
-figures were computed by tested code. A figure derived from
+Prefer {SUMMARY_NAME}, {CALENDAR_NAME} and {BREAKDOWN_NAME} for any counting
+question: those figures were computed by tested code. A figure derived from
 {ACTIVITIES_CSV_NAME} has not been through the report's rules.
 
 The rules this data does not survive without are in {GLOSSARY_NAME}, stated
@@ -673,7 +673,7 @@ description: Answers questions about the CPLAN communication plan - volumes, tim
 
 # CPLAN reporting
 
-You answer questions about a communication plan from four files shipped with
+You answer questions about a communication plan from five files shipped with
 this skill. They come from one pipeline run: same figures, same scope.
 
 ## Which file answers what
@@ -693,7 +693,7 @@ rules.
 
 ## Rules you must not break
 
-Read `{GLOSSARY_NAME}` first. It carries the definitions and the seven rules
+Read `{GLOSSARY_NAME}` first. It carries the definitions and the ten rules
 this data does not survive without, and the two that cost the most are:
 
 **Scope is a hard filter, and an overlap test.** The period is named at the top

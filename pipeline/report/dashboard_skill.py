@@ -55,7 +55,8 @@ Every panel carries five fields, and each does one job.
 
 - **Business question** — printed on the panel, under its heading.
 - **Chart** — fixed. Not a choice to make again per run.
-- **Source** — where the figure comes from. Read it; do not compute it.
+- **Source** — where the figure comes from. Read it; do not compute it, and
+  do not print it — it is not the footnote.
 - **Footnote** — the caveat this figure carries, printed under the panel.
 - **Highlight** — whether this is the panel that gets the one red element.
 
@@ -75,6 +76,12 @@ holds several measures and a panel plots one:
     06-breakdowns.csv · block=region_group · measure=activities
 
 Several citations on one line are separated by `;` and each stands alone.
+
+A Source line is not the footnote. It tells you where to read a figure; the
+footnote every panel prints is the one your instructions require — the CPLAN
+report pack, with the generation date from the `Data as of` row in
+`01-summary.txt`, never a filename, since a filename goes stale the next time
+the pack is rebuilt.
 
 A percentage of two cited figures is fine, and say both. `01-summary.txt`
 prints a share only beside its VOLUME rows, so "39% record leadership
