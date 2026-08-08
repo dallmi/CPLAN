@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-07.17"
+$manifestVersion = "2026-08-08.1"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-07.17"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-07.17"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-08.1"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -230,6 +230,12 @@ $manifest = @(
     # copy leaves the agent with boards it can only find if a user already
     # knows to ask for one by name.
     @{ Path = "pipeline\report\agent_builder.py"; Marker = "Draw a board only from its own file"; Why = "the prompt itself names the boards and says to ask which one - an older copy answers a bare 'give me a dashboard' by drawing from no board file at all" },
+    # A board's own Footnote line is a different line from the vintage footer,
+    # and the read-out is bounded to the figures its own Source line names.
+    # An older copy of the repeated block leaves an agent that reads one board
+    # file free to print no panel caveats at all, and free to state any figure
+    # it likes in the read-out rather than only the ones the board cites.
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "Neither line stands in for the other"; Why = "distinguishes each panel's own Footnote line, which prints, from the vintage footer that closes the board - an older copy reads as if only the vintage line is ever printed, so a caveat like `never measured reach` goes unstated" },
     @{ Path = "pipeline\scripts\build_agent_pack.py"; Marker = "resolve_builder_output_dir"; Why = "the Agent Builder delivery lands in OneDrive Output beside the pack's Input - an older copy writes it into the checkout, unsynced, and the operator uploads a stale one from the wrong machine" },
     @{ Path = "pipeline\scripts\build_agent_pack.py"; Marker = "write_builder_pack";        Why = "the run actually writes the second delivery, not merely resolve a folder for it - a copy with the resolver and not the call reports a path it never wrote to" },
     @{ Path = "pipeline\scripts\process_cplan.py"; Marker = "ONEDRIVE_OUTPUT_DIR";         Why = "the Output folder constant - without it build_agent_pack.py fails to import and NO pack is written at all, not merely the second one" },

@@ -128,13 +128,14 @@ def test_the_prompt_is_what_tells_the_agent_boards_exist(tmp_path):
     text = agent_builder.INSTRUCTIONS_TEXT
     for board in ("portfolio overview", "leadership attention", "plan trust"):
         assert board in text, f"the prompt does not name {board!r}"
-    # 600, not some tighter figure: the board names sit in the file list, and
-    # the "ask" instruction closes the same section one paragraph later, past
-    # the unrelated "prefer these files for a figure already stated" aside
-    # that still sits between the two. The window has to clear that aside
-    # without reaching into the next section, `## Non-negotiable rules`.
+    # Up to the next section, not a fixed count: the board names sit in the
+    # file list, and the "ask" instruction closes the same section one
+    # paragraph later, past the unrelated "prefer these files for a figure
+    # already stated" aside that still sits between the two. Ending the slice
+    # at `## Non-negotiable rules` clears that aside without ever being able
+    # to wander into the next section looking for a stray "ask".
     assert "ask" in text[text.index("portfolio overview"):
-                         text.index("portfolio overview") + 600].lower(), (
+                         text.index("## Non-negotiable rules")].lower(), (
         "the prompt names the boards without saying to ask which one")
 
 
@@ -277,7 +278,19 @@ def test_each_board_travels_as_its_own_file(tmp_path):
     for name in agent_builder.BOARD_FILE_NAMES.values():
         assert name in names, f"{name} is not in the upload folder"
         assert name.endswith(".txt"), f"{name} is not crawled, so not retrievable"
-    assert len(agent_builder.BOARD_FILE_NAMES) == 3
+    # Nothing else couples this catalogue to `dashboard_skill.BOARDS`. Renaming
+    # a board already raises KeyError in `_builder` above, loud and fine;
+    # ADDING one to `dashboard_skill.BOARDS` alone is silent instead -- Studio
+    # would ship four boards, Agent Builder would still ship three, the prompt
+    # would still say "say which three there are", and every assertion above
+    # would still pass, because `BOARD_FILE_NAMES` itself never changed. A
+    # length check pinned at 3 does not catch that: it is a claim about this
+    # dict alone, and this dict is exactly the one that did not move.
+    # Comparing the two key sets is the only check that sees the divergence,
+    # so it replaces the length check rather than joining it.
+    assert set(agent_builder.BOARD_FILE_NAMES) == set(dashboard_skill.BOARDS), (
+        "agent_builder.BOARD_FILE_NAMES and dashboard_skill.BOARDS name "
+        "different boards")
 
 
 def test_a_board_file_is_the_shared_rules_then_the_board_unaltered(tmp_path):

@@ -91,7 +91,10 @@ in it that explain rather than instruct:
   The obligation itself (**every turn carries it**, the four-week staleness
   note, the restate-the-date instruction) stays.
 - In the answer format: *"A caption says what the chart means, not what it
-  shows."* — 58 characters refining a rule whose statement stays.
+  shows."* — 58 characters, and the prompt's only statement about caption
+  content, not a refinement of a rule stated elsewhere. The loss makes an
+  answer duller rather than wrong, which is the test this compression already
+  applies.
 
 Neither absence makes an answer wrong, which is the test the compression
 already applies to everything in this field. Net effect: 204 freed, 200 spent,

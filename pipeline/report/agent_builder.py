@@ -38,7 +38,7 @@ CHART_STANDARDS_NAME = "08-chart-standards.txt"
 # whole and a knowledge file is retrieved in chunks. A hit that returns panel 3
 # of one board and panel 1 of another produces the blended board the
 # definitions exist to prevent, so each board is its own retrieval target and
-# small enough -- around 3,000 characters -- to come back entire.
+# small enough -- around 3,500 characters -- to come back entire.
 #
 # Numbered on from the two rule documents: an operator uploads a folder, and a
 # folder that sorts into reading order is one fewer thing to explain.
@@ -53,8 +53,8 @@ BOARD_FILE_NAMES = {
 # concession. In the skill package these rules sit once in SKILL.md because the
 # index always loads; here nothing loads, so a fourth file holding them would
 # be a fourth thing retrieval can miss -- and it would be missed exactly when a
-# board WAS found, which is the case that matters. Seven hundred characters
-# three times costs nothing against nine spare knowledge slots.
+# board WAS found, which is the case that matters. About eleven hundred
+# characters three times costs nothing against nine spare knowledge slots.
 #
 # It carries only what a board needs and the prompt does not already state. The
 # palette, the ratio and the typography rules are in Instructions, where a
@@ -72,6 +72,14 @@ on every board.
 A `Source:` line says where to read the figure. It is not the footnote and is
 never printed. The printed source footnote is the one your instructions
 require: the CPLAN report pack with the `Data as of` date, never a filename.
+
+Each panel's own `Footnote:` line is a different line, and it prints under
+that panel, as the caveat this figure carries. The vintage footer above closes
+the board once, after the last panel. Neither line stands in for the other:
+printing the vintage is not printing the panel's caveat.
+
+The read-out states only the figures its own `Source:` line names. Anything
+else has already been said better by the panel that plots it.
 
 If you cannot see this file whole, say so and draw nothing rather than filling
 in the panels you cannot see.
