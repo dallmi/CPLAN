@@ -167,8 +167,32 @@ def _within_one_edit(left: str, right: str) -> bool:
     return True
 
 
-def find_hint(wanted: str, index: dict[str, Entry]) -> str:
-    """Why this ID may be missing -- the first rung that hits, or "".
+@dataclass(frozen=True)
+class Hint:
+    """Why an ID may be missing, and the thing in the export to go look at.
+
+    Two fields rather than one sentence, because the sentence is what the
+    report has to print and a tracking ID is 32 characters wide. Joined into a
+    column it is the ID that gets truncated -- and the ID is the whole point of
+    the hint.
+    """
+
+    why: str = ""
+    nearest: str = ""
+
+    @property
+    def text(self) -> str:
+        """The one-string form, for the CSV where width costs nothing."""
+        if self.why and self.nearest:
+            return f"{self.why}: {self.nearest}"
+        return self.why or self.nearest
+
+    def __bool__(self) -> bool:
+        return bool(self.why or self.nearest)
+
+
+def find_hint(wanted: str, index: dict[str, Entry]) -> Hint:
+    """Why this ID may be missing -- the first rung that hits, or an empty Hint.
 
     Never a verdict. The row still reads `missing`; this only says where to
     look, because "not found" and "found, spelled differently" lead somewhere
@@ -176,7 +200,7 @@ def find_hint(wanted: str, index: dict[str, Entry]) -> str:
     """
     key = normalise(wanted)
     parts = key.split("-")
-    notes: list[str] = []
+    why = ""
 
     if len(parts) == PART_COUNT:
         pack = f"{parts[0]}-{parts[1]}"
@@ -188,20 +212,172 @@ def find_hint(wanted: str, index: dict[str, Entry]) -> str:
             if len(other) != PART_COUNT:
                 continue
             if f"{other[0]}-{other[1]}" == pack and other[3] == activity_number:
-                return f"same activity on channel {other[4]}: {candidate}"
+                return Hint(f"wrong channel, it is {other[4]}", candidate)
 
         # Rung 2: the pack exists, this activity within it does not.
         in_pack = sum(1 for candidate in index if candidate.startswith(f"{pack}-"))
         if in_pack:
-            return f"pack {pack} exists with {in_pack} activity(ies), this one is not among them"
+            return Hint(f"pack exists ({in_pack}), this does not", pack)
     else:
-        notes.append(f"not the {PART_COUNT}-part shape ({len(parts)} part(s))")
+        why = f"wrong shape ({len(parts)} parts, not {PART_COUNT})"
 
-    # Rung 3: one character off. Reported rather than skipped for a malformed
-    # ID -- a note that says only "wrong shape" leaves the typo unfound.
+    # Rung 3: one character off. Still run for a malformed ID -- a note saying
+    # only "wrong shape" leaves the typo it is a symptom of unfound.
     for candidate in index:
         if _within_one_edit(key, candidate):
-            notes.append(f"one character from {candidate}")
-            break
+            return Hint(why or "one character off", candidate)
 
-    return "; ".join(notes)
+    return Hint(why)
+
+
+@dataclass(frozen=True)
+class Result:
+    """One listed ID, and what the export had to say about it."""
+
+    listed: str
+    entry: Entry | None
+    hint: Hint
+    times_listed: int
+
+    @property
+    def status(self) -> str:
+        return "found" if self.entry else "missing"
+
+
+def check(listed: list[str], counts: Counter, index: dict[str, Entry]) -> list[Result]:
+    """Each listed ID against the index, in the order the list gave them."""
+    results = []
+    for value in listed:
+        key = normalise(value)
+        entry = index.get(key)
+        results.append(
+            Result(
+                listed=value,
+                entry=entry,
+                hint=Hint() if entry else find_hint(key, index),
+                times_listed=counts[key],
+            )
+        )
+    return results
+
+
+def report(results: list[Result], show_all: bool) -> None:
+    """The three numbers, then the rows that need doing something about.
+
+    The found ones stay a count. The list is something the reader already has;
+    printing it back sorted into two piles makes them read forty rows to find
+    the three that matter.
+    """
+    missing = [r for r in results if r.entry is None]
+    found = [r for r in results if r.entry is not None]
+
+    print_kv([
+        ("Searched", len(results)),
+        ("Found", len(found)),
+        ("Missing", len(missing)),
+    ])
+    print()
+
+    repeated = [r for r in results if r.times_listed > 1]
+    if repeated:
+        log(f"{len(repeated)} ID(s) listed more than once; each was searched once")
+
+    if missing:
+        print_table(
+            "Missing",
+            ["Tracking ID", "Why it may be missing", "Nearest in export"],
+            [
+                (
+                    r.listed,
+                    r.hint.why or ("" if r.hint.nearest else "nothing close"),
+                    r.hint.nearest,
+                )
+                for r in missing
+            ],
+            col_widths=[34, 32, 34],
+        )
+
+    if show_all and found:
+        print_table(
+            "Found",
+            ["Tracking ID", "Source", "SP ID", "Activity"],
+            [(r.listed, r.entry.source, r.entry.sp_id, r.entry.activity_name) for r in found],
+            col_widths=[36, 20, 9, 42],
+        )
+
+    if missing:
+        log(f"{len(missing)} of {len(results)} ID(s) are not in the export.")
+    else:
+        log(f"OK: all {len(results)} ID(s) are in the export.")
+    print()
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--ids",
+        type=Path,
+        required=True,
+        help="text file listing the tracking IDs, one per line",
+    )
+    parser.add_argument(
+        "--input",
+        type=Path,
+        default=None,
+        help="read the CSVs from this folder instead of the usual OneDrive/local discovery",
+    )
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="also list the IDs that were found, not only the count",
+    )
+    parser.add_argument(
+        "--csv",
+        type=Path,
+        default=None,
+        help="also write the full result to this CSV",
+    )
+    args = parser.parse_args(argv)
+
+    print_banner("CPLAN tracking-ID check")
+
+    if not args.ids.is_file():
+        log(f"ERROR: no such ID list: {args.ids}")
+        print()
+        return 1
+
+    listed, counts = read_id_list(args.ids)
+    if not listed:
+        log(f"ERROR: no tracking IDs in {args.ids.name} -- only blank or commented lines.")
+        print()
+        return 1
+    print_kv([("ID list", str(args.ids)), ("IDs to search", len(listed))])
+    print()
+
+    if args.input is not None:
+        if not args.input.is_dir():
+            log(f"ERROR: not a folder: {args.input}")
+            print()
+            return 1
+        input_dir = args.input
+        log(f"Using input: {input_dir}")
+    else:
+        input_dir = find_input_dir()
+
+    files = find_input_files(input_dir)
+    if not any(key in files for key, _ in ACTIVITY_SOURCES):
+        log("ERROR: no activity export found.")
+        print_kv([("Input dir", str(input_dir))])
+        print()
+        return 1
+
+    index = build_index(files)
+    print()
+    results = check(listed, counts, index)
+    report(results, args.all)
+
+    return 0 if all(r.entry for r in results) else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
