@@ -52,3 +52,67 @@ def test_a_repeated_id_is_listed_once_and_counted_twice(tmp_path):
 
     assert listed == ["QRREP-0000058-240709-0000060-EMI"]
     assert counts["QRREP-0000058-240709-0000060-EMI"] == 2
+
+
+def _export(tmp_path: Path, name: str, *rows: tuple[str, str, str]) -> Path:
+    """One activity export. Each row is (tracking_id, sp_id, title)."""
+    path = tmp_path / name
+    with open(path, "w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["ID", "Tracking ID", "Title", "Start date"])
+        for tracking_id, sp_id, title in rows:
+            writer.writerow([sp_id, tracking_id, title, "2026-03-05"])
+    return path
+
+
+LIVE = "QRREP-0000058-240709-0000060-EMI"
+OTHER_CHANNEL = "QRREP-0000058-240709-0000060-INT"
+SAME_PACK = "QRREP-0000058-240709-0000099-EMI"
+ARCHIVED = "TOWNH-0000012-240301-0000004-TMS"
+
+
+def test_every_activity_export_is_indexed_and_names_its_own_source(tmp_path):
+    _export(tmp_path, "InternalCommunicationActivities.csv", (LIVE, "1", "Quarterly report"))
+    _export(tmp_path, "ExternalCommunicationActivities.csv", (SAME_PACK, "2", "Press note"))
+    _export(tmp_path, "InternalCommunicationActivitiesArchive.csv", (ARCHIVED, "3", "Town hall"))
+
+    files = check_tracking_ids.find_input_files(tmp_path)
+    index = check_tracking_ids.build_index(files)
+
+    assert index[LIVE].source == "internal"
+    assert index[LIVE].sp_id == "1"
+    assert index[LIVE].activity_name == "Quarterly report"
+    assert index[SAME_PACK].source == "external"
+    assert index[ARCHIVED].source == "internal_archive"
+
+
+def test_a_live_row_wins_over_an_archived_one_with_the_same_id(tmp_path):
+    """Both exports can carry an ID mid-archival. The live row is the answer."""
+    _export(tmp_path, "InternalCommunicationActivities.csv", (LIVE, "1", "Live"))
+    _export(tmp_path, "InternalCommunicationActivitiesArchive.csv", (LIVE, "9", "Archived"))
+
+    index = check_tracking_ids.build_index(check_tracking_ids.find_input_files(tmp_path))
+
+    assert index[LIVE].source == "internal"
+
+
+def test_the_index_is_keyed_on_the_normalised_id(tmp_path):
+    _export(tmp_path, "InternalCommunicationActivities.csv", (f"  {LIVE.lower()}  ", "1", "A"))
+
+    index = check_tracking_ids.build_index(check_tracking_ids.find_input_files(tmp_path))
+
+    assert LIVE in index
+
+
+def test_the_pack_and_channel_exports_are_not_searched(tmp_path):
+    """A pack ID is not an activity, and reporting one as found would be a lie."""
+    _export(tmp_path, "InternalCommunicationActivities.csv", (LIVE, "1", "A"))
+    packs = tmp_path / "CommunicationPacks.csv"
+    with open(packs, "w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["ID", "Tracking ID", "Title"])
+        writer.writerow(["7", ARCHIVED, "A pack"])
+
+    index = check_tracking_ids.build_index(check_tracking_ids.find_input_files(tmp_path))
+
+    assert ARCHIVED not in index

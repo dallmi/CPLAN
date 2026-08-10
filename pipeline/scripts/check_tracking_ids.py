@@ -69,3 +69,73 @@ def read_id_list(path: Path) -> tuple[list[str], Counter]:
             listed.append(line)
         counts[key] += 1
     return listed, counts
+
+
+# The exports that carry a `tracking_id`, paired with the source type
+# `transform()` reads them as, in the order a duplicate is resolved: an ID that
+# is in both a live export and an archive is answered by the live row.
+#
+# The pack, channel and cluster exports are deliberately absent. They carry
+# pack, channel and cluster identifiers, and searching them would let a pack ID
+# report as a found activity.
+ACTIVITY_SOURCES = (
+    ("internal", "internal"),
+    ("external", "external"),
+    ("internal_archive", "internal"),
+    ("external_archive", "external"),
+)
+
+
+@dataclass(frozen=True)
+class Entry:
+    """One activity the export carries, as much of it as the report shows."""
+
+    tracking_id: str
+    source: str
+    sp_id: str
+    activity_name: str
+
+
+def _cell(row, column: str) -> str:
+    """A column's value as a printable string, or "" where there is none."""
+    if column not in row:
+        return ""
+    value = row[column]
+    if value is None or (isinstance(value, float) and value != value):  # NaN
+        return ""
+    text = str(value).strip()
+    return "" if text in ("nan", "None") else text
+
+
+def build_index(files: dict[str, Path]) -> dict[str, Entry]:
+    """Normalised tracking ID to the export row that carries it.
+
+    Each file goes through the ETL's own `read_csv_auto()` and `transform()`.
+    `transform()` is what turns the SharePoint-encoded headers into
+    `tracking_id`, and what folds the export's long-standing `Tacking ID` typo
+    variant into the same column -- reading the raw header would miss every row
+    in whichever file carries the typo that week.
+    """
+    index: dict[str, Entry] = {}
+    for key, source_type in ACTIVITY_SOURCES:
+        path = files.get(key)
+        if path is None:
+            continue
+        frame = transform(read_csv_auto(path), source_type)
+        if "tracking_id" not in frame.columns:
+            log(f"  {path.name} carries no tracking ID column")
+            continue
+        added = 0
+        for _, row in frame.iterrows():
+            tracking_id = normalise(_cell(row, "tracking_id"))
+            if not tracking_id or tracking_id in index:
+                continue
+            index[tracking_id] = Entry(
+                tracking_id=tracking_id,
+                source=key,
+                sp_id=_cell(row, "sp_id"),
+                activity_name=_cell(row, "activity_name"),
+            )
+            added += 1
+        log(f"  {key}: {added} tracking ID(s)")
+    return index
