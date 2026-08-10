@@ -113,6 +113,57 @@ EXTERNAL_ARCHIVE_ROWS = []
 # 19 internal + 1 surviving archive + 2 external, minus the losing duplicate.
 FIXTURE_ROW_COUNT = 22
 
+# The pack export, in the source's own column names. `LTID` is what the pack
+# list calls its identifier -- the name is why `campaign_ltid` is a candidate
+# link column and why the choice has to be measured rather than assumed.
+PACK_HEADER = [
+    "LTID", "Name of communication pack", "Tracking cluster", "Category",
+    "Business Division", "Region", "Campaign", "Lead Team", "Partner team",
+    "Objective", "Start date", "End date", "Date of launch", "Brief",
+    "Created", "Modified",
+]
+
+
+def _pack_row(cpid, name, **overrides):
+    row = {
+        "LTID": cpid, "Name of communication pack": name,
+        "Tracking cluster": _lookup("QRREP"), "Category": "Campaign",
+        "Business Division": _lookup("Division A"), "Region": _lookup("EMEA"),
+        "Campaign": "Pack lead", "Lead Team": "Team", "Partner team": "",
+        "Objective": _lookup("Objective"), "Start date": "2025-01-06",
+        "End date": "2025-12-19", "Date of launch": "2025-02-03",
+        "Brief": "<p>Synthetic pack description</p>",
+        "Created": "2024-11-01", "Modified": "2025-06-01",
+    }
+    row.update(overrides)
+    return row
+
+
+PACK_ROWS = [
+    _pack_row("CP-100", "Pack one"),
+    # Nothing in the activity fixture points here. This is the row the whole
+    # file exists for: a pack with nothing planned against it.
+    _pack_row("CP-200", "Pack with nothing planned"),
+    # The same identifier twice, the older losing on Modified -- the way the
+    # activity de-dup already resolves a repeated tracking ID.
+    _pack_row("CP-100", "Stale pack one", **{"Modified": "2024-12-01"}),
+]
+
+# CP-100 and CP-200 survive the de-dup; the stale CP-100 loses.
+FIXTURE_PACK_COUNT = 2
+
+
+def write_pack_csv(directory):
+    """Write the pack export and return its path.
+
+    Separate from `write_activity_csvs` on purpose: a scope built without a
+    pack list is the state every machine that syncs only the activity exports
+    is in, and the tests have to be able to build it.
+    """
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    return _write_csv(directory / "CommunicationPacks.csv", PACK_ROWS, PACK_HEADER)
+
 
 def _write_csv(path, rows, header):
     lines = [",".join(f'"{h}"' for h in header)]
