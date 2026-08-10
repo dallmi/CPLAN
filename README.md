@@ -210,9 +210,10 @@ because only `block=TOTAL` sums to the portfolio.
 resolve their scope through the same `resolve_scope`.
 
 The combined leadership field can be split into GEB and GEB-1 with
-`--geb-members path/to/list.xlsx` (or `report.ps1 -GebMembers ...`). The file
-names each GEB member by email and/or display name, in two columns headed
-`email` and `name`. Either format is read, chosen by the extension:
+`--geb-members path/to/list.xlsx` (or `report.ps1 -GebMembers ...`,
+`agentpack.ps1 -GebMembers ...`). The file names each GEB member by email
+and/or display name, in two columns headed `email` and `name`. Either format is
+read, chosen by the extension:
 
 - **`geb-members.xlsx`** — the easier one to keep by hand. Excel's own
   encoding, no separator to get wrong, and a `Last, First` name needs no
@@ -228,6 +229,29 @@ being edited. With no default file present, the two levels stay combined
 exactly as before. A `--geb-members` path that does not exist is treated as a
 typo, not as "no list": the report aborts with an error instead of silently
 falling back to the combined field.
+
+The agent pack takes the same list, through the same `resolve_scope`, and both
+deliveries carry the result:
+
+| | Without a list | With one |
+|---|---|---|
+| `04-calendar.csv`, `06-breakdowns.csv` | `block=executives` | `block=executives_geb` and `block=executives_geb1` |
+| `01-summary.txt` | `With GEB/GEB-1 involvement` | plus `With GEB involvement`, named as a subset |
+| `02-glossary.txt` | never name a GEB member | the blocks separate the levels, and the list is the source |
+| `03-data-quality.txt` | — | `GEB list entries`, `GEB list entries never matched` |
+| `05-activities.csv` | `GEB/GEB-1 members` | plus `GEB members` and `GEB-1 members` |
+
+The prose matters as much as the figures here. An agent believes a sentence
+about the data over the data — that is what the sentence is for — so a pack
+whose blocks separate the levels while its glossary says nothing can is worse
+than one that never split them. `02-glossary.txt` therefore follows the run,
+and the pasted prompts, which stay put while the pack is rebuilt underneath
+them, describe both states rather than assert either.
+
+What does *not* change with a list: no GEB-1 line in the summary (an activity
+can name people at both levels, so the two would not partition the combined
+figure), and no board label reading "GEB" — every panel on *Leadership
+attention* counts the combined field.
 
 #### The same pack for Agent Builder
 

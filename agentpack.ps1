@@ -15,6 +15,14 @@ Usage (from the repo root, or just double-click agentpack.cmd):
   .\agentpack.ps1 -NoOpen               # write it, leave the folder closed
   .\agentpack.ps1 -Out C:\tmp\pack      # somewhere else
   .\agentpack.ps1 -InputDir C:\tmp\csv  # read from here instead of OneDrive
+  .\agentpack.ps1 -GebMembers C:\tmp\geb-members.xlsx   # split GEB / GEB-1
+
+The member list is the same file report.ps1 takes, and is found without the
+flag when it sits in the repository root as geb-members.xlsx or .csv. With it
+the pack separates the two levels -- in the breakdown blocks, in the summary,
+in the activity rows and in the rules it hands the agent. Without it the two
+stay combined and every file reads exactly as it does today, which is the state
+every machine that has not been given the list is in.
 
 They land in the OneDrive CPLAN folder -- the same one the Power Automate
 export arrives in -- so the pack can be uploaded from any machine that syncs

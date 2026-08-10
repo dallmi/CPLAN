@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-10.7"
+$manifestVersion = "2026-08-10.8"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-10.7"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-10.7"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-10.8"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -389,7 +389,20 @@ $manifest = @(
     # worse, splits the name and ships the wider total.
     @{ Path = "pipeline\report\derive.py"; Marker = "def split_semicolon"; Why = "the separator for every field whose one value may itself carry a comma - an older copy has no such splitter, so the fields below fall back to the comma-splitting one" },
     @{ Path = "pipeline\report\calendar_sheet.py"; Marker = "PARTITION_BREAKDOWN_FIELDS"; Why = "the partition claim and the separator that makes it true now live in one place - an older copy still splits a lead team's own comma and leaves agent_pack.py importing a name it does not have" },
-    @{ Path = "pipeline\report\agent_pack.py"; Marker = "a semicolon separates two values here"; Why = "the guard now fires on a real second value, not on punctuation, and its message says which character actually separates - an older copy sends the operator to edit a team name that was correct" }
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "a semicolon separates two values here"; Why = "the guard now fires on a real second value, not on punctuation, and its message says which character actually separates - an older copy sends the operator to edit a team name that was correct" },
+
+    # The GEB member list reaches the agent pack. The blocks were already
+    # split by the shared scope resolution -- what was missing is that every
+    # prose file went on telling the agent no such split exists, and an agent
+    # believes the prose over the data, because that is what the prose is for.
+    # An old copy of any file below ships a pack whose figures and whose rules
+    # contradict each other, which is worse than either state alone.
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "GEB_RULE_SPLIT"; Why = "the leadership rule follows the run: with a member list the pack says the blocks separate the levels and names the list as the source, without one it keeps today's never-name-a-GEB-member wording - an older copy prints the second beside an executives_geb block and tells the agent the data in front of it cannot exist" },
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "a subset of GEB/GEB-1 involvement"; Why = "the summary states the GEB count as a named subset instead of an indented sub-row - an older copy leaves the pack without the figure the workbook prints, and indentation is exactly what a chunked read drops" },
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "GEB list entries never matched"; Why = "the pack reports how many list entries matched nothing, as the Data Quality sheet does - without it a typo in the list and a genuine GEB-1 person look identical, and both quietly land under GEB-1" },
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "never add the two"; Why = "the second delivery's prompt carries the same conditional rule as the first - an older copy hands Agent Builder a pack with split blocks and a rule forbidding their use, and the two deliveries then disagree about the same field" },
+    @{ Path = "pipeline\report\dashboard_skill.py"; Marker = "a member list was supplied"; Why = "the boards stop asserting that nothing can separate the levels, while still labelling their own panels GEB/GEB-1 because those panels count the combined field - an older copy contradicts the pack it is drawn from" },
+    @{ Path = "agentpack.ps1";                 Marker = ".\agentpack.ps1 -GebMembers"; Why = "the pack launcher documents the member-list flag it has always forwarded - an older copy leaves the operator with no way to learn that the agent pack can split the levels at all" }
 )
 
 Write-Host ""

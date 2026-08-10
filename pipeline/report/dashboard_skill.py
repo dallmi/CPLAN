@@ -182,9 +182,10 @@ neither changes what anyone does; the one useful fact inside them — that the
 unknown audience band holds the external records, whose form has no such field —
 belongs in the read-out where it explains something.
 
-Never call an audience figure reach. Never say "the GEB": the field holds both
-levels and nothing separates them. Never read the thinning forward plan as a
-decline — say it is unwritten.
+Never call an audience figure reach. Never say "the GEB" on the strength of the
+source field: it holds both levels and nothing in it separates them. Only an
+`executives_geb` block does, and only because a member list was supplied.
+Never read the thinning forward plan as a decline — say it is unwritten.
 
 End the read-out by naming a board: planning notice and lead time belong to
 Planning discipline, missing fields to Plan trust, executive time to Leadership
@@ -243,9 +244,12 @@ Highlight: no
 
 ## What this board does not do
 
-Never say "the GEB". One field holds both GEB and GEB-1 with nothing in the
-data separating them, so every label on this board reads GEB/GEB-1, and no
-person is ever named — not in a bar, not in a footnote, not in the read-out.
+Every label on this board reads GEB/GEB-1, and no person is ever named — not in
+a bar, not in a footnote, not in the read-out. That holds even when the pack
+separates the levels: every panel here counts the combined field, so a label
+saying "GEB" would name a set none of these panels measured. Who is on which
+level is a different question, and `06-breakdowns.csv` answers it where a
+member list was supplied.
 
 Never present an audience band as reach. Panel 3 compares planning estimates.
 

@@ -450,3 +450,52 @@ def test_one_run_writes_both_deliveries(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert agent_builder.UPLOAD_DIRNAME in out, "the run never says what to upload"
     assert "not uploaded" in out.lower(), "the run never names the answer key"
+
+
+def test_the_prompt_carries_both_leadership_states(tmp_path):
+    """This prompt is pasted once and stays while the pack is rebuilt under it,
+    so it cannot be conditional on a run -- it has to describe both states.
+
+    The Studio prompt was corrected in the same change and this one is a
+    separate constant, which is exactly how the two deliveries drift: one gets
+    the fix, the other ships a pack whose blocks its own rules forbid.
+    """
+    text = agent_builder.INSTRUCTIONS_TEXT
+    assert "executives_geb" in text, "the prompt never mentions the split blocks"
+    assert "GEB or GEB-1" in text, "the no-list branch is gone"
+    assert "never add the two" in text, "the two blocks do not sum, and it is unsaid"
+    assert "with nothing saying which" not in text, (
+        "the prompt again asserts, without condition, that the levels cannot "
+        "be separated")
+
+
+def test_the_uploaded_glossary_follows_the_run_not_the_prompt(tmp_path):
+    """The prompt describes both states; the knowledge files describe THIS one.
+
+    They are copied from the pack rather than regenerated, so this is really a
+    test that the copy is the conditional file and not a second, static one --
+    the failure would be an upload folder whose glossary contradicts the
+    breakdown file sitting next to it.
+    """
+    from dataclasses import replace
+
+    from pipeline.report.config import EXECUTIVES_SPLIT
+    from pipeline.report.membership import Entry, Membership, normalise_name
+
+    config = agent_pack.pack_config(
+        ReportConfig(date_from=date(2025, 1, 1), date_to=date(2025, 12, 31)))
+    fields = []
+    for field in config.breakdown_fields:
+        fields.extend(EXECUTIVES_SPLIT) if field == "executives" else fields.append(field)
+    config = replace(config, breakdown_fields=tuple(fields))
+    members = Membership(entries=(Entry(email="", name=normalise_name("Example, Ada")),))
+    scope = load_fixture_scope(tmp_path / "csv", config, membership=members)
+
+    pack_dir = agent_pack.write_pack(scope, config, tmp_path / "pack-out")
+    upload = agent_builder.write_builder_pack(pack_dir, tmp_path / "builder-out",
+                                              scope, config)
+    glossary = (upload / agent_pack.GLOSSARY_NAME).read_text(encoding="utf-8")
+    assert agent_pack.GEB_RULE_SPLIT in glossary
+    assert agent_pack.GEB_RULE_COMBINED not in glossary
+    breakdowns = (upload / agent_pack.BREAKDOWN_NAME).read_text(encoding="utf-8")
+    assert "executives_geb," in breakdowns

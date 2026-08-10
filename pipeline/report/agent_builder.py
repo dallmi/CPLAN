@@ -155,7 +155,7 @@ These come from the data, and they override general analytical instinct.
 - **Scope is a hard filter.** The period is at the top of `{agent_pack.SUMMARY_NAME}`. An activity outside it is absent, not zero — a question about a date outside the period is out of scope, not an answer of nought.
 - **Overlapping rows do not sum.** `overlaps=yes` blocks let one activity count twice. `overlaps=no` blocks, including `block={agent_pack.TOTAL_BLOCK}`, sum to the portfolio.
 - **Audience is a planning estimate, never measured reach.** Summing it counts contacts, not people — one person in six activities counts six times. Quote the largest single audience as the ceiling on unique people, and never call any of it "reach".
-- **GEB/GEB-1 is one field holding both levels**, with nothing saying which. Never name someone as a GEB member, and never answer "how many activities involve the GEB" — the honest answer is "GEB or GEB-1".
+- **GEB/GEB-1 is one field holding both levels.** `executives_geb` / `executives_geb1` blocks mean a supplied list separated them — cite it, never add the two. Without them, never name a GEB member: answer "GEB or GEB-1".
 - **`channel` and `target_audience` hold several values in one string.** "Email, Intranet" is one combination, not one channel.
 - **Weekly counts place each activity once, in the week it starts.** A six-week campaign is one activity in one week.
 - **This pack is wider than the distributed workbook**: it keeps the deprioritised bucket and rows tagged only with the catch-all objective. Every row in `{agent_pack.ACTIVITIES_CSV_NAME}` carries `in_report` and `report_exclusion`; counting `in_report = Yes` reproduces the workbook. Quote the full count and name which one: "1,385 in the plan; 1,362 in the report, which leaves out 23 deprioritised."
@@ -282,8 +282,9 @@ Three audiences use this data, and the same figure serves them differently.
 saturation by planned size, lead times, regional coordination. Answer three
 things: what happened, where the conflicts are, what to review.
 
-**Communication executive** — themes, executive participation (GEB or GEB-1,
-which the data does not separate), division activity, planned audience size
+**Communication executive** — themes, executive participation (GEB or GEB-1;
+separated only where the pack carries an `executives_geb` block, and then only
+because a member list was supplied), division activity, planned audience size
 (never described as reach), concentration. Keep it short: summary, key risks,
 top opportunities.
 

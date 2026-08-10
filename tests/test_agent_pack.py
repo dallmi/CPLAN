@@ -1551,3 +1551,256 @@ def test_the_instructions_point_at_the_board_skill(tmp_path):
     instructions = (out_dir / agent_pack.INSTRUCTIONS_NAME).read_text(encoding="utf-8")
     assert dashboard_skill.SKILL_NAME in instructions
     assert agent_pack.BRAND_SKILL_NAME in instructions
+
+
+# ---------------------------------------------------------------------------
+# The GEB member list
+#
+# The plumbing was never the gap: `build_agent_pack.py` shares `resolve_scope`
+# with the workbook, so `--geb-members` already split the breakdown blocks. The
+# gap was that every prose file in the pack went on telling the agent no such
+# split exists, and `.loop.md` records three separate occasions on which prose
+# that contradicts the data won -- an agent believes the sentence, because that
+# is what the sentence is for.
+#
+# So these tests come in pairs. One half pins what a machine WITHOUT the list
+# gets, which is every machine that has not been given one, and is the
+# regression that matters most. The other half pins that the pack with a list
+# says the same thing its own files show.
+# ---------------------------------------------------------------------------
+
+def _members(*names):
+    from pipeline.report.membership import Entry, Membership, normalise_name
+    return Membership(entries=tuple(
+        Entry(email="", name=normalise_name(name)) for name in names))
+
+
+# The one fixture activity that names anybody in `bod_geb` (IC-0007).
+GEB_PERSON = "Example, Ada"
+
+
+def _pack_with_members(tmp_path, *names, **overrides):
+    """`_pack`, with a membership list and the split fields `resolve_scope` sets.
+
+    Both halves are needed together and neither is optional: the membership
+    produces the columns, and swapping `executives` for its two halves in
+    `breakdown_fields` is what makes the blocks appear. A test that loaded the
+    list and left the fields alone would build a pack the product never ships.
+    """
+    from dataclasses import replace as _replace
+
+    from pipeline.report.config import EXECUTIVES_SPLIT
+
+    config = agent_pack.pack_config(_config(**overrides))
+    fields = []
+    for field in config.breakdown_fields:
+        fields.extend(EXECUTIVES_SPLIT) if field == "executives" else fields.append(field)
+    config = _replace(config, breakdown_fields=tuple(fields))
+    scope = load_fixture_scope(tmp_path / "csv", config, membership=_members(*names))
+    out_dir = tmp_path / "out"
+    pack_dir = agent_pack.write_pack(scope, config, out_dir)
+    return pack_dir, out_dir, scope, config
+
+
+def test_without_a_list_the_glossary_still_refuses_to_name_a_geb_member(tmp_path):
+    """The state every machine that has not been given the list is in.
+
+    Nothing about the pack may change until a list exists, and the wording is
+    pinned rather than merely "some GEB sentence": this is the sentence that
+    stops an agent answering "how many activities involve the GEB" from a field
+    that cannot answer it.
+    """
+    pack_dir, _, scope, _ = _pack(tmp_path)
+    assert scope.membership is None
+    glossary = (pack_dir / agent_pack.GLOSSARY_NAME).read_text(encoding="utf-8")
+    assert agent_pack.GEB_RULE_COMBINED in glossary
+    assert agent_pack.GEB_RULE_SPLIT not in glossary
+    assert "Never name someone as a GEB member" in glossary
+    # The workbook leaves the GEB term undefined without a list, because
+    # defining a term it never prints would be its own small lie. The pack
+    # mirrors that -- and the assertion is on a definition line, not on the
+    # letters, which appear in the combined rule above.
+    assert "\n  GEB: " not in glossary
+
+
+def test_with_a_list_the_glossary_says_what_separated_the_levels(tmp_path):
+    """The rule the pack is entitled to state once a list exists.
+
+    Three things have to be in it, and each prevents a specific wrong answer:
+    the blocks by name (so the agent knows where to look), the list as the
+    source (so a reader is never told the source data made the distinction),
+    and that the two do not sum (an activity naming people at both levels
+    counts in both).
+    """
+    pack_dir, _, scope, _ = _pack_with_members(tmp_path, GEB_PERSON)
+    assert scope.membership is not None
+    glossary = (pack_dir / agent_pack.GLOSSARY_NAME).read_text(encoding="utf-8")
+    assert agent_pack.GEB_RULE_SPLIT in glossary
+    assert agent_pack.GEB_RULE_COMBINED not in glossary
+    assert "Never name someone as a GEB member" not in glossary
+    for phrase in ("executives_geb", "executives_geb1", "supplied", "do NOT sum"):
+        assert phrase in glossary, f"the split rule does not state: {phrase}"
+    # The workbook's own term, arriving through `_glossary_sections` rather
+    # than being written a second time here.
+    assert "\n  GEB: " in glossary
+
+
+def test_the_glossary_rule_names_only_blocks_the_pack_actually_carries(tmp_path):
+    """A rule pointing at a block that is not in the file is a rule that
+    teaches the agent to distrust the rules. `executives_geb1` is named by the
+    split rule, so at least one of the two named blocks has to be there -- the
+    fixture has a single GEB person, so the geb block is the one that exists.
+    """
+    pack_dir, _, _, _ = _pack_with_members(tmp_path, GEB_PERSON)
+    blocks = {row["block"] for row in _breakdowns(pack_dir)}
+    assert "executives_geb" in blocks
+    assert "executives" not in blocks, (
+        "the split replaces the combined block; side by side, a reader adding "
+        "them counts the same person twice")
+
+
+def test_the_summary_states_the_geb_subset_only_once_a_list_exists(tmp_path):
+    """The workbook prints this as an indented sub-row. Indentation is exactly
+    what this file may not lean on -- a chunked read can keep the line and lose
+    its parent -- so the relationship is asserted to be in the label itself.
+    """
+    pack_dir, _, _, _ = _pack(tmp_path)
+    without = (pack_dir / agent_pack.SUMMARY_NAME).read_text(encoding="utf-8")
+    assert "With GEB/GEB-1 involvement" in without
+    assert "With GEB involvement" not in without
+
+    pack_dir, _, scope, _ = _pack_with_members(tmp_path / "b", GEB_PERSON)
+    with_list = (pack_dir / agent_pack.SUMMARY_NAME).read_text(encoding="utf-8")
+    pairs = _summary_pairs(with_list)
+    label = "With GEB involvement (a subset of GEB/GEB-1 involvement)"
+    assert label in pairs, f"the summary does not state {label!r}"
+    frame = scope.frame
+    assert int(pairs[label]) == int((frame["executives_geb"] != "").sum())
+    assert int(pairs[label]) <= int(pairs["With GEB/GEB-1 involvement"])
+    # No GEB-1 line beside it: an activity can name people at both levels, so
+    # the two would not partition the combined figure, and a reader subtracting
+    # one from it would get a number that means nothing.
+    assert "With GEB-1 involvement" not in with_list
+
+
+def test_data_quality_reports_the_list_only_where_there_is_one(tmp_path):
+    """A typo in the list and a person genuinely at GEB-1 level produce the
+    same outcome in the pack. Only this count tells them apart, and the
+    workbook prints it -- a pack that dropped it would answer the same question
+    two ways.
+    """
+    pack_dir, _, _, _ = _pack(tmp_path)
+    assert "GEB LIST" not in (pack_dir / agent_pack.QUALITY_NAME).read_text(encoding="utf-8")
+
+    pack_dir, _, scope, _ = _pack_with_members(tmp_path / "b", GEB_PERSON, "Nobody, Here")
+    text = (pack_dir / agent_pack.QUALITY_NAME).read_text(encoding="utf-8")
+    assert "  GEB list entries | 2" in text
+    assert scope.unmatched_members == 1
+    assert "  GEB list entries never matched | 1" in text
+
+
+def test_the_activity_rows_split_the_leadership_column_only_with_a_list(tmp_path):
+    """Two empty columns claiming a distinction nothing made would be worse
+    than no columns at all, so they arrive with the list and not before.
+    """
+    scope, config = _scope(tmp_path)
+    headers, _ = agent_pack.activity_rows(scope)
+    assert "GEB members" not in headers
+    assert "GEB-1 members" not in headers
+    assert "GEB/GEB-1 members" in headers, "the combined column is not conditional"
+
+    _, _, scope, _ = _pack_with_members(tmp_path / "b", GEB_PERSON)
+    headers, _ = agent_pack.activity_rows(scope)
+    # Appended, not spliced in beside the combined column: the pack's activity
+    # rows are the workbook's Activities sheet in the same order, and a column
+    # set that reshuffles under a reader is worse than one that grows.
+    from pipeline.report.table_sheets import ACTIVITY_COLUMNS as _COLUMNS
+    assert headers[:len(_COLUMNS)] == [header for _, header in _COLUMNS]
+    assert headers[len(_COLUMNS):] == ["GEB members", "GEB-1 members"]
+
+
+def test_the_two_split_columns_reconstruct_the_combined_one(tmp_path):
+    """The three leadership columns are consistent by construction, and a
+    reader will assume it. Everyone in the combined column is in exactly one of
+    the two halves -- never both, never neither.
+    """
+    _, _, scope, _ = _pack_with_members(tmp_path, GEB_PERSON)
+    headers, rows = agent_pack.activity_rows(scope)
+    combined = headers.index("GEB/GEB-1 members")
+    geb, geb1 = headers.index("GEB members"), headers.index("GEB-1 members")
+
+    def _people(value):
+        return {part.strip() for part in str(value).split(";") if part.strip()}
+
+    seen_any = False
+    for row in rows:
+        both = _people(row[geb]) | _people(row[geb1])
+        assert _people(row[combined]) == both, row[combined]
+        assert not (_people(row[geb]) & _people(row[geb1])), "a person on both sides"
+        seen_any = seen_any or bool(both)
+    assert seen_any, "the fixture named nobody, so this proved nothing"
+
+
+def test_in_report_stays_the_last_column_when_the_split_columns_arrive(tmp_path):
+    """The reconciliation columns are documented as coming last, and a reader
+    told to look at the end of the row has to find them there.
+    """
+    _, _, scope, config = _pack_with_members(tmp_path, GEB_PERSON)
+    headers, _ = agent_pack.activity_rows(scope, report_config=_config())
+    assert headers[-2:] == ["in_report", "report_exclusion"]
+
+
+def test_the_pasted_prompts_hold_whichever_pack_is_underneath(tmp_path):
+    """The instructions and the board files are pasted once and stay there
+    while the pack is rebuilt underneath them, so they cannot be conditional on
+    a run. They must therefore describe BOTH states rather than assert either
+    -- and the failure this pins is the old wording, which told the agent flatly
+    that nothing separates the levels.
+    """
+    _, out_dir, _, _ = _pack(tmp_path)
+    instructions = (out_dir / agent_pack.INSTRUCTIONS_NAME).read_text(encoding="utf-8")
+    with zipfile.ZipFile(out_dir / agent_pack.SKILL_ZIP_NAME) as archive:
+        skill = archive.read("SKILL.md").decode("utf-8")
+    boards = "".join(dashboard_skill.BOARDS.values())
+
+    for text, name in ((instructions, "instructions"), (skill, "skill"),
+                       (boards, "boards")):
+        assert "executives_geb" in text, f"the {name} never mention the split blocks"
+    # Both branches, in the one file that carries the rules on every turn.
+    assert "GEB or GEB-1" in instructions          # the no-list branch survives
+    assert "never add the two blocks together" in instructions
+
+    # The exact wording each of these replaced. Pinned as a sentence rather
+    # than as a keyword because the words themselves are all still in use --
+    # what may not come back is the UNCONDITIONAL claim, which an agent
+    # holding a pack full of executives_geb rows would believe over the rows.
+    for name, text, superseded in (
+            ("instructions", instructions,
+             "both levels**, with nothing in the data saying which"),
+            ("skill", skill, "which the data does not separate"),
+            ("boards", boards, "nothing in the data separating them")):
+        assert superseded not in text, (
+            f"the {name} again assert, without condition, that the levels "
+            f"cannot be separated: {superseded!r}")
+
+
+def test_the_checklist_asks_about_the_split_only_where_it_exists(tmp_path):
+    """A question nothing in the pack can answer is not a test of the agent.
+
+    It grades as a control on purpose: `01-summary.txt` states the figure one
+    line below the combined one, so an agent that quotes the combined figure
+    has read the wrong line rather than failed to count -- and reading the
+    wrong line is the whole failure mode of a distinction the source data does
+    not make.
+    """
+    _, _, scope, config = _pack(tmp_path)
+    questions = [q for q, *_ in agent_pack.checklist_questions(scope, config)]
+    assert not [q for q in questions if "GEB" in q]
+
+    _, _, scope, config = _pack_with_members(tmp_path / "b", GEB_PERSON)
+    entries = agent_pack.checklist_questions(scope, config)
+    asked = [entry for entry in entries if "GEB member" in entry[0]]
+    assert len(asked) == 1, "the checklist does not ask about the split"
+    question, answer, control, _note, _probe = asked[0]
+    assert answer == int((scope.frame["executives_geb"] != "").sum())
+    assert control, "the summary states this figure, so reading it is enough"

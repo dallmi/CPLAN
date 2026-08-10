@@ -58,7 +58,7 @@ from pipeline.report.config import (
     SHORT_NOTICE_DAYS,
 )
 from pipeline.report.data import EXCLUSION_ORDER
-from pipeline.report.table_sheets import ACTIVITY_COLUMNS, GLOSSARY_SECTIONS
+from pipeline.report.table_sheets import ACTIVITY_COLUMNS, _glossary_sections
 
 # What the skill archive is built from, and the readable copy of what the agent
 # is holding. It was a knowledge source too until two probes showed the agent
@@ -148,6 +148,37 @@ TAUTOLOGICAL_MEASURES = {
 def _rule(text):
     """A rule line for the prose files: one blank line, then the sentence."""
     return ["", text]
+
+
+# The one glossary rule that is a property of the RUN rather than of the data.
+#
+# Every other rule here holds on any pack. This one depends on whether the
+# operator supplied a GEB member list at build time, and the two versions
+# contradict each other on purpose: printing the combined wording beside an
+# `executives_geb` block would tell the agent the blocks in front of it cannot
+# exist, which is the failure `.loop.md` records three times over -- prose that
+# claims a data shape the files disprove is believed, because that is what it
+# is for.
+GEB_RULE_COMBINED = (
+    "GEB/GEB-1 is one field holding both levels, with nothing in the data "
+    "saying which. Never name someone as a GEB member, and never answer "
+    '"how many activities involve the GEB" -- the honest answer is '
+    '"GEB or GEB-1".')
+
+GEB_RULE_SPLIT = (
+    "GEB and GEB-1 are separated in this pack, and only because a GEB member "
+    "list was supplied when it was built -- the source field holds both levels "
+    f"mixed, exactly as before. In {BREAKDOWN_NAME} and {CALENDAR_NAME}, "
+    "block=executives_geb names the people on that list and "
+    "block=executives_geb1 everyone else in the field. Naming someone as a GEB "
+    "member is allowed here, and says where it comes from: the supplied list, "
+    "not the source data. The two blocks do NOT sum -- one activity naming "
+    "people at both levels counts in both.")
+
+
+def geb_rule(scope):
+    """Which of the two leadership rules this run is entitled to state."""
+    return GEB_RULE_SPLIT if scope.membership is not None else GEB_RULE_COMBINED
 
 
 # --------------------------------------------------------------------------
@@ -393,8 +424,22 @@ def _summary_sections(scope, config, generated):
 
     executives = int(frame["has_executives"].sum()) if total else 0
     large = int(frame["audience_band"].isin(LARGE_AUDIENCE_BANDS).sum()) if total else 0
-    leadership = [("With GEB/GEB-1 involvement", executives),
-                  ("Large audience (top two bands)", large)]
+    leadership = [("With GEB/GEB-1 involvement", executives)]
+    if scope.membership is not None:
+        # The workbook prints this as a sub-row indented under the line above.
+        # Indentation is exactly what this file may not rely on -- a chunked
+        # read can keep this line and lose its parent -- so the relationship
+        # goes into the label instead.
+        #
+        # No GEB-1 line beside it, and not as an oversight: an activity can
+        # name people at both levels, so a GEB and a GEB-1 count would not
+        # partition the line above, and a reader subtracting one from it would
+        # get a number that means nothing. The rosters in the breakdowns
+        # answer "who", and that is where the second half belongs.
+        geb = int((frame["executives_geb"] != "").sum()) if total else 0
+        leadership.append(
+            ("With GEB involvement (a subset of GEB/GEB-1 involvement)", geb))
+    leadership.append(("Large audience (top two bands)", large))
 
     lead = metrics.lead_time_stats(frame) if total else {
         "counted": 0, "median_days": None, "short_notice": 0}
@@ -492,13 +537,17 @@ def summary_text(scope, config, generated=None, report_config=None):
 def glossary_text(scope, config):
     """The workbook's glossary, plus the rules it states only by layout.
 
-    The definitions come from `GLOSSARY_SECTIONS` rather than being written
-    again here: the workbook's glossary is already the vetted wording, under a
-    hard length cap, and a second copy could only drift.
+    The definitions come from the workbook's own `_glossary_sections` rather
+    than being written again here: that wording is already vetted and under a
+    hard length cap, and a second copy could only drift. Going through the
+    function rather than the constant is what gives the pack the `GEB` term on
+    a membership build -- the workbook prints it there, and a pack that defined
+    fewer terms than the sheet it mirrors would be answering the same question
+    two ways.
     """
     lines = ["CPLAN - HOW TO READ THIS DATA", "",
              "Read this before answering anything from the other files."]
-    for title, terms in GLOSSARY_SECTIONS:
+    for title, terms in _glossary_sections(scope):
         lines += ["", title, "-" * len(title)]
         for term, definition in terms:
             lines.append(f"  {term}: {definition}")
@@ -540,10 +589,7 @@ def glossary_text(scope, config):
         "six-week campaign is one activity in one week, not six.",
         "channel and target_audience hold several values in one string. A value "
         'like "Email, Intranet" is one combination, not one channel.',
-        "GEB/GEB-1 is one field holding both levels, with nothing in the data "
-        "saying which. Never name someone as a GEB member, and never answer "
-        '"how many activities involve the GEB" -- the honest answer is '
-        '"GEB or GEB-1".',
+        geb_rule(scope),
         f"{ACTIVITIES_CSV_NAME} is the full row set. If you answer a counting "
         "question from it, state how many rows you actually examined -- and if "
         "you cannot see every row, say so instead of estimating.",
@@ -579,6 +625,18 @@ def data_quality_text(scope, config):
     lines += ["", "RECORD ANOMALIES", "-" * 16, "  anomaly | count"]
     for label, count in metrics.anomalies(scope.frame, scope.duplicates_removed):
         lines.append(f"  {label} | {count}")
+
+    # Its own section, as on the Data Quality sheet, and only on a membership
+    # build -- these two figures are about the list, not about the export, and
+    # a machine with no list has no measurement to report.
+    #
+    # The unmatched count is the only thing that tells a typo apart from a real
+    # GEB-1 person: both put someone under GEB-1, and only this side can see
+    # that a configured entry matched nothing at all.
+    if scope.membership is not None:
+        lines += ["", "GEB LIST", "-" * 8, "  measure | count",
+                  f"  GEB list entries | {len(scope.membership)}",
+                  f"  GEB list entries never matched | {scope.unmatched_members}"]
     lines.append("")
     return "\n".join(lines)
 
@@ -810,8 +868,9 @@ Three audiences use this data, and the same figure serves them differently.
 saturation by planned size, lead times, regional coordination. Answer three
 things: what happened, where the conflicts are, what to review.
 
-**Communication executive** — themes, executive participation (GEB or GEB-1,
-which the data does not separate), division activity, planned audience size
+**Communication executive** — themes, executive participation (GEB or GEB-1;
+separated only where the pack carries an `executives_geb` block, and then only
+because a member list was supplied), division activity, planned audience size
 (never described as reach), concentration. Keep it short: summary, key risks,
 top opportunities.
 
@@ -962,7 +1021,7 @@ These come from the data rather than from good reporting practice, and they over
 - **Scope is a hard filter.** The period is named at the top of `01-summary.txt`. An activity outside it is absent from the pack, not zero — a question about a date outside the period is out of scope, not an answer of nought.
 - **Overlapping rows do not sum.** In `04-calendar.csv`, a row marked `overlaps=yes` sits in a block where one activity can appear under two values (two divisions, two regions). Adding such a block up gives a number larger than the portfolio. `block=TOTAL` is the portfolio, and any `overlaps=no` block -- priority and lead_team included -- sums to it too; only an overlapping block does not.
 - **Audience is a planning estimate, never measured reach.** CPLAN holds no measured reach at all. Summing audience counts contacts, not people — one person inside six activities counts six times. Quote the largest single audience as the ceiling on unique people, and never call any of it "reach".
-- **GEB/GEB-1 is one field holding both levels**, with nothing in the data saying which. Never name someone as a GEB member, and never answer "how many activities involve the GEB" — the honest answer is "GEB or GEB-1".
+- **GEB/GEB-1 is one field holding both levels**, and the source data never says which. Look at the blocks the pack actually carries before you answer. Where it carries `executives_geb` and `executives_geb1`, a GEB member list was supplied when the pack was built: that list is the only thing separating the two, so name it as the source, and never add the two blocks together — one activity naming people at both levels counts in both. Where it carries only `executives`, nothing separates them: never name someone as a GEB member, and never answer "how many activities involve the GEB" — the honest answer is "GEB or GEB-1".
 - **`channel` and `target_audience` hold several values in one string.** A value like "Email, Intranet" is one combination, not one channel.
 - **Weekly counts place each activity once, in the week it starts.** A six-week campaign is one activity in one week, not six.
 - **This pack is wider than the distributed workbook.** It keeps activities the report leaves out — the deprioritised bucket, and rows tagged with nothing but the catch-all objective — so that a question about them has an answer. Every row in `05-activities.csv` carries `in_report` (Yes/No) and `report_exclusion`; counting only `in_report = Yes` reproduces the workbook exactly. `01-summary.txt` states how many rows the difference covers.
@@ -1234,9 +1293,22 @@ def activity_rows(scope, report_config=None):
 
     Two columns the sheet does not have come last, and only when a report
     config is supplied: whether the workbook keeps the row, and why not.
+
+    Two more sit in front of those on a membership build. They split the
+    combined `GEB/GEB-1 members` column rather than replacing it: the combined
+    column is the one every pack has, the workbook prints it, and a column set
+    that changed shape under the reader would be worse than one that grows.
+    The three are consistent by construction -- the two halves partition the
+    combined value -- and `06-breakdowns.csv` is still where a count belongs.
     """
     frame = scope.frame
     headers = [header for _, header in ACTIVITY_COLUMNS]
+    # Without a list these would be two empty columns asserting a distinction
+    # nothing made, which is the same lie the workbook refuses when it leaves
+    # the GEB glossary term out.
+    split = scope.membership is not None
+    if split:
+        headers += ["GEB members", "GEB-1 members"]
     if report_config:
         headers += ["in_report", "report_exclusion"]
     rows = []
@@ -1262,6 +1334,9 @@ def activity_rows(scope, report_config=None):
             else:
                 value = activity.get(field)
                 values.append("" if value is None or value != value else value)
+        if split:
+            values += [activity.get("executives_geb", ""),
+                       activity.get("executives_geb1", "")]
         if report_config:
             reason = report_exclusion(activity, report_config)
             values += ["No" if reason else "Yes", reason]
@@ -1466,6 +1541,19 @@ def checklist_questions(scope, config):
             if str(value).strip().lower() in ("", "nan", "none", "null"))
         candidates.append(("For how many activities is the lead missing?", blank_lead,
                            ("lead", blank_lead), "a data-quality question, row by row"))
+
+        # Only where a list makes the question answerable at all. It grades as
+        # a control, and that is the point: the summary states this figure on
+        # its own line, one line below the combined one, so an agent quoting
+        # the combined figure here has read the wrong line rather than failed
+        # to count -- which is the mistake worth catching about a distinction
+        # nothing in the source data makes.
+        if scope.membership is not None:
+            geb = int((frame["executives_geb"] != "").sum())
+            candidates.append(
+                ("How many activities involve a GEB member, rather than GEB-1?",
+                 geb, ("With GEB involvement", geb),
+                 "the split the supplied member list makes"))
 
         quarters = {}
         for quarter in frame["_quarter"]:
