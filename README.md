@@ -316,6 +316,35 @@ which. A bucket whose activities all sit in one region means what it says; one
 whose rows sit somewhere else is a mis-pick, and mapping it to the place in its
 name would carry that mistake into the database.
 
+### Tracking-ID check (are these IDs real?)
+
+```bash
+# Which of the IDs in this list are actually in the export
+python -m pipeline.scripts.check_tracking_ids --ids ids.txt
+
+# ...and list the ones that were found too, and keep the result as a CSV
+python -m pipeline.scripts.check_tracking_ids --ids ids.txt --all --csv result.csv
+```
+
+Tracking IDs travel by hand — in a mail, on a slide, pasted out of a planning
+sheet — and the question asked of them is whether the activities behind them
+exist at all. This takes the list (one ID per line; blank lines and `#` lines
+are ignored), reads the four activity exports the pipeline itself reads, and
+reports the ones it could not find. On Windows, `trackids.cmd`.
+
+A match is exact. The work is in the misses: an unfound ID is reported with the
+nearest thing in the export — the same activity on another channel, the pack it
+should have belonged to, or an ID one character away — because "never created"
+and "spelled wrong" lead somewhere completely different. The reason and that
+nearest ID get a column each, since a tracking ID is 32 characters and sharing
+one column truncates the part worth reading. The hint is never a verdict; the
+row still reads missing.
+
+Only the activity exports are searched, live and archived. The pack, channel
+and cluster exports carry their own identifiers, and searching them would let a
+pack ID report as a found activity. Exit code 0 only when every listed ID was
+found.
+
 ### Standalone studio (read-only)
 
 The third step exports the whole planning studio as one double-clickable file
