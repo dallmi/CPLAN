@@ -35,9 +35,16 @@ def _scope(tmp_path, **overrides):
 
 
 def _pack(tmp_path, **overrides):
+    """Built the way `build_agent_pack.py` builds it: through `pack_config`.
+
+    The helper used to pass the workbook's own config, so the pack under test
+    was a shape the product never ships. That was survivable while the two
+    differed only by which rows they kept; it stopped being survivable when
+    they started differing by which blocks exist.
+    """
     scope, config = _scope(tmp_path, **overrides)
     out_dir = tmp_path / "out"
-    pack_dir = agent_pack.write_pack(scope, config, out_dir)
+    pack_dir = agent_pack.write_pack(scope, agent_pack.pack_config(config), out_dir)
     return pack_dir, out_dir, scope, config
 
 
@@ -80,6 +87,14 @@ def test_summary_figures_match_the_workbook(tmp_path):
     on the sheet ARE formulas (`=TEXT(...) & "  Internal"`), so there is no
     literal label to match them on -- which is the whole reason this pack
     exists. `test_volume_counts_match_the_workbook` covers them by position.
+
+    "Breakdown dimensions" is excluded by choice, not by construction: it is a
+    literal label on both sides, but `_pack` now builds the pack through
+    `pack_config` (`test_the_pack_breaks_down_by_priority_and_lead_team`),
+    which appends `priority` and `lead_team` to the field list this row
+    states. The workbook is built from the unwidened `config` `_pack` returns,
+    so the two lists disagree by design -- that gap is the whole reason the
+    two configs exist -- and always will.
     """
     pack_dir, _, scope, config = _pack(tmp_path)
     sheet = build_workbook(scope, config)["Executive Summary"]
@@ -99,7 +114,7 @@ def test_summary_figures_match_the_workbook(tmp_path):
             workbook_pairs[label.strip()] = value
 
     pack_pairs = _summary_pairs((pack_dir / agent_pack.SUMMARY_NAME).read_text(encoding="utf-8"))
-    shared = set(workbook_pairs) & set(pack_pairs)
+    shared = (set(workbook_pairs) & set(pack_pairs)) - {"Breakdown dimensions"}
     assert len(shared) > 10, f"too few comparable labels ({sorted(shared)})"
     for label in sorted(shared):
         assert str(workbook_pairs[label]) == pack_pairs[label], (
@@ -125,6 +140,105 @@ def test_volume_counts_match_the_workbook(tmp_path):
     block = text.split("VOLUME\n")[1].split("\n\n")[0]
     pack_counts = [int(m.group(1)) for m in re.finditer(r": (\d+)", block)]
     assert pack_counts == workbook_counts
+
+
+def test_the_summary_splits_the_portfolio_at_its_own_vintage(tmp_path):
+    """"1,380 activities in scope" mixes what is behind the generation date
+    with what is ahead of it and states neither.
+
+    Stated rather than left to be summed out of the calendar: these are
+    headline numbers, the pack files are retrieved in chunks on both
+    surfaces, and a partial read of forty calendar rows produces a confident
+    wrong figure — which costs more than a missing one.
+    """
+    pack_dir, _, scope, _ = _pack(tmp_path)
+    pairs = _summary_pairs((pack_dir / agent_pack.SUMMARY_NAME)
+                           .read_text(encoding="utf-8"))
+    for label in ("Planned to date", "Next 30 days from the data date",
+                  "Rest of the period"):
+        assert label in pairs, f"the summary does not state {label!r}"
+
+    three = sum(int(pairs[label]) for label in
+                ("Planned to date", "Next 30 days from the data date",
+                 "Rest of the period"))
+    assert three == len(scope.frame), "the horizon does not partition the portfolio"
+
+
+def test_the_horizon_splits_where_the_vintage_says(tmp_path):
+    """The arithmetic a reader would do to check it is the arithmetic here.
+
+    Every in-scope activity has a start date — "no start date" is its own
+    exclusion reason — so the three counts are a partition and not a sample.
+    """
+    from datetime import date as _date, timedelta
+    scope, config = _scope(tmp_path)
+    generated = _date(2025, 6, 30)
+    pack_dir = agent_pack.write_pack(scope, config, tmp_path / "out",
+                                     generated=generated)
+    pairs = _summary_pairs((pack_dir / agent_pack.SUMMARY_NAME)
+                           .read_text(encoding="utf-8"))
+    starts = scope.frame["start_date"].dt.date
+    assert int(pairs["Planned to date"]) == int((starts <= generated).sum())
+    assert int(pairs["Next 30 days from the data date"]) == int(
+        ((starts > generated) & (starts <= generated + timedelta(days=30))).sum())
+
+
+def test_the_horizon_puts_the_boundary_dates_in_the_right_bucket(tmp_path):
+    """The two cusps, pinned by hand rather than mirrored from the code.
+
+    The test above computes its expected values with the same boolean
+    expressions the implementation uses (`<=` for the near boundary, `<=`
+    again for the +30-day one). That means it agrees with the code no matter
+    which way either operator points -- flip `starts <= generated` to `<`, or
+    the day-30 `<=` to `<`, and the mirrored test still passes. And the total
+    is a partition by construction ("no start date" is its own exclusion
+    reason, so every in-scope row lands in exactly one bucket), which makes
+    the failure doubly invisible: the three counts still sum to the
+    portfolio, so even `test_the_summary_splits_the_portfolio_at_its_own_
+    vintage` would not notice. An off-by-one on either cusp is silent
+    everywhere except the one tile a reader actually acts on.
+
+    So here the two boundary activities are moved onto the cusps by hand, and
+    the expected bucket counts are written as literals computed once by hand
+    against the fixture -- not derived from `starts <= generated` again.
+    """
+    from datetime import timedelta
+
+    import pandas as pd
+
+    scope, config = _scope(tmp_path)
+    generated = date(2025, 6, 15)
+    boundary_30 = generated + timedelta(days=30)  # 2025-07-15
+
+    # Fixture activities, unmodified: 12 start on or before 2025-06-15, 1
+    # (IC-0015, 2025-07-08) falls in the following 30 days, and 7 -- including
+    # IC-0016 (2025-10-14) and IC-0013 (2025-12-31) -- start later still.
+    # Moving those two onto the cusps shifts one row into each near bucket and
+    # leaves the rest of the portfolio (5 rows) where it was, for a
+    # hand-checked partition of 13 / 2 / 5 against 20 activities in scope.
+    frame = scope.frame.copy()
+    on_the_day = frame.index[frame["tracking_id"] == "IC-0016"][0]
+    on_day_30 = frame.index[frame["tracking_id"] == "IC-0013"][0]
+    # start_date carries the source rows' own time zone (Europe/Zurich in the
+    # fixture); a naive Timestamp cannot be assigned into a tz-aware column.
+    tz = frame["start_date"].dt.tz
+    frame.loc[on_the_day, "start_date"] = pd.Timestamp(generated, tz=tz)
+    frame.loc[on_day_30, "start_date"] = pd.Timestamp(boundary_30, tz=tz)
+    scope.frame = frame
+
+    pack_dir = agent_pack.write_pack(scope, config, tmp_path / "out",
+                                     generated=generated)
+    pairs = _summary_pairs((pack_dir / agent_pack.SUMMARY_NAME)
+                           .read_text(encoding="utf-8"))
+
+    assert pairs["Planned to date"] == "13", (
+        "the activity dated exactly on the generation date "
+        f"({generated.isoformat()}) does not land in 'Planned to date': {pairs}")
+    assert pairs["Next 30 days from the data date"] == "2", (
+        "the activity dated exactly 30 days after the generation date "
+        f"({boundary_30.isoformat()}) does not land in "
+        f"'Next 30 days from the data date': {pairs}")
+    assert pairs["Rest of the period"] == "5", f"unexpected remainder: {pairs}"
 
 
 def test_calendar_total_row_matches_the_workbook_week_cells(tmp_path):
@@ -279,6 +393,88 @@ def test_a_measure_that_restates_its_block_is_not_written(tmp_path):
     bands = [r for r in rows if r["block"] == "audience_band"]
     assert any(r["measure"] == "with_executives" for r in bands), (
         "suppression removed a measure that varies within the block")
+
+
+def test_the_pack_breaks_down_by_priority_and_lead_team(tmp_path):
+    """Two blocks the workbook does not carry, added where the pack already
+    widens: `pack_config`. A board that names a team or a priority level has
+    nowhere else to read it, and counting `05-activities.csv` by hand is the
+    one thing the instructions refuse.
+    """
+    scope, config = _scope(tmp_path)
+    packed = agent_pack.pack_config(config)
+    assert "priority" in packed.breakdown_fields
+    assert "lead_team" in packed.breakdown_fields
+    # The workbook's own config is untouched: the pack is wider, as it already
+    # is for priorities and objectives.
+    assert "priority" not in config.breakdown_fields
+    assert "lead_team" not in config.breakdown_fields
+
+    pack_dir = agent_pack.write_pack(scope, packed, tmp_path / "out")
+    blocks = {row["block"] for row in _breakdowns(pack_dir)}
+    assert {"priority", "lead_team"} <= blocks
+    calendar_blocks = {row["block"] for row in _calendar(pack_dir)}
+    assert {"priority", "lead_team"} <= calendar_blocks
+
+
+def test_priority_and_lead_team_do_not_overlap(tmp_path):
+    """An activity has one priority and one lead team, so these blocks sum.
+
+    The overlaps column is the only thing standing between a reader and a
+    total larger than the portfolio; marking a partitioning block as
+    overlapping would make an honest sum look untrustworthy.
+    """
+    scope, config = _scope(tmp_path)
+    pack_dir = agent_pack.write_pack(scope, agent_pack.pack_config(config),
+                                     tmp_path / "out")
+    for row in _breakdowns(pack_dir):
+        if row["block"] in ("priority", "lead_team"):
+            assert row["overlaps"] == "no", f"{row['block']} claims to overlap"
+
+
+def test_short_notice_is_a_measure_and_agrees_with_the_metrics(tmp_path):
+    """The figure the board's red element rests on, computed by the same
+    function the summary uses rather than a second implementation of it.
+    """
+    scope, config = _scope(tmp_path)
+    packed = agent_pack.pack_config(config)
+    pack_dir = agent_pack.write_pack(scope, packed, tmp_path / "out")
+    assert "short_notice" in agent_pack.BREAKDOWN_MEASURES
+
+    rows = _breakdowns(pack_dir)
+    total = _figure(rows, "TOTAL", "all activities", "short_notice")
+    assert total == metrics.lead_time_stats(scope.frame)["short_notice"]
+
+    # And it decomposes: a partitioning block's rows add back up to it.
+    by_team = sum(int(r["figure"]) for r in rows
+                  if r["block"] == "lead_team" and r["measure"] == "short_notice")
+    assert by_team == total
+
+
+@pytest.mark.parametrize("field", ["priority", "lead_team"])
+def test_a_comma_inside_a_partitioning_field_fails_loudly(tmp_path, field):
+    """`PARTITION_BREAKDOWN_FIELDS` tells every reader of `overlaps=no` that a
+    block's rows sum to the portfolio -- a board sums it. `_split_for` uses the
+    same comma/semicolon splitter as the genuinely multi-valued fields, so a
+    priority label or team name that happens to contain one would silently put
+    one activity under two values and make that promise false. This must raise
+    instead of shipping a pack whose total quietly disagrees with itself.
+
+    The malformed value is set on a copy of the fixture scope's own frame,
+    not added to `tests/report_fixtures.py`: every other test reads that
+    fixture, and a deliberately broken row would leak into all of them.
+    """
+    scope, config = _scope(tmp_path)
+    index = scope.frame.index[0]
+    tracking_id = scope.frame.loc[index, "tracking_id"]
+    scope.frame.loc[index, field] = "First value, Second value"
+
+    with pytest.raises(ValueError) as excinfo:
+        list(agent_pack.iter_blocks(scope, agent_pack.pack_config(config)))
+    message = str(excinfo.value)
+    assert field in message, f"error does not name the field {field!r}: {message}"
+    assert str(tracking_id) in message, (
+        f"error does not name the offending activity {tracking_id!r}: {message}")
 
 
 def test_the_reporting_skill_ships_the_breakdowns_file(tmp_path):
@@ -677,9 +873,9 @@ def test_the_boards_ship_as_their_own_skill(tmp_path):
                   for name in names if name != "SKILL.md"}
 
     assert skill.startswith("---\nname: cplan-dashboards\n")
-    assert sorted(boards) == ["board-leadership-attention.md",
-                              "board-plan-trust.md",
-                              "board-portfolio-overview.md"]
+    assert sorted(boards) == ["board-head-of-communications-overview.md",
+                              "board-leadership-attention.md",
+                              "board-plan-trust.md"]
 
     description = next(line for line in skill.splitlines()
                        if line.startswith("description:"))
@@ -747,6 +943,52 @@ def test_the_boards_carry_no_organisation_name(tmp_path):
             text = archive.read(name).decode("utf-8")
             assert agent_pack.ORGANISATION_PLACEHOLDER not in text, (
                 f"{name} carries a placeholder nobody will replace")
+
+
+def test_the_overview_board_is_the_one_designed_for_the_role(tmp_path):
+    """One overview, not two. Two general boards give the agent no criterion
+    by which to pick, which is the case where it grabs blindly.
+    """
+    assert "board-head-of-communications-overview.md" in dashboard_skill.BOARDS
+    assert "board-portfolio-overview.md" not in dashboard_skill.BOARDS
+    assert len(dashboard_skill.BOARDS) == 3
+
+    joined = dashboard_skill.SKILL_TEXT + "".join(dashboard_skill.BOARDS.values())
+    assert "portfolio overview" not in joined.lower(), (
+        "the replaced board is still named somewhere")
+
+
+def test_the_overview_names_teams_as_work_received(tmp_path):
+    """The condition the panel was accepted on.
+
+    The pack knows when an activity was created and when it starts; nothing in
+    it says who caused the gap. "Planned at under 7 days' notice" over a team
+    name asserts the team booked late, which the data cannot support — and a
+    board is the artefact most screenshotted and least questioned, so the
+    wording has to survive being cropped away from its footnote.
+
+    Checked against the board's prose, not its `Source:` lines: panel 1
+    legitimately cites `01-summary.txt`'s own "Planned at under 7 days'
+    notice" tile, a machine-parsed pointer nobody reads as wording -- unlike
+    panel 4's business question and footnote, which a reader does.
+    """
+    board = dashboard_skill.BOARDS["board-head-of-communications-overview.md"]
+    assert "requests received at" in board.lower()
+    prose = "\n".join(line for line in board.splitlines()
+                      if not line.strip().startswith("Source:"))
+    assert "planned at under" not in prose.lower()
+
+
+def test_the_overview_spends_its_red_on_the_intervention(tmp_path):
+    """Same rule, different answer, because the board asks a different
+    question: the panel that answers it is the one that gets the accent.
+    """
+    board = dashboard_skill.BOARDS["board-head-of-communications-overview.md"]
+    panels = re.split(r"^### ", board, flags=re.M)[1:]
+    highlighted = [p.splitlines()[0] for p in panels
+                   if any(line.strip() == "Highlight: yes" for line in p.splitlines())]
+    assert len(highlighted) == 1
+    assert "lead team" in highlighted[0].lower()
 
 
 def test_an_image_that_carries_a_total_says_what_it_counts(tmp_path):
@@ -1020,6 +1262,55 @@ def test_every_question_is_graded_by_what_the_pack_actually_states(tmp_path):
         else:
             assert not stated, (
                 f"graded as a counting question, but the pack states {probe}: {question}")
+
+
+def _pack_statements(pack_dir):
+    """Every file whose lines can make a question a control.
+
+    The prose pair plus `06-breakdowns.csv`: once a field is a breakdown
+    block, its per-value totals are stated there exactly as finished as a
+    prose figure is -- `lead_team,Team,no,activities,19` states "Team: 19" as
+    plainly as `External: 275` does. `04-calendar.csv` is deliberately not
+    here: it carries the same blocks split by week, and no single line in it
+    ever states a value's total for the whole period.
+    """
+    return _pack_prose(pack_dir) + "\n" + (
+        pack_dir / agent_pack.BREAKDOWN_NAME).read_text(encoding="utf-8")
+
+
+def test_a_question_answered_anywhere_shipped_is_graded_a_control(tmp_path):
+    """Pins the property, not today's question list.
+
+    Run against `pack_config`'s widened breakdown fields -- the config a real
+    run actually ships, where `lead_team` and `priority` are blocks and
+    `06-breakdowns.csv` states each one's top value and count outright. A
+    version of this fix that special-cased "the lead-team question" would
+    pass today and rot the next time a block gains a value that happens to
+    answer some other candidate; this instead checks, for every candidate
+    whatever they turn out to be, that being stated anywhere shipped is
+    exactly what makes it a control.
+    """
+    scope, config = _scope(tmp_path)
+    packed = agent_pack.pack_config(config)
+    pack_dir = agent_pack.write_pack(scope, packed, tmp_path / "out")
+    statements = _pack_statements(pack_dir)
+
+    found_a_control = False
+    for question, _answer, control, _note, probe in agent_pack.checklist_questions(
+            scope, packed):
+        stated = agent_pack._states(statements, *probe)
+        assert stated == control, (
+            f"{question!r}: shipped files "
+            f"{'state' if stated else 'do not state'} {probe!r}, "
+            f"but is graded control={control}")
+        found_a_control = found_a_control or stated
+    # A vacuous pass here -- nothing ever stated, nothing ever a control --
+    # would hide the exact regression this test exists to catch as surely as
+    # not running it at all: the CSV branch has to actually fire on the
+    # fixture, not merely exist.
+    assert found_a_control, (
+        "no candidate's probe is stated anywhere shipped -- this fixture "
+        "does not exercise the property this test is meant to pin")
 
 
 def test_the_checklist_keeps_questions_of_both_kinds(tmp_path):

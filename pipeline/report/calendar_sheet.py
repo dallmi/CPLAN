@@ -26,7 +26,7 @@ from openpyxl.utils import get_column_letter
 
 from pipeline.report import regions, style
 from pipeline.report.config import AUDIENCE_BAND_ORDER, EXECUTIVES_SPLIT, FIELD_TITLES
-from pipeline.report.derive import split_multi, split_people
+from pipeline.report.derive import PRIORITY_LEVELS, split_multi, split_people
 
 SHEET_NAME = "Calendar"
 LABEL_COL = 1
@@ -42,8 +42,15 @@ NOT_SPECIFIED = "Not specified"
 
 # Most blocks read best alphabetically. The region groups do not: they have a
 # natural reading order, and Global -- the largest value in the source -- would
-# otherwise sit between EMEA and Switzerland.
-FIELD_ORDER = {"region_group": {name: i for i, name in enumerate(regions.GROUP_ORDER)}}
+# otherwise sit between EMEA and Switzerland. Priority does not either: sorted
+# alphabetically, "Critical" and "High" fall after "Low", which is exactly
+# backwards for a chart whose question is how urgent the plan is. The pack's
+# `priority` block carries `derive.priority_level`'s four bucket names -- see
+# `agent_pack.iter_blocks` -- so this orders those, not the raw source text.
+FIELD_ORDER = {
+    "region_group": {name: i for i, name in enumerate(regions.GROUP_ORDER)},
+    "priority": {name: i for i, name in enumerate(PRIORITY_LEVELS)},
+}
 
 
 def _sort_key(field, name):

@@ -43,7 +43,8 @@ CHART_STANDARDS_NAME = "08-chart-standards.txt"
 # Numbered on from the two rule documents: an operator uploads a folder, and a
 # folder that sorts into reading order is one fewer thing to explain.
 BOARD_FILE_NAMES = {
-    "board-portfolio-overview.md": "09-board-portfolio-overview.txt",
+    "board-head-of-communications-overview.md":
+        "09-board-head-of-communications-overview.txt",
     "board-leadership-attention.md": "10-board-leadership-attention.txt",
     "board-plan-trust.md": "11-board-plan-trust.txt",
 }
@@ -119,7 +120,7 @@ You answer questions about communications planning activity using only the CPLAN
 - `{agent_pack.BREAKDOWN_NAME}` — one row per block × value × measure, for crossing two dimensions
 - `{READING_GUIDE_NAME}` — audiences, analysis steps, good follow-up questions
 - `{CHART_STANDARDS_NAME}` — chart choice and multi-panel layout
-- `09`–`11-board-*.txt` — one per named executive board: portfolio overview, leadership attention, plan trust
+- `09`–`11-board-*.txt` — one per named executive board: head of communications overview, leadership attention, plan trust
 
 Prefer `{agent_pack.SUMMARY_NAME}`, `{agent_pack.CALENDAR_NAME}` and `{agent_pack.BREAKDOWN_NAME}` for any figure they already state: those were computed by tested code, and a figure you derive from `{agent_pack.ACTIVITIES_CSV_NAME}` has not been through the report's rules. There is no Excel workbook behind this agent.
 
@@ -152,7 +153,7 @@ Do NOT flag these — the report working as designed:
 These come from the data, and they override general analytical instinct.
 
 - **Scope is a hard filter.** The period is at the top of `{agent_pack.SUMMARY_NAME}`. An activity outside it is absent, not zero — a question about a date outside the period is out of scope, not an answer of nought.
-- **Overlapping rows do not sum.** A row marked `overlaps=yes` sits in a block where one activity appears under two values. Only `block={agent_pack.TOTAL_BLOCK}` is a true total.
+- **Overlapping rows do not sum.** `overlaps=yes` blocks let one activity count twice. `overlaps=no` blocks, including `block={agent_pack.TOTAL_BLOCK}`, sum to the portfolio.
 - **Audience is a planning estimate, never measured reach.** Summing it counts contacts, not people — one person in six activities counts six times. Quote the largest single audience as the ceiling on unique people, and never call any of it "reach".
 - **GEB/GEB-1 is one field holding both levels**, with nothing saying which. Never name someone as a GEB member, and never answer "how many activities involve the GEB" — the honest answer is "GEB or GEB-1".
 - **`channel` and `target_audience` hold several values in one string.** "Email, Intranet" is one combination, not one channel.

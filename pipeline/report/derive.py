@@ -235,3 +235,38 @@ def priority_rank(value):
     if numbered:
         return max(0, 5 - int(numbered.group(1)))
     return _PRIORITY_WORDS.get(text.lower(), 1)
+
+
+# The four labels both vocabularies collapse onto, in urgency order. Not a
+# second lookup table beside `_PRIORITY_WORDS` -- `priority_level` reads
+# `priority_rank`'s own scale and names the bucket, so a numbered level and
+# the word it corresponds to can never drift onto two different names.
+PRIORITY_LEVELS = ("Critical", "High", "Medium", "Low")
+
+
+def priority_level(value):
+    """A non-blank priority, collapsed onto the four levels both vocabularies
+    share, ordered 1 as most urgent to 4 as least.
+
+    A dashboard grouping raw priority text finds `<n> - <label>` and
+    `Critical`/`High`/`Medium`/`Low` living side by side -- eight-odd distinct
+    strings instead of four, sorted alphabetically because nothing orders a
+    mix of numbers and words. This reads the rank `priority_rank` already
+    computes and folds it onto the smaller vocabulary rather than inventing a
+    second one: rank 4 is Critical, rank 3 High, rank 2 Medium, and every rank
+    at or below 1 -- the word "low", the source system's least-urgent numbered
+    level, and anything neither vocabulary recognises -- is Low, the bucket
+    both a genuinely low priority and an unparseable one land in.
+
+    Blank input is not this function's business: an activity that names no
+    priority at all is the caller's "Not specified" catch-all, a fifth state
+    this function does not produce.
+    """
+    rank = priority_rank(value)
+    if rank >= 4:
+        return "Critical"
+    if rank == 3:
+        return "High"
+    if rank == 2:
+        return "Medium"
+    return "Low"

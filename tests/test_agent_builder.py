@@ -117,6 +117,27 @@ def test_no_rule_was_lost_in_the_compression():
         assert marker in text, f"the compression dropped {marker!r}"
 
 
+def test_the_prompt_names_the_board_that_exists(tmp_path):
+    """A knowledge file cannot announce itself, so the prompt is the only
+    place a board's existence can be stated — and a prompt naming a board the
+    catalogue no longer ships sends the agent looking for a missing file.
+    """
+    text = agent_builder.INSTRUCTIONS_TEXT
+    assert "head of communications overview" in text.lower()
+    assert "portfolio overview" not in text.lower()
+    for board in ("leadership attention", "plan trust"):
+        assert board in text.lower()
+
+
+def test_the_prompt_still_has_its_margin():
+    """The rename costs characters in a field that is 97% full. Measured
+    rather than assumed: the 200-character floor exists because the operator
+    replaces the placeholder with a longer name before pasting.
+    """
+    headroom = agent_builder.INSTRUCTIONS_LIMIT - len(agent_builder.INSTRUCTIONS_TEXT)
+    assert headroom >= 200, f"only {headroom} spare after the rename"
+
+
 def test_the_prompt_is_what_tells_the_agent_boards_exist(tmp_path):
     """A knowledge file cannot announce itself.
 
@@ -126,7 +147,7 @@ def test_the_prompt_is_what_tells_the_agent_boards_exist(tmp_path):
     bought with prompt characters.
     """
     text = agent_builder.INSTRUCTIONS_TEXT
-    for board in ("portfolio overview", "leadership attention", "plan trust"):
+    for board in ("head of communications overview", "leadership attention", "plan trust"):
         assert board in text, f"the prompt does not name {board!r}"
     # Up to the next section, not a fixed count: the board names sit in the
     # file list, and the "ask" instruction closes the same section one
@@ -134,7 +155,7 @@ def test_the_prompt_is_what_tells_the_agent_boards_exist(tmp_path):
     # already stated" aside that still sits between the two. Ending the slice
     # at `## Non-negotiable rules` clears that aside without ever being able
     # to wander into the next section looking for a stray "ask".
-    assert "ask" in text[text.index("portfolio overview"):
+    assert "ask" in text[text.index("head of communications overview"):
                          text.index("## Non-negotiable rules")].lower(), (
         "the prompt names the boards without saying to ask which one")
 

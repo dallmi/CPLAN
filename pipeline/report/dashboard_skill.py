@@ -38,7 +38,7 @@ becomes.
 
 | Board | The decision it serves | File |
 |---|---|---|
-| Portfolio overview | Is the plan as a whole plausible? | `board-portfolio-overview.md` |
+| Head of communications overview | Where do I intervene, and with whom? | `board-head-of-communications-overview.md` |
 | Leadership attention | Where is executive time going, and where is it missing? | `board-leadership-attention.md` |
 | Plan trust | What can I not yet rely on? | `board-plan-trust.md` |
 
@@ -126,63 +126,70 @@ most forwarded and least questioned, and its headline figure is larger than the
 workbook's by every activity the report excludes.
 """
 
-PORTFOLIO_OVERVIEW = """# Board — Portfolio overview
+HEAD_OF_COMMUNICATIONS_OVERVIEW = """# Board — Head of communications overview
 
-**The decision:** is the plan as a whole plausible? This is the quarterly
-read-out: volume, distribution, and the risks visible from the portfolio level.
+**The decision:** where do I intervene, and with whom? This board does not
+inventory the plan. Every panel points at something, and the read-out ends by
+naming which of the other boards to open.
 
 Five panels. Panel 1 is a tile row across the top, panels 2–4 sit in a row
 beneath it, panel 5 closes the board.
 
-### Panel 1 — Number tiles
+### Panel 1 — Where the function stands
 
-Business question: What is in the plan?
+Business question: what is behind us, what is imminent, and is the function planning ahead?
 Chart: number tiles, one row, aligned on the baseline of the numbers
-Source: 01-summary.txt · VOLUME · Activities in scope; 01-summary.txt · VOLUME · Internal; 01-summary.txt · VOLUME · External; 01-summary.txt · PLANNING DISCIPLINE · Median lead time (days); 01-summary.txt · LOAD · Share in the five busiest weeks
-Footnote: Every figure is a count of activities within the period named at the top of the summary.
+Source: 01-summary.txt · HORIZON · Planned to date; 01-summary.txt · HORIZON · Next 30 days from the data date; 01-summary.txt · PLANNING DISCIPLINE · Median lead time (days); 01-summary.txt · PLANNING DISCIPLINE · Planned at under 7 days' notice; 01-summary.txt · LEADERSHIP AND AUDIENCE · With GEB/GEB-1 involvement; 01-summary.txt · VOLUME · Activities in scope
+Footnote: Split at the generation date stated at the top of the summary. Every record here is a plan — this system holds no delivery and no performance, so "planned to date" is plan whose date has passed and never means an activity ran.
 Highlight: no
 
-### Panel 2 — Volume by start week
+### Panel 2 — Audience load by start week
 
-Business question: Where is planned communication volume concentrated?
-Chart: line chart, one point per ISO week, the peak week marked
-Source: 04-calendar.csv · block=TOTAL
-Footnote: Each activity counts once, in the week it starts. A six-week campaign is one point, not six.
-Highlight: yes
-
-### Panel 3 — Planned audience size
-
-Business question: What scale of audience is planned?
-Chart: horizontal bar, in band order — not sorted by value
-Source: 06-breakdowns.csv · block=audience_band · measure=activities
-Footnote: A planning estimate, never measured reach. The bands partition the portfolio; Unknown is one of them.
+Business question: in which weeks does the whole organisation get hit at once?
+Chart: line chart, one point per ISO week, two series on one axis — activities in the top two audience bands as the message, all activities as a faint context line; both series solid to the generation date and dashed after it, with a `data as of` divider drawn at that date and a grey marker carrying an inline label at the message series' peak week
+Source: 04-calendar.csv · block=audience_band; 04-calendar.csv · block=TOTAL
+Footnote: A planning estimate of who is addressed, never measured reach. Solid to the generation date, dashed after it: the forward half thins because it is not written yet, not because activity falls away.
 Highlight: no
 
-### Panel 4 — Regional distribution
+### Panel 3 — Priority mix
 
-Business question: Where are activities planned?
+Business question: is the function working on what matters?
+Chart: donut with a large white centre, four priority segments plus Not specified where it applies, no highlight
+Source: 06-breakdowns.csv · block=priority · measure=activities
+Footnote: The levels are peers and the split itself is the answer, so nothing is singled out. block=priority folds the source system's numbered labels and the studio's Critical/High/Medium/Low words onto this same set, in urgency order; Not specified covers an activity naming neither.
+Highlight: no
+
+### Panel 4 — Late requests by lead team
+
+Business question: which team absorbs the most work booked at under a week's notice?
 Chart: horizontal bar, sorted by value
-Source: 06-breakdowns.csv · block=region_group · measure=activities
-Footnote: An activity naming several regions appears under each; the bars do not sum to the portfolio.
-Highlight: no
+Source: 06-breakdowns.csv · block=lead_team · measure=short_notice; 01-summary.txt · PLANNING DISCIPLINE · Lead time not measurable
+Footnote: Requests received at under 7 days' notice, counted against the team carrying them. The pack knows when an activity was created and when it starts; it does not know who caused the gap, so a team at the top of this bar may be absorbing late work rather than causing it. An activity with no measurable lead time — a missing created date — is not counted here, so a short bar can mean missing dates rather than good planning.
+Highlight: yes
 
 ### Panel 5 — Executive read-out
 
-Business question: What should a reader take away?
-Chart: none (prose), four to five sentences
-Source: 01-summary.txt · LOAD · Median activities per week; 01-summary.txt · LOAD · Weeks with no activity; 01-summary.txt · LOAD · Longest run of empty weeks; 01-summary.txt · LEADERSHIP AND AUDIENCE · Large audience (top two bands)
+Business question: what do I do this month, and which board should be opened next?
+Chart: none (prose), four to five sentences ending in a route
+Source: 01-summary.txt · HORIZON · Rest of the period; 01-summary.txt · LOAD · Median activities per week; 01-summary.txt · LEADERSHIP AND AUDIENCE · Large audience (top two bands)
 Footnote: none
 Highlight: no
 
 ## What this board does not do
 
-No peak-week tile: panel 2 says it, and better. No restating the five-busiest-
-weeks share in the read-out; it is already a tile. No channel panel — channels
-have their own reading rules and are not on an executive board yet.
+No audience-band distribution and no regional distribution. Both are true and
+neither changes what anyone does; the one useful fact inside them — that the
+unknown audience band holds the external records, whose form has no such field —
+belongs in the read-out where it explains something.
 
-Forward planning thins towards the end of the horizon, so the last weeks in
-scope read as a collapse when they are merely not yet written. Say that in the
-read-out rather than reporting a decline.
+Never call an audience figure reach. Never say "the GEB": the field holds both
+levels and nothing separates them. Never read the thinning forward plan as a
+decline — say it is unwritten.
+
+End the read-out by naming a board: planning notice and lead time belong to
+Planning discipline, missing fields to Plan trust, executive time to Leadership
+attention. An overview that ends in observations competes with them; one that
+ends in a route makes them a set.
 """
 
 
@@ -310,7 +317,7 @@ at the other. Do not merge them.
 
 
 BOARDS = {
-    "board-portfolio-overview.md": PORTFOLIO_OVERVIEW,
+    "board-head-of-communications-overview.md": HEAD_OF_COMMUNICATIONS_OVERVIEW,
     "board-leadership-attention.md": LEADERSHIP_ATTENTION,
     "board-plan-trust.md": PLAN_TRUST,
 }

@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-08.1"
+$manifestVersion = "2026-08-10.6"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-08.1"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-08.1"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-10.6"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -329,7 +329,57 @@ $manifest = @(
     # reveals which version built it, so the markers have to.
     @{ Path = "pipeline\report\table_sheets.py"; Marker = "deliberately no quarter-to-quarter"; Why = "the Mix crosstabs lost the quarter delta; an old copy still prints a settled quarter against one still being planned, and every row reads as a collapse" },
     @{ Path = "pipeline\report\table_sheets.py"; Marker = 'No "Source: <file>" rows';            Why = "the Executive Summary no longer names the operator's export files to recipients who have never seen that directory" },
-    @{ Path = "pipeline\scripts\report_calendar.py"; Marker = "Source: {key} = {path.name}";     Why = "the source filenames moved to the console, so an old copy drops them entirely instead of relocating them" }
+    @{ Path = "pipeline\scripts\report_calendar.py"; Marker = "Source: {key} = {path.name}";     Why = "the source filenames moved to the console, so an old copy drops them entirely instead of relocating them" },
+    # Two blocks a board has to name that neither the workbook nor the pack
+    # carried before: priority and lead team, widened in the same place the
+    # pack already widens past the workbook. An old copy answers a
+    # priority-level or lead-team question by counting 05-activities.csv by
+    # hand, which the instructions refuse.
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "PARTITION_BREAKDOWN_FIELDS"; Why = "priority and lead team join the breakdown blocks and are marked as a partition, not overlapping -- an old copy has no such blocks at all, and a newer pack beside an older agent_pack loses the short_notice measure the same change adds" },
+    # The partition claim above was a label, not a guard: `_split_for` uses
+    # the same comma/semicolon splitter as the genuinely multi-valued fields,
+    # so a priority label or team name that happens to contain one silently
+    # broke the sum `overlaps=no` promises. An old copy ships a priority or
+    # lead-team total that quietly disagrees with the portfolio instead of
+    # refusing to build.
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "is declared in PARTITION_BREAKDOWN_FIELDS, which"; Why = "a partitioning field that splits into more than one value now raises, naming the field and the activity's tracking ID - an old copy writes the wrong total silently instead" },
+    # "Activities in scope: 1,380" mixes what is already behind the pack's own
+    # generation date with what is still ahead of it, and states neither. An
+    # old copy has no HORIZON section, so the split a reader actually needs --
+    # what has already happened vs. what is coming in the next 30 days -- is
+    # left to be summed out of forty rows of the calendar by hand.
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "Planned to date"; Why = "the HORIZON section splits the portfolio at the pack's own generation date instead of leaving it to be summed out of the calendar" },
+    # Portfolio overview answered "is the plan plausible" with an inventory
+    # that never changed what anyone did. An old copy still ships
+    # board-portfolio-overview.md and points the routing table at it, so an
+    # agent asked where to intervene opens a board that cannot answer.
+    @{ Path = "pipeline\report\dashboard_skill.py"; Marker = "HEAD_OF_COMMUNICATIONS_OVERVIEW"; Why = "the general portfolio board is replaced by one built for a head of communications - an older copy still routes to board-portfolio-overview.md, which this version no longer produces" },
+    # Agent Builder has no skill package, so its own file names and its own
+    # prompt have to follow the same rename separately -- neither is read by
+    # the other. An old copy still asks `write_builder_pack` for
+    # board-portfolio-overview.md, which raises KeyError against the renamed
+    # `dashboard_skill.BOARDS`, and its prompt still tells the agent to expect
+    # a board this version no longer ships.
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "board-head-of-communications-overview.md"; Why = "the Agent Builder file names and prompt follow the board rename - an older copy raises KeyError building the upload folder and, short of that, still points an agent at a board that no longer exists" },
+    # The checklist graded a question a counting one by searching only the two
+    # prose files, from before 06-breakdowns.csv existed. Once lead_team
+    # became a breakdown block, its top-team total was stated there outright,
+    # and an old copy still called reading it a computation -- a checklist
+    # result that passed for a reason it did not claim.
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "def _csv_text"; Why = "the checklist's haystack now includes 06-breakdowns.csv - an older copy grades a question a control's own answer as a counting question because it only ever searched the two prose files" },
+    # A final review pass over the head-of-communications board. The priority
+    # donut used to group by raw source text -- two vocabularies live in that
+    # one column at once, so it plausibly drew six to ten alphabetised slices
+    # against the chart rules' own five-segment cap. An old copy of any file
+    # below still builds and still looks like a working board; it just draws
+    # that wider donut, or lets a three-week-old pack claim its "next 30 days"
+    # tile describes today, or leaves panel 2's Chart line silent about the
+    # split, divider and peak marker its own footnote already promises.
+    @{ Path = "pipeline\report\derive.py"; Marker = "def priority_level"; Why = "collapses both priority vocabularies onto the four levels the board's donut groups by, reusing priority_rank rather than a second mapping" },
+    @{ Path = "pipeline\report\calendar_sheet.py"; Marker = "PRIORITY_LEVELS"; Why = "the priority block now sorts by urgency, not alphabetically -- an older copy interleaves Critical and Low" },
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "derive.priority_level(name)"; Why = "the pack's priority block groups by the four shared urgency levels instead of raw source text -- an older copy ships a donut over the chart rules' own five-segment cap" },
+    @{ Path = "pipeline\report\dashboard_skill.py"; Marker = "Next 30 days from the data date"; Why = "the tile names its own anchor so a stale pack cannot be misread as describing today; panel 2's Chart line also states the solid/dashed split, the vintage divider and the peak marker its footnote already promised" },
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "let one activity count twice"; Why = "the overlap rule now says a partitioning block sums to the portfolio too, not only block=TOTAL" }
 )
 
 Write-Host ""

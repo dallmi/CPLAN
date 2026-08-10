@@ -36,10 +36,11 @@ total nobody can explain.
 """
 
 import csv
+import io
 import re
 import zipfile
 from dataclasses import replace
-from datetime import date
+from datetime import date, timedelta
 
 from pipeline.report import dashboard_skill, derive, metrics
 from pipeline.report.calendar_sheet import (
@@ -121,11 +122,12 @@ CALENDAR_HEADER = ("block", "value", "overlaps", "iso_year", "iso_week",
 
 BREAKDOWN_HEADER = ("block", "value", "overlaps", "measure", "figure")
 
-# `figure`, not `count`: five of the six measures are counts and one is a
+# `figure`, not `count`: six of the seven measures are counts and one is a
 # median, and a column named `count` holding a median is a lie in the header
 # row of a file whose whole point is that a machine reads it.
 BREAKDOWN_MEASURES = ("activities", "with_executives", "large_audience",
-                      "without_pack", "unknown_audience", "median_completeness")
+                      "without_pack", "unknown_audience", "median_completeness",
+                      "short_notice")
 
 # Measures that restate the block they sit in. `large_audience` and
 # `unknown_audience` under the audience bands are the band's own definition;
@@ -140,6 +142,19 @@ TAUTOLOGICAL_MEASURES = {
     "executives_geb": ("with_executives",),
     "executives_geb1": ("with_executives",),
 }
+
+# Breakdown fields that name exactly one value per activity, and so PARTITION
+# the portfolio -- their rows genuinely sum to the total, the way the audience
+# bands do. Both are fields `pack_config` adds; every field the workbook
+# itself offers (division, region, country, executives) is multi-select at
+# the source and stays overlapping, which is why the Calendar sheet titles
+# each of THEIR blocks "multiple values possible" unconditionally rather than
+# checking whether any particular run's data happens to use it. Declared here
+# rather than inferred from one run's rows for the same reason: an activity
+# that merely doesn't name a second division this year does not make the
+# field a partition, and a block's overlap sentence has to hold regardless of
+# what one dataset does.
+PARTITION_BREAKDOWN_FIELDS = frozenset({"priority", "lead_team"})
 
 
 def _rule(text):
@@ -157,8 +172,12 @@ def iter_blocks(scope, config):
     The same three groups the sheet writes, in the same order and by the same
     rules: the portfolio, the audience bands (a partition -- every activity
     carries exactly one, Unknown included), then one group per configured
-    breakdown field (overlapping -- an activity naming two divisions appears
-    under both).
+    breakdown field -- overlapping for the workbook's own fields (an activity
+    naming two divisions appears under both, which is why the Calendar sheet
+    titles every one of these blocks "multiple values possible" regardless of
+    what any particular run's data does), a partition for the two the pack
+    adds on top (`PARTITION_BREAKDOWN_FIELDS`) -- an activity has one priority
+    and one lead team, never several.
 
     `overlaps` is the machine-readable form of the sentence the sheet writes
     into its block header. A consumer that adds up an overlapping block gets a
@@ -189,10 +208,49 @@ def iter_blocks(scope, config):
                 if field in SPLIT_FIELDS:
                     continue
                 names = [NOT_SPECIFIED]
+            # `PARTITION_BREAKDOWN_FIELDS` is a claim, not just a label: every
+            # reader of `overlaps=no` is told this block's rows sum to the
+            # portfolio. `_split_for` uses the same comma/semicolon splitter
+            # as the genuinely multi-valued fields, so a priority label or
+            # team name that happens to contain one of those characters would
+            # silently put one activity under two values and make that claim
+            # false -- the exact failure the `overlaps` column exists to
+            # catch, arriving from a field that isn't supposed to need it.
+            # Caught here, at the one place both `calendar_rows` and
+            # `breakdown_rows` derive these values from, rather than shipping
+            # a pack whose priority or lead-team total quietly exceeds it.
+            if field in PARTITION_BREAKDOWN_FIELDS and len(names) > 1:
+                tracking_id = activity.get("tracking_id", "<no tracking_id>")
+                raise ValueError(
+                    f"{field} is declared in PARTITION_BREAKDOWN_FIELDS, which "
+                    f"tells every reader of {BREAKDOWN_NAME} and {CALENDAR_NAME} "
+                    f"that this block's rows sum to the portfolio -- a board "
+                    f"sums it. Activity {tracking_id!r} breaks that: its {field} "
+                    f"value split into {len(names)} values {tuple(names)!r} "
+                    f"instead of one. Fix the source value for {tracking_id!r} "
+                    f"(a comma or semicolon inside a single {field} reads as "
+                    f"two), or remove {field!r} from PARTITION_BREAKDOWN_FIELDS "
+                    f"if it is genuinely allowed to carry more than one value."
+                )
+            # Priority is the one field this loop groups by meaning rather than
+            # by raw text: the source's numbered labels and the studio's words
+            # are two vocabularies for the same four levels, and grouping on
+            # the raw string would give a donut six to ten slices wide instead
+            # of the five the chart rules cap it at, in an order nothing
+            # orders by urgency. `derive.priority_level` reuses the same rank
+            # `analytics.js::priorityRank` computes, so this cannot drift onto
+            # a second, disagreeing mapping of its own. The split above still
+            # ran first, so a comma smuggled into a single priority value is
+            # still caught by the guard above rather than silently folded into
+            # one bucket.
+            if field == "priority":
+                names = [name if name == NOT_SPECIFIED else derive.priority_level(name)
+                         for name in names]
             for name in names:
                 values.setdefault(name, []).append(activity.name)
+        overlaps = field not in PARTITION_BREAKDOWN_FIELDS
         for name in sorted(values, key=lambda n: _sort_key(field, n)):
-            yield field, name, True, frame.loc[values[name]]
+            yield field, name, overlaps, frame.loc[values[name]]
 
 
 def calendar_rows(scope, config):
@@ -221,7 +279,7 @@ def calendar_rows(scope, config):
 
 
 def _measures(subset):
-    """The six figures a breakdown value carries, in written order."""
+    """The seven figures a breakdown value carries, in written order."""
     return (
         ("activities", len(subset)),
         ("with_executives", int(subset["has_executives"].sum())),
@@ -230,6 +288,7 @@ def _measures(subset):
         ("without_pack", metrics.pack_stats(subset)["without_pack"]),
         ("unknown_audience", int((subset["audience_band"] == BAND_UNKNOWN).sum())),
         ("median_completeness", int(subset["completeness"].median())),
+        ("short_notice", metrics.lead_time_stats(subset)["short_notice"]),
     )
 
 
@@ -306,6 +365,33 @@ def _summary_sections(scope, config, generated):
         count = int((frame.get("audience_band") == band).sum()) if total else 0
         volume.append((band, count))
 
+    # Where the plan stands relative to its own generation date. Stated rather
+    # than left to be summed out of the calendar: these are headline figures,
+    # the pack is retrieved in chunks on both delivery surfaces, and a partial
+    # read of forty week rows yields a confident wrong number. A missing figure
+    # costs less than a wrong one, and a stated figure costs neither.
+    #
+    # A partition, not a sample: "no start date" is its own exclusion reason,
+    # so every in-scope activity has one and the three counts sum to the total.
+    if total:
+        starts = frame["start_date"].dt.date
+        to_date = int((starts <= generated).sum())
+        soon = int(((starts > generated)
+                    & (starts <= generated + timedelta(days=30))).sum())
+    else:
+        to_date = soon = 0
+    # "Next 30 days" alone is a claim about today, and a pack that is weeks
+    # old by the time anyone reads it is not describing today: the label has
+    # to carry its own anchor so a reader (or an agent quoting only this
+    # tile) is not told a mostly-elapsed window is still ahead. "Planned to
+    # date" and "Rest of the period" do not have the same failure -- neither
+    # implies a window starting now -- so only this one is renamed.
+    horizon = [
+        ("Planned to date", to_date),
+        ("Next 30 days from the data date", soon),
+        ("Rest of the period", total - to_date - soon),
+    ]
+
     stats = metrics.load_stats(scope)
     load = [
         ("Median activities per week", stats["median_per_week"]),
@@ -340,6 +426,7 @@ def _summary_sections(scope, config, generated):
     return [
         ("REPORT", report),
         ("VOLUME", volume),
+        ("HORIZON", horizon),
         ("LOAD", load),
         ("LEADERSHIP AND AUDIENCE", leadership),
         ("PLANNING DISCIPLINE", discipline),
@@ -442,7 +529,9 @@ def glossary_text(scope, config):
         "does not need reviewing.",
         f"Overlapping rows do not sum. In {CALENDAR_NAME} a row with "
         "overlaps=yes belongs to a block where an activity naming two values "
-        f"appears under both. Only block={TOTAL_BLOCK} is a true total.",
+        f"appears under both. block={TOTAL_BLOCK} is the portfolio, and an "
+        "overlaps=no block -- priority or lead_team, for instance -- sums to "
+        "it just the same; only an overlapping block does not.",
         f"Only counts answer \"how many\". In {BREAKDOWN_NAME}, "
         "measure=median_completeness is a median per value: it does not "
         "combine, on an overlapping block or a partitioning one. The overlap "
@@ -708,8 +797,9 @@ columns label the start, and the start may lie outside.
 
 **Overlapping rows do not sum.** In `{CALENDAR_NAME}`, a row with
 `overlaps=yes` belongs to a block where one activity can appear under two
-values. Adding such a block up gives a number larger than the portfolio. Only
-`block={TOTAL_BLOCK}` is a true total.
+values. Adding such a block up gives a number larger than the portfolio.
+`block={TOTAL_BLOCK}` is the portfolio, and any `overlaps=no` block -- priority
+and lead_team included -- sums to it too; only an overlapping block does not.
 
 ## When you count from `{ACTIVITIES_CSV_NAME}`
 
@@ -881,7 +971,7 @@ Do NOT flag the following, which are the report working as designed:
 These come from the data rather than from good reporting practice, and they override general analytical instinct.
 
 - **Scope is a hard filter.** The period is named at the top of `01-summary.txt`. An activity outside it is absent from the pack, not zero — a question about a date outside the period is out of scope, not an answer of nought.
-- **Overlapping rows do not sum.** In `04-calendar.csv`, a row marked `overlaps=yes` sits in a block where one activity can appear under two values (two divisions, two regions). Adding such a block up gives a number larger than the portfolio. Only `block=TOTAL` is a true total.
+- **Overlapping rows do not sum.** In `04-calendar.csv`, a row marked `overlaps=yes` sits in a block where one activity can appear under two values (two divisions, two regions). Adding such a block up gives a number larger than the portfolio. `block=TOTAL` is the portfolio, and any `overlaps=no` block -- priority and lead_team included -- sums to it too; only an overlapping block does not.
 - **Audience is a planning estimate, never measured reach.** CPLAN holds no measured reach at all. Summing audience counts contacts, not people — one person inside six activities counts six times. Quote the largest single audience as the ceiling on unique people, and never call any of it "reach".
 - **GEB/GEB-1 is one field holding both levels**, with nothing in the data saying which. Never name someone as a GEB member, and never answer "how many activities involve the GEB" — the honest answer is "GEB or GEB-1".
 - **`channel` and `target_audience` hold several values in one string.** A value like "Email, Intranet" is one combination, not one channel.
@@ -1110,7 +1200,17 @@ def pack_config(config):
     states it at the top, and a pack covering every year answers a question
     nobody asked while making every figure in it mean something else.
     """
-    return replace(config, exclude_priorities=(), exclude_objectives=())
+    # Two dimensions the workbook has no block for and the pack needs: a board
+    # that names a team or a priority level has nowhere else to read one, and
+    # deriving it from the activities file is the thing the instructions
+    # refuse. Appended rather than substituted, and appended HERE rather than
+    # in `ReportConfig`, for the reason the priority and objective filters are
+    # dropped here: the workbook is a planning instrument and the pack answers
+    # questions, and only the second one needs these.
+    extra = tuple(field for field in ("priority", "lead_team")
+                  if field not in config.breakdown_fields)
+    return replace(config, exclude_priorities=(), exclude_objectives=(),
+                   breakdown_fields=config.breakdown_fields + extra)
 
 
 def report_exclusion(activity, report_config):
@@ -1184,6 +1284,21 @@ def activity_rows(scope, report_config=None):
 # Writing
 # --------------------------------------------------------------------------
 
+def _csv_text(header, rows):
+    """The exact text `_write_csv` would write, without touching disk.
+
+    `checklist_questions` searches this to decide whether a question is
+    already answered by a shipped CSV, so it has to be the same serialisation
+    an agent actually reads -- not a hand-rolled approximation that could
+    disagree with the file on a quoting or delimiter edge case.
+    """
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(header)
+    writer.writerows(rows)
+    return buffer.getvalue()
+
+
 def _write_csv(path, header, rows, bom=False):
     """Write a CSV, optionally with the byte-order mark Windows tooling wants.
 
@@ -1195,9 +1310,7 @@ def _write_csv(path, header, rows, bom=False):
     """
     encoding = "utf-8-sig" if bom else "utf-8"
     with path.open("w", newline="", encoding=encoding) as handle:
-        writer = csv.writer(handle)
-        writer.writerow(header)
-        writer.writerows(rows)
+        handle.write(_csv_text(header, rows))
 
 
 def write_pack(scope, config, out_dir, generated=None, report_config=None):
@@ -1308,7 +1421,30 @@ def checklist_questions(scope, config):
     """
     frame = scope.frame
     total = len(frame)
-    haystack = summary_text(scope, config) + data_quality_text(scope, config)
+    # The haystack was `summary_text + data_quality_text` alone from the day
+    # this grading was added (3c270fd, 2026-08-06) until the day after
+    # (fd4982d, 2026-08-07): at the time, those two prose files were the only
+    # place a FINISHED figure -- as opposed to one row of many -- was ever
+    # written down, so searching anywhere else could only have added false
+    # matches. `06-breakdowns.csv` did not exist yet.
+    #
+    # It does now, and that reasoning no longer covers it. Once a field is a
+    # breakdown block, its per-value totals are stated in `06-breakdowns.csv`
+    # exactly as finished as the prose figures are -- `lead_team,Team,no,
+    # activities,19` states "Team: 19" as plainly as `External: 275` does --
+    # and leaving it out of the haystack does not make that question harder,
+    # it just makes the checklist wrong about whether reading answers it.
+    #
+    # `04-calendar.csv` is deliberately still left out. It carries the same
+    # blocks split by ISO week, and no single line in it ever states a
+    # value's total for the whole period -- that figure only exists after
+    # summing the value's rows across every week, which is the counting this
+    # checklist exists to require. Including it would risk the opposite
+    # mistake `_states` already guards against once: a value's count in one
+    # particular week coincidentally matching a probe's number would grade a
+    # counting question as a control on a line that never actually answers it.
+    haystack = (summary_text(scope, config) + data_quality_text(scope, config)
+                + _csv_text(BREAKDOWN_HEADER, breakdown_rows(scope, config)))
 
     # (question, answer, probe, reason). The probe is what the pack would have
     # to state, on one line, for reading to be enough.
