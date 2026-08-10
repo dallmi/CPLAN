@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-10.10"
+$manifestVersion = "2026-08-10.11"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-10.10"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-10.10"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-10.11"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -418,7 +418,14 @@ $manifest = @(
     # copy of any file below draws that image again and reports nothing wrong.
     @{ Path = "pipeline\report\agent_pack.py"; Marker = "Cut the canvas into panel rectangles"; Why = "the layout rules are written as construction rules, and a panel's parts are placed against its own rectangle - an older copy states only that nothing may overlap, which is a property the agent cannot verify without seeing what it drew" },
     @{ Path = "pipeline\report\agent_builder.py"; Marker = "Cut the canvas into panel rectangles"; Why = "the same geometry on the surface with no skills - an older copy leaves this delivery with the check-it-afterwards wording the other one has already dropped" },
-    @{ Path = "pipeline\report\dashboard_skill.py"; Marker = "naming one board, and only one"; Why = "the overview routes to one of the three boards that exist - an older copy sends a head of communications to `Planning discipline`, which is deferred and undrawable, and invites a read-out that lists every route and so chooses none" }
+    @{ Path = "pipeline\report\dashboard_skill.py"; Marker = "naming one board, and only one"; Why = "the overview routes to one of the three boards that exist - an older copy sends a head of communications to `Planning discipline`, which is deferred and undrawable, and invites a read-out that lists every route and so chooses none" },
+
+    # The scope footnote reached the Studio prompt eighteen minutes after the
+    # Agent Builder prompt was cut from it, and eight later edits to that file
+    # never picked it up. An old copy draws a board whose headline total is
+    # larger than the workbook in the reader's hand, with nothing on the image
+    # saying which of the two it is.
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "includes M the report excludes"; Why = "an image stating a total prints its scope, on the surface where the checklist asking for it is a retrieved file rather than a loaded one - an older copy asks the question in `08-chart-standards.txt` and states the answer nowhere at all" }
 )
 
 Write-Host ""

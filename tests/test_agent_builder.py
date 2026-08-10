@@ -104,6 +104,7 @@ def test_no_rule_was_lost_in_the_compression():
             "one combination, not one channel",       # multi-value strings
             "the week it starts",                     # weekly placement
             "in_report",                              # wider than the workbook
+            "includes M the report excludes",         # and an image says which
             "planning studio",                        # where to send what is missing
             "#E60000",                                # the accent
             "#7A7870",                                # the default series
@@ -303,6 +304,27 @@ def test_both_copies_of_the_chart_standards_carry_the_same_layout_rules():
                        "as wide as its longest category name",
                        "place it outside every plot area"):
             assert marker in collapsed, f"{name} dropped {marker!r}"
+
+
+def test_both_prompts_require_the_scope_footnote_in_one_shape():
+    """The rule that survives being forwarded, stated identically on both.
+
+    It reached the Studio prompt eighteen minutes after this one was cut from
+    it, and eight later edits to `agent_builder` never noticed: the checklist
+    question travelled -- "does the footnote say what that total counts?" --
+    while the answer stayed behind. A question with no answer is worse here
+    than on the other surface, because here the question is in a file
+    retrieval has to find, and the boards that most need it are the artefacts
+    least likely to be questioned once they are wrong.
+
+    The shape is asserted rather than the intent. Two footnotes saying the
+    same thing in two wordings are two totals as far as a reader holding both
+    images is concerned, which is the failure the rule exists to prevent.
+    """
+    shape = "Activities in scope: N — includes M the report excludes"
+    for name, text in (("the Studio prompt", agent_pack.INSTRUCTIONS_TEXT),
+                       ("the Builder prompt", agent_builder.INSTRUCTIONS_TEXT)):
+        assert shape in text, f"{name} does not state the scope footnote"
 
 
 def test_each_board_travels_as_its_own_file(tmp_path):
