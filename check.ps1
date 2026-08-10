@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-10.6"
+$manifestVersion = "2026-08-10.7"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-10.6"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-10.6"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-10.7"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -379,7 +379,17 @@ $manifest = @(
     @{ Path = "pipeline\report\calendar_sheet.py"; Marker = "PRIORITY_LEVELS"; Why = "the priority block now sorts by urgency, not alphabetically -- an older copy interleaves Critical and Low" },
     @{ Path = "pipeline\report\agent_pack.py"; Marker = "derive.priority_level(name)"; Why = "the pack's priority block groups by the four shared urgency levels instead of raw source text -- an older copy ships a donut over the chart rules' own five-segment cap" },
     @{ Path = "pipeline\report\dashboard_skill.py"; Marker = "Next 30 days from the data date"; Why = "the tile names its own anchor so a stale pack cannot be misread as describing today; panel 2's Chart line also states the solid/dashed split, the vintage divider and the peak marker its footnote already promised" },
-    @{ Path = "pipeline\report\agent_builder.py"; Marker = "let one activity count twice"; Why = "the overlap rule now says a partitioning block sums to the portfolio too, not only block=TOTAL" }
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "let one activity count twice"; Why = "the overlap rule now says a partitioning block sums to the portfolio too, not only block=TOTAL" },
+
+    # A lead team named after two disciplines carries a comma inside its own
+    # name. The generic splitter read it as two teams, filed the activity under
+    # both, and the guard then refused the whole pack rather than ship a block
+    # that no longer sums to the portfolio -- a real run stopped on exactly
+    # this. An old copy of any file below either refuses that run again or,
+    # worse, splits the name and ships the wider total.
+    @{ Path = "pipeline\report\derive.py"; Marker = "def split_semicolon"; Why = "the separator for every field whose one value may itself carry a comma - an older copy has no such splitter, so the fields below fall back to the comma-splitting one" },
+    @{ Path = "pipeline\report\calendar_sheet.py"; Marker = "PARTITION_BREAKDOWN_FIELDS"; Why = "the partition claim and the separator that makes it true now live in one place - an older copy still splits a lead team's own comma and leaves agent_pack.py importing a name it does not have" },
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "a semicolon separates two values here"; Why = "the guard now fires on a real second value, not on punctuation, and its message says which character actually separates - an older copy sends the operator to edit a team name that was correct" }
 )
 
 Write-Host ""

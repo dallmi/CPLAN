@@ -36,6 +36,25 @@ def split_multi(value):
     return [part.strip() for part in re.split(r"[;,]", text) if part.strip()]
 
 
+def split_semicolon(value):
+    """The values in one cell, semicolon only -- never comma.
+
+    The splitter for every field whose ONE value may itself carry a comma. A
+    person picker writes "Last, First"; a team named after two disciplines
+    carries a comma between them the same way. `split_multi` reads either as
+    two values, and for a field that names exactly one value per activity that
+    is not merely a wrong label -- it puts the activity under two headings and
+    the block stops summing to the portfolio.
+
+    The semicolon stays a separator so a cell that really does hold two values
+    still reads as two, and callers that promise a partition can say so.
+    """
+    text = _text(value)
+    if not text:
+        return []
+    return [part.strip() for part in text.split(";") if part.strip()]
+
+
 # Boundaries in ascending order: (upper bound inclusive, band).
 _BAND_BOUNDS = (
     (999, BAND_UNDER_1K),
@@ -132,10 +151,7 @@ def split_people(value):
     with a semicolon, and the ETL joins person arrays the same way, so this is
     the one separator that means "next person" in both paths.
     """
-    text = _text(value)
-    if not text:
-        return []
-    return [part.strip() for part in text.split(";") if part.strip()]
+    return split_semicolon(value)
 
 
 def split_people_aligned(value):

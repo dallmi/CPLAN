@@ -452,22 +452,60 @@ def test_short_notice_is_a_measure_and_agrees_with_the_metrics(tmp_path):
 
 
 @pytest.mark.parametrize("field", ["priority", "lead_team"])
-def test_a_comma_inside_a_partitioning_field_fails_loudly(tmp_path, field):
-    """`PARTITION_BREAKDOWN_FIELDS` tells every reader of `overlaps=no` that a
-    block's rows sum to the portfolio -- a board sums it. `_split_for` uses the
-    same comma/semicolon splitter as the genuinely multi-valued fields, so a
-    priority label or team name that happens to contain one would silently put
-    one activity under two values and make that promise false. This must raise
-    instead of shipping a pack whose total quietly disagrees with itself.
+def test_a_comma_inside_a_partitioning_field_stays_one_value(tmp_path, field):
+    """A team named after two disciplines carries a comma inside its own name.
 
-    The malformed value is set on a copy of the fixture scope's own frame,
-    not added to `tests/report_fixtures.py`: every other test reads that
-    fixture, and a deliberately broken row would leak into all of them.
+    Real value from a real run: one lead team, one comma, and the generic
+    splitter read it as two teams -- which put the activity under both and
+    stopped `overlaps=no` from being true, so the guard below refused the whole
+    pack. The comma belongs to the name, exactly as it does in a person's
+    "Last, First", so a partitioning field splits on the semicolon only.
+
+    Both halves are asserted here, because either alone can pass while the
+    block is wrong: the value survives whole, AND the block still partitions.
+
+    The value is set on a copy of the fixture scope's own frame, not added to
+    `tests/report_fixtures.py`: every other test reads that fixture, and a row
+    shaped for one test would leak into all of them.
+    """
+    scope, config = _scope(tmp_path)
+    packed = agent_pack.pack_config(config)
+    index = scope.frame.index[0]
+    scope.frame.loc[index, field] = "First value, Second value"
+
+    blocks = [(value, subset) for block, value, _, subset
+              in agent_pack.iter_blocks(scope, packed) if block == field]
+    values = [value for value, _ in blocks]
+
+    # Priority is grouped by meaning, so the raw label is not what lands in the
+    # block -- what matters there is that the comma did not multiply the rows.
+    if field == "lead_team":
+        assert "First value, Second value" in values, (
+            f"the comma split one team into two: {values}")
+    assert "First value" not in values and "Second value" not in values, (
+        f"a fragment of the value became a block of its own: {values}")
+
+    # And the promise the block makes: `overlaps=no` means these rows sum to
+    # the portfolio. One activity counted twice is exactly what breaks it.
+    assert sum(len(subset) for _, subset in blocks) == len(scope.frame), (
+        f"{field} rows no longer sum to the portfolio: "
+        f"{[(value, len(subset)) for value, subset in blocks]}")
+
+
+@pytest.mark.parametrize("field", ["priority", "lead_team"])
+def test_a_semicolon_inside_a_partitioning_field_fails_loudly(tmp_path, field):
+    """`PARTITION_BREAKDOWN_FIELDS` tells every reader of `overlaps=no` that a
+    block's rows sum to the portfolio -- a board sums it. The semicolon stays a
+    separator for these fields, so a cell that really does name two teams would
+    silently put one activity under both and make that promise false. This must
+    raise instead of shipping a pack whose total quietly disagrees with itself.
+
+    Set on a copy of the fixture scope's frame, for the reason above.
     """
     scope, config = _scope(tmp_path)
     index = scope.frame.index[0]
     tracking_id = scope.frame.loc[index, "tracking_id"]
-    scope.frame.loc[index, field] = "First value, Second value"
+    scope.frame.loc[index, field] = "First value; Second value"
 
     with pytest.raises(ValueError) as excinfo:
         list(agent_pack.iter_blocks(scope, agent_pack.pack_config(config)))

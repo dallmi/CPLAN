@@ -45,6 +45,7 @@ from datetime import date, timedelta
 from pipeline.report import dashboard_skill, derive, metrics
 from pipeline.report.calendar_sheet import (
     NOT_SPECIFIED,
+    PARTITION_BREAKDOWN_FIELDS,
     SPLIT_FIELDS,
     _sort_key,
     _split_for,
@@ -143,19 +144,6 @@ TAUTOLOGICAL_MEASURES = {
     "executives_geb1": ("with_executives",),
 }
 
-# Breakdown fields that name exactly one value per activity, and so PARTITION
-# the portfolio -- their rows genuinely sum to the total, the way the audience
-# bands do. Both are fields `pack_config` adds; every field the workbook
-# itself offers (division, region, country, executives) is multi-select at
-# the source and stays overlapping, which is why the Calendar sheet titles
-# each of THEIR blocks "multiple values possible" unconditionally rather than
-# checking whether any particular run's data happens to use it. Declared here
-# rather than inferred from one run's rows for the same reason: an activity
-# that merely doesn't name a second division this year does not make the
-# field a partition, and a block's overlap sentence has to hold regardless of
-# what one dataset does.
-PARTITION_BREAKDOWN_FIELDS = frozenset({"priority", "lead_team"})
-
 
 def _rule(text):
     """A rule line for the prose files: one blank line, then the sentence."""
@@ -210,15 +198,15 @@ def iter_blocks(scope, config):
                 names = [NOT_SPECIFIED]
             # `PARTITION_BREAKDOWN_FIELDS` is a claim, not just a label: every
             # reader of `overlaps=no` is told this block's rows sum to the
-            # portfolio. `_split_for` uses the same comma/semicolon splitter
-            # as the genuinely multi-valued fields, so a priority label or
-            # team name that happens to contain one of those characters would
-            # silently put one activity under two values and make that claim
-            # false -- the exact failure the `overlaps` column exists to
-            # catch, arriving from a field that isn't supposed to need it.
-            # Caught here, at the one place both `calendar_rows` and
-            # `breakdown_rows` derive these values from, rather than shipping
-            # a pack whose priority or lead-team total quietly exceeds it.
+            # portfolio. `_split_for` keeps a comma inside these values for
+            # exactly that reason -- a team name may carry one -- but the
+            # semicolon still separates, so a cell holding two teams would put
+            # one activity under both and make the claim false: the exact
+            # failure the `overlaps` column exists to catch, arriving from a
+            # field that isn't supposed to need it. Caught here, at the one
+            # place both `calendar_rows` and `breakdown_rows` derive these
+            # values from, rather than shipping a pack whose priority or
+            # lead-team total quietly exceeds it.
             if field in PARTITION_BREAKDOWN_FIELDS and len(names) > 1:
                 tracking_id = activity.get("tracking_id", "<no tracking_id>")
                 raise ValueError(
@@ -228,9 +216,10 @@ def iter_blocks(scope, config):
                     f"sums it. Activity {tracking_id!r} breaks that: its {field} "
                     f"value split into {len(names)} values {tuple(names)!r} "
                     f"instead of one. Fix the source value for {tracking_id!r} "
-                    f"(a comma or semicolon inside a single {field} reads as "
-                    f"two), or remove {field!r} from PARTITION_BREAKDOWN_FIELDS "
-                    f"if it is genuinely allowed to carry more than one value."
+                    f"(a semicolon separates two values here; a comma is read "
+                    f"as part of the name), or remove {field!r} from "
+                    f"PARTITION_BREAKDOWN_FIELDS if it is genuinely allowed to "
+                    f"carry more than one value."
                 )
             # Priority is the one field this loop groups by meaning rather than
             # by raw text: the source's numbered labels and the studio's words
@@ -239,10 +228,10 @@ def iter_blocks(scope, config):
             # of the five the chart rules cap it at, in an order nothing
             # orders by urgency. `derive.priority_level` reuses the same rank
             # `analytics.js::priorityRank` computes, so this cannot drift onto
-            # a second, disagreeing mapping of its own. The split above still
-            # ran first, so a comma smuggled into a single priority value is
-            # still caught by the guard above rather than silently folded into
-            # one bucket.
+            # a second, disagreeing mapping of its own. A comma inside a
+            # priority label reaches this line intact -- `_split_for` no longer
+            # breaks these values on it -- and `priority_level` reads the
+            # leading digit or the words, neither of which the comma disturbs.
             if field == "priority":
                 names = [name if name == NOT_SPECIFIED else derive.priority_level(name)
                          for name in names]

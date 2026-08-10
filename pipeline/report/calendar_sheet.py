@@ -26,7 +26,7 @@ from openpyxl.utils import get_column_letter
 
 from pipeline.report import regions, style
 from pipeline.report.config import AUDIENCE_BAND_ORDER, EXECUTIVES_SPLIT, FIELD_TITLES
-from pipeline.report.derive import PRIORITY_LEVELS, split_multi, split_people
+from pipeline.report.derive import PRIORITY_LEVELS, split_multi, split_semicolon
 
 SHEET_NAME = "Calendar"
 LABEL_COL = 1
@@ -72,9 +72,39 @@ PEOPLE_FIELDS = frozenset({
 # set and `report_calendar.py`'s swap cannot silently drift apart.
 SPLIT_FIELDS = frozenset(EXECUTIVES_SPLIT)
 
+# Breakdown fields that name exactly one value per activity, and so PARTITION
+# the portfolio -- their rows genuinely sum to the total, the way the audience
+# bands do. Both are fields `agent_pack.pack_config` adds; every field the
+# workbook itself offers (division, region, country, executives) is multi-select
+# at the source and stays overlapping, which is why the Calendar sheet titles
+# each of THEIR blocks "multiple values possible" unconditionally rather than
+# checking whether any particular run's data happens to use it. Declared here
+# rather than inferred from one run's rows for the same reason: an activity
+# that merely doesn't name a second division this year does not make the field
+# a partition, and a block's overlap sentence has to hold regardless of what
+# one dataset does.
+#
+# Declared HERE, next to the splitter, rather than in `agent_pack` where the
+# `overlaps` column is written: the partition claim and the separator that
+# makes it true are one decision. Two sets, one per module, could only ever
+# disagree -- the same reason `SPLIT_FIELDS` reads `EXECUTIVES_SPLIT` instead
+# of naming those columns a second time.
+PARTITION_BREAKDOWN_FIELDS = frozenset({"priority", "lead_team"})
+
 
 def _split_for(field, value):
-    return split_people(value) if field in PEOPLE_FIELDS else split_multi(value)
+    # A partitioning field splits on the semicolon for the same reason a people
+    # field does, and the stakes are higher. Its one value is a label somebody
+    # typed, and a team named after two disciplines carries a comma inside its
+    # own name; the generic splitter reads that as two teams, files the
+    # activity under both, and the block that tells every reader `overlaps=no`
+    # then sums to more than the portfolio. The semicolon stays a separator, so
+    # a value that really does name two teams still reaches
+    # `agent_pack.iter_blocks`'s guard rather than quietly becoming one bucket
+    # labelled "A; B".
+    if field in PEOPLE_FIELDS or field in PARTITION_BREAKDOWN_FIELDS:
+        return split_semicolon(value)
+    return split_multi(value)
 
 
 def _column_positions(columns):
