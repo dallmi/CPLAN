@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-10.14"
+$manifestVersion = "2026-08-10.15"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-10.14"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-10.14"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-10.15"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -443,7 +443,15 @@ $manifest = @(
     # disagreed with the original: it did not drop a lookup's #Id companion
     # and did not stop a second column from claiming an already-matched
     # label, so it reported both as "mapped" when transform_packs drops both.
-    @{ Path = "pipeline\scripts\process_cplan.py"; Marker = "resolve_pack_columns"; Why = "the pack column-matching rule, factored out of transform_packs so the pack-link diagnostic calls the ETL's own rule instead of a second copy that can drift from it - an older copy has no such function and the diagnostic reimplements the rule instead" }
+    @{ Path = "pipeline\scripts\process_cplan.py"; Marker = "resolve_pack_columns"; Why = "the pack column-matching rule, factored out of transform_packs so the pack-link diagnostic calls the ETL's own rule instead of a second copy that can drift from it - an older copy has no such function and the diagnostic reimplements the rule instead" },
+
+    # The scoring half of the pack-link diagnostic, and the launcher an
+    # operator runs it from without a terminal. An older copy prints only the
+    # raw pack-column inventory and has no verdict, no exit-code contract and
+    # no double-clickable entry point.
+    @{ Path = "pipeline\scripts\check_pack_link.py"; Marker = "PACK_LINK_CANDIDATES"; Why = "the three columns scored against the pack list and the score() function that measures each - an older copy only lists the pack export's raw columns and cannot say which one is the real link" },
+    @{ Path = "pipeline\scripts\check_pack_link.py"; Marker = "MIN_LINK_RATE"; Why = "the 80% floor a candidate must clear before the check exits 0 - an older copy has no floor and always exits 0 once the pack export is found, so a broken link would report as fine" },
+    @{ Path = "packlink.ps1";                  Marker = "check_pack_link";                Why = "the launcher for that check - double-clickable via packlink.cmd" }
 )
 
 Write-Host ""
