@@ -312,6 +312,27 @@ def report(results: list[Result], show_all: bool) -> None:
     print()
 
 
+CSV_COLUMNS = ("id", "status", "source_file", "sp_id", "activity_name", "hint")
+
+
+def write_csv(path: Path, results: list[Result]) -> None:
+    """Every row, found and missing alike -- a file is read by a spreadsheet."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", newline="", encoding="utf-8-sig") as handle:
+        writer = csv_module.writer(handle)
+        writer.writerow(CSV_COLUMNS)
+        for result in results:
+            entry = result.entry
+            writer.writerow([
+                result.listed,
+                result.status,
+                entry.source if entry else "",
+                entry.sp_id if entry else "",
+                entry.activity_name if entry else "",
+                result.hint.text,
+            ])
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
@@ -375,6 +396,11 @@ def main(argv: list[str] | None = None) -> int:
     print()
     results = check(listed, counts, index)
     report(results, args.all)
+
+    if args.csv is not None:
+        write_csv(args.csv, results)
+        log(f"Result written to {args.csv}")
+        print()
 
     return 0 if all(r.entry for r in results) else 1
 

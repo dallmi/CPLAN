@@ -282,3 +282,52 @@ def test_a_folder_without_an_activity_export_says_so(tmp_path, capsys):
 
     assert check_tracking_ids.main(["--ids", str(ids), "--input", str(tmp_path)]) == 1
     assert "no activity export found" in capsys.readouterr().out
+
+
+def test_the_csv_carries_found_and_missing_rows_without_all(tmp_path, capsys):
+    """A file is read by a spreadsheet, not by a person -- --all does not gate it."""
+    _export(tmp_path, "InternalCommunicationActivities.csv", (LIVE, "1", "Quarterly report"))
+    ids = _ids(tmp_path, LIVE, ARCHIVED)
+    out_csv = tmp_path / "result.csv"
+
+    exit_code = check_tracking_ids.main(
+        ["--ids", str(ids), "--input", str(tmp_path), "--csv", str(out_csv)]
+    )
+
+    assert exit_code == 1
+    with open(out_csv, newline="", encoding="utf-8-sig") as handle:
+        rows = list(csv.DictReader(handle))
+
+    assert [r["id"] for r in rows] == [LIVE, ARCHIVED]
+    assert rows[0]["status"] == "found"
+    assert rows[0]["source_file"] == "internal"
+    assert rows[0]["sp_id"] == "1"
+    assert rows[0]["activity_name"] == "Quarterly report"
+    assert rows[0]["hint"] == ""
+    assert rows[1]["status"] == "missing"
+    assert rows[1]["source_file"] == ""
+    assert rows[1]["activity_name"] == ""
+
+
+def test_the_csv_hint_is_the_whole_sentence(tmp_path):
+    """The terminal splits it over two columns; a file has room for one string."""
+    _export(tmp_path, "InternalCommunicationActivities.csv", (OTHER_CHANNEL, "1", "A"))
+    ids = _ids(tmp_path, LIVE)
+    out_csv = tmp_path / "result.csv"
+
+    check_tracking_ids.main(["--ids", str(ids), "--input", str(tmp_path), "--csv", str(out_csv)])
+
+    with open(out_csv, newline="", encoding="utf-8-sig") as handle:
+        rows = list(csv.DictReader(handle))
+
+    assert rows[0]["hint"] == f"wrong channel, it is INT: {OTHER_CHANNEL}"
+
+
+def test_the_csv_path_is_named_in_the_report(tmp_path, capsys):
+    _export(tmp_path, "InternalCommunicationActivities.csv", (LIVE, "1", "A"))
+    ids = _ids(tmp_path, LIVE)
+    out_csv = tmp_path / "result.csv"
+
+    check_tracking_ids.main(["--ids", str(ids), "--input", str(tmp_path), "--csv", str(out_csv)])
+
+    assert "result.csv" in capsys.readouterr().out
