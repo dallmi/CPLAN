@@ -943,6 +943,38 @@ PACKS_DATE_COLUMNS = {"start_date", "launch_date", "created", "modified"}
 PACKS_HTML_COLUMNS = {"short_description"}
 
 
+def resolve_pack_columns(columns):
+    """Match pack-export columns against `PACKS_COLUMN_MAP`: decode, then
+    longest-label-first, one label claimed by at most one column.
+
+    Returns `{raw_column: output_label}` for every column that matched; a
+    column absent from the result matched no label. `columns` is expected to
+    already have noise companions (`#Id`, `#WssId`, `#Claims`, `@odata.type`)
+    removed -- `transform_packs` drops those before calling this, and expects
+    this to name only the columns that survive that step.
+
+    Factored out of `transform_packs` so `check_pack_link.unmapped_columns`
+    can call the exact rule the ETL renames by, instead of keeping a second
+    copy that can silently drift from it. It once did: a column reported here
+    as unmapped is now exactly a column the harmonised frame will not have.
+    """
+    labels_sorted = sorted(PACKS_COLUMN_MAP.keys(), key=len, reverse=True)
+    claimed_labels = set()
+    rename_map = {}
+
+    for col in columns:
+        decoded = decode_sp_column_name(col).strip()
+        for label in labels_sorted:
+            if label in claimed_labels:
+                continue
+            if col == label or decoded == label or decoded.startswith(label):
+                rename_map[col] = PACKS_COLUMN_MAP[label]
+                claimed_labels.add(label)
+                break
+
+    return rename_map
+
+
 def transform_packs(df):
     """Transform CommunicationPacks CSV with explicit column mapping."""
     df.columns = [c.strip() for c in df.columns]
@@ -955,21 +987,7 @@ def transform_packs(df):
 
     log(f"  {len(df.columns)} columns after cleanup")
 
-    # Same matching logic as activities: decode, then longest-label-first
-    labels_sorted = sorted(PACKS_COLUMN_MAP.keys(), key=len, reverse=True)
-    rename_map = {}
-    claimed_labels = set()
-
-    for col in df.columns:
-        decoded = decode_sp_column_name(col).strip()
-        for label in labels_sorted:
-            if label in claimed_labels:
-                continue
-            if col == label or decoded == label or decoded.startswith(label):
-                rename_map[col] = PACKS_COLUMN_MAP[label]
-                claimed_labels.add(label)
-                break
-
+    rename_map = resolve_pack_columns(df.columns)
     df = df.rename(columns=rename_map)
 
     # Keep only mapped columns

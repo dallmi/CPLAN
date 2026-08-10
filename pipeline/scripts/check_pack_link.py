@@ -32,7 +32,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from pipeline.scripts.process_cplan import (  # noqa: E402
-    PACKS_COLUMN_MAP,
+    _is_noise_col,
     decode_sp_column_name,
     find_input_dir,
     find_input_files,
@@ -40,6 +40,7 @@ from pipeline.scripts.process_cplan import (  # noqa: E402
     print_banner,
     print_kv,
     print_table,
+    resolve_pack_columns,
 )
 
 PACK_KEY = "packs"
@@ -48,18 +49,23 @@ PACK_KEY = "packs"
 def unmapped_columns(raw_columns):
     """One row per export column: raw name, decoded name, mapped or not.
 
-    The match is the one `transform_packs` performs -- exact on the raw name,
-    exact on the decoded name, or the decoded name starting with the label --
-    so a column reported here as unmapped is exactly a column the harmonised
-    frame will not have.
+    Routed through `transform_packs`'s own two steps -- `_is_noise_col` drops
+    a lookup's `#Id`/`#WssId`/`#Claims`/`@odata.type` companion before
+    anything is matched, then `resolve_pack_columns` claims each label for at
+    most one column -- rather than re-deriving that rule here. A separate
+    implementation of the match once reported a noise companion, and the
+    losing half of a duplicate label, as "mapped" when `transform_packs`
+    drops both; routing through the same two functions means this cannot
+    drift from what the ETL actually keeps.
     """
+    names = [raw.strip() for raw in raw_columns]
+    survivors = [name for name in names if not _is_noise_col(name)]
+    rename_map = resolve_pack_columns(survivors)
+
     rows = []
-    for raw in raw_columns:
-        name = raw.strip()
+    for name in names:
         decoded = decode_sp_column_name(name).strip()
-        hit = any(name == label or decoded == label or decoded.startswith(label)
-                  for label in PACKS_COLUMN_MAP)
-        rows.append((name, decoded, "mapped" if hit else "unmapped"))
+        rows.append((name, decoded, "mapped" if name in rename_map else "unmapped"))
     return rows
 
 

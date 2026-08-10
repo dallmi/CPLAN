@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-10.13"
+$manifestVersion = "2026-08-10.14"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-10.13"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-10.13"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-10.14"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -436,7 +436,14 @@ $manifest = @(
     # name beside it, was mapped and lookup-parsed the whole time and simply
     # never written out. An old copy still shows only CP-100 in both
     # 05-activities.csv and the workbook's Activities sheet.
-    @{ Path = "pipeline\report\table_sheets.py"; Marker = "The name beside the number"; Why = "the activity rows gain a Pack column stating the pack's name, not only its CP-100 identifier - an older copy leaves a reader unable to ask about a pack by the name it actually has" }
+    @{ Path = "pipeline\report\table_sheets.py"; Marker = "The name beside the number"; Why = "the activity rows gain a Pack column stating the pack's name, not only its CP-100 identifier - an older copy leaves a reader unable to ask about a pack by the name it actually has" },
+
+    # The column-matching loop transform_packs renamed by was copied a second
+    # time into check_pack_link.py's diagnostic, and the copy silently
+    # disagreed with the original: it did not drop a lookup's #Id companion
+    # and did not stop a second column from claiming an already-matched
+    # label, so it reported both as "mapped" when transform_packs drops both.
+    @{ Path = "pipeline\scripts\process_cplan.py"; Marker = "resolve_pack_columns"; Why = "the pack column-matching rule, factored out of transform_packs so the pack-link diagnostic calls the ETL's own rule instead of a second copy that can drift from it - an older copy has no such function and the diagnostic reimplements the rule instead" }
 )
 
 Write-Host ""
