@@ -360,6 +360,11 @@ enough separation for seven segments without a brand colour competing with the
 data. Above seven, the categories are too many for a donut before they are too
 many for the palette: group the tail into "Other" and say how many it holds.
 
+That list is the order of the colours, not permission to reorder the
+categories. The segments keep the order the data has — an urgency, a size, a
+band order — running clockwise from twelve o'clock, and a mix chart whose
+levels arrive shuffled has lost the one thing the reader came to read off it.
+
 Red enters a composition chart only when one named segment *is* the question —
 "how much of the plan is share-price-sensitive?" makes that segment the answer
 and the rest context. "How does this split by priority?" does not. Even then
@@ -374,8 +379,14 @@ carrying the message by size, and colouring it too says nothing new.
   `Average = 1,050`, not a legend entry.
 - Prefer a donut with a large white centre to a pie. Avoid both above five
   categories.
-- Legends: square swatches, text to the right. When several charts share the
-  same categories, draw one legend for the image rather than one per chart.
+- Label directly wherever the count allows. At five categories or fewer, write
+  each name and its value beside the segment, bar or line end it belongs to and
+  draw no legend at all: a legend makes the reader carry a colour across the
+  panel and back for something the label could have said in place.
+- Where a legend is unavoidable — several charts sharing one set of categories
+  — draw one legend for the image rather than one per chart, square swatches
+  with text to the right, and place it outside every plot area. A legend laid
+  over a donut hides the shape the donut exists to show.
 - Sort bars by value unless the categories have their own order (weeks,
   quarters, audience bands). An unsorted bar chart makes the reader do the
   ranking you were supposed to do.
@@ -385,10 +396,25 @@ carrying the message by size, and colouring it too says nothing new.
 A single chart fails by being wrong. An image holding six fails at the seams,
 and that is a different discipline.
 
+- **Cut the canvas into panel rectangles first, then fill them.** Every part of
+  a panel is placed against its own rectangle, never against the whole image. A
+  heading given an image coordinate does not know which panel it landed in: on
+  the 2026-08-10 test render one panel's heading, its question, its chart and
+  its legend were all drawn across the category labels of the panel beside it,
+  while its own rectangle stood empty.
 - **A panel is one block**: heading, business question, plot, footnote. Reserve
   the vertical space for all four *before* drawing the plot. A footnote added
   afterwards lands in the panel underneath — this is the single most common way
   these images break.
+- **A heading and the line beneath it are two lines.** Reserve a full line for
+  each, descenders included. A business question set at a guessed offset from
+  its heading is written across the heading's own tails, and the board title
+  fails this first because its type is the largest on the image.
+- **A horizontal bar panel is as wide as its longest category name.** Names sit
+  outside the plot area and grow outwards into whatever is beside them, so
+  measure the longest one and give the panel the width it needs. If the width
+  is not available, shorten the names and say in the footnote that you did — a
+  name is never clipped, and never travels into a neighbour.
 - **Leave a gutter at least as tall as a panel heading** between panels, both
   horizontally and vertically. Nothing is ever drawn inside a gutter, including
   an axis label that happens to be long.
@@ -407,7 +433,12 @@ and that is a different discipline.
 
 ## Before you send it
 
-Read your own image once against this list. Fix what fails; do not caption it.
+This list is what a reader does to the image in its first five seconds. On most
+surfaces you cannot see what you have drawn, so it is not an inspection you can
+carry out afterwards — which is why everything above is written as a rule for
+building the image rather than for judging it. Check what can be checked while
+drawing: measure the text, let the layout engine fit the panels, and place
+nothing at an offset you guessed. Fix what fails; do not caption it.
 
 1. Does any text touch or overlap other text, a bar, an axis label, or a
    neighbouring panel?
@@ -423,6 +454,9 @@ Read your own image once against this list. Fix what fails; do not caption it.
    its author, and there is nobody in it to ask which of two true totals it
    meant.
 7. Does any figure appear twice in the image?
+8. Does the image close with the footer line your instructions require — the
+   data vintage and the signature? An image travels further than the answer it
+   came with, and it is the copy that arrives without a date.
 
 An image failing one of these is redrawn, not explained.
 """

@@ -118,6 +118,10 @@ On top of the checklist in `chart-standards`:
 3. Does the board carry a panel the file does not list, or miss one it does?
 4. Does any figure appear in two panels?
 5. Does every panel print its business question and its footnote?
+6. Does the board carry its footer — the data vintage and the signature, one
+   line at the foot of the image?
+7. Does the read-out name exactly one board to open next, and is it one of the
+   three above?
 
 A board failing one of these is redrawn, not explained.
 
@@ -138,7 +142,7 @@ beneath it, panel 5 closes the board.
 ### Panel 1 — Where the function stands
 
 Business question: what is behind us, what is imminent, and is the function planning ahead?
-Chart: number tiles, one row, aligned on the baseline of the numbers
+Chart: number tiles, one row, aligned on the baseline of the numbers; the fourth tile is captioned "Arrived at under 7 days' notice", which is not the wording of the summary row it cites — a tile sitting above a panel that names teams must not assert who booked the work late
 Source: 01-summary.txt · HORIZON · Planned to date; 01-summary.txt · HORIZON · Next 30 days from the data date; 01-summary.txt · PLANNING DISCIPLINE · Median lead time (days); 01-summary.txt · PLANNING DISCIPLINE · Planned at under 7 days' notice; 01-summary.txt · LEADERSHIP AND AUDIENCE · With GEB/GEB-1 involvement; 01-summary.txt · VOLUME · Activities in scope
 Footnote: Split at the generation date stated at the top of the summary. Every record here is a plan — this system holds no delivery and no performance, so "planned to date" is plan whose date has passed and never means an activity ran.
 Highlight: no
@@ -146,7 +150,7 @@ Highlight: no
 ### Panel 2 — Audience load by start week
 
 Business question: in which weeks does the whole organisation get hit at once?
-Chart: line chart, one point per ISO week, two series on one axis — activities in the top two audience bands as the message, all activities as a faint context line; both series solid to the generation date and dashed after it, with a `data as of` divider drawn at that date and a grey marker carrying an inline label at the message series' peak week
+Chart: line chart, one point per ISO week, two series on one axis — activities in the top two audience bands as the message, all activities as a faint context line; both series solid to the generation date and dashed after it, with a divider at that date labelled `data as of` and the date itself, never the bare words, and a grey marker carrying an inline label at the message series' peak week
 Source: 04-calendar.csv · block=audience_band; 04-calendar.csv · block=TOTAL
 Footnote: A planning estimate of who is addressed, never measured reach. Solid to the generation date, dashed after it: the forward half thins because it is not written yet, not because activity falls away.
 Highlight: no
@@ -154,7 +158,7 @@ Highlight: no
 ### Panel 3 — Priority mix
 
 Business question: is the function working on what matters?
-Chart: donut with a large white centre, four priority segments plus Not specified where it applies, no highlight
+Chart: donut with a large white centre, four priority segments plus Not specified where it applies, in urgency order clockwise from twelve o'clock, each segment labelled beside the ring with its level and its count, no legend, no highlight
 Source: 06-breakdowns.csv · block=priority · measure=activities
 Footnote: The levels are peers and the split itself is the answer, so nothing is singled out. block=priority folds the source system's numbered labels and the studio's Critical/High/Medium/Low words onto this same set, in urgency order; Not specified covers an activity naming neither.
 Highlight: no
@@ -162,7 +166,7 @@ Highlight: no
 ### Panel 4 — Late requests by lead team
 
 Business question: which team absorbs the most work booked at under a week's notice?
-Chart: horizontal bar, sorted by value
+Chart: horizontal bar, sorted by value, its value axis labelled "Requests received at under 7 days' notice" — the axis title is the one line of this panel that survives a crop, so it carries the wording the panel was accepted on
 Source: 06-breakdowns.csv · block=lead_team · measure=short_notice; 01-summary.txt · PLANNING DISCIPLINE · Lead time not measurable
 Footnote: Requests received at under 7 days' notice, counted against the team carrying them. The pack knows when an activity was created and when it starts; it does not know who caused the gap, so a team at the top of this bar may be absorbing late work rather than causing it. An activity with no measurable lead time — a missing created date — is not counted here, so a short bar can mean missing dates rather than good planning.
 Highlight: yes
@@ -187,10 +191,16 @@ source field: it holds both levels and nothing in it separates them. Only an
 `executives_geb` block does, and only because a member list was supplied.
 Never read the thinning forward plan as a decline — say it is unwritten.
 
-End the read-out by naming a board: planning notice and lead time belong to
-Planning discipline, missing fields to Plan trust, executive time to Leadership
-attention. An overview that ends in observations competes with them; one that
-ends in a route makes them a set.
+End the read-out by naming one board, and only one. Executive time belongs to
+Leadership attention; missing fields and unlinked packs belong to Plan trust.
+Lead time and planning notice have no board of their own — panel 4 has already
+named the team absorbing the late work, and the route there is a conversation
+with that team, not another picture. Name the board the largest gap points at:
+a read-out listing every route has chosen none, and a route to a board this
+agent cannot draw sends a reader to a door that is not there.
+
+An overview that ends in observations competes with the other two boards; one
+that ends in a route makes them a set.
 """
 
 

@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-10.8"
+$manifestVersion = "2026-08-10.9"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-10.8"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-10.8"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-10.9"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -402,7 +402,18 @@ $manifest = @(
     @{ Path = "pipeline\report\agent_pack.py"; Marker = "GEB list entries never matched"; Why = "the pack reports how many list entries matched nothing, as the Data Quality sheet does - without it a typo in the list and a genuine GEB-1 person look identical, and both quietly land under GEB-1" },
     @{ Path = "pipeline\report\agent_builder.py"; Marker = "never add the two"; Why = "the second delivery's prompt carries the same conditional rule as the first - an older copy hands Agent Builder a pack with split blocks and a rule forbidding their use, and the two deliveries then disagree about the same field" },
     @{ Path = "pipeline\report\dashboard_skill.py"; Marker = "a member list was supplied"; Why = "the boards stop asserting that nothing can separate the levels, while still labelling their own panels GEB/GEB-1 because those panels count the combined field - an older copy contradicts the pack it is drawn from" },
-    @{ Path = "agentpack.ps1";                 Marker = ".\agentpack.ps1 -GebMembers"; Why = "the pack launcher documents the member-list flag it has always forwarded - an older copy leaves the operator with no way to learn that the agent pack can split the levels at all" }
+    @{ Path = "agentpack.ps1";                 Marker = ".\agentpack.ps1 -GebMembers"; Why = "the pack launcher documents the member-list flag it has always forwarded - an older copy leaves the operator with no way to learn that the agent pack can split the levels at all" },
+
+    # The 2026-08-10 render of the overview drew one panel's heading, question,
+    # donut and legend straight across the bar labels of the panel beside it,
+    # left its own rectangle empty, and closed by routing the reader to a board
+    # that does not exist. Both failures were instruction-shaped rather than
+    # code-shaped: the layout rules were written to be checked by looking at
+    # the finished image, on surfaces where the agent never sees it. An old
+    # copy of any file below draws that image again and reports nothing wrong.
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "Cut the canvas into panel rectangles"; Why = "the layout rules are written as construction rules, and a panel's parts are placed against its own rectangle - an older copy states only that nothing may overlap, which is a property the agent cannot verify without seeing what it drew" },
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "Cut the canvas into panel rectangles"; Why = "the same geometry on the surface with no skills - an older copy leaves this delivery with the check-it-afterwards wording the other one has already dropped" },
+    @{ Path = "pipeline\report\dashboard_skill.py"; Marker = "naming one board, and only one"; Why = "the overview routes to one of the three boards that exist - an older copy sends a head of communications to `Planning discipline`, which is deferred and undrawable, and invites a read-out that lists every route and so chooses none" }
 )
 
 Write-Host ""

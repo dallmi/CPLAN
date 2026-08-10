@@ -1017,6 +1017,23 @@ def test_the_overview_names_teams_as_work_received(tmp_path):
     assert "planned at under" not in prose.lower()
 
 
+def test_no_board_sends_the_reader_to_a_board_that_does_not_exist():
+    """A route is worth printing only where the door is.
+
+    The overview closes by naming which board to open next, and until
+    2026-08-10 it named `Planning discipline` -- a board the design defers and
+    this agent cannot draw. The render followed the instruction exactly and
+    told a head of communications to go and open nothing. Case-sensitive on
+    purpose: `PLANNING DISCIPLINE` is a section of `01-summary.txt` and every
+    panel citing it is fine.
+    """
+    catalogue = dashboard_skill.SKILL_TEXT + "".join(dashboard_skill.BOARDS.values())
+    for deferred in ("Planning discipline", "Reach and coverage",
+                     "Portfolio overview"):
+        assert deferred not in catalogue, (
+            f"a board routes the reader to {deferred!r}, which does not exist")
+
+
 def test_the_overview_spends_its_red_on_the_intervention(tmp_path):
     """Same rule, different answer, because the board asks a different
     question: the panel that answers it is the one that gets the accent.

@@ -286,6 +286,25 @@ def test_the_chart_document_keeps_the_geometry_and_not_the_palette():
     assert "| Role | Hex |" not in text, "the palette table belongs in the prompt"
 
 
+def test_both_copies_of_the_chart_standards_carry_the_same_layout_rules():
+    """Two surfaces, one geometry, and nothing but memory keeping them in step.
+
+    This document is `agent_pack.BRAND_SKILL_TEXT` reworded by hand, so a rule
+    added to one copy is a rule missing from the other until somebody
+    remembers. The layout rules are the half worth guarding: they are what the
+    2026-08-10 render broke, and it would have broken the same way on either
+    surface, because both are drawn from the same instruction.
+    """
+    for name, text in (("the skill", agent_pack.BRAND_SKILL_TEXT),
+                       ("the knowledge file", agent_builder.CHART_STANDARDS_TEXT)):
+        collapsed = " ".join(text.split())
+        for marker in ("Cut the canvas into panel rectangles first",
+                       "A heading and the line beneath it are two lines",
+                       "as wide as its longest category name",
+                       "place it outside every plot area"):
+            assert marker in collapsed, f"{name} dropped {marker!r}"
+
+
 def test_each_board_travels_as_its_own_file(tmp_path):
     """One file per board, because retrieval returns chunks and a board is only
     worth having whole.
