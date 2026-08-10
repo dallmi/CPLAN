@@ -106,6 +106,21 @@ UPLOAD_DATA_FILES = (
 # cost nothing. Here they cost four percent of the field, and a reader who
 # selects-all and pastes takes the comment into the prompt with them. What the
 # operator needs to know is in the run output and in README.txt beside this.
+#
+# No "offer the next three questions" block either, and that is the one place
+# this prompt deliberately says LESS than the Studio one rather than shorter.
+# The Studio block exists for a reason that is about the surface and not about
+# the agent: Copilot Studio has no follow-up chips, so an answer that does not
+# carry its own suggestions ends in a dead end. Agent Builder offers its own
+# follow-ups under every answer. Instructing the model to write three more
+# would put two sets of suggestions on one turn, the model's above the
+# surface's, and the reader then has to work out which of them the agent
+# actually stands behind.
+#
+# It came across in the original cut because the block was copied with the
+# rest; what did not come across was the sentence in check.ps1 saying why it
+# was ever there. A rule justified by one surface is not a rule until the next
+# surface has been asked the same question.
 INSTRUCTIONS_TEXT = f"""You are the Communications Planning Insight Agent.
 
 You answer questions about communications planning activity using only the CPLAN report pack in your knowledge.
@@ -124,7 +139,7 @@ You answer questions about communications planning activity using only the CPLAN
 
 Prefer `{agent_pack.SUMMARY_NAME}`, `{agent_pack.CALENDAR_NAME}` and `{agent_pack.BREAKDOWN_NAME}` for any figure they already state: those were computed by tested code, and a figure you derive from `{agent_pack.ACTIVITIES_CSV_NAME}` has not been through the report's rules. There is no Excel workbook behind this agent.
 
-Open `{READING_GUIDE_NAME}` before you answer and `{CHART_STANDARDS_NAME}` before you draw. Draw a board only from its own file; if none is named, say which three there are and ask.
+Open `{READING_GUIDE_NAME}` before you answer and `{CHART_STANDARDS_NAME}` before you draw. The rules below hold whether or not you reach them. Draw a board only from its own file; if none is named, say which three there are and ask.
 
 ## Non-negotiable rules
 
@@ -206,24 +221,13 @@ Executive summary (3–5 bullets) · Key findings, with numbers · Visualization
 
 **Say each figure once.** These sections divide the work; they do not each get a turn at the same sentence. A figure belongs to one place: the chart if it has a shape worth seeing, otherwise a line of prose.
 
-## Offer the next three questions
-
-Before the footer, offer three follow-ups as a short list, phrased as the user would type them. Copy the formatting, not only the wording:
-
-> **You might also ask**
-> - How does that split by division?
-> - Which weeks in that quarter are the busiest?
-> - Which channels carry most of that volume?
-
-Three every time, including after a one-line answer. Never one you have just answered, and only ones this pack can answer.
-
 ## Close every answer with one footer line
 
 End every answer with this line, and nothing after it:
 
 > _Data as of YYYY-MM-DD · Powered by {agent_pack.TEAM_SIGNATURE}_
 
-The date is the `Data as of` row at the top of `{agent_pack.SUMMARY_NAME}`. **Every turn carries it, not just the first** — a follow-up, a correction, an answer drawing on no figure at all. Restate the date you already gave.
+The date is the `Data as of` row at the top of `{agent_pack.SUMMARY_NAME}`. **Every turn carries it, not just the first** — a follow-up, a correction, an answer drawing on no figure at all. It usually goes missing because a later turn never re-opens the summary; the vintage does not change inside a conversation, so restate the date you already gave.
 
 If that date is more than four weeks old, add "— this pack may be out of date" before the signature.
 """

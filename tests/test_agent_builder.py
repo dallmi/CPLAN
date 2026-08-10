@@ -111,7 +111,6 @@ def test_no_rule_was_lost_in_the_compression():
             "largest area",                           # red bounded by area, not count
             "half the image",                         # the white ratio
             "No gridlines",
-            "You might also ask",                     # the follow-up block's shape
             "Data as of",                             # the footer's date
             agent_pack.TEAM_SIGNATURE,                # the signature
     ):
@@ -304,6 +303,36 @@ def test_both_copies_of_the_chart_standards_carry_the_same_layout_rules():
                        "as wide as its longest category name",
                        "place it outside every plot area"):
             assert marker in collapsed, f"{name} dropped {marker!r}"
+
+
+def test_only_the_surface_without_follow_up_chips_asks_for_follow_ups():
+    """The one rule this prompt drops rather than compresses.
+
+    The Studio block is justified by its surface and not by the agent:
+    Copilot Studio offers no follow-up chips, so an answer that does not carry
+    its own suggestions ends in a dead end. Agent Builder puts suggestions
+    under every answer itself, and a prompt asking for three more produces two
+    competing sets on one turn -- the model's and the surface's -- with
+    nothing telling the reader which the agent stands behind.
+
+    Asserted from both sides, because the failure has run in both directions:
+    the block arrived here by being copied with the rest of the prompt, and
+    the next person reconciling the two files will read its absence as drift
+    unless something fails when they put it back.
+
+    The footer is the deliberate contrast below it. It is owed on every turn
+    on every surface, so both prompts carry the vintage and the signature.
+    """
+    studio = agent_pack.INSTRUCTIONS_TEXT
+    builder = agent_builder.INSTRUCTIONS_TEXT
+    assert "You might also ask" in studio, (
+        "Studio has no follow-up chips -- the answer has to carry them")
+    assert "You might also ask" not in builder, (
+        "Agent Builder generates its own follow-ups; a second set competes "
+        "with the surface's rather than adding to it")
+    for name, text in (("Studio", studio), ("Builder", builder)):
+        assert "Data as of" in text, f"{name} dropped the vintage"
+        assert agent_pack.TEAM_SIGNATURE in text, f"{name} dropped the signature"
 
 
 def test_both_prompts_require_the_scope_footnote_in_one_shape():
