@@ -532,6 +532,29 @@ def test_activities_file_holds_every_activity_once(tmp_path):
     assert rows[0]["Tracking ID"]
 
 
+def test_the_activities_file_names_the_pack_it_only_numbered(tmp_path):
+    """A bare identifier is not something a reader can ask about.
+
+    `communication_pack` has been in the frame all along -- mapped in
+    `COLUMN_MAP`, lookup-parsed like every other reference field -- and was
+    simply never exported. An agent handed `CP-100` can group by pack but
+    cannot say which pack it grouped, and no question a planner actually
+    asks is phrased in identifiers.
+    """
+    pack_dir, _, _, _ = _pack(tmp_path)
+    with (pack_dir / agent_pack.ACTIVITIES_CSV_NAME).open(encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+
+    assert "Pack" in rows[0], "the activities file still carries only the identifier"
+    packed = [row for row in rows if row["Pack ID"] == "CP-100"]
+    assert packed, "the fixture's packed activities vanished"
+    assert all(row["Pack"] == "Pack one" for row in packed)
+
+    # The identifier stays. It is what `07-packs.csv` is joined on, and a
+    # name is not unique the way a key is.
+    assert "Pack ID" in rows[0]
+
+
 # ---------------------------------------------------------------------------
 # The properties the pack exists for
 # ---------------------------------------------------------------------------

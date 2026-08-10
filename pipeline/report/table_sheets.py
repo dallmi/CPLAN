@@ -628,6 +628,13 @@ ACTIVITY_COLUMNS = (
     ("_executives", "GEB/GEB-1 involved"),
     ("executives", "GEB/GEB-1 members"),
     ("senior_executives", "Other senior executives"),
+    # The name beside the number. `communication_pack` is mapped and
+    # lookup-parsed exactly like every other reference field; it was simply
+    # never exported, so the pack has always shown the identifier alone. A
+    # reader asks about "Pack one", never about "CP-100". The identifier
+    # stays because it is what `07-packs.csv` joins on, and because a pack
+    # name is not unique the way a key is.
+    ("communication_pack", "Pack"),
     ("communication_pack_cpid", "Pack ID"),
     ("campaign", "Campaign"),
     ("strategic_objectives", "Communications pillars"),

@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-10.12"
+$manifestVersion = "2026-08-10.13"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-10.12"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-10.12"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-10.13"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -429,7 +429,14 @@ $manifest = @(
 
     # The follow-up block is justified by a surface, not by the agent, and it
     # was copied here without the justification being asked again.
-    @{ Path = "pipeline\report\agent_builder.py"; Marker = "Agent Builder offers its own"; Why = "this prompt does not ask for three follow-up questions, because the surface already puts them under every answer - an older copy produces two competing sets on one turn, the model's and the surface's, and nothing says which the agent stands behind" }
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "Agent Builder offers its own"; Why = "this prompt does not ask for three follow-up questions, because the surface already puts them under every answer - an older copy produces two competing sets on one turn, the model's and the surface's, and nothing says which the agent stands behind" },
+
+    # The activity rows have carried communication_pack_cpid, the bare pack
+    # number, since the pack was first exported -- communication_pack, the
+    # name beside it, was mapped and lookup-parsed the whole time and simply
+    # never written out. An old copy still shows only CP-100 in both
+    # 05-activities.csv and the workbook's Activities sheet.
+    @{ Path = "pipeline\report\table_sheets.py"; Marker = "The name beside the number"; Why = "the activity rows gain a Pack column stating the pack's name, not only its CP-100 identifier - an older copy leaves a reader unable to ask about a pack by the name it actually has" }
 )
 
 Write-Host ""
