@@ -139,3 +139,69 @@ def build_index(files: dict[str, Path]) -> dict[str, Entry]:
             added += 1
         log(f"  {key}: {added} tracking ID(s)")
     return index
+
+
+# CLUSTER-PACKNUM-YYMMDD-ACTNUM-CHANNEL
+PART_COUNT = 5
+
+
+def _within_one_edit(left: str, right: str) -> bool:
+    """True when one substitution, insertion or deletion turns one into the other."""
+    if abs(len(left) - len(right)) > 1:
+        return False
+    if len(left) == len(right):
+        differences = sum(1 for a, b in zip(left, right) if a != b)
+        return differences == 1
+    shorter, longer = (left, right) if len(left) < len(right) else (right, left)
+    i = j = 0
+    skipped = False
+    while i < len(shorter) and j < len(longer):
+        if shorter[i] == longer[j]:
+            i += 1
+            j += 1
+            continue
+        if skipped:
+            return False
+        skipped = True
+        j += 1
+    return True
+
+
+def find_hint(wanted: str, index: dict[str, Entry]) -> str:
+    """Why this ID may be missing -- the first rung that hits, or "".
+
+    Never a verdict. The row still reads `missing`; this only says where to
+    look, because "not found" and "found, spelled differently" lead somewhere
+    completely different.
+    """
+    key = normalise(wanted)
+    parts = key.split("-")
+    notes: list[str] = []
+
+    if len(parts) == PART_COUNT:
+        pack = f"{parts[0]}-{parts[1]}"
+        activity_number = parts[3]
+
+        # Rung 1: the same activity, published on another channel.
+        for candidate in index:
+            other = candidate.split("-")
+            if len(other) != PART_COUNT:
+                continue
+            if f"{other[0]}-{other[1]}" == pack and other[3] == activity_number:
+                return f"same activity on channel {other[4]}: {candidate}"
+
+        # Rung 2: the pack exists, this activity within it does not.
+        in_pack = sum(1 for candidate in index if candidate.startswith(f"{pack}-"))
+        if in_pack:
+            return f"pack {pack} exists with {in_pack} activity(ies), this one is not among them"
+    else:
+        notes.append(f"not the {PART_COUNT}-part shape ({len(parts)} part(s))")
+
+    # Rung 3: one character off. Reported rather than skipped for a malformed
+    # ID -- a note that says only "wrong shape" leaves the typo unfound.
+    for candidate in index:
+        if _within_one_edit(key, candidate):
+            notes.append(f"one character from {candidate}")
+            break
+
+    return "; ".join(notes)

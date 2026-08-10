@@ -116,3 +116,68 @@ def test_the_pack_and_channel_exports_are_not_searched(tmp_path):
     index = check_tracking_ids.build_index(check_tracking_ids.find_input_files(tmp_path))
 
     assert ARCHIVED not in index
+
+
+def _index(*ids: str) -> dict:
+    return {
+        check_tracking_ids.normalise(value): check_tracking_ids.Entry(
+            tracking_id=check_tracking_ids.normalise(value),
+            source="internal",
+            sp_id="1",
+            activity_name="An activity",
+        )
+        for value in ids
+    }
+
+
+def test_a_wrong_channel_suffix_is_named_as_such():
+    hint = check_tracking_ids.find_hint(LIVE, _index(OTHER_CHANNEL))
+
+    assert "channel" in hint.lower()
+    assert OTHER_CHANNEL in hint
+
+
+def test_a_missing_activity_in_an_existing_pack_names_the_pack():
+    hint = check_tracking_ids.find_hint(LIVE, _index(SAME_PACK))
+
+    assert "QRREP-0000058" in hint
+    assert "pack" in hint.lower()
+
+
+def test_the_channel_rung_wins_when_both_would_hit():
+    """Rung 1 is the more specific answer, so it must be reached first."""
+    hint = check_tracking_ids.find_hint(LIVE, _index(SAME_PACK, OTHER_CHANNEL))
+
+    assert OTHER_CHANNEL in hint
+    assert SAME_PACK not in hint
+
+
+def test_one_character_off_is_named_as_a_typo():
+    """A different cluster, so rungs 1 and 2 cannot fire -- only the distance does.
+
+    An ID one letter off *within* the same pack is rung 1's case, not this one.
+    """
+    wanted = "QRREQ-0000058-240709-0000060-EMI"  # QRREQ, not QRREP
+
+    hint = check_tracking_ids.find_hint(wanted, _index(LIVE))
+
+    assert LIVE in hint
+    assert "one character" in hint.lower()
+
+
+def test_a_dropped_character_counts_as_one_edit():
+    hint = check_tracking_ids.find_hint("QRREP-000058-240709-0000060-EMI", _index(LIVE))
+
+    assert LIVE in hint
+
+
+def test_an_id_of_the_wrong_shape_is_called_that():
+    hint = check_tracking_ids.find_hint("QRREP-58", _index(LIVE))
+
+    assert "shape" in hint.lower() or "part" in hint.lower()
+
+
+def test_nothing_close_produces_no_hint():
+    hint = check_tracking_ids.find_hint("ZZZZZ-0000001-200101-0000001-XXX", _index(LIVE))
+
+    assert hint == ""
