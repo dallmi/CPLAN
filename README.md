@@ -76,6 +76,31 @@ OneDrive sync folder          pipeline/
 pip install pandas duckdb pyarrow openpyxl
 ```
 
+## Commit guard — do this in every clone
+
+This repository is public. Two things must never reach a commit: the
+organisation's name, and an absolute path from the machine you work on — which
+on most machines here spells out the organisation in its directory names.
+Both have got in before, past a check that ran `git grep` on a file that was
+not yet tracked and so matched nothing.
+
+```bash
+git config core.hooksPath .githooks
+cp forbidden-terms.txt.example forbidden-terms.txt   # then fill in the real terms
+```
+
+The hook reads the staged diff — the thing that is actually about to become
+history — and refuses the commit with the file and line it objects to. The
+path half needs no configuration and runs from the moment `core.hooksPath` is
+set. The term half reads `forbidden-terms.txt`, which is gitignored: a
+committed list of words that must not appear in the repository would put every
+one of them in the repository. Its `.example` carries placeholders, the same
+arrangement `geb-members.csv` uses.
+
+`tests/test_commit_guard.py` covers both halves, including that the hook names
+no forbidden term itself and that removing a bad line is never blocked by the
+line being in the diff.
+
 ## Usage
 
 ```bash

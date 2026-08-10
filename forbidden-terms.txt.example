@@ -1,0 +1,22 @@
+# Terms the pre-commit guard refuses to let into a commit.
+#
+# Copy this file to `forbidden-terms.txt` and fill in the real ones. That copy
+# is gitignored and never committed, for the reason the terms exist at all: a
+# committed list of words that must not appear in the repository would put
+# every one of them in the repository. The pattern is the one
+# `geb-members.csv` / `geb-members.csv.example` already sets.
+#
+# One term per line. Matching is case-insensitive and on whole words, so a
+# three-letter term will not fire on a longer word that happens to contain it.
+# Blank lines and `#` comments are ignored.
+#
+# What belongs here: the employer's name and any abbreviation of it, internal
+# system names that identify it, and internal governance vocabulary that would
+# name the organisation to a reader who recognised it.
+#
+# What does not: domain words the repository is written in. Segment names,
+# region names and role names stay -- the rule is about the name, not the
+# vocabulary.
+
+ExampleCorp
+EXCO

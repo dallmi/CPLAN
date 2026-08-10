@@ -1,0 +1,84 @@
+#!/bin/sh
+# Refuse a commit that carries a local path or a forbidden term.
+#
+# Both failures this guards against have already happened in this repository,
+# and both were "checked" beforehand:
+#
+#   * A plan document quoted an absolute scratch path. On this machine the
+#     directory names spell out the organisation, so a path is a brand leak
+#     wearing a different hat. The repository is public.
+#   * The pre-commit check that should have caught it ran `git grep`, which
+#     searches TRACKED files. The document was new and unstaged, so the search
+#     matched nothing and printed nothing, and "no output" was read as "clean".
+#     A check that cannot see the thing it is checking is worse than none.
+#
+# So this one reads the staged diff, which is exactly what is about to become
+# history, and nothing else. Run it with --stdin to feed it a diff directly;
+# `tests/test_commit_guard.py` does that.
+#
+# The terms themselves are NOT in this file. Writing the organisation's name
+# into a committed script to search for the organisation's name is the same
+# mistake one level up. They live in `forbidden-terms.txt`, which is ignored,
+# beside a committed `.example` -- the pattern `geb-members.csv` already sets.
+set -eu
+
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null || printf '.')
+TERMS=${CPLAN_FORBIDDEN_TERMS:-"$ROOT/forbidden-terms.txt"}
+
+if [ "${1:-}" = "--stdin" ]; then
+    DIFF=$(cat)
+else
+    DIFF=$(git diff --cached --diff-filter=ACMR -U0 -- . ':!*.lock' ':!pnpm-lock.yaml')
+fi
+
+[ -n "$DIFF" ] || exit 0
+
+# Added lines only, carrying the file and line number they will land on.
+ADDED=$(printf '%s\n' "$DIFF" | awk '
+    /^\+\+\+ /  { file = substr($0, 5); sub(/^b\//, "", file); next }
+    /^@@ /      { match($0, /\+[0-9]+/); n = substr($0, RSTART + 1, RLENGTH - 1) + 0; next }
+    /^\+/       { print file ":" n ":" substr($0, 2); n++; next }
+    /^ /        { n++; next }
+')
+
+[ -n "$ADDED" ] || exit 0
+
+status=0
+
+# An absolute path names the machine, and on this machine the machine names the
+# employer. There is no case in which a committed file needs one.
+#
+# The prefixes are assembled from fragments rather than written out, because
+# this file is committed and the rule has no exceptions -- a pattern spelled in
+# full would make the guard refuse itself. Exempting the guard from the guard
+# is the first entry on an exemption list, and an exemption list is how one
+# gets widened. Adjacent quoted strings concatenate in sh.
+PREFIXES='/Use''rs/|/ho''me/[a-z]|/private/t''mp/|/Volu''mes/|[A-Za-z]:\\''Users\\'
+PATHS=$(printf '%s\n' "$ADDED" | grep -E "($PREFIXES)" || true)
+if [ -n "$PATHS" ]; then
+    printf '\nCommit refused: an absolute local path in staged content.\n\n'
+    printf '%s\n' "$PATHS" | sed 's/^/  /'
+    printf '\nA path on this machine carries its directory names, and those name the\n'
+    printf 'organisation. Use a variable, a relative path, or a neutral example.\n'
+    status=1
+fi
+
+if [ -f "$TERMS" ]; then
+    PATTERN=$(sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$TERMS" \
+              | grep -v '^$' | paste -sd'|' - || true)
+    if [ -n "$PATTERN" ]; then
+        HITS=$(printf '%s\n' "$ADDED" | grep -Eiw "$PATTERN" || true)
+        if [ -n "$HITS" ]; then
+            printf '\nCommit refused: a forbidden term in staged content.\n\n'
+            printf '%s\n' "$HITS" | sed 's/^/  /'
+            printf '\nEvery repository here can become public, and a commit cannot be unmade.\n'
+            printf 'Use generic wording: the organisation, internal platform, --corp-*.\n'
+            status=1
+        fi
+    fi
+else
+    printf 'commit guard: %s not found, so only paths were checked.\n' "$TERMS" >&2
+    printf 'Copy forbidden-terms.txt.example to forbidden-terms.txt to enable the rest.\n' >&2
+fi
+
+exit "$status"

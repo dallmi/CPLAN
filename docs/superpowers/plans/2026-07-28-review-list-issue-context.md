@@ -26,7 +26,7 @@
 Already provisioned; recreate only if missing.
 
 ```bash
-SCRATCH=/private/tmp/claude-501/-Users-micha-Documents-Arbeit-CPLAN/d4755d41-9992-4119-874a-3e2416507424/scratchpad
+SCRATCH=<the session's scratch directory>   # never the literal path: it names the machine
 python3 -m venv $SCRATCH/venv
 $SCRATCH/venv/bin/pip install -q fastapi uvicorn sqlalchemy 'pydantic>=2' python-multipart itsdangerous duckdb pandas
 ```
