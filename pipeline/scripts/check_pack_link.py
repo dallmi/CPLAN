@@ -10,7 +10,11 @@ plausible numbers in it.
 
 So it is measured. This reads the same exports a refresh reads, read-only, and
 reports two things: which columns of the pack export the ETL does not yet map,
-and how each candidate scores against the pack list.
+and how each candidate scores against the pack list. Three sample values are
+printed per side, because the outcome worth diagnosing is the one where every
+candidate reads 0%: an export that does not link and one whose identifiers are
+merely spelled differently produce the same zero, and only seeing both sides
+tells them apart.
 
 Usage (from the repo root, or just double-click packlink.cmd):
     python -m pipeline.scripts.check_pack_link
@@ -71,6 +75,9 @@ class Score(NamedTuple):
     packs_hit: int
     orphan_activities: int
     orphan_packs: int
+    # Activity-side only, and per candidate because each candidate reads a
+    # different column. The pack side does not vary that way, so `main()`
+    # prints it once rather than repeating one list three times.
     samples: tuple[str, ...]
 
     @property
@@ -215,8 +222,13 @@ def main(argv: list[str] | None = None) -> int:
     scores = [score(load.frame, packs, name) for name in PACK_LINK_CANDIDATES]
     print_table(
         "Candidate link columns",
+        # "Orphan IDs", not "Orphan act.": the figure counts distinct
+        # identifiers a candidate column carries that no pack answers to, not
+        # activity rows. A human makes the merge call off this table, and
+        # "activities" beside a distinct-value count is a number they would
+        # reasonably compare against the row count.
         ["Column", "Referenced", "Matched", "Rate", "Packs hit",
-         "Orphan act.", "Orphan packs"],
+         "Orphan IDs", "Orphan packs"],
         [(s.column, s.referenced, s.matched, f"{s.rate:.0%}", s.packs_hit,
           s.orphan_activities, s.orphan_packs) for s in scores],
         col_widths=[26, 11, 9, 7, 10, 12, 13])
@@ -224,6 +236,16 @@ def main(argv: list[str] | None = None) -> int:
     for scored in scores:
         log(f"{scored.column} sample values: "
             f"{', '.join(scored.samples) if scored.samples else '(none)'}")
+    # Both sides, or the worst outcome this tool can report is unreadable.
+    # Three candidates at 0% look identical whether the exports genuinely do
+    # not link or the identifiers are merely spelled differently on the two
+    # sides -- `CP-100` against `100` -- and those lead somewhere completely
+    # different. Printed once rather than per candidate: the pack list's
+    # identifiers do not vary by which activity column is being scored.
+    pack_ids = _keys(packs.get("cpid") if packs is not None else None)
+    pack_samples = sorted(pack_ids)[:SAMPLE_COUNT]
+    log(f"pack list sample values: "
+        f"{', '.join(pack_samples) if pack_samples else '(none)'}")
     print()
 
     winners = [s for s in scores if s.rate >= MIN_LINK_RATE]

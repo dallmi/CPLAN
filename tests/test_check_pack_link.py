@@ -177,6 +177,54 @@ def test_main_exits_non_zero_and_says_so_when_no_candidate_clears_the_floor(tmp_
     assert "No candidate reaches 80%" in out
 
 
+def test_the_zero_result_prints_both_sides_of_the_comparison(tmp_path, capsys):
+    """The outcome this tool exists for is the one it could not diagnose.
+
+    Three candidates at 0% is the answer an operator has to act on, and the
+    activity-side samples alone cannot say what it means: an export that
+    genuinely does not link and one whose identifiers are merely formatted
+    differently -- `CP-100` against `100` -- produce exactly the same zero,
+    and lead somewhere completely different.
+
+    The pack-side line is printed once, because the pack list's identifiers
+    do not vary by which activity column is being scored.
+    """
+    write_activity_csvs(tmp_path)
+    mismatched = [dict(row, LTID="9" + str(row["LTID"]).split("-")[-1])
+                  for row in PACK_ROWS]
+    _write_csv(tmp_path / "CommunicationPacks.csv", mismatched, PACK_HEADER)
+
+    assert check_pack_link.main(["--input", str(tmp_path)]) == 1
+    out = capsys.readouterr().out
+
+    assert "No candidate reaches 80%" in out
+    assert "communication_pack_cpid sample values: CP-100" in out, (
+        "the activity side lost its samples")
+    assert "pack list sample values: 9100, 9200" in out, (
+        "a zero with only one side shown cannot be told from a format mismatch")
+    assert out.count("pack list sample values") == 1, (
+        "the pack ids do not vary by candidate; printing them three times "
+        "says nothing new and buries the activity-side lines")
+
+
+def test_the_orphan_column_header_says_what_it_counts(tmp_path, capsys):
+    """`orphan_activities` counts distinct identifiers, not activity rows.
+
+    A human makes the merge call off this table, and a column headed
+    "Orphan act." is a number they would reasonably compare against the row
+    count -- which it is not, and which it can be far smaller than when one
+    unknown pack id sits on forty activities. The field name stays; the
+    printed header is the part a reader sees.
+    """
+    write_activity_csvs(tmp_path)
+    write_pack_csv(tmp_path)
+
+    assert check_pack_link.main(["--input", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "Orphan IDs" in out
+    assert "Orphan act." not in out
+
+
 def test_main_exits_non_zero_and_names_the_tie_when_more_than_one_candidate_clears_the_floor(tmp_path, capsys):
     """A tie is not `main()`'s to break silently.
 

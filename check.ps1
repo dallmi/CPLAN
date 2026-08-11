@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-11.3"
+$manifestVersion = "2026-08-11.4"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-11.3"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-11.3"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-11.4"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -458,6 +458,13 @@ $manifest = @(
     @{ Path = "pipeline\scripts\check_pack_link.py"; Marker = "PACK_LINK_CANDIDATES"; Why = "the three columns scored against the pack list and the score() function that measures each - an older copy only lists the pack export's raw columns and cannot say which one is the real link" },
     @{ Path = "pipeline\scripts\check_pack_link.py"; Marker = "MIN_LINK_RATE"; Why = "the 80% floor a candidate must clear before the check exits 0 - an older copy has no floor and always exits 0 once the pack export is found, so a broken link would report as fine" },
     @{ Path = "packlink.ps1";                  Marker = "check_pack_link";                Why = "the launcher for that check - double-clickable via packlink.cmd" },
+
+    # The diagnostic could not diagnose its own worst outcome: three
+    # candidates at 0% printed activity-side identifiers and nothing to
+    # compare them against, so "the exports do not link" and "CP-100 against
+    # 100" looked identical to the person making the merge call.
+    @{ Path = "pipeline\scripts\check_pack_link.py"; Marker = "pack list sample values"; Why = "the pack list's own identifiers are printed beside the activity-side samples - an older copy prints one side, and a zero for every candidate cannot be told from a format mismatch" },
+    @{ Path = "pipeline\scripts\check_pack_link.py"; Marker = "Orphan IDs"; Why = "the orphan column is headed by what it counts, distinct identifiers - an older copy heads it `Orphan act.`, which reads as a row count and is compared against the activity total" },
 
     # PACKS_COLUMN_MAP carried none of the pack form's own identity fields --
     # a pack could be sized and linked but never named. An old copy maps
