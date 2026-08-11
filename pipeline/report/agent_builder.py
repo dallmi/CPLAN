@@ -124,6 +124,14 @@ UPLOAD_DATA_FILES = (
 # rest; what did not come across was the sentence in check.ps1 saying why it
 # was ever there. A rule justified by one surface is not a rule until the next
 # surface has been asked the same question.
+#
+# The pack file's line describes BOTH states rather than asserting either, and
+# that is the one thing this text cannot do the way the knowledge files beside
+# it do. They are rewritten on every run; this is pasted into a field once and
+# stays there while the pack is rebuilt underneath it, so a machine that starts
+# syncing the pack export next month would otherwise be left with a prompt that
+# denies the file it now holds. The same reason the GEB wording here describes
+# both states while `02-glossary.txt` follows the run.
 INSTRUCTIONS_TEXT = f"""You are the Communications Planning Insight Agent.
 
 You answer questions about communications planning activity using only the CPLAN report pack in your knowledge.
@@ -136,7 +144,7 @@ You answer questions about communications planning activity using only the CPLAN
 - `{agent_pack.CALENDAR_NAME}` — one row per block × value × week
 - `{agent_pack.ACTIVITIES_CSV_NAME}` — one row per activity
 - `{agent_pack.BREAKDOWN_NAME}` — one row per block × value × measure, for crossing two dimensions
-- `{agent_pack.PACKS_CSV_NAME}` — one row per pack, including packs with nothing planned
+- `{agent_pack.PACKS_CSV_NAME}` — one row per pack, including packs with nothing planned. Present only where a pack list was synced; if it is not in your knowledge, this build had none, and no pack file exists to look for
 - `{READING_GUIDE_NAME}` — audiences, analysis steps, good follow-up questions
 - `{CHART_STANDARDS_NAME}` — chart choice and multi-panel layout
 - `10`–`12-board-*.txt` — one per named executive board: head of communications overview, leadership attention, plan trust
@@ -276,7 +284,12 @@ Add each as its own starter prompt on the Configure tab.
 # half -- who is asking, how to work an analysis, what to offer as a follow-up.
 # It is not repeated in the prompt because an answer that misses it is duller
 # rather than wrong, and 8,000 characters cannot hold both halves.
-READING_GUIDE_TEXT = """# Reading the CPLAN pack
+#
+# Split into three so the Packs section can follow the run, as SKILL.md does
+# next door: it describes a file and a column that exist only where a pack
+# export was synced, and a knowledge file is delivered whether or not what it
+# describes was.
+_READING_GUIDE_HEAD = """# Reading the CPLAN pack
 
 Your instructions carry the file list and the rules that must not be broken.
 This is the rest: how to read for the person asking, and how to work through
@@ -311,11 +324,13 @@ Include definitions, assumptions and limitations.
    participation, exceptional lead times. Show exact figures.
 4. **Recommend next review areas**, phrased as "Consider reviewing…" rather
    than "This happened because…" unless the evidence is there.
+"""
 
+_READING_GUIDE_PACKS = f"""
 ## Packs
 
 A communication pack groups activities around one objective, with its own
-lead, period and brief. `07-packs.csv` has one row per pack.
+lead, period and brief. `{agent_pack.PACKS_CSV_NAME}` has one row per pack.
 
 It holds every pack, including those with no activity in the period. A pack
 showing `activities_in_scope = 0` is an answer — nothing planned against it,
@@ -327,7 +342,9 @@ pack row's `Pack ID`. The pack's lead, dates and objective are in that row
 and nowhere else; the activity row carries the pack's name and identifier
 only. `pack_known = No` on an activity means its pack is not in the list,
 which is a data-quality finding worth reporting when it is common.
+"""
 
+_READING_GUIDE_TAIL = """
 ## What this pack answers well
 
 Use these when you need a follow-up worth offering, or when a question is too
@@ -344,6 +361,18 @@ gaps?
 *Analytics* — Activity distribution by quarter. Regional concentration.
 Audience segmentation. Channel proxy metrics. Lead-time distribution.
 """
+
+
+def reading_guide_text(with_packs):
+    """The guide for the folder that is about to be written, not for both."""
+    return (_READING_GUIDE_HEAD
+            + (_READING_GUIDE_PACKS if with_packs else "")
+            + _READING_GUIDE_TAIL)
+
+
+# The packed rendering, for anything that wants the text without a run behind
+# it. The uploaded copy always goes through `reading_guide_text`.
+READING_GUIDE_TEXT = reading_guide_text(True)
 
 
 # `agent_pack.BRAND_SKILL_TEXT` minus its front matter, with the opening
@@ -541,14 +570,24 @@ def write_builder_pack(pack_dir, out_dir, scope=None, config=None):
     upload_dir = out_dir / UPLOAD_DIRNAME
     upload_dir.mkdir(parents=True, exist_ok=True)
 
+    # The pack file is absent when no pack export was synced. Copying it
+    # unconditionally would turn a missing optional input into a crash in the
+    # delivery step, one stage after the run that tolerated it.
+    #
+    # Only that one name is guarded. The other six are required, and a guard
+    # over them would turn a failed write upstream into a quietly incomplete
+    # upload folder -- which is uploaded whole and grounded on, with nothing on
+    # the surface saying a file is missing. A crash here is the cheap failure.
+    with_packs = (pack_dir / agent_pack.PACKS_CSV_NAME).exists()
     for name in UPLOAD_DATA_FILES:
-        source = pack_dir / name
-        # The pack file is absent when no pack export was synced. Copying it
-        # unconditionally would turn a missing optional input into a crash in
-        # the delivery step, one stage after the run that tolerated it.
-        if source.exists():
-            shutil.copyfile(source, upload_dir / name)
-    (upload_dir / READING_GUIDE_NAME).write_text(READING_GUIDE_TEXT,
+        if name == agent_pack.PACKS_CSV_NAME and not with_packs:
+            continue
+        shutil.copyfile(pack_dir / name, upload_dir / name)
+    # The guide is written per run, so it follows the folder the way SKILL.md
+    # does next door: its Packs section explains a file and a column that only
+    # a pack export produces, and a knowledge file describing a document the
+    # agent does not hold is answered from whatever it does hold.
+    (upload_dir / READING_GUIDE_NAME).write_text(reading_guide_text(with_packs),
                                                  encoding="utf-8")
     (upload_dir / CHART_STANDARDS_NAME).write_text(CHART_STANDARDS_TEXT,
                                                    encoding="utf-8")

@@ -884,16 +884,43 @@ An image failing one of these is redrawn, not explained.
 """
 
 
-SKILL_TEXT = f"""---
+# SKILL.md, in the two shapes the archive is really built in.
+#
+# Two renderings rather than one text with a hedge in it, for the reason
+# `geb_rule` already gives: this file ships inside the archive and is rebuilt
+# with every run, so it can state what the archive actually holds. Prose that
+# travels with the data follows the data; prose that is pasted once and left
+# behind -- the instructions, on both surfaces -- describes both states,
+# because it cannot follow anything.
+#
+# A routing table row naming a file the archive does not carry is the worse
+# half of that. The agent looks, fails, and answers from whichever row looked
+# closest, and the pack file is the one row whose questions nothing else can
+# answer.
+#
+# The count sentence is written out twice rather than interpolated, so both
+# numbers are legible in the source next to the table they have to agree with.
+# `tests/test_agent_pack.py` derives both sides of that agreement from each
+# rendering at run time.
+_SKILL_HEAD = """---
 name: cplan-reporting
 description: Answers questions about the CPLAN communication plan - volumes, timing, leadership involvement, planning quality - from the report pack in this skill. Use for any question about planned communication activities, packs, channels, audiences, leads or planning gaps.
 ---
 
 # CPLAN reporting
+"""
 
+_SKILL_INTRO_WITH_PACKS = """
 You answer questions about a communication plan from six files shipped with
 this skill. They come from one pipeline run: same figures, same scope.
+"""
 
+_SKILL_INTRO_WITHOUT_PACKS = """
+You answer questions about a communication plan from five files shipped with
+this skill. They come from one pipeline run: same figures, same scope.
+"""
+
+_SKILL_ROUTING = f"""
 ## Which file answers what
 
 | Question | File |
@@ -903,14 +930,19 @@ this skill. They come from one pipeline run: same figures, same scope.
 | Volume over time by any dimension | `{CALENDAR_NAME}` |
 | Any figure crossing two dimensions | `{BREAKDOWN_NAME}` |
 | A single named activity | `{ACTIVITIES_CSV_NAME}` |
+"""
+
+_SKILL_PACK_ROUTING = f"""\
 | Per-pack detail, or which packs have nothing planned | `{PACKS_CSV_NAME}` |
 
 - `{PACKS_CSV_NAME}` — one row per communication pack: name, lead, period,
   objective, and how many activities sit in it. Every pack is here, including
   those with nothing planned against them (`activities_in_scope = 0`), which
   is the only place that fact appears. Join it to `{ACTIVITIES_CSV_NAME}` on
-  `Pack ID`.
+  `Pack ID`, which every activity row carries beside `pack_known`.
+"""
 
+_SKILL_BODY = f"""
 Prefer `{SUMMARY_NAME}`, `{CALENDAR_NAME}` and `{BREAKDOWN_NAME}` for any
 counting question. Those figures were computed by tested code. A number you
 derive yourself from `{ACTIVITIES_CSV_NAME}` has not been through the report's
@@ -992,6 +1024,24 @@ gaps?
 *Analytics* — Activity distribution by quarter. Regional concentration.
 Audience segmentation. Channel proxy metrics. Lead-time distribution.
 """
+
+
+def skill_text(with_packs):
+    """SKILL.md for the archive that is about to be written, not for both.
+
+    `with_packs` is read off the pack directory by `_write_skill_zip`, from
+    the same `.exists()` call that decides whether the file goes in -- so the
+    routing table and the payload cannot disagree, whatever a future caller
+    does.
+    """
+    intro = _SKILL_INTRO_WITH_PACKS if with_packs else _SKILL_INTRO_WITHOUT_PACKS
+    routing = _SKILL_ROUTING + (_SKILL_PACK_ROUTING if with_packs else "")
+    return _SKILL_HEAD + intro + routing + _SKILL_BODY
+
+
+# The packed rendering, for everything that wants the text without a run
+# behind it. The archive itself always goes through `skill_text`.
+SKILL_TEXT = skill_text(True)
 
 
 # The agent's complete instructions, not an addendum: the whole of what was in
@@ -1386,6 +1436,11 @@ def activity_rows(scope, report_config=None):
     that changed shape under the reader would be worse than one that grows.
     The three are consistent by construction -- the two halves partition the
     combined value -- and `06-breakdowns.csv` is still where a count belongs.
+
+    And one more on a pack-list build: `pack_known`, which `packs.mark` put on
+    the frame and nothing carried out of it. The reading guide tells the agent
+    to treat `pack_known = No` as a data-quality finding, so leaving it in the
+    frame instructed the agent to filter on a column no delivered file had.
     """
     frame = scope.frame
     headers = [header for _, header in ACTIVITY_COLUMNS]
@@ -1395,6 +1450,14 @@ def activity_rows(scope, report_config=None):
     split = scope.membership is not None
     if split:
         headers += ["GEB members", "GEB-1 members"]
+    # Conditional for that same reason, and read off the frame rather than off
+    # `scope.packs`: `packs.mark` adds the column only where it could actually
+    # compare the two sides, so this column exists exactly where a value in it
+    # means something. An always-present, always-blank `pack_known` would say
+    # "checked, and nothing was wrong" on every machine that never checked.
+    show_pack_known = "pack_known" in frame.columns
+    if show_pack_known:
+        headers += ["pack_known"]
     if report_config:
         headers += ["in_report", "report_exclusion"]
     rows = []
@@ -1423,6 +1486,8 @@ def activity_rows(scope, report_config=None):
         if split:
             values += [activity.get("executives_geb", ""),
                        activity.get("executives_geb1", "")]
+        if show_pack_known:
+            values.append(activity.get("pack_known", ""))
         if report_config:
             reason = report_exclusion(activity, report_config)
             values += ["No" if reason else "Yes", reason]
@@ -1569,18 +1634,28 @@ def _write_skill_zip(pack_dir, zip_path):
     Called unconditionally from `write_pack`, one stage after the write that
     tolerates a pack export that was never synced -- so `PACKS_CSV_NAME` is
     included only when `pack_dir` actually has it. `zipfile.ZipFile.write` on
-    a path that does not exist raises `FileNotFoundError`, and without this
-    guard that turns the supported no-pack-export case into a crash here
-    instead of the absence the file's own writer already allows for.
+    a path that does not exist raises `FileNotFoundError`, and without that
+    guard the supported no-pack-export case would crash here instead of
+    producing the absence the file's own writer already allows for.
+
+    The guard covers the pack file and nothing else. Extended over the six
+    required names it would swallow the opposite bug: a write that failed
+    upstream would leave a silently incomplete archive, uploaded and grounded
+    on, where a `FileNotFoundError` at the moment of packing is the cheapest
+    possible failure.
+
+    The same `.exists()` answers what SKILL.md says, so the archive's own
+    routing table cannot name a file the archive does not carry.
     """
+    packs_source = pack_dir / PACKS_CSV_NAME
+    with_packs = packs_source.exists()
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("SKILL.md", SKILL_TEXT)
+        archive.writestr("SKILL.md", skill_text(with_packs))
         for name in (GLOSSARY_NAME, SUMMARY_NAME, QUALITY_NAME,
-                     CALENDAR_NAME, BREAKDOWN_NAME, ACTIVITIES_CSV_NAME,
-                     PACKS_CSV_NAME):
-            source = pack_dir / name
-            if source.exists():
-                archive.write(source, name)
+                     CALENDAR_NAME, BREAKDOWN_NAME, ACTIVITIES_CSV_NAME):
+            archive.write(pack_dir / name, name)
+        if with_packs:
+            archive.write(packs_source, PACKS_CSV_NAME)
 
 
 def _write_brand_skill_zip(zip_path):

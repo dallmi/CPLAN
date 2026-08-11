@@ -556,6 +556,33 @@ def test_the_activities_file_names_the_pack_it_only_numbered(tmp_path):
     assert "Pack ID" in rows[0]
 
 
+@pytest.mark.parametrize("with_packs", [False, True])
+def test_the_activity_rows_carry_pack_known_only_where_a_pack_list_did(tmp_path, with_packs):
+    """`packs.mark` put the column on the frame, and nothing carried it out.
+
+    The reading guide tells the agent that `pack_known = No` is a
+    data-quality finding worth reporting when it is common -- an instruction
+    to filter on a column no delivered file contained, which the agent
+    answers by finding the nearest thing that does exist.
+
+    Conditional for the reason the GEB split columns are: an always-present,
+    always-blank `pack_known` would say "checked, and nothing was wrong" on
+    every machine that had no list to check against.
+    """
+    pack_dir, _, scope, _ = _pack(tmp_path / f"state-{with_packs}", with_packs=with_packs)
+    with (pack_dir / agent_pack.ACTIVITIES_CSV_NAME).open(encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+
+    assert ("pack_known" in rows[0]) is with_packs
+    if not with_packs:
+        return
+    # Row for row, not merely present: a column written from the wrong source
+    # would still be there, and would still be a plausible-looking file.
+    assert [row["pack_known"] for row in rows] == list(scope.frame["pack_known"])
+    assert "Yes" in {row["pack_known"] for row in rows}, (
+        "the fixture's packed activities lost their verdict")
+
+
 # ---------------------------------------------------------------------------
 # The properties the pack exists for
 # ---------------------------------------------------------------------------
@@ -1749,6 +1776,46 @@ def test_the_packs_readme_names_every_file_beside_it_and_no_others(tmp_path, wit
     assert (agent_pack.PACKS_CSV_NAME in named) is with_packs
 
 
+@pytest.mark.parametrize("with_packs", [False, True])
+def test_the_skill_archives_prose_names_only_what_the_archive_carries(tmp_path, with_packs):
+    """An agent trusts a sentence about the data over the data.
+
+    The archive is where the two are delivered together, so a routing table
+    naming a file the archive does not hold is not a stale document -- it is
+    an instruction the agent obeys by answering the miss from whichever file
+    looked closest, silently.
+
+    Backward compatibility held for the data here and broke for the prose:
+    a machine with no pack export shipped five of the six files its own
+    routing table named, and said six.
+    """
+    _, out_dir, _, _ = _pack(tmp_path / f"state-{with_packs}", with_packs=with_packs)
+    with zipfile.ZipFile(out_dir / agent_pack.SKILL_ZIP_NAME) as archive:
+        carried = set(archive.namelist())
+        manifest = archive.read("SKILL.md").decode("utf-8")
+
+    named = set(_PACK_FILE_NAME.findall(manifest))
+    assert named == carried - {"SKILL.md"}, (
+        f"SKILL.md routes to {sorted(named - carried)} the archive does not carry, "
+        f"and never mentions {sorted(carried - named - {'SKILL.md'})} that it does")
+    assert (agent_pack.PACKS_CSV_NAME in carried) is with_packs
+
+
+def test_a_missing_required_file_fails_the_archive_rather_than_shrinking_it(tmp_path):
+    """The optional file's guard, kept off the six that are not optional.
+
+    Over all seven names, a write that failed upstream would produce a
+    complete-looking archive with a file missing -- uploaded, grounded on,
+    and wrong about a figure nobody can trace. A `FileNotFoundError` while
+    packing is the cheapest place for that to surface.
+    """
+    pack_dir, out_dir, _, _ = _pack(tmp_path)
+    (pack_dir / agent_pack.ACTIVITIES_CSV_NAME).unlink()
+
+    with pytest.raises(FileNotFoundError):
+        agent_pack._write_skill_zip(pack_dir, out_dir / "second-skill.zip")
+
+
 def test_the_glossary_says_a_median_never_combines(tmp_path):
     """The overlap rule saves a reader from summing an overlapping block. It
     does not save them from summing a median, which is wrong on a partitioning
@@ -2032,19 +2099,25 @@ _SPELLED_OUT_COUNTS = {
 }
 
 
-def test_the_skill_texts_file_count_agrees_with_its_routing_table():
+@pytest.mark.parametrize("with_packs", [False, True])
+def test_the_skill_texts_file_count_agrees_with_its_routing_table(with_packs):
     """The two have drifted apart twice already: four files stated for a
     table that had grown to five, and five files stated once a sixth row --
     07-packs.csv -- existed but was not yet in the table at all. Both times a
     human caught it by reading the rendered text, which does not scale to a
     third row-count change nobody happens to look for.
 
-    Both sides are derived from `SKILL_TEXT` at run time, not hardcoded here:
-    a hardcoded "six" on either side would freeze today's value instead of
-    holding the invariant, and would itself go stale the next time a file is
-    added or removed.
+    Both sides are derived from the rendered text at run time, not hardcoded
+    here: a hardcoded "six" on either side would freeze today's value instead
+    of holding the invariant, and would itself go stale the next time a file
+    is added or removed.
+
+    Run against both renderings, because there are two. The archive drops the
+    pack row on a machine that never synced a pack export, and a rendering
+    whose count sentence was left behind would be exactly the drift this test
+    exists for -- in the state nobody builds while writing the text.
     """
-    text = agent_pack.SKILL_TEXT
+    text = agent_pack.skill_text(with_packs)
 
     table = re.search(r"\| Question \| File \|\n\|-+\|-+\|\n(.*?)\n\n", text, re.S)
     assert table, "the routing table was not found in the shape this test expects"

@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-11.1"
+$manifestVersion = "2026-08-11.2"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-11.1"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-11.1"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-11.2"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -543,7 +543,29 @@ $manifest = @(
     # lesson: the files readme_text tells a reader to prefer had to move with
     # the new file, and none of them did on the first pass. Same miss, same
     # file, one entity later.
-    @{ Path = "pipeline\report\agent_pack.py"; Marker = "including the ones with nothing planned against them"; Why = "the pack's own 00-README.txt lists 07-packs.csv, conditionally on the file being written - an older copy stops the table of contents at 05-activities.csv, so the one file that answers `which packs have nothing planned` is delivered and never mentioned to the reader" }
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "including the ones with nothing planned against them"; Why = "the pack's own 00-README.txt lists 07-packs.csv, conditionally on the file being written - an older copy stops the table of contents at 05-activities.csv, so the one file that answers `which packs have nothing planned` is delivered and never mentioned to the reader" },
+
+    # pack_known was put on the frame by packs.mark and carried out of it by
+    # nothing, while the reading guide told the agent to treat pack_known = No
+    # as a finding worth reporting. An old copy instructs the agent to filter
+    # on a column no delivered file contains, which is answered from whatever
+    # column does exist rather than reported as impossible.
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "show_pack_known"; Why = "05-activities.csv carries pack_known wherever a pack list was joined - an older copy leaves the column in the frame only, so the agent is told to read a column no file it holds contains" },
+
+    # SKILL.md is rendered for the archive being written rather than for the
+    # packed case alone. An old copy ships one routing table on every machine:
+    # on one with no pack export it names 07-packs.csv, which is not in the
+    # archive, and counts six files where five shipped.
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "def skill_text"; Why = "the skill archive's SKILL.md follows the archive - an older copy routes a pack question to 07-packs.csv on a machine that has no pack export, and the agent answers the miss from whichever file looked closest" },
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "guard covers the pack file and nothing else"; Why = "only the optional pack file is guarded by exists() - an older copy guards all seven names, so a required file that failed to write produces a silently incomplete archive instead of an error" },
+
+    # The same two corrections on the surface with no skills: the reading
+    # guide follows the upload folder, the copy loop guards only the optional
+    # name, and the pasted prompt - which cannot follow anything - says the
+    # pack file is there only sometimes.
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "def reading_guide_text"; Why = "08-reading-guide.txt drops its Packs section where no pack export was synced - an older copy explains 07-packs.csv and the pack_known column to an agent whose upload folder holds neither" },
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "Present only where a pack list was synced"; Why = "the pasted prompt describes both states of the pack file - an older copy asserts it unconditionally, and a prompt is pasted once and left while the pack is rebuilt underneath it" },
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "Only that one name is guarded"; Why = "the copy loop guards 07-packs.csv alone - an older copy guards all seven, so a required file that failed to write leaves an upload folder that is quietly one file short and is uploaded whole anyway" }
 )
 
 Write-Host ""
