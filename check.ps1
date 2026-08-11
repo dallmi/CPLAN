@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-11.14"
+$manifestVersion = "2026-08-11.15"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-11.14"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-11.14"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-11.15"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -630,7 +630,14 @@ $manifest = @(
     @{ Path = "pipeline\report\agent_pack.py";  Marker = "PERIODS_CSV_NAME"; Why = "the year, quarter and year-to-date rollups - an older copy makes the agent sum the week grain for every period comparison, which times out, and its year-to-date cut is whatever the model guesses" },
     @{ Path = "pipeline\report\agent_builder.py"; Marker = "09-reading-guide.txt"; Why = "the rule documents moved up behind the new data file - an older copy uploads a folder whose numbering collides at 08 and whose prompt names files by the wrong number" },
     @{ Path = "pipeline\report\agent_pack.py";  Marker = "PERIOD_BLOCKS"; Why = "which blocks are worth comparing over time - an older copy multiplies every country and every named person by every year and quarter, and the period file dwarfs the pack it belongs to" },
-    @{ Path = "pipeline\report\agent_pack.py";  Marker = "the planner audience's own recurring question"; Why = "channel is broken down at last - an older copy answers which channels are overused from nowhere, because the field appeared in no block of any file" }
+    @{ Path = "pipeline\report\agent_pack.py";  Marker = "the planner audience's own recurring question"; Why = "channel is broken down at last - an older copy answers which channels are overused from nowhere, because the field appeared in no block of any file" },
+    # Which dimensions the aggregate files carry has been decided by estimate
+    # twice, and twice the estimate about these exports was wrong. This
+    # measures it: cost per dimension in each file, beside coverage and
+    # concentration, so value can be weighed against size instead of guessed.
+    @{ Path = "pipeline\scripts\check_cardinality.py"; Marker = "CANDIDATES"; Why = "the tool that weighs a breakdown dimension's cost against its worth - a NEW file; without it cardinality.cmd fails outright and the decision goes back to estimating" },
+    @{ Path = "cardinality.ps1";               Marker = "check_cardinality"; Why = "the launcher for that check - an operator with no PowerShell entry point cannot run it at all" },
+    @{ Path = "pipeline\report\agent_pack.py";  Marker = "before anyone decides to carry it"; Why = "period_rows takes an explicit block list so a dimension can be costed before it is adopted - an older copy can only measure what it already ships" }
 )
 
 Write-Host ""

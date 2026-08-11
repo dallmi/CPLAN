@@ -400,7 +400,7 @@ def _ytd_cut(day, cut):
     return (day.month, day.day) <= (cut.month, cut.day)
 
 
-def period_rows(scope, config, generated=None):
+def period_rows(scope, config, generated=None, blocks=None):
     """One row per block x value x grain x period x measure.
 
     The level that was missing. `06-breakdowns.csv` collapses time entirely
@@ -425,9 +425,14 @@ def period_rows(scope, config, generated=None):
       safe way to make it.
     """
     generated = generated or date.today()
+    # `blocks` exists for `check_cardinality.py`, which has to measure what a
+    # block WOULD cost before anyone decides to carry it. Defaulting to the
+    # shipped list keeps every other caller honest: the file's contents are
+    # `PERIOD_BLOCKS` and nothing else unless a measurement asks otherwise.
+    blocks = PERIOD_BLOCKS if blocks is None else blocks
     rows = []
     for block, value, overlaps, subset in iter_blocks(scope, config):
-        if block not in PERIOD_BLOCKS or subset.empty:
+        if block not in blocks or subset.empty:
             continue
         suppressed = TAUTOLOGICAL_MEASURES.get(block, ())
         flag = "yes" if overlaps else "no"
