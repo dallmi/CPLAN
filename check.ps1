@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-11.15"
+$manifestVersion = "2026-08-11.16"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-11.15"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-11.15"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-11.16"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -637,7 +637,14 @@ $manifest = @(
     # concentration, so value can be weighed against size instead of guessed.
     @{ Path = "pipeline\scripts\check_cardinality.py"; Marker = "CANDIDATES"; Why = "the tool that weighs a breakdown dimension's cost against its worth - a NEW file; without it cardinality.cmd fails outright and the decision goes back to estimating" },
     @{ Path = "cardinality.ps1";               Marker = "check_cardinality"; Why = "the launcher for that check - an operator with no PowerShell entry point cannot run it at all" },
-    @{ Path = "pipeline\report\agent_pack.py";  Marker = "before anyone decides to carry it"; Why = "period_rows takes an explicit block list so a dimension can be costed before it is adopted - an older copy can only measure what it already ships" }
+    @{ Path = "pipeline\report\agent_pack.py";  Marker = "before anyone decides to carry it"; Why = "period_rows takes an explicit block list so a dimension can be costed before it is adopted - an older copy can only measure what it already ships" },
+    # The first decisions taken from measurement rather than estimate: country
+    # and executives cost ~1,700 calendar rows each at 60% and 11% coverage,
+    # and source_type and audience_band cost 118 and 464 period rows at full
+    # coverage. Cheap axes in, expensive week-grain blocks out.
+    @{ Path = "pipeline\report\agent_pack.py";  Marker = "CALENDAR_SKIP_BLOCKS"; Why = "country and executives are no longer costed by the week - an older copy spends thousands of rows of the pack's largest file on two blocks nobody asks about weekly, and they compete with rows that say something" },
+    @{ Path = "pipeline\report\calendar_sheet.py"; Marker = "All three are fields"; Why = "source_type partitions the portfolio - an older copy marks internal against external as overlapping, and a reader adding the two gets a number larger than the plan" },
+    @{ Path = "pipeline\scripts\check_cardinality.py"; Marker = "was a real defect"; Why = "the cardinality check loads the GEB member list - an older copy passes None, so the leadership field never splits and the table reports no GEB block on a machine that has the list" }
 )
 
 Write-Host ""

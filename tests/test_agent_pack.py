@@ -295,6 +295,10 @@ def test_breakdown_values_carry_their_own_row_counts(tmp_path):
     pack_dir, _, scope, config = _pack(tmp_path)
     rows = _calendar(pack_dir)
     for field in config.breakdown_fields:
+        # The calendar omits these by design -- see CALENDAR_SKIP_BLOCKS.
+        # Their counts are checked against the frame in the breakdowns.
+        if field in agent_pack.CALENDAR_SKIP_BLOCKS:
+            continue
         if field not in scope.frame.columns:
             continue
         expected = {}
@@ -311,7 +315,9 @@ def test_breakdown_values_carry_their_own_row_counts(tmp_path):
 def test_breakdown_blocks_are_marked_as_overlapping(tmp_path):
     """The sentence the sheet writes into its header, as a column."""
     pack_dir, _, scope, config = _pack(tmp_path)
-    fields = {f for f in config.breakdown_fields if f in scope.frame.columns}
+    fields = {f for f in config.breakdown_fields
+              if f in scope.frame.columns
+              and f not in agent_pack.CALENDAR_SKIP_BLOCKS}
     marks = {r["block"]: r["overlaps"] for r in _calendar(pack_dir)}
     for field in fields:
         assert marks.get(field) == "yes", f"{field} is not marked as overlapping"
@@ -345,10 +351,17 @@ def test_breakdown_totals_match_the_frame(tmp_path):
 
 
 def test_breakdown_activities_agree_with_the_calendar(tmp_path):
-    """Same blocks, same values, same counts -- the week dimension is all that differs.
+    """Same values, same counts, for every block both files carry.
 
-    Both files come from `iter_blocks`, and this is the assertion that keeps
-    them from being two implementations of "what is a block".
+    Both come from `iter_blocks`, and this is the assertion that keeps them
+    from becoming two implementations of "what is a block".
+
+    The calendar deliberately omits `CALENDAR_SKIP_BLOCKS` -- at week grain
+    those two cost more of the largest file in the pack than any question
+    they answer is worth. That is a decision about which blocks a file
+    carries, not about what a block is, so the counts still have to agree
+    wherever both files speak. The omission is pinned to exactly that list
+    below, so a block quietly falling out of the calendar still fails here.
     """
     pack_dir, _, _, _ = _pack(tmp_path)
     weekly = {}
@@ -356,12 +369,19 @@ def test_breakdown_activities_agree_with_the_calendar(tmp_path):
         key = (row["block"], row["value"])
         weekly[key] = weekly.get(key, 0) + int(row["activities"])
 
+    missing = set()
     for row in _breakdowns(pack_dir):
         if row["measure"] != "activities":
             continue
         key = (row["block"], row["value"])
-        assert key in weekly, f"{key} is in the breakdowns and not in the calendar"
+        if key not in weekly:
+            missing.add(row["block"])
+            continue
         assert int(row["figure"]) == weekly[key], f"{key} disagrees with the calendar"
+
+    assert missing <= set(agent_pack.CALENDAR_SKIP_BLOCKS), (
+        f"{sorted(missing - set(agent_pack.CALENDAR_SKIP_BLOCKS))} is in the "
+        "breakdowns and absent from the calendar without being declared")
 
 
 def test_breakdown_carries_the_same_overlap_warning(tmp_path):
@@ -375,6 +395,8 @@ def test_breakdown_carries_the_same_overlap_warning(tmp_path):
     calendar = {(r["block"], r["value"]): r["overlaps"] for r in _calendar(pack_dir)}
     for row in _breakdowns(pack_dir):
         key = (row["block"], row["value"])
+        if row["block"] in agent_pack.CALENDAR_SKIP_BLOCKS:
+            continue
         assert row["overlaps"] == calendar[key], f"{key} overlaps differently"
 
 
@@ -573,6 +595,51 @@ def test_the_period_file_carries_only_the_blocks_worth_comparing_over_time(tmp_p
                                                      generated=date(2025, 8, 11))
                 if r[3] == "year"}
     assert "with_executives" in measures
+
+
+def test_the_calendar_leaves_out_the_blocks_it_cannot_afford_by_the_week(tmp_path):
+    """Measured on a real export of 18,394 activities over 168 weeks.
+
+    `country` names 40 values at 60% coverage and `executives` 151 at 11%,
+    and at week grain each costs around 1,700 rows of `04-calendar.csv` --
+    the largest file in the pack, competing for the same retrieval budget as
+    every row that says something. Neither is a question anyone asks by the
+    week: a country is a detail behind one question, and "which person, in
+    which week" is not a question at all.
+
+    They stay in `06-breakdowns.csv`, where crossing two dimensions is the
+    whole point and a block costs a handful of rows instead of one per week.
+    """
+    config = _config()
+    wide = agent_pack.pack_config(config)
+    scope = load_fixture_scope(tmp_path / "csv", wide)
+
+    calendar = {r[0] for r in agent_pack.calendar_rows(scope, wide)}
+    breakdowns = {r[0] for r in agent_pack.breakdown_rows(scope, wide)}
+
+    for field in agent_pack.CALENDAR_SKIP_BLOCKS:
+        assert field not in calendar, f"{field} is still costed by the week"
+        assert field in breakdowns, f"{field} was dropped from the crosses too"
+
+    # The cheap, well-covered blocks are untouched on both sides.
+    assert {"business_division", "region_group", "priority"} <= calendar
+
+
+def test_the_two_cheapest_axes_are_carried_over_time(tmp_path):
+    """Measured, not guessed: 118 and 464 rows against a file of 5,144.
+
+    `source_type` is two values at full coverage -- internal against external
+    over the years -- and `audience_band` six, which is the planner
+    audience's "audience saturation by planned size" and was answerable
+    nowhere over time. Together they grow the period file by about a tenth.
+    """
+    config = _config()
+    wide = agent_pack.pack_config(config)
+    scope = load_fixture_scope(tmp_path / "csv", wide)
+    blocks = {r[0] for r in agent_pack.period_rows(scope, wide,
+                                                   generated=date(2025, 8, 11))}
+
+    assert {"source_type", "audience_band"} <= blocks
 
 
 def test_channel_is_a_block_and_it_overlaps(tmp_path):

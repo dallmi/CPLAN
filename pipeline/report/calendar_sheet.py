@@ -82,7 +82,7 @@ SPLIT_FIELDS = frozenset(EXECUTIVES_SPLIT)
 
 # Breakdown fields that name exactly one value per activity, and so PARTITION
 # the portfolio -- their rows genuinely sum to the total, the way the audience
-# bands do. Both are fields `agent_pack.pack_config` adds; every field the
+# bands do. All three are fields `agent_pack.pack_config` adds; every field the
 # workbook itself offers (division, region, country, executives) is multi-select
 # at the source and stays overlapping, which is why the Calendar sheet titles
 # each of THEIR blocks "multiple values possible" unconditionally rather than
@@ -97,7 +97,7 @@ SPLIT_FIELDS = frozenset(EXECUTIVES_SPLIT)
 # makes it true are one decision. Two sets, one per module, could only ever
 # disagree -- the same reason `SPLIT_FIELDS` reads `EXECUTIVES_SPLIT` instead
 # of naming those columns a second time.
-PARTITION_BREAKDOWN_FIELDS = frozenset({"priority", "lead_team"})
+PARTITION_BREAKDOWN_FIELDS = frozenset({"priority", "lead_team", "source_type"})
 
 
 def _split_for(field, value):

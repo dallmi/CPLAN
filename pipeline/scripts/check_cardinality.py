@@ -47,7 +47,8 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from pipeline.report import agent_pack  # noqa: E402
+from pipeline.report import agent_pack, membership  # noqa: E402
+from pipeline.report.config import EXECUTIVES_SPLIT  # noqa: E402
 from pipeline.report.calendar_sheet import _split_for  # noqa: E402
 from pipeline.report.data import build_scope  # noqa: E402
 from pipeline.scripts.process_cplan import (  # noqa: E402
@@ -175,7 +176,28 @@ def main(argv: list[str] | None = None) -> int:
     from pipeline.scripts.report_calendar import CONFIG
 
     config = agent_pack.pack_config(CONFIG)
-    scope = build_scope(load, config, None, load_packs(files))
+
+    # The member list, loaded exactly as `resolve_scope` loads it. Passing
+    # None here was a real defect: without the list the leadership field never
+    # splits, so `executives_geb` is absent from the table and the run reads
+    # as though the machine had no list at all -- which is what it reported,
+    # on a machine that had one.
+    try:
+        members_path = membership.default_path(_REPO_ROOT)
+        members = membership.load_membership(members_path) if members_path else None
+    except membership.MembershipError as error:
+        log(f"ERROR: {error}")
+        print()
+        return 1
+    if members is not None:
+        log(f"GEB list: {len(members)} members from {members_path.name}")
+        config = replace(config, breakdown_fields=tuple(
+            field for name in config.breakdown_fields
+            for field in (EXECUTIVES_SPLIT if name == "executives" else (name,))))
+    else:
+        log("No GEB member list found, so the leadership field is not split")
+
+    scope = build_scope(load, config, members, load_packs(files))
     generated = agent_pack.date.today()
 
     log(f"Activities in scope: {len(scope.frame)}")

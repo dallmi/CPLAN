@@ -302,6 +302,8 @@ def calendar_rows(scope, config):
     weeks = {week.key: week for week in scope.grid.weeks}
     rows = []
     for block, value, overlaps, subset in iter_blocks(scope, config):
+        if block in CALENDAR_SKIP_BLOCKS:
+            continue
         if subset.empty or "week_index" not in subset.columns:
             continue
         counts = {}
@@ -385,7 +387,27 @@ QUARTER_MEASURES = ("activities",)
 # without one there is no split and no such block, which is the same
 # condition the GEB rule in the glossary already follows.
 PERIOD_BLOCKS = (TOTAL_BLOCK, "business_division", "region_group", "priority",
-                 "lead_team", "channel", "executives_geb")
+                 "lead_team", "channel", "executives_geb",
+                 # Added after measuring, not before: two values and six,
+                 # both at full coverage, costing 118 and 464 rows against a
+                 # file of five thousand. Internal against external over the
+                 # years, and the planner audience's "audience saturation by
+                 # planned size" -- which was answerable nowhere over time.
+                 "source_type", "audience_band")
+
+# Blocks the pack's calendar leaves out, though `06-breakdowns.csv` keeps them.
+#
+# Measured on a real export of 18,394 activities across 168 weeks: `country`
+# names 40 values at 60% coverage and `executives` 151 at 11%, and at week
+# grain each costs around 1,700 rows of the largest file in the pack. Neither
+# is a question anyone asks by the week -- a country is a detail behind one
+# question, and "which person, in which week" is not a question at all.
+#
+# They stay in the crosses, where a block costs a handful of rows instead of
+# one per week and "which division binds the most executive attention" is
+# exactly what the file is for. This is the pack's calendar only; the
+# workbook's Calendar sheet is built elsewhere and still carries both.
+CALENDAR_SKIP_BLOCKS = ("country", "executives")
 
 
 def _ytd_cut(day, cut):
@@ -1543,7 +1565,12 @@ def pack_config(config):
     # answers well, and it was answerable nowhere: the field was never broken
     # down in any file. Unlike the other two it carries several values in one
     # string, so its rows overlap and say so.
-    extra = tuple(field for field in ("priority", "lead_team", "channel")
+    # `source_type` is internal against external, two values at full
+    # coverage costing 118 rows of the period file -- measured, and the
+    # cheapest axis of the lot. `audience_band` is not here because
+    # `iter_blocks` already yields it as a partition of its own.
+    extra = tuple(field for field in ("priority", "lead_team", "channel",
+                                      "source_type")
                   if field not in config.breakdown_fields)
     return replace(config, exclude_priorities=(), exclude_objectives=(),
                    date_from=None, date_to=None,
