@@ -29,9 +29,10 @@ def _config(**overrides):
     return ReportConfig(**base)
 
 
-def _scope(tmp_path, **overrides):
+def _scope(tmp_path, with_packs=False, **overrides):
     config = _config(**overrides)
-    return load_fixture_scope(tmp_path / "csv", config), config
+    return load_fixture_scope(tmp_path / "csv", config,
+                              with_packs=with_packs), config
 
 
 def _pack(tmp_path, **overrides):
@@ -530,6 +531,56 @@ def test_activities_file_holds_every_activity_once(tmp_path):
         rows = list(csv.DictReader(handle))
     assert len(rows) == len(scope.frame)
     assert rows[0]["Tracking ID"]
+
+
+def test_the_activities_file_names_the_pack_it_only_numbered(tmp_path):
+    """A bare identifier is not something a reader can ask about.
+
+    `communication_pack` has been in the frame all along -- mapped in
+    `COLUMN_MAP`, lookup-parsed like every other reference field -- and was
+    simply never exported. An agent handed `CP-100` can group by pack but
+    cannot say which pack it grouped, and no question a planner actually
+    asks is phrased in identifiers.
+    """
+    pack_dir, _, _, _ = _pack(tmp_path)
+    with (pack_dir / agent_pack.ACTIVITIES_CSV_NAME).open(encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+
+    assert "Pack" in rows[0], "the activities file still carries only the identifier"
+    packed = [row for row in rows if row["Pack ID"] == "CP-100"]
+    assert packed, "the fixture's packed activities vanished"
+    assert all(row["Pack"] == "Pack one" for row in packed)
+
+    # The identifier stays. It is what `07-packs.csv` is joined on, and a
+    # name is not unique the way a key is.
+    assert "Pack ID" in rows[0]
+
+
+@pytest.mark.parametrize("with_packs", [False, True])
+def test_the_activity_rows_carry_pack_known_only_where_a_pack_list_did(tmp_path, with_packs):
+    """`packs.mark` put the column on the frame, and nothing carried it out.
+
+    The reading guide tells the agent that `pack_known = No` is a
+    data-quality finding worth reporting when it is common -- an instruction
+    to filter on a column no delivered file contained, which the agent
+    answers by finding the nearest thing that does exist.
+
+    Conditional for the reason the GEB split columns are: an always-present,
+    always-blank `pack_known` would say "checked, and nothing was wrong" on
+    every machine that had no list to check against.
+    """
+    pack_dir, _, scope, _ = _pack(tmp_path / f"state-{with_packs}", with_packs=with_packs)
+    with (pack_dir / agent_pack.ACTIVITIES_CSV_NAME).open(encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+
+    assert ("pack_known" in rows[0]) is with_packs
+    if not with_packs:
+        return
+    # Row for row, not merely present: a column written from the wrong source
+    # would still be there, and would still be a plausible-looking file.
+    assert [row["pack_known"] for row in rows] == list(scope.frame["pack_known"])
+    assert "Yes" in {row["pack_known"] for row in rows}, (
+        "the fixture's packed activities lost their verdict")
 
 
 # ---------------------------------------------------------------------------
@@ -1226,15 +1277,162 @@ def test_the_pack_carries_nothing_written_only_for_an_index(tmp_path):
     said so, and the skill archive deliberately left it out because an archive
     is read as text and the CSV beside it carries the same rows. With no index
     it had no reader at all, so no file here is one, whatever else is added.
+
+    Built with a pack list so the count reflects the full, packed shape --
+    `07-packs.csv` is one more file added since this list was last true.
     """
-    pack_dir, _, _, _ = _pack(tmp_path)
+    pack_dir, _, _, _ = _pack(tmp_path, with_packs=True)
     written = sorted(p.name for p in pack_dir.iterdir())
     assert not [n for n in written if n.endswith(".xlsx")], (
         f"a workbook is being written for a reader that no longer exists: {written}")
     assert not hasattr(agent_pack, "ACTIVITIES_XLSX_NAME")
     assert written == ["00-README.txt", "01-summary.txt", "02-glossary.txt",
                        "03-data-quality.txt", "04-calendar.csv", "05-activities.csv",
+                       "06-breakdowns.csv", "07-packs.csv"]
+
+
+def _packs_file(pack_dir):
+    with (pack_dir / agent_pack.PACKS_CSV_NAME).open(encoding="utf-8") as handle:
+        return list(csv.DictReader(handle))
+
+
+def test_the_pack_file_holds_the_pack_nobody_planned_against(tmp_path):
+    """The row the file exists for.
+
+    A pack with no activity has nothing to be counted through, so before this
+    file it was not merely undescribed -- it was absent. "Which packs have
+    nothing planned" is the question that only a row per pack can answer.
+    """
+    scope, config = _scope(tmp_path, with_packs=True)
+    pack_dir = agent_pack.write_pack(scope, agent_pack.pack_config(config),
+                                     tmp_path / "out")
+    rows = {row["Pack ID"]: row for row in _packs_file(pack_dir)}
+
+    assert set(rows) == {"CP-100", "CP-200"}
+    assert rows["CP-200"]["Pack"] == "Pack with nothing planned"
+    assert rows["CP-200"]["activities_in_scope"] == "0"
+    assert rows["CP-200"]["activities_total"] == "0"
+    assert int(rows["CP-100"]["activities_in_scope"]) > 0
+
+
+def test_the_two_activity_counts_are_not_the_same_number(tmp_path):
+    """A pack with nothing this period reads differently from a pack with
+    nothing at all, and one column cannot carry both.
+    """
+    scope, config = _scope(tmp_path, with_packs=True,
+                           date_from=date(2025, 1, 1), date_to=date(2025, 3, 31))
+    pack_dir = agent_pack.write_pack(scope, agent_pack.pack_config(config),
+                                     tmp_path / "out")
+    row = {r["Pack ID"]: r for r in _packs_file(pack_dir)}["CP-100"]
+    assert int(row["activities_total"]) > int(row["activities_in_scope"])
+
+
+def test_in_report_actually_discriminates_survivors_from_the_excluded(tmp_path):
+    """`in_report` is computed per pack, not defaulted to one answer.
+
+    A pack whose activities all survive the report's own filters reads Yes; a
+    pack whose activities are all filtered out reads No. Built from the report
+    config's own objectives filter rather than by monkeypatching
+    `report_exclusion`: every fixture activity carries exactly the objective
+    "Objective", so excluding that prefix drops every row it names, including
+    all of CP-100's. Without this, inverting `if not report_exclusion(...)`
+    inside `pack_rows` passes every test in this file, because none of them
+    reads the `in_report` column through a `report_config`.
+    """
+    scope, config = _scope(tmp_path, with_packs=True)
+    wide_config = agent_pack.pack_config(config)
+
+    kept_dir = agent_pack.write_pack(scope, wide_config, tmp_path / "kept",
+                                     report_config=_config())
+    kept_row = {r["Pack ID"]: r for r in _packs_file(kept_dir)}["CP-100"]
+    assert kept_row["in_report"] == "Yes", "CP-100's activities are not excluded here"
+
+    dropped_dir = agent_pack.write_pack(
+        scope, wide_config, tmp_path / "dropped",
+        report_config=_config(exclude_objectives=("Objective",)))
+    dropped_row = {r["Pack ID"]: r for r in _packs_file(dropped_dir)}["CP-100"]
+    assert dropped_row["in_report"] == "No", "every one of CP-100's activities is excluded here"
+
+    plain_dir = agent_pack.write_pack(scope, wide_config, tmp_path / "plain")
+    plain_row = {r["Pack ID"]: r for r in _packs_file(plain_dir)}["CP-100"]
+    assert plain_row["in_report"] == "", "no report_config means no verdict to state"
+
+
+def test_without_a_pack_export_the_file_is_not_written(tmp_path):
+    """A missing optional input leaves today's pack exactly as it was --
+    exactly `00`-`06`, the same seven-minus-one files as before this task.
+    """
+    pack_dir, _, _, _ = _pack(tmp_path)
+    assert not (pack_dir / agent_pack.PACKS_CSV_NAME).exists()
+    written = sorted(p.name for p in pack_dir.iterdir())
+    assert written == ["00-README.txt", "01-summary.txt", "02-glossary.txt",
+                       "03-data-quality.txt", "04-calendar.csv", "05-activities.csv",
                        "06-breakdowns.csv"]
+
+
+def test_a_run_with_no_pack_export_still_produces_a_valid_skill_archive(tmp_path):
+    """`_write_skill_zip` runs unconditionally, one stage after the write that
+    tolerates a missing pack export. `zipfile.ZipFile.write` on a path that
+    does not exist raises `FileNotFoundError`, so without its own guard this
+    turns a supported situation -- no pack export synced -- into a crash that
+    only fires on the machines that do not have one.
+    """
+    pack_dir, out_dir, _, _ = _pack(tmp_path)
+    assert not (pack_dir / agent_pack.PACKS_CSV_NAME).exists()
+    with zipfile.ZipFile(out_dir / agent_pack.SKILL_ZIP_NAME) as archive:
+        assert agent_pack.PACKS_CSV_NAME not in archive.namelist()
+        assert archive.testzip() is None, "the archive was written but is not valid"
+
+
+def test_the_skill_archive_carries_the_pack_file_once_one_is_synced(tmp_path):
+    """The Copilot Studio agent and the Agent Builder upload are two deliveries
+    of the same run -- a pack file copied into one and left out of the other
+    would have the two disagree about which packs exist.
+    """
+    scope, config = _scope(tmp_path, with_packs=True)
+    out_dir = tmp_path / "out"
+    pack_dir = agent_pack.write_pack(scope, agent_pack.pack_config(config), out_dir)
+    with zipfile.ZipFile(out_dir / agent_pack.SKILL_ZIP_NAME) as archive:
+        assert agent_pack.PACKS_CSV_NAME in archive.namelist()
+        assert (archive.read(agent_pack.PACKS_CSV_NAME)
+                == (pack_dir / agent_pack.PACKS_CSV_NAME).read_bytes())
+
+
+def test_data_quality_separates_packs_in_the_list_from_packs_seen(tmp_path):
+    """Two numbers that look alike and are not, in the PACK COVERAGE section
+    `data_quality_text` already had -- not a second section of that name in
+    the summary, which would leave two files with an identical header and no
+    way for a chunked read to tell them apart.
+
+    "Distinct packs" counts identifiers seen on activities; "Packs in the
+    list" counts rows in the export. They differ by exactly the packs nobody
+    has planned against -- which is the figure this whole change exists to
+    produce, so both stay and the labels say which is which. Read as literal
+    "  label | count" lines, `data_quality_text`'s own format -- not through
+    `_summary_pairs`, which only parses the summary's "label: value" shape.
+    """
+    scope, config = _scope(tmp_path, with_packs=True)
+    pack_dir = agent_pack.write_pack(scope, agent_pack.pack_config(config),
+                                     tmp_path / "out")
+    text = (pack_dir / agent_pack.QUALITY_NAME).read_text(encoding="utf-8")
+
+    assert "  Distinct packs | 1" in text
+    assert "  Packs in the list | 2" in text
+    assert "  Packs with no activity in scope | 1" in text
+    assert "  Activities whose pack is not in the list | 0" in text
+
+
+def test_data_quality_omits_the_pack_list_figures_without_a_list(tmp_path):
+    """PACK COVERAGE and its activity-derived rows predate this task and are
+    unconditional; the three list-derived rows only make sense once a list
+    exists, so a run with none must not print them.
+    """
+    pack_dir, _, _, _ = _pack(tmp_path)
+    text = (pack_dir / agent_pack.QUALITY_NAME).read_text(encoding="utf-8")
+    assert "PACK COVERAGE" in text, "the activity-derived figures still belong"
+    for label in ("Packs in the list", "Packs with no activity in scope",
+                 "Activities whose pack is not in the list"):
+        assert label not in text
 
 
 def test_the_pack_is_written_where_it_can_be_uploaded_from(tmp_path, monkeypatch):
@@ -1548,6 +1746,76 @@ def test_every_pack_file_is_named_by_the_things_that_index_it(tmp_path):
         assert name in instructions, f"the instructions do not list {name}"
 
 
+# Every numbered pack file, wherever it is named in prose. Upper case allowed
+# because `00-README.txt` is one of them.
+_PACK_FILE_NAME = re.compile(r"\d\d-[A-Za-z-]+\.(?:txt|csv)")
+
+
+@pytest.mark.parametrize("with_packs", [False, True])
+def test_the_packs_readme_names_every_file_beside_it_and_no_others(tmp_path, with_packs):
+    """The table of contents follows the folder, in both directions.
+
+    Naming a file that is not there sends a reader looking for it and, when
+    the reader is an agent, gets the miss answered from somewhere else.
+    Leaving one out is how `06-breakdowns.csv` shipped unmentioned once, and
+    how `07-packs.csv` -- the only answer to "which packs have nothing
+    planned" -- shipped unmentioned a release later.
+
+    Both states are real: the pack export is optional, so the file list is
+    six names on one machine and seven on another, and the README has to be
+    right on both.
+    """
+    pack_dir, _, _, _ = _pack(tmp_path / f"state-{with_packs}", with_packs=with_packs)
+    readme = (pack_dir / agent_pack.README_NAME).read_text(encoding="utf-8")
+
+    named = set(_PACK_FILE_NAME.findall(readme))
+    written = {path.name for path in pack_dir.iterdir()}
+    assert named == written, (
+        f"the README names {sorted(named - written)} that the folder does not hold, "
+        f"and omits {sorted(written - named)} that it does")
+    assert (agent_pack.PACKS_CSV_NAME in named) is with_packs
+
+
+@pytest.mark.parametrize("with_packs", [False, True])
+def test_the_skill_archives_prose_names_only_what_the_archive_carries(tmp_path, with_packs):
+    """An agent trusts a sentence about the data over the data.
+
+    The archive is where the two are delivered together, so a routing table
+    naming a file the archive does not hold is not a stale document -- it is
+    an instruction the agent obeys by answering the miss from whichever file
+    looked closest, silently.
+
+    Backward compatibility held for the data here and broke for the prose:
+    a machine with no pack export shipped five of the six files its own
+    routing table named, and said six.
+    """
+    _, out_dir, _, _ = _pack(tmp_path / f"state-{with_packs}", with_packs=with_packs)
+    with zipfile.ZipFile(out_dir / agent_pack.SKILL_ZIP_NAME) as archive:
+        carried = set(archive.namelist())
+        manifest = archive.read("SKILL.md").decode("utf-8")
+
+    named = set(_PACK_FILE_NAME.findall(manifest))
+    assert named == carried - {"SKILL.md"}, (
+        f"SKILL.md routes to {sorted(named - carried)} the archive does not carry, "
+        f"and never mentions {sorted(carried - named - {'SKILL.md'})} that it does")
+    assert (agent_pack.PACKS_CSV_NAME in carried) is with_packs
+
+
+def test_a_missing_required_file_fails_the_archive_rather_than_shrinking_it(tmp_path):
+    """The optional file's guard, kept off the six that are not optional.
+
+    Over all seven names, a write that failed upstream would produce a
+    complete-looking archive with a file missing -- uploaded, grounded on,
+    and wrong about a figure nobody can trace. A `FileNotFoundError` while
+    packing is the cheapest place for that to surface.
+    """
+    pack_dir, out_dir, _, _ = _pack(tmp_path)
+    (pack_dir / agent_pack.ACTIVITIES_CSV_NAME).unlink()
+
+    with pytest.raises(FileNotFoundError):
+        agent_pack._write_skill_zip(pack_dir, out_dir / "second-skill.zip")
+
+
 def test_the_glossary_says_a_median_never_combines(tmp_path):
     """The overlap rule saves a reader from summing an overlapping block. It
     does not save them from summing a median, which is wrong on a partitioning
@@ -1821,3 +2089,50 @@ def test_the_checklist_asks_about_the_split_only_where_it_exists(tmp_path):
     question, answer, control, _note, _probe = asked[0]
     assert answer == int((scope.frame["executives_geb"] != "").sum())
     assert control, "the summary states this figure, so reading it is enough"
+
+
+# Spelled-out counts the skill text's own prose has used. Not a bound on how
+# many files the skill could ever carry -- just enough words to read whatever
+# SKILL_TEXT currently states without the test itself hardcoding a number.
+_SPELLED_OUT_COUNTS = {
+    "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
+}
+
+
+@pytest.mark.parametrize("with_packs", [False, True])
+def test_the_skill_texts_file_count_agrees_with_its_routing_table(with_packs):
+    """The two have drifted apart twice already: four files stated for a
+    table that had grown to five, and five files stated once a sixth row --
+    07-packs.csv -- existed but was not yet in the table at all. Both times a
+    human caught it by reading the rendered text, which does not scale to a
+    third row-count change nobody happens to look for.
+
+    Both sides are derived from the rendered text at run time, not hardcoded
+    here: a hardcoded "six" on either side would freeze today's value instead
+    of holding the invariant, and would itself go stale the next time a file
+    is added or removed.
+
+    Run against both renderings, because there are two. The archive drops the
+    pack row on a machine that never synced a pack export, and a rendering
+    whose count sentence was left behind would be exactly the drift this test
+    exists for -- in the state nobody builds while writing the text.
+    """
+    text = agent_pack.skill_text(with_packs)
+
+    table = re.search(r"\| Question \| File \|\n\|-+\|-+\|\n(.*?)\n\n", text, re.S)
+    assert table, "the routing table was not found in the shape this test expects"
+    row_count = len([line for line in table.group(1).splitlines() if line.strip()])
+
+    stated = re.search(r"from (\w+) files shipped with", text)
+    assert stated, "the file-count sentence was not found in the shape this test expects"
+    word = stated.group(1)
+    assert word in _SPELLED_OUT_COUNTS, (
+        f"{word!r} is not a spelled-out count this test knows how to read -- "
+        f"add it to _SPELLED_OUT_COUNTS rather than assuming the table is wrong"
+    )
+
+    assert _SPELLED_OUT_COUNTS[word] == row_count, (
+        f"the skill text says {word!r} files but its own routing table has "
+        f"{row_count} rows -- a question answered by a file with no table row "
+        "routes to whichever row happens to look closest instead"
+    )

@@ -1,0 +1,120 @@
+"""Linking an activity to its communication pack, and saying how well it linked.
+
+Which activity column carries the pack identifier is not obvious from the
+exports: three are plausible, and picking one by reasoning would put an
+unverified assumption under `07-packs.csv`, where a wrong join does not look
+wrong. `pipeline/scripts/check_pack_link.py` measures all three against a real
+export. This module holds the answer it produced and the rule that keeps it
+honest -- a rate reported on every run, and a warning when it drops.
+"""
+
+from typing import NamedTuple
+
+# Chosen by `pipeline/scripts/check_pack_link.py`. It is also the column
+# `metrics.pack_stats` has always treated as pack identity, so this is the
+# status quo made explicit rather than a new assumption.
+#
+# Re-run the diagnostic when the export changes shape, and change this line
+# if it names a different winner.
+PACK_LINK_COLUMN = "communication_pack_cpid"
+
+# Below this the run says so rather than presenting a badly joined file as a
+# clean one. The same floor `check_pack_link.py` exits non-zero on.
+MIN_LINK_RATE = 0.8
+
+
+class LinkResult(NamedTuple):
+    referenced: int
+    matched: int
+
+    @property
+    def rate(self):
+        """Matched over *referenced*, never over the row count.
+
+        An activity that names no pack is an unplanned activity, not a failed
+        link. In the denominator it would report a linking problem where
+        there is only an empty field.
+        """
+        return self.matched / self.referenced if self.referenced else 0.0
+
+
+def key(value):
+    """The comparable form of an identifier, or "" when there is none.
+
+    Trimmed and upper-cased on both sides: the identifier travels through
+    SharePoint lookups and CSV round-trips, and a link that breaks on a
+    trailing space breaks in production and nowhere else.
+
+    Public because `agent_pack` keys its per-pack counts the same way. Two
+    modules deriving the same key by two spellings is how a join starts
+    disagreeing with the count printed beside it.
+    """
+    if value is None or value != value:
+        return ""
+    text = str(value).strip().upper()
+    return "" if text in ("", "NAN", "NAT") else text
+
+
+def _pack_keys(pack_frame):
+    if pack_frame is None or "cpid" not in getattr(pack_frame, "columns", []):
+        return None
+    return {key(value) for value in pack_frame["cpid"]} - {""}
+
+
+def link(frame, pack_frame):
+    """Count how many pack references resolve to a row in the pack list."""
+    known = _pack_keys(pack_frame)
+    if known is None or PACK_LINK_COLUMN not in frame.columns:
+        return LinkResult(0, 0)
+    referenced = matched = 0
+    for value in frame[PACK_LINK_COLUMN]:
+        identifier = key(value)
+        if not identifier:
+            continue
+        referenced += 1
+        if identifier in known:
+            matched += 1
+    return LinkResult(referenced, matched)
+
+
+def mark(frame, pack_frame):
+    """Add `pack_known` -- "Yes", "No", or "" where no pack is named.
+
+    Three states rather than two. An empty reference and a reference to a
+    pack that is not in the list are different facts, and the second is the
+    data-quality finding; folding them together would hide it inside the
+    ordinary business of activities that belong to no pack.
+
+    Without a pack list the column is absent entirely, because an empty
+    `pack_known` on every row would assert a check nobody ran.
+    """
+    known = _pack_keys(pack_frame)
+    if known is None or PACK_LINK_COLUMN not in frame.columns:
+        return frame
+    frame = frame.copy()
+    frame["pack_known"] = [
+        "" if not key(value) else ("Yes" if key(value) in known else "No")
+        for value in frame[PACK_LINK_COLUMN]
+    ]
+    return frame
+
+
+def activity_counts(frame, pack_frame):
+    """Activities per pack identifier, over the rows in `frame`.
+
+    Keyed on the pack list's own identifiers so a count can be looked up
+    while writing the pack rows. References that match no pack are not
+    counted here -- `pack_known` is where those are reported.
+    """
+    known = _pack_keys(pack_frame)
+    if known is None or PACK_LINK_COLUMN not in frame.columns:
+        return {}
+    by_key = {}
+    for value in frame[PACK_LINK_COLUMN]:
+        identifier = key(value)
+        if identifier and identifier in known:
+            by_key[identifier] = by_key.get(identifier, 0) + 1
+    return {
+        key(cpid): by_key.get(key(cpid), 0)
+        for cpid in pack_frame["cpid"] if key(cpid)
+    }

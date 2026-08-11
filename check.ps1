@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-10.12"
+$manifestVersion = "2026-08-11.5"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-10.12"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-10.12"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-11.5"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -205,7 +205,13 @@ $manifest = @(
     # states in words, the rule count the glossary claims, and which files
     # readme_text tells a reader to prefer, all had to move together with
     # 06-breakdowns.csv and none of them did on the first pass.
-    @{ Path = "pipeline\report\agent_pack.py"; Marker = "five files shipped with"; Why = "the skill text counts the files in its own routing table, which gained a fifth row for 06-breakdowns.csv - an older copy still says four, and the agent cannot tell which file is spurious" },
+    #
+    # Marker updated a second time, not added to: it is a quote of this exact
+    # sentence, and the sentence legitimately changed again when 07-packs.csv
+    # got its own routing row -- a marker that still said "five" here would
+    # be stale by construction, watching text nothing shipped since Task 9
+    # still contains. The Why below records why the count moved this time.
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "six files shipped with"; Why = "the skill text counts the files in its own routing table, which gained a sixth row for 07-packs.csv - an older copy still says five, and a question the pack file uniquely answers routes to 03-data-quality.txt's counts instead" },
     # A third skill, in a file of its own rather than folded into the other two
     # entries above: the named board catalogue. agent_pack.py imports it at
     # module scope, so a copy that has the new agent_pack.py but not this new
@@ -425,11 +431,156 @@ $manifest = @(
     # never picked it up. An old copy draws a board whose headline total is
     # larger than the workbook in the reader's hand, with nothing on the image
     # saying which of the two it is.
-    @{ Path = "pipeline\report\agent_builder.py"; Marker = "includes M the report excludes"; Why = "an image stating a total prints its scope, on the surface where the checklist asking for it is a retrieved file rather than a loaded one - an older copy asks the question in `08-chart-standards.txt` and states the answer nowhere at all" },
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "includes M the report excludes"; Why = "an image stating a total prints its scope, on the surface where the checklist asking for it is a retrieved file rather than a loaded one - an older copy asks the question in `09-chart-standards.txt` and states the answer nowhere at all" },
 
     # The follow-up block is justified by a surface, not by the agent, and it
     # was copied here without the justification being asked again.
-    @{ Path = "pipeline\report\agent_builder.py"; Marker = "Agent Builder offers its own"; Why = "this prompt does not ask for three follow-up questions, because the surface already puts them under every answer - an older copy produces two competing sets on one turn, the model's and the surface's, and nothing says which the agent stands behind" }
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "Agent Builder offers its own"; Why = "this prompt does not ask for three follow-up questions, because the surface already puts them under every answer - an older copy produces two competing sets on one turn, the model's and the surface's, and nothing says which the agent stands behind" },
+
+    # The activity rows have carried communication_pack_cpid, the bare pack
+    # number, since the pack was first exported -- communication_pack, the
+    # name beside it, was mapped and lookup-parsed the whole time and simply
+    # never written out. An old copy still shows only CP-100 in both
+    # 05-activities.csv and the workbook's Activities sheet.
+    @{ Path = "pipeline\report\table_sheets.py"; Marker = "The name beside the number"; Why = "the activity rows gain a Pack column stating the pack's name, not only its CP-100 identifier - an older copy leaves a reader unable to ask about a pack by the name it actually has" },
+
+    # The column-matching loop transform_packs renamed by was copied a second
+    # time into check_pack_link.py's diagnostic, and the copy silently
+    # disagreed with the original: it did not drop a lookup's #Id companion
+    # and did not stop a second column from claiming an already-matched
+    # label, so it reported both as "mapped" when transform_packs drops both.
+    @{ Path = "pipeline\scripts\process_cplan.py"; Marker = "resolve_pack_columns"; Why = "the pack column-matching rule, factored out of transform_packs so the pack-link diagnostic calls the ETL's own rule instead of a second copy that can drift from it - an older copy has no such function and the diagnostic reimplements the rule instead" },
+
+    # The scoring half of the pack-link diagnostic, and the launcher an
+    # operator runs it from without a terminal. An older copy prints only the
+    # raw pack-column inventory and has no verdict, no exit-code contract and
+    # no double-clickable entry point.
+    @{ Path = "pipeline\scripts\check_pack_link.py"; Marker = "PACK_LINK_CANDIDATES"; Why = "the three columns scored against the pack list and the score() function that measures each - an older copy only lists the pack export's raw columns and cannot say which one is the real link" },
+    @{ Path = "pipeline\scripts\check_pack_link.py"; Marker = "MIN_LINK_RATE"; Why = "the 80% floor a candidate must clear before the check exits 0 - an older copy has no floor and always exits 0 once the pack export is found, so a broken link would report as fine" },
+    @{ Path = "packlink.ps1";                  Marker = "check_pack_link";                Why = "the launcher for that check - double-clickable via packlink.cmd" },
+
+    # The diagnostic could not diagnose its own worst outcome: three
+    # candidates at 0% printed activity-side identifiers and nothing to
+    # compare them against, so "the exports do not link" and "CP-100 against
+    # 100" looked identical to the person making the merge call.
+    @{ Path = "pipeline\scripts\check_pack_link.py"; Marker = "pack list sample values"; Why = "the pack list's own identifiers are printed beside the activity-side samples - an older copy prints one side, and a zero for every candidate cannot be told from a format mismatch" },
+    @{ Path = "pipeline\scripts\check_pack_link.py"; Marker = "Orphan IDs"; Why = "the orphan column is headed by what it counts, distinct identifiers - an older copy heads it `Orphan act.`, which reads as a row count and is compared against the activity total" },
+    @{ Path = "pipeline\scripts\check_pack_link.py"; Marker = "from pipeline.report.packs import MIN_LINK_RATE"; Why = "the pre-merge gate and the runtime warning read one floor - an older copy carries its own 0.8 literal, so moving the report's floor leaves this check passing at a rate the run warns about, with both sides looking internally consistent" },
+
+    # PACKS_COLUMN_MAP carried none of the pack form's own identity fields --
+    # a pack could be sized and linked but never named. An old copy maps
+    # `Name of communication pack`, `Tracking cluster`, `Category` and `End
+    # date` to nothing, so the harmonised pack frame has no pack_name,
+    # tracking_cluster, category or end_date column for a pack file to read.
+    @{ Path = "pipeline\scripts\process_cplan.py"; Marker = "The pack's own identity"; Why = "PACKS_COLUMN_MAP widened to map the pack's name, tracking cluster, category and end date - an older copy leaves all four unmapped, so the pack file cannot say what a pack is" },
+
+    # load_packs() is the loader report_calendar.resolve_scope calls: it reads
+    # the pack export through transform_packs, de-duplicates on cpid the same
+    # way load_activities de-duplicates on tracking_id, and returns None (not
+    # an empty frame, not an exception) when a machine has no pack export at
+    # all. An old copy has no such function, so nothing can load the pack list
+    # for the report path.
+    @{ Path = "pipeline\scripts\process_cplan.py"; Marker = "class PackLoad"; Why = "the pack loader load_packs() and its PackLoad return type - an older copy cannot load the pack export at all, so the report path has no pack list to build a scope from" },
+
+    # Task 6 joins the pack list to the activities: build_scope now takes a
+    # pack_load, marks each row's pack_known (Yes/No/blank) and carries the
+    # pre-filter per-pack counts the pack file needs. An old copy has no
+    # `packs`, `pack_link` or `pack_counts_all` on Scope, so nothing
+    # downstream can read a link rate or a pack's activity count.
+    @{ Path = "pipeline\report\data.py";       Marker = "pack_counts_all";              Why = "Scope carries the pack frame, the link result and the pre-filter per-pack counts - an older copy has none of the three, so a pack file cannot be built from the scope alone" },
+
+    # The link rate is measured on the same rows the floor was set against.
+    # An old copy computes it on the filtered frame at one of the two Scope
+    # construction sites and on the unfiltered frame at the other, then
+    # compares either to MIN_LINK_RATE - a warning that stays silent through
+    # a real breakage whenever the filters keep the well-linked rows.
+    @{ Path = "pipeline\report\data.py";       Marker = "for the same reason the floor"; Why = "pack_link is measured on the pre-filter frame, the population check_pack_link.py scores and MIN_LINK_RATE was established over - an older copy measures the normal path on in-scope rows only and compares that to the same floor" },
+
+    # resolve_scope now loads the pack export itself and logs how well the
+    # link column resolved, warning below the 80% floor. An old copy never
+    # calls load_packs, so build_scope always receives pack_load=None and the
+    # workbook run never reports a broken link even when one exists.
+    @{ Path = "pipeline\scripts\report_calendar.py"; Marker = "No pack export found"; Why = "resolve_scope loads the pack export and logs the link rate - an older copy never calls load_packs, so a broken pack link is never reported" },
+
+    # 07-packs.csv: one row per pack in the list, including CP-200, the one
+    # nothing points at. An old copy has no pack_rows() and never writes the
+    # file, so "which packs have nothing planned" cannot be answered from the
+    # pack at all -- the row would simply be missing rather than showing zero.
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "def pack_rows"; Why = "07-packs.csv gets one row per pack, with an activities_in_scope and an activities_total that can legitimately differ - an older copy has no pack file, so a pack with nothing planned is absent rather than a visible zero" },
+
+    # The Copilot Studio skill archive now carries 07-packs.csv too, guarded
+    # the same way the Agent Builder copy loop already is. An old copy writes
+    # a hardcoded six-name tuple with zipfile.ZipFile.write, which raises
+    # FileNotFoundError the moment a run has no pack export -- turning a
+    # supported situation into a crash on exactly the machines that lack one.
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "included only when"; Why = "the skill archive includes 07-packs.csv only when pack_dir actually has it - an older copy writes a fixed six-name tuple with zipfile.ZipFile.write, which raises FileNotFoundError for any run with no pack export" },
+
+    # 08-reading-guide.txt, 09-chart-standards.txt, boards renumbered to
+    # 10-12, and UPLOAD_DATA_FILES gaining agent_pack.PACKS_CSV_NAME so the
+    # pack file sorts ahead of the rule documents in the uploaded folder.
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "turn a missing optional input into a crash in"; Why = "the copy loop skips 07-packs.csv when no pack export was synced instead of crashing on a missing source file - an older copy has UPLOAD_DATA_FILES without the pack file at all, and the rule documents numbered one lower" },
+
+    # 03-data-quality.txt's existing PACK COVERAGE section gains two figures
+    # only a pack list can supply, once one exists. An old copy answers
+    # neither question without opening 07-packs.csv and counting by hand.
+    # Corrected from this line's first version, which put a second section
+    # of the same name in 01-summary.txt -- a chunked read of either file
+    # then saw an identical header and a shared "Distinct packs" row with no
+    # way to tell which file it came from.
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "Packs with no activity in scope"; Why = "the data-quality file states how many listed packs nothing was planned against and how many activities point at a pack the list does not have - an older copy answers neither question without opening 07-packs.csv and counting by hand" },
+
+    # Same fix, its own marker: distinguishes this version from the one that
+    # briefly duplicated PACK COVERAGE into 01-summary.txt instead of
+    # extending the section data_quality_text already had.
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "is not restated here"; Why = "the two new pack-list figures sit in data_quality_text's own PACK COVERAGE section, beside Distinct packs, rather than in a second section of that name in the summary - two sections sharing a name and a first row would leave a chunked read unable to tell them apart" },
+
+    # The glossary's Packs entry described a limitation the pack file removed
+    # (no grouping dimension) rather than what a pack is. An old copy still
+    # points a reader at "the Data Quality sheet" for pack coverage, which
+    # is no longer where that reader would look first.
+    @{ Path = "pipeline\report\table_sheets.py"; Marker = "activities grouped around one"; Why = "the Packs glossary entry says what a pack is instead of naming a limitation the pack file already removed - an older copy sends a reader to the Data Quality sheet for coverage that 03-data-quality.txt and 07-packs.csv now state directly" },
+
+    # A knowledge file cannot announce itself: retrieval answers a question,
+    # it does not tell the agent which questions have a file waiting. Agent
+    # Builder's prompt now points at 07-packs.csv in its own file list, and
+    # its reading guide says how to join an activity row to that file. An
+    # older copy ships the pack file but never tells the agent it is there.
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "including packs with nothing planned"; Why = "the prompt's file list names 07-packs.csv - an older copy is silent about the pack file even though it already ships in the upload folder, so the agent never retrieves it" },
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "worth reporting when it is common"; Why = "the reading guide explains the Pack ID join and that activities_in_scope = 0 is an answer, not a defect - an older copy has no Packs section, so an agent asked a pack's lead or objective has no file it knows to open" },
+
+    # Same pointer, mirrored into the Studio skill with the fuller wording
+    # this surface can afford - it has no character limit, unlike the prompt
+    # above.
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "how many activities sit in it"; Why = "SKILL.md's own file table names 07-packs.csv - an older copy ships the file in the skill archive but never mentions it in the skill text, so the agent never retrieves it" },
+
+    # 00-README.txt is the human-readable table of contents, and it stopped at
+    # 05-activities.csv one release after 06-breakdowns.csv taught exactly this
+    # lesson: the files readme_text tells a reader to prefer had to move with
+    # the new file, and none of them did on the first pass. Same miss, same
+    # file, one entity later.
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "including the ones with nothing planned against them"; Why = "the pack's own 00-README.txt lists 07-packs.csv, conditionally on the file being written - an older copy stops the table of contents at 05-activities.csv, so the one file that answers `which packs have nothing planned` is delivered and never mentioned to the reader" },
+
+    # pack_known was put on the frame by packs.mark and carried out of it by
+    # nothing, while the reading guide told the agent to treat pack_known = No
+    # as a finding worth reporting. An old copy instructs the agent to filter
+    # on a column no delivered file contains, which is answered from whatever
+    # column does exist rather than reported as impossible.
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "show_pack_known"; Why = "05-activities.csv carries pack_known wherever a pack list was joined - an older copy leaves the column in the frame only, so the agent is told to read a column no file it holds contains" },
+
+    # SKILL.md is rendered for the archive being written rather than for the
+    # packed case alone. An old copy ships one routing table on every machine:
+    # on one with no pack export it names 07-packs.csv, which is not in the
+    # archive, and counts six files where five shipped.
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "def skill_text"; Why = "the skill archive's SKILL.md follows the archive - an older copy routes a pack question to 07-packs.csv on a machine that has no pack export, and the agent answers the miss from whichever file looked closest" },
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "guard covers the pack file and nothing else"; Why = "only the optional pack file is guarded by exists() - an older copy guards all seven names, so a required file that failed to write produces a silently incomplete archive instead of an error" },
+
+    # The same two corrections on the surface with no skills: the reading
+    # guide follows the upload folder, the copy loop guards only the optional
+    # name, and the pasted prompt - which cannot follow anything - says the
+    # pack file is there only sometimes.
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "def reading_guide_text"; Why = "08-reading-guide.txt drops its Packs section where no pack export was synced - an older copy explains 07-packs.csv and the pack_known column to an agent whose upload folder holds neither" },
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "Present only where a pack list was synced"; Why = "the pasted prompt describes both states of the pack file - an older copy asserts it unconditionally, and a prompt is pasted once and left while the pack is rebuilt underneath it" },
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "Only that one name is guarded"; Why = "the copy loop guards 07-packs.csv alone - an older copy guards all seven, so a required file that failed to write leaves an upload folder that is quietly one file short and is uploaded whole anyway" }
 )
 
 Write-Host ""

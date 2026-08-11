@@ -7,6 +7,7 @@ import pytest
 pytest.importorskip("pandas")
 import pandas as pd
 
+from pipeline.report import packs as packs_module
 from pipeline.report.config import BAND_10_50K, BAND_OVER_100K, ReportConfig
 from pipeline.report.data import EXCLUSION_ORDER, build_scope
 from pipeline.scripts.process_cplan import ActivityLoad
@@ -590,3 +591,106 @@ def test_unmatched_is_counted_over_rows_the_priority_filter_dropped():
 
     assert scope.frame.empty
     assert scope.unmatched_members == 1
+
+
+def test_the_scope_carries_the_pack_list_and_the_link_rate(tmp_path):
+    """The pack file needs the pre-filter counts, so the scope has to hold
+    them: a pack showing zero in scope and zero overall is a different
+    finding from one showing zero in scope and forty overall.
+
+    That promise only means something if the two counts can actually differ.
+    The fixture's date window drops one row that references CP-100 (the row
+    with no start date) plus the row outside the window, so the in-scope
+    count -- read straight off `pack_known`, independently of however
+    `pack_counts_all` computed its own number -- comes out lower than the
+    pre-filter one. Asserting `>` against that live figure, rather than a
+    hard-coded constant, is what catches `pack_counts_all` quietly being
+    computed on the filtered frame instead of the unfiltered one: a filtered
+    implementation would make the two sides equal and this would fail.
+    """
+    from tests.report_fixtures import load_fixture_scope
+
+    config = ReportConfig(date_from=date(2025, 1, 1), date_to=date(2025, 12, 31))
+    scope = load_fixture_scope(tmp_path / "csv", config, with_packs=True)
+
+    in_scope_cp100 = int((scope.frame["pack_known"] == "Yes").sum())
+
+    assert scope.packs is not None
+    assert scope.pack_link.rate == 1.0
+    assert scope.pack_counts_all["CP-100"] > in_scope_cp100
+    assert scope.pack_counts_all["CP-200"] == 0
+    assert "pack_known" in scope.frame.columns
+
+
+def test_the_link_rate_is_measured_over_every_row_the_export_carried(tmp_path):
+    """The rate and the floor it is compared against need one denominator.
+
+    `MIN_LINK_RATE` was established by `check_pack_link.py`, which scores
+    every row the export carries. Measuring here over in-scope rows only
+    compares two different populations: this fixture is a total link failure
+    -- half the references resolve to nothing -- that a filtered measurement
+    reports as a perfect 100%, because the one row carrying the evidence is
+    outside the period.
+
+    The mirror case is as bad and not testable in one fixture: filters that
+    keep the badly-linked rows make a healthy export cry wolf. Both look like
+    a link problem from the log line, and neither is one.
+    """
+    from pipeline.scripts.process_cplan import find_input_files, load_packs
+    from tests.report_fixtures import write_pack_csv
+
+    write_pack_csv(tmp_path)
+    pack_load = load_packs(find_input_files(tmp_path))
+
+    frame = _frame([
+        _row(tracking_id="IC-1", start_date="2025-03-05", end_date="2025-03-06",
+             communication_pack_cpid="CP-100"),
+        # The only row that says anything is wrong, and the only one a
+        # filtered measurement cannot see: outside the period, and naming a
+        # pack the list does not carry.
+        _row(tracking_id="IC-2", start_date="2019-03-05", end_date="2019-03-06",
+             communication_pack_cpid="CP-NOT-IN-THE-LIST"),
+    ])
+    scope = build_scope(ActivityLoad(frame, {}, {}), _config(), None, pack_load)
+
+    assert len(scope.frame) == 1, "the badly-linked row is out of scope, as intended"
+    assert (scope.pack_link.referenced, scope.pack_link.matched) == (2, 1)
+    assert scope.pack_link.rate == 0.5
+    assert scope.pack_link.rate < packs_module.MIN_LINK_RATE, (
+        "a rate this bad has to reach the warning the floor exists for")
+
+
+def test_a_scope_without_a_pack_export_is_unchanged(tmp_path):
+    """Today's output, exactly, on a machine that has no pack list."""
+    from tests.report_fixtures import load_fixture_scope
+
+    config = ReportConfig(date_from=date(2025, 1, 1), date_to=date(2025, 12, 31))
+    scope = load_fixture_scope(tmp_path / "csv", config)
+
+    assert scope.packs is None
+    assert scope.pack_link is None
+    assert "pack_known" not in scope.frame.columns
+
+
+def test_an_empty_frame_still_carries_the_pack_fields(tmp_path):
+    """`build_scope` has two `Scope(...)` construction sites: this one (the
+    early return for an empty activity frame) and the one every other test
+    here exercises. A pack_load reaching only the second would pass every
+    other test in this file and still lose `packs`/`pack_link`/
+    `pack_counts_all` on the one machine whose activity export is empty --
+    silently, since the dataclass default for all three is None and an
+    empty scope is otherwise a legitimate result, not an error.
+    """
+    from pipeline.scripts.process_cplan import find_input_files, load_packs
+    from tests.report_fixtures import FIXTURE_PACK_COUNT, write_pack_csv
+
+    write_pack_csv(tmp_path)
+    pack_load = load_packs(find_input_files(tmp_path))
+
+    scope = build_scope(ActivityLoad(pd.DataFrame(), {}, {}), _config(), None, pack_load)
+
+    assert scope.frame.empty
+    assert scope.packs is not None
+    assert len(scope.packs) == FIXTURE_PACK_COUNT
+    assert scope.pack_link is not None
+    assert scope.pack_counts_all is not None

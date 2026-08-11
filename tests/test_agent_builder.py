@@ -6,6 +6,7 @@ file or in the prompt. The tests that matter here are the ones holding this
 delivery to the pack it is built from, and to the limits the surface enforces.
 """
 
+import re
 from datetime import date
 
 import pytest
@@ -27,6 +28,92 @@ def _builder(tmp_path):
     out_dir = tmp_path / "builder-out"
     upload_dir = agent_builder.write_builder_pack(pack_dir, out_dir, scope, config)
     return pack_dir, upload_dir, out_dir
+
+
+def _builder_with_packs(tmp_path):
+    """`_builder`, on a run that has the pack export too."""
+    config = ReportConfig(date_from=date(2025, 1, 1), date_to=date(2025, 12, 31))
+    scope = load_fixture_scope(tmp_path / "csv", config, with_packs=True)
+    pack_dir = agent_pack.write_pack(scope, config, tmp_path / "pack-out")
+    out_dir = tmp_path / "builder-out"
+    upload_dir = agent_builder.write_builder_pack(pack_dir, out_dir, scope, config)
+    return pack_dir, upload_dir, out_dir
+
+
+def test_the_upload_folder_carries_the_pack_file_in_reading_order(tmp_path):
+    """Data files first, rules behind them. An operator uploads a folder, and
+    a folder that sorts into reading order is one fewer thing to explain.
+    """
+    _, upload_dir, _ = _builder_with_packs(tmp_path)
+
+    names = sorted(p.name for p in upload_dir.iterdir())
+    assert agent_pack.PACKS_CSV_NAME in names
+    assert names.index("07-packs.csv") < names.index("08-reading-guide.txt")
+    assert len(names) <= agent_builder.KNOWLEDGE_SOURCE_LIMIT
+
+
+def test_a_run_without_the_pack_export_still_delivers(tmp_path):
+    """The copy step runs one stage after the run that tolerated the missing
+    input. Turning it into a crash there would undo the tolerance.
+    """
+    _, upload_dir, _ = _builder(tmp_path)
+    names = [p.name for p in upload_dir.iterdir()]
+    assert agent_pack.PACKS_CSV_NAME not in names
+    assert "08-reading-guide.txt" in names
+
+
+def test_a_missing_required_file_fails_the_delivery_rather_than_shrinking_it(tmp_path):
+    """The tolerance above is for the pack file, and for nothing else.
+
+    Spread over the other six, it turns a write that failed upstream into an
+    upload folder that is quietly one file short. The folder is the
+    instruction here -- an operator uploads it whole and the agent is
+    grounded on whatever is in it -- so the missing file never announces
+    itself, and shows up as a figure the agent could not find.
+    """
+    pack_dir, _, _ = _builder(tmp_path)
+    (pack_dir / agent_pack.ACTIVITIES_CSV_NAME).unlink()
+
+    with pytest.raises(FileNotFoundError):
+        agent_builder.write_builder_pack(pack_dir, tmp_path / "second-builder-out")
+
+
+@pytest.mark.parametrize("with_packs", [False, True])
+def test_no_uploaded_document_names_a_file_the_upload_does_not_hold(tmp_path, with_packs):
+    """The folder is the delivery, so the folder is what its prose may claim.
+
+    The reading guide's Packs section explains a file and a `pack_known`
+    column that only a pack export produces. Delivered beside an upload that
+    has neither, it is an instruction to retrieve something that is not
+    there -- answered, like every retrieval miss, from whatever is.
+    """
+    _, upload_dir, _ = _builder_with_packs(tmp_path) if with_packs else _builder(tmp_path)
+    held = {path.name for path in upload_dir.iterdir()}
+    guide = (upload_dir / agent_builder.READING_GUIDE_NAME).read_text(encoding="utf-8")
+
+    named = set(re.findall(r"\d\d-[A-Za-z-]+\.(?:txt|csv)", guide))
+    assert named <= held, (
+        f"{agent_builder.READING_GUIDE_NAME} names {sorted(named - held)}, "
+        "which is not in the folder it is uploaded with")
+    assert (agent_pack.PACKS_CSV_NAME in held) is with_packs
+    assert ("## Packs" in guide) is with_packs
+
+
+def test_the_pasted_prompt_describes_both_states_of_the_pack_file():
+    """Instructions cannot follow a run; knowledge files can.
+
+    This text is pasted into a field once and stays there while the pack is
+    rebuilt underneath it, so it is the one document that outlives the state
+    it was written in: a machine that starts syncing the pack export next
+    month would be left with a prompt denying a file it now holds, and one
+    that stops would be left with a prompt asserting one it lost. It says
+    both, the way the GEB wording here already does.
+    """
+    text = agent_builder.INSTRUCTIONS_TEXT
+    assert agent_pack.PACKS_CSV_NAME in text
+    assert "Present only where a pack list was synced" in text, (
+        "the prompt asserts the pack file unconditionally, on a surface where "
+        "it is delivered only sometimes")
 
 
 def test_the_builder_folder_is_created_only_where_the_sync_is_proven(tmp_path, monkeypatch):
@@ -425,15 +512,22 @@ def test_every_board_file_answers_on_its_own(tmp_path):
 
 
 def test_the_upload_folder_holds_exactly_what_is_uploaded(tmp_path):
-    """Eleven files, and the folder is the instruction.
+    """Eleven files without a pack export, and the folder is the instruction.
 
     An operator uploading a folder uploads the folder. Anything in it that
     should not be knowledge becomes knowledge, and the two candidates are both
     written next door: the answer key, and a README addressed to a person.
+
+    Built without a pack export, so `07-packs.csv` is one of `UPLOAD_DATA_FILES`
+    that this run never had to copy -- filtered against the pack directory
+    rather than hardcoded, so this test does not itself assume which of the
+    data files are optional.
     """
-    _, upload_dir, _ = _builder(tmp_path)
+    pack_dir, upload_dir, _ = _builder(tmp_path)
     names = sorted(p.name for p in upload_dir.iterdir())
-    assert names == sorted(agent_builder.UPLOAD_DATA_FILES
+    data_files = tuple(name for name in agent_builder.UPLOAD_DATA_FILES
+                       if (pack_dir / name).exists())
+    assert names == sorted(data_files
                            + (agent_builder.READING_GUIDE_NAME,
                               agent_builder.CHART_STANDARDS_NAME)
                            + tuple(agent_builder.BOARD_FILE_NAMES.values()))
@@ -461,8 +555,12 @@ def test_the_uploaded_data_is_the_pack_byte_for_byte(tmp_path):
     A copy that transformed anything on the way through would let the two
     agents disagree about a figure while both citing the same run, and the
     disagreement would surface as a wrong number that looks right.
+
+    Built with a pack export so every name in `UPLOAD_DATA_FILES` -- including
+    `07-packs.csv`, present only on this fixture -- has a source file to
+    compare against.
     """
-    pack_dir, upload_dir, _ = _builder(tmp_path)
+    pack_dir, upload_dir, _ = _builder_with_packs(tmp_path)
     for name in agent_builder.UPLOAD_DATA_FILES:
         assert (upload_dir / name).read_bytes() == (pack_dir / name).read_bytes(), (
             f"{name} differs between the two deliveries")
@@ -569,3 +667,20 @@ def test_the_uploaded_glossary_follows_the_run_not_the_prompt(tmp_path):
     assert agent_pack.GEB_RULE_COMBINED not in glossary
     breakdowns = (upload / agent_pack.BREAKDOWN_NAME).read_text(encoding="utf-8")
     assert "executives_geb," in breakdowns
+
+
+def test_the_prompt_tells_the_agent_the_pack_file_exists():
+    """Retrieval answers a question; it does not say which questions have a
+    file waiting. The pointer is the only thing that does.
+    """
+    assert agent_pack.PACKS_CSV_NAME in agent_builder.INSTRUCTIONS_TEXT
+
+
+def test_the_reading_guide_says_how_the_two_files_join():
+    """The cost of not copying the pack's lead onto the activity row is that
+    the agent has to be told where to look instead.
+    """
+    text = agent_builder.READING_GUIDE_TEXT
+    assert agent_pack.PACKS_CSV_NAME in text
+    assert "Pack ID" in text
+    assert "nothing planned" in text.lower()

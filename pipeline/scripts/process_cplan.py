@@ -928,19 +928,58 @@ PACKS_COLUMN_MAP = {
     "Partner Team":             "partner_team",
     "Created":                  "created",
     "Modified":                 "modified",
+    # The pack's own identity. Absent from this map until the pack list was
+    # sourced as an entity rather than counted through the activities, which
+    # is why a pack could be sized but never named.
+    "Name of communication pack": "pack_name",
+    "Tracking cluster":         "tracking_cluster",
+    "Category":                 "category",
+    "End date":                 "end_date",
 }
 
 PACKS_LOOKUP_COLUMNS = {
     "business_division", "region", "lead", "lead_team",
     "strategic_objective", "communication_pack_lookup",
-    "partner_team",
+    "partner_team", "tracking_cluster",
 }
 
 PACKS_PERSON_COLUMNS = {"lead"}
 
-PACKS_DATE_COLUMNS = {"start_date", "launch_date", "created", "modified"}
+PACKS_DATE_COLUMNS = {"start_date", "end_date", "launch_date", "created", "modified"}
 
 PACKS_HTML_COLUMNS = {"short_description"}
+
+
+def resolve_pack_columns(columns):
+    """Match pack-export columns against `PACKS_COLUMN_MAP`: decode, then
+    longest-label-first, one label claimed by at most one column.
+
+    Returns `{raw_column: output_label}` for every column that matched; a
+    column absent from the result matched no label. `columns` is expected to
+    already have noise companions (`#Id`, `#WssId`, `#Claims`, `@odata.type`)
+    removed -- `transform_packs` drops those before calling this, and expects
+    this to name only the columns that survive that step.
+
+    Factored out of `transform_packs` so `check_pack_link.unmapped_columns`
+    can call the exact rule the ETL renames by, instead of keeping a second
+    copy that can silently drift from it. It once did: a column reported here
+    as unmapped is now exactly a column the harmonised frame will not have.
+    """
+    labels_sorted = sorted(PACKS_COLUMN_MAP.keys(), key=len, reverse=True)
+    claimed_labels = set()
+    rename_map = {}
+
+    for col in columns:
+        decoded = decode_sp_column_name(col).strip()
+        for label in labels_sorted:
+            if label in claimed_labels:
+                continue
+            if col == label or decoded == label or decoded.startswith(label):
+                rename_map[col] = PACKS_COLUMN_MAP[label]
+                claimed_labels.add(label)
+                break
+
+    return rename_map
 
 
 def transform_packs(df):
@@ -955,21 +994,7 @@ def transform_packs(df):
 
     log(f"  {len(df.columns)} columns after cleanup")
 
-    # Same matching logic as activities: decode, then longest-label-first
-    labels_sorted = sorted(PACKS_COLUMN_MAP.keys(), key=len, reverse=True)
-    rename_map = {}
-    claimed_labels = set()
-
-    for col in df.columns:
-        decoded = decode_sp_column_name(col).strip()
-        for label in labels_sorted:
-            if label in claimed_labels:
-                continue
-            if col == label or decoded == label or decoded.startswith(label):
-                rename_map[col] = PACKS_COLUMN_MAP[label]
-                claimed_labels.add(label)
-                break
-
+    rename_map = resolve_pack_columns(df.columns)
     df = df.rename(columns=rename_map)
 
     # Keep only mapped columns
@@ -1327,6 +1352,55 @@ def load_activities(files):
             log(f"  Removed {dupes} duplicate rows (by tracking_id)")
 
     return ActivityLoad(combined, raw_columns, activity_files, dupes)
+
+
+PACK_KEY = "packs"
+
+
+class PackLoad(NamedTuple):
+    """The harmonised pack list plus what it took to build it.
+
+    `raw_columns` exists for `check_pack_link.py`, which reports which of them
+    the map does not cover; the report path uses `frame` alone.
+    """
+
+    frame: "pd.DataFrame"
+    raw_columns: list
+    path: object
+    duplicates_removed: int = 0
+
+
+def load_packs(files):
+    """Read and harmonise the pack export, or return None when there is none.
+
+    None rather than an empty frame, and never an exception: a machine that
+    syncs only the activity lists has no pack export, and that is a normal
+    state rather than a fault. Every caller treats None as "no pack list" --
+    the same rule the GEB member list follows, for the same reason.
+    """
+    path = files.get(PACK_KEY)
+    if path is None:
+        return None
+
+    log(f"Reading {path.name}...")
+    df = read_csv_auto(path)
+    log(f"  packs: {len(df)} rows, {len(df.columns)} columns")
+    raw_columns = [c.strip() for c in df.columns]
+    df = transform_packs(df)
+
+    # Same rule as the activity de-dup: the most recently modified row wins,
+    # and the number dropped is reported rather than swallowed.
+    dupes = 0
+    if "cpid" in df.columns:
+        before = len(df)
+        if "modified" in df.columns:
+            df = df.sort_values("modified", ascending=False, na_position="last")
+        df = df.drop_duplicates(subset=["cpid"], keep="first").reset_index(drop=True)
+        dupes = before - len(df)
+        if dupes:
+            log(f"  Removed {dupes} duplicate pack rows (by cpid)")
+
+    return PackLoad(df, raw_columns, path, dupes)
 
 
 # ---------------------------------------------------------------------------
