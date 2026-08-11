@@ -12,6 +12,7 @@ from datetime import date
 import pandas as pd
 
 from pipeline.report import derive, regions
+from pipeline.report import packs as packs_module
 from pipeline.report.config import BAND_UNKNOWN
 from pipeline.report.derive import PERSON_SEPARATOR, person_name, split_people, split_people_aligned
 from pipeline.report.grid import build_grid
@@ -51,6 +52,15 @@ class Scope:
     # without the file is in, and the one that must render today's workbook.
     membership: object = None
     unmatched_members: int = 0
+    # None when no pack export was supplied -- the state every machine that
+    # syncs only the activity lists is in, and the one that must still render
+    # today's pack.
+    packs: object = None
+    pack_link: object = None
+    # Activities per pack *before* the filters, so a pack showing zero in
+    # scope can say whether it has zero overall. Those read very differently
+    # to a planner and one number cannot carry both.
+    pack_counts_all: object = None
 
 
 def _is_blank(series):
@@ -129,10 +139,14 @@ def _resolve_window(days, config):
     return first or last, last or first
 
 
-def build_scope(load, config, membership=None):
+def build_scope(load, config, membership=None, pack_load=None):
     frame = load.frame
     rows_read = len(frame)
     excluded = {key: 0 for key in EXCLUSION_ORDER}
+    pack_frame = pack_load.frame if pack_load is not None else None
+    # Counted on the unfiltered frame, before any filter has run.
+    pack_counts_all = (packs_module.activity_counts(frame, pack_frame)
+                       if pack_frame is not None else None)
 
     source_files = [
         (key, path.name) for key, path in sorted(load.files.items())
@@ -143,7 +157,11 @@ def build_scope(load, config, membership=None):
                      rows_read=0, excluded=excluded,
                      source_files=source_files,
                      duplicates_removed=load.duplicates_removed,
-                     membership=membership)
+                     membership=membership,
+                     packs=pack_frame,
+                     pack_link=(packs_module.link(frame, pack_frame)
+                                if pack_frame is not None else None),
+                     pack_counts_all=pack_counts_all)
 
     frame = frame.copy()
     # pandas 3: `.dt.date` on a column that is entirely NaT returns dtype
@@ -293,6 +311,7 @@ def build_scope(load, config, membership=None):
         unmatched = membership.unmatched(seen)
 
     frame = frame.reset_index(drop=True)
+    frame = packs_module.mark(frame, pack_frame)
     return Scope(
         frame=frame, grid=grid, rows_read=rows_read, excluded=excluded,
         source_files=source_files,
@@ -301,4 +320,8 @@ def build_scope(load, config, membership=None):
         duplicates_removed=load.duplicates_removed,
         membership=membership,
         unmatched_members=unmatched,
+        packs=pack_frame,
+        pack_link=(packs_module.link(frame, pack_frame)
+                   if pack_frame is not None else None),
+        pack_counts_all=pack_counts_all,
     )

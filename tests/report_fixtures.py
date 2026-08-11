@@ -212,8 +212,13 @@ def write_activity_csvs(directory):
     return files
 
 
-def load_fixture_scope(directory, config, membership=None):
+def load_fixture_scope(directory, config, membership=None, with_packs=False):
     from pipeline.report.data import build_scope
-    from pipeline.scripts.process_cplan import load_activities
+    from pipeline.scripts.process_cplan import find_input_files, load_activities, load_packs
 
-    return build_scope(load_activities(write_activity_csvs(directory)), config, membership)
+    files = write_activity_csvs(directory)
+    pack_load = None
+    if with_packs:
+        write_pack_csv(directory)
+        pack_load = load_packs(find_input_files(directory))
+    return build_scope(load_activities(files), config, membership, pack_load)

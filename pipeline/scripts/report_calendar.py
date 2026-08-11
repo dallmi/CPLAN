@@ -32,6 +32,7 @@ from pipeline.report.calendar_sheet import build_calendar          # noqa: E402
 from pipeline.report.config import EXECUTIVES_SPLIT, ReportConfig   # noqa: E402
 from pipeline.report.data import build_scope                       # noqa: E402
 from pipeline.report import membership                             # noqa: E402
+from pipeline.report import packs as packs_module                  # noqa: E402
 from pipeline.report.table_sheets import (                         # noqa: E402
     build_activities,
     build_audience,
@@ -45,6 +46,7 @@ from pipeline.scripts.process_cplan import (                       # noqa: E402
     find_input_dir,
     find_input_files,
     load_activities,
+    load_packs,
     log,
     print_banner,
 )
@@ -249,7 +251,21 @@ def resolve_scope(args, config):
                 fields.append(field)
         config = replace(config, breakdown_fields=tuple(fields))
 
-    scope = build_scope(load, config, members)
+    pack_load = load_packs(files)
+    if pack_load is None:
+        log("No pack export found; pack rows and pack_known are omitted")
+    else:
+        log(f"Pack list: {len(pack_load.frame)} packs from {pack_load.path.name}")
+
+    scope = build_scope(load, config, members, pack_load)
+    if scope.pack_link is not None and scope.pack_link.referenced:
+        rate = scope.pack_link.rate
+        log(f"Pack link: {scope.pack_link.matched} of {scope.pack_link.referenced} "
+            f"references resolved ({rate:.0%})")
+        if rate < packs_module.MIN_LINK_RATE:
+            log(f"  WARNING: below the {packs_module.MIN_LINK_RATE:.0%} floor. "
+                "Re-run packlink.ps1 -- the link column may have changed.")
+
     log(f"{len(scope.frame)} of {scope.rows_read} activities in scope")
     for reason, count in scope.excluded.items():
         if count:

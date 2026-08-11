@@ -590,3 +590,32 @@ def test_unmatched_is_counted_over_rows_the_priority_filter_dropped():
 
     assert scope.frame.empty
     assert scope.unmatched_members == 1
+
+
+def test_the_scope_carries_the_pack_list_and_the_link_rate(tmp_path):
+    """The pack file needs the pre-filter counts, so the scope has to hold
+    them: a pack showing zero in scope and zero overall is a different
+    finding from one showing zero in scope and forty overall.
+    """
+    from tests.report_fixtures import load_fixture_scope
+
+    config = ReportConfig(date_from=date(2025, 1, 1), date_to=date(2025, 12, 31))
+    scope = load_fixture_scope(tmp_path / "csv", config, with_packs=True)
+
+    assert scope.packs is not None
+    assert scope.pack_link.rate == 1.0
+    assert scope.pack_counts_all["CP-100"] > 0
+    assert scope.pack_counts_all["CP-200"] == 0
+    assert "pack_known" in scope.frame.columns
+
+
+def test_a_scope_without_a_pack_export_is_unchanged(tmp_path):
+    """Today's output, exactly, on a machine that has no pack list."""
+    from tests.report_fixtures import load_fixture_scope
+
+    config = ReportConfig(date_from=date(2025, 1, 1), date_to=date(2025, 12, 31))
+    scope = load_fixture_scope(tmp_path / "csv", config)
+
+    assert scope.packs is None
+    assert scope.pack_link is None
+    assert "pack_known" not in scope.frame.columns

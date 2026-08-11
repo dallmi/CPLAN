@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-10.17"
+$manifestVersion = "2026-08-10.18"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-10.17"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-10.17"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-10.18"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -466,7 +466,20 @@ $manifest = @(
     # an empty frame, not an exception) when a machine has no pack export at
     # all. An old copy has no such function, so nothing can load the pack list
     # for the report path.
-    @{ Path = "pipeline\scripts\process_cplan.py"; Marker = "class PackLoad"; Why = "the pack loader load_packs() and its PackLoad return type - an older copy cannot load the pack export at all, so the report path has no pack list to build a scope from" }
+    @{ Path = "pipeline\scripts\process_cplan.py"; Marker = "class PackLoad"; Why = "the pack loader load_packs() and its PackLoad return type - an older copy cannot load the pack export at all, so the report path has no pack list to build a scope from" },
+
+    # Task 6 joins the pack list to the activities: build_scope now takes a
+    # pack_load, marks each row's pack_known (Yes/No/blank) and carries the
+    # pre-filter per-pack counts the pack file needs. An old copy has no
+    # `packs`, `pack_link` or `pack_counts_all` on Scope, so nothing
+    # downstream can read a link rate or a pack's activity count.
+    @{ Path = "pipeline\report\data.py";       Marker = "pack_counts_all";              Why = "Scope carries the pack frame, the link result and the pre-filter per-pack counts - an older copy has none of the three, so a pack file cannot be built from the scope alone" },
+
+    # resolve_scope now loads the pack export itself and logs how well the
+    # link column resolved, warning below the 80% floor. An old copy never
+    # calls load_packs, so build_scope always receives pack_load=None and the
+    # workbook run never reports a broken link even when one exists.
+    @{ Path = "pipeline\scripts\report_calendar.py"; Marker = "No pack export found"; Why = "resolve_scope loads the pack export and logs the link rate - an older copy never calls load_packs, so a broken pack link is never reported" }
 )
 
 Write-Host ""

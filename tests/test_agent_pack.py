@@ -29,9 +29,10 @@ def _config(**overrides):
     return ReportConfig(**base)
 
 
-def _scope(tmp_path, **overrides):
+def _scope(tmp_path, with_packs=False, **overrides):
     config = _config(**overrides)
-    return load_fixture_scope(tmp_path / "csv", config), config
+    return load_fixture_scope(tmp_path / "csv", config,
+                              with_packs=with_packs), config
 
 
 def _pack(tmp_path, **overrides):
