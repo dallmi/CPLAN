@@ -364,6 +364,29 @@ PERIODS_HEADER = ("block", "value", "overlaps", "grain", "period", "measure",
 # quarter's clothes, and the year grain answers it.
 QUARTER_MEASURES = ("activities",)
 
+# Not every block earns a row here. This file's size is decided by how many
+# distinct values its blocks carry, multiplied by every year and quarter in
+# the data, so the cut is made on cardinality against what the three
+# audiences in the reading guide actually ask over time.
+#
+# `country` is out: unbounded -- it grows with every new market -- and a
+# country is a detail behind one question rather than a trend axis.
+#
+# The combined `executives` block is out, and it is the important one. It
+# carries a row per person, the largest of them all, and the question only it
+# answers is "which person", which is a snapshot. What the executive audience
+# asks over time is whether leadership involvement grew, and that is the
+# `with_executives` measure, which every block below already carries. The
+# dimension goes; the question stays.
+#
+# `executives_geb` is in and `executives_geb1` is not: a supplied member list
+# splits the field into a small fixed group and everyone else, and only the
+# first is a fair trend axis. It appears solely on a run that has the list --
+# without one there is no split and no such block, which is the same
+# condition the GEB rule in the glossary already follows.
+PERIOD_BLOCKS = (TOTAL_BLOCK, "business_division", "region_group", "priority",
+                 "lead_team", "executives_geb")
+
 
 def _ytd_cut(day, cut):
     """Is `day` on or before `cut`'s day-of-year, in whichever year it falls?
@@ -404,7 +427,7 @@ def period_rows(scope, config, generated=None):
     generated = generated or date.today()
     rows = []
     for block, value, overlaps, subset in iter_blocks(scope, config):
-        if subset.empty:
+        if block not in PERIOD_BLOCKS or subset.empty:
             continue
         suppressed = TAUTOLOGICAL_MEASURES.get(block, ())
         flag = "yes" if overlaps else "no"

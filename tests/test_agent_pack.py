@@ -544,6 +544,56 @@ def _periods(pack_dir):
         return list(csv.DictReader(handle))
 
 
+def test_the_period_file_carries_only_the_blocks_worth_comparing_over_time(tmp_path):
+    """Cardinality decides this file's size, and not every block earns a row.
+
+    `country` is unbounded -- it grows with every new market -- and a country
+    is a detail behind one question rather than a trend axis. The combined
+    `executives` block carries one row per person, the largest of them all,
+    and the question it uniquely answers ("which person") is a snapshot, not
+    a comparison. What the personas actually ask over time -- "did leadership
+    involvement grow" -- is the `with_executives` measure, which every block
+    already carries.
+    """
+    config = _config()
+    wide = agent_pack.pack_config(config)
+    scope = load_fixture_scope(tmp_path / "csv", wide)
+    blocks = {r[0] for r in agent_pack.period_rows(scope, wide,
+                                                   generated=date(2025, 8, 11))}
+
+    assert "country" not in blocks
+    assert "executives" not in blocks
+    assert blocks <= set(agent_pack.PERIOD_BLOCKS)
+    assert {agent_pack.TOTAL_BLOCK, "business_division", "region_group",
+            "priority", "lead_team"} <= blocks
+
+    # The measure that replaces the per-person block is still there, so the
+    # dimension is dropped without the question going with it.
+    measures = {r[5] for r in agent_pack.period_rows(scope, wide,
+                                                     generated=date(2025, 8, 11))
+                if r[3] == "year"}
+    assert "with_executives" in measures
+
+
+def test_the_geb_block_is_compared_over_time_and_geb1_is_not(tmp_path):
+    """Thirteen members against everyone else in the field.
+
+    A supplied member list splits the leadership field in two. The GEB side
+    is a fixed, small group and a fair trend axis; the GEB-1 side is
+    everyone the list does not name, which is unbounded and is the half that
+    would make this file expensive.
+    """
+    config = _config()
+    wide = agent_pack.pack_config(config)
+    scope = load_fixture_scope(tmp_path / "geb", wide,
+                               membership=_members(GEB_PERSON))
+    blocks = {r[0] for r in agent_pack.period_rows(scope, wide,
+                                                   generated=date(2025, 8, 11))}
+
+    assert "executives_geb1" not in blocks
+    assert "executives_geb" in agent_pack.PERIOD_BLOCKS
+
+
 def test_a_year_over_year_question_needs_no_arithmetic(tmp_path):
     """The gap between `06-breakdowns.csv` and `04-calendar.csv`.
 
