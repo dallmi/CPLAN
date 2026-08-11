@@ -575,6 +575,28 @@ def test_the_period_file_carries_only_the_blocks_worth_comparing_over_time(tmp_p
     assert "with_executives" in measures
 
 
+def test_channel_is_a_block_and_it_overlaps(tmp_path):
+    """"Which channels are overused" is on the planner's own list, and it is
+    a question about time -- so the field had to become a block first.
+
+    It carries several values in one string, so its rows overlap: an activity
+    sent by email and on the intranet counts in both, and the block does not
+    sum to the portfolio. The flag says so on every row, because a reader
+    adding these up would otherwise get a number larger than the plan.
+    """
+    config = _config()
+    wide = agent_pack.pack_config(config)
+    assert "channel" in wide.breakdown_fields, "channel is not broken down at all"
+
+    scope = load_fixture_scope(tmp_path / "csv", wide)
+    rows = [r for r in agent_pack.period_rows(scope, wide,
+                                              generated=date(2025, 8, 11))
+            if r[0] == "channel"]
+    assert rows, "no channel rows in the period file"
+    assert {r[2] for r in rows} == {"yes"}, "channel rows claim to partition"
+    assert {r[1] for r in rows} >= {"Email", "Press"}
+
+
 def test_the_geb_block_is_compared_over_time_and_geb1_is_not(tmp_path):
     """Thirteen members against everyone else in the field.
 

@@ -385,7 +385,7 @@ QUARTER_MEASURES = ("activities",)
 # without one there is no split and no such block, which is the same
 # condition the GEB rule in the glossary already follows.
 PERIOD_BLOCKS = (TOTAL_BLOCK, "business_division", "region_group", "priority",
-                 "lead_team", "executives_geb")
+                 "lead_team", "channel", "executives_geb")
 
 
 def _ytd_cut(day, cut):
@@ -1532,7 +1532,13 @@ def pack_config(config):
     # in `ReportConfig`, for the reason the priority and objective filters are
     # dropped here: the workbook is a planning instrument and the pack answers
     # questions, and only the second one needs these.
-    extra = tuple(field for field in ("priority", "lead_team")
+    # `channel` joins them for a third reason. It is not a board's missing
+    # dimension but the planner audience's own recurring question -- "which
+    # channels are overused" is in the reading guide's list of what this pack
+    # answers well, and it was answerable nowhere: the field was never broken
+    # down in any file. Unlike the other two it carries several values in one
+    # string, so its rows overlap and say so.
+    extra = tuple(field for field in ("priority", "lead_team", "channel")
                   if field not in config.breakdown_fields)
     return replace(config, exclude_priorities=(), exclude_objectives=(),
                    date_from=None, date_to=None,
