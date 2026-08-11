@@ -16,27 +16,100 @@ from tests.report_fixtures import PACK_HEADER, PACK_ROWS, _write_csv, write_pack
 
 
 def test_it_names_the_columns_that_say_what_a_pack_is():
-    """The mapping now carries the pack form's identity fields.
+    """The mapping carries the names a real export actually uses.
 
-    This test used to assert the opposite: that `Name of communication
-    pack`, `Tracking cluster`, `Category` and `End date` were unmapped, which
-    was true until the map was widened to cover them. A pack file built
-    without them cannot name a pack -- so once the gap closed, the honest
-    version of this test is that they are mapped, not that the gap survived.
+    This assertion has now been rewritten twice, and the second time is the
+    instructive one. It first claimed these columns were unmapped; the map
+    was widened and it flipped to mapped. Both versions passed against a
+    fixture written from the form's documented field labels -- and the labels
+    were wrong. The export calls the pack's name `Title` and misspells the
+    cluster column, so `pack_name` and `tracking_cluster` were empty in
+    production while this test was green.
+
+    It is pinned to the export's spellings now, and `Category` is gone
+    because the export has no such column.
     """
     rows = check_pack_link.unmapped_columns(PACK_HEADER)
     by_name = {raw: status for raw, _, status in rows}
 
     assert by_name["LTID"] == "mapped"
-    assert by_name["Name of communication pack"] == "mapped"
-    assert by_name["Tracking cluster"] == "mapped"
-    assert by_name["Category"] == "mapped"
-    assert by_name["End date"] == "mapped"
+    assert by_name["Title"] == "mapped"
+    assert by_name["Tracking cluser"] == "mapped"
+    assert by_name["End date/time"] == "mapped"
+
+
+def test_a_perfect_rate_over_a_handful_of_packs_is_not_the_link():
+    """The rate alone cannot tell the link from a coincidence.
+
+    Measured against a real export: `communication_pack_cpid` and
+    `campaign_ltid` both resolved every reference they carried -- 100% each,
+    so the rate floor let both through and the run had to stop and ask a
+    human. What separates them is reach: the first answered for 203 of 342
+    packs, the second for 12. An identifier from another namespace that
+    happens to match a few rows is not the pack link, however cleanly those
+    few rows resolve.
+    """
+    import pandas as pd
+
+    packs = pd.DataFrame({"cpid": [f"P-{i:04d}" for i in range(100)]})
+    frame = pd.DataFrame({
+        "communication_pack_cpid": [f"P-{i:04d}" for i in range(80)] + [""] * 20,
+        "campaign_ltid": ["P-0000", "P-0001"] + [""] * 98,
+    })
+
+    wide = check_pack_link.score(frame, packs, "communication_pack_cpid")
+    narrow = check_pack_link.score(frame, packs, "campaign_ltid")
+
+    # The premise: if the rates ever separate these two, this test has
+    # stopped exercising the thing it was written for.
+    assert wide.rate == 1.0 and narrow.rate == 1.0
+
+    assert wide.reach >= check_pack_link.MIN_PACK_REACH
+    assert narrow.reach < check_pack_link.MIN_PACK_REACH
+    assert check_pack_link.select_winners([wide, narrow]) == [wide]
+
+
+def test_a_candidate_must_clear_both_floors():
+    """Two floors, each catching a different kind of wrong answer.
+
+    On the real export `tracking_pack_id` reached the same 202 packs as the
+    winner and still resolved only 10% of its references; `campaign_ltid`
+    resolved everything and reached almost nothing. Either floor alone lets
+    one of them through.
+    """
+    import pandas as pd
+
+    packs = pd.DataFrame({"cpid": [f"P-{i:04d}" for i in range(100)]})
+    frame = pd.DataFrame({
+        # Wide reach, poor rate: most references resolve to nothing.
+        "tracking_pack_id": [f"P-{i:04d}" for i in range(60)]
+                            + [f"X-{i:04d}" for i in range(540)],
+    })
+    wide_but_wrong = check_pack_link.score(frame, packs, "tracking_pack_id")
+
+    assert wide_but_wrong.reach >= check_pack_link.MIN_PACK_REACH
+    assert wide_but_wrong.rate < check_pack_link.MIN_LINK_RATE
+    assert check_pack_link.select_winners([wide_but_wrong]) == []
+
+
+def test_reach_is_zero_rather_than_undefined_without_a_pack_list():
+    """No pack rows is a state the diagnostic reports, not one it divides by."""
+    import pandas as pd
+
+    empty = check_pack_link.score(pd.DataFrame({"communication_pack_cpid": ["A"]}),
+                                  pd.DataFrame({"cpid": []}),
+                                  "communication_pack_cpid")
+    assert empty.reach == 0.0
 
 
 def test_the_map_now_covers_every_column_the_fixture_exports():
-    """The fixture is the documented pack form. A column it carries and the
-    map does not is a field the pack file cannot show.
+    """A column the fixture carries and the map does not is a field the pack
+    file cannot show.
+
+    The fixture models a real export's column names. That is the only reason
+    this assertion means anything: run against names invented from a form
+    description, it proves the invention is self-consistent and nothing else.
+    The authority remains a `packlink.ps1` run against the live export.
     """
     unmapped = [raw for raw, _, status in check_pack_link.unmapped_columns(PACK_HEADER)
                 if status == "unmapped"]
@@ -45,9 +118,14 @@ def test_the_map_now_covers_every_column_the_fixture_exports():
 
 def test_the_harmonised_pack_frame_carries_the_identity_fields(tmp_path):
     packs = transform_packs(read_csv_auto(write_pack_csv(tmp_path)))
-    for column in ("cpid", "pack_name", "tracking_cluster", "category", "end_date"):
+    for column in ("cpid", "pack_name", "tracking_cluster", "end_date"):
         assert column in packs.columns, f"{column} is missing"
     assert set(packs["pack_name"]) >= {"Pack one", "Pack with nothing planned"}
+    # The name has to survive the transform with content, not merely exist:
+    # an all-empty column would satisfy the membership check above and still
+    # leave every row of `07-packs.csv` nameless.
+    assert not packs["pack_name"].isna().any()
+    assert set(packs["tracking_cluster"]) == {"QRREP"}
 
 
 def test_every_export_column_is_accounted_for():
@@ -174,7 +252,8 @@ def test_main_exits_non_zero_and_says_so_when_no_candidate_clears_the_floor(tmp_
 
     assert check_pack_link.main(["--input", str(tmp_path)]) == 1
     out = capsys.readouterr().out
-    assert "No candidate reaches 80%" in out
+    assert ("No candidate clears both floors (80% of its own references, "
+            "25% of the pack list)") in out
 
 
 def test_the_pre_merge_gate_and_the_runtime_warning_share_one_floor():
@@ -211,7 +290,8 @@ def test_the_zero_result_prints_both_sides_of_the_comparison(tmp_path, capsys):
     assert check_pack_link.main(["--input", str(tmp_path)]) == 1
     out = capsys.readouterr().out
 
-    assert "No candidate reaches 80%" in out
+    assert ("No candidate clears both floors (80% of its own references, "
+            "25% of the pack list)") in out
     assert "communication_pack_cpid sample values: CP-100" in out, (
         "the activity side lost its samples")
     assert "pack list sample values: 9100, 9200" in out, (
@@ -256,4 +336,5 @@ def test_main_exits_non_zero_and_names_the_tie_when_more_than_one_candidate_clea
 
     assert check_pack_link.main(["--input", str(tmp_path)]) == 1
     out = capsys.readouterr().out
-    assert "2 candidates clear 80%: communication_pack_cpid, campaign_ltid" in out
+    assert ("2 candidates clear both floors: "
+            "communication_pack_cpid, campaign_ltid") in out

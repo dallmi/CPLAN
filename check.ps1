@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-11.7"
+$manifestVersion = "2026-08-11.8"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-11.7"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-11.7"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-11.8"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -596,7 +596,16 @@ $manifest = @(
     # it dies on `cannot import name packs` before the first CSV is read -
     # while this script reported every file it knew about as current.
     @{ Path = "pipeline\report\packs.py";      Marker = "PACK_LINK_COLUMN"; Why = "the module holding the measured pack-link column - a NEW file; without it report.cmd, agentpack.cmd and the daily refresh all fail to import, and the traceback names data.py rather than the file that is missing" },
-    @{ Path = "pipeline\report\packs.py";      Marker = "MIN_LINK_RATE"; Why = "the floor under the link rate travels with the column - an older copy joins the pack list without ever saying the join went bad, and a badly joined 07-packs.csv looks exactly like a clean one" }
+    @{ Path = "pipeline\report\packs.py";      Marker = "MIN_LINK_RATE"; Why = "the floor under the link rate travels with the column - an older copy joins the pack list without ever saying the join went bad, and a badly joined 07-packs.csv looks exactly like a clean one" },
+    # The pack column names were first taken from the form's documented field
+    # labels rather than from an export. Three were wrong, and no test could
+    # see it: the fixture was built from the same guess. A copy from before
+    # this correction writes a 07-packs.csv whose Pack and Cluster columns are
+    # empty in every row - the file that exists to name packs, naming none.
+    @{ Path = "pipeline\scripts\process_cplan.py"; Marker = "is a quotation of the export"; Why = "the pack map now quotes the export - Title is the pack name and the source misspells the cluster column, so an older copy leaves pack_name and tracking_cluster empty in every row while every test still passes" },
+    @{ Path = "pipeline\report\agent_pack.py";  Marker = "not carry it, and a header over permanently empty cells"; Why = "the pack file dropped its Category column because the export has none - an older copy prints a header over cells that are empty in every row, which reads as a distinction the data made" },
+    @{ Path = "pipeline\report\packs.py";      Marker = "18,425 activities against 342 pack rows"; Why = "the link column is now measured rather than assumed, and the comment carries the run it was measured on - without it nobody can tell a chosen column from a guessed one, or know when the measurement is stale" },
+    @{ Path = "pipeline\scripts\check_pack_link.py"; Marker = "MIN_PACK_REACH"; Why = "the second floor, on how much of the pack list a candidate answers for - an older copy cannot separate two candidates that both resolve every reference they carry, and stops to ask a human every time" }
 )
 
 Write-Host ""

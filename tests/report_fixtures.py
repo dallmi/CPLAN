@@ -113,26 +113,37 @@ EXTERNAL_ARCHIVE_ROWS = []
 # 19 internal + 1 surviving archive + 2 external, minus the losing duplicate.
 FIXTURE_ROW_COUNT = 22
 
-# The pack export, in the source's own column names. `LTID` is what the pack
-# list calls its identifier -- the name is why `campaign_ltid` is a candidate
-# link column and why the choice has to be measured rather than assumed.
+# The pack export, in the source's own column names -- taken from a real
+# export rather than from the form's field labels. The first version of this
+# fixture was written from the documented form, and three of its names were
+# wrong in ways no test could see: the pack's name is `Title`, not `Name of
+# communication pack`; the cluster column carries the source's `cluser`
+# typo; and there is no `Category` column at all. A fixture that models a
+# guess proves only that the guess is self-consistent.
+#
+# `LTID` is what the pack list calls its identifier -- the name is why
+# `campaign_ltid` is a candidate link column and why the choice had to be
+# measured rather than assumed.
 PACK_HEADER = [
-    "LTID", "Name of communication pack", "Tracking cluster", "Category",
-    "Business Division", "Region", "Campaign", "Lead Team", "Partner team",
-    "Objective", "Start date", "End date", "Date of launch", "Brief",
+    "LTID", "Title", "Tracking cluser",
+    "Business Division(s)", "Region / Location", "Campaing/Event lead",
+    "Lead team", "Partner team", "Objective", "Start date/time",
+    "End date/time", "Date of launch", "Brief details",
     "Created", "Modified",
 ]
 
 
 def _pack_row(cpid, name, **overrides):
     row = {
-        "LTID": cpid, "Name of communication pack": name,
-        "Tracking cluster": _lookup("QRREP"), "Category": "Campaign",
-        "Business Division": _lookup("Division A"), "Region": _lookup("EMEA"),
-        "Campaign": "Pack lead", "Lead Team": "Team", "Partner team": "",
-        "Objective": _lookup("Objective"), "Start date": "2025-01-06",
-        "End date": "2025-12-19", "Date of launch": "2025-02-03",
-        "Brief": "<p>Synthetic pack description</p>",
+        "LTID": cpid, "Title": name,
+        "Tracking cluser": _lookup("QRREP"),
+        "Business Division(s)": _lookup("Division A"),
+        "Region / Location": _lookup("EMEA"),
+        "Campaing/Event lead": "Pack lead", "Lead team": "Team",
+        "Partner team": "", "Objective": _lookup("Objective"),
+        "Start date/time": "2025-01-06", "End date/time": "2025-12-19",
+        "Date of launch": "2025-02-03",
+        "Brief details": "<p>Synthetic pack description</p>",
         "Created": "2024-11-01", "Modified": "2025-06-01",
     }
     row.update(overrides)

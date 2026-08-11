@@ -10,9 +10,24 @@ honest -- a rate reported on every run, and a warning when it drops.
 
 from typing import NamedTuple
 
-# Chosen by `pipeline/scripts/check_pack_link.py`. It is also the column
-# `metrics.pack_stats` has always treated as pack identity, so this is the
-# status quo made explicit rather than a new assumption.
+# Measured with `pipeline/scripts/check_pack_link.py` against the live export
+# of 2026-08-11: 18,425 activities against 342 pack rows.
+#
+#   communication_pack_cpid   1,844 referenced   1,842 matched   203 packs
+#   campaign_ltid               149 referenced     149 matched    12 packs
+#   tracking_pack_id         18,394 referenced   1,829 matched   202 packs
+#
+# The first two both resolved every reference they carried, so the rate could
+# not choose between them; reach did. `campaign_ltid` answers for 12 of 342
+# packs and its values sit in another namespace (`CCCCC-…` against the pack
+# list's `3KEYS-…`) -- an identifier that happens to match a few rows, not the
+# pack link. `tracking_pack_id` reaches almost as many packs but resolves only
+# a tenth of what it carries, because nearly every activity has a tracking ID
+# and most of the pack numbers inside them name no pack row.
+#
+# Two figures worth carrying forward, both from that run: only a tenth of
+# activities reference a pack at all, and 139 of 342 packs had no activity
+# pointing at them. Neither is a defect in this join.
 #
 # Re-run the diagnostic when the export changes shape, and change this line
 # if it names a different winner.

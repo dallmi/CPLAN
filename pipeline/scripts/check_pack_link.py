@@ -73,6 +73,18 @@ PACK_KEY = "packs"
 PACK_LINK_CANDIDATES = ("communication_pack_cpid", "campaign_ltid",
                         "tracking_pack_id")
 
+# The second floor. A candidate must also answer for this share of the pack
+# list, however cleanly the references it does carry resolve.
+#
+# Set from a real export where the rate alone could not decide: two
+# candidates both resolved 100% of their references, one reaching 203 of 342
+# packs and the other 12. A quarter sits far from both, so the rule survives
+# the ratio moving without becoming a number tuned to one measurement. It
+# lives here rather than in `packs.py` because it governs the choice between
+# candidates, which is this tool's business; `MIN_LINK_RATE` is shared
+# because the runtime re-checks that one on every run.
+MIN_PACK_REACH = 0.25
+
 SAMPLE_COUNT = 3
 
 
@@ -81,6 +93,7 @@ class Score(NamedTuple):
     referenced: int
     matched: int
     packs_hit: int
+    packs_total: int
     orphan_activities: int
     orphan_packs: int
     # Activity-side only, and per candidate because each candidate reads a
@@ -97,6 +110,31 @@ class Score(NamedTuple):
         linking problem where there is only an empty field.
         """
         return self.matched / self.referenced if self.referenced else 0.0
+
+    @property
+    def reach(self) -> float:
+        """Share of the pack list this column answers for.
+
+        The second half of the question, and the half the rate cannot see. A
+        column can resolve every reference it carries and still be an
+        identifier from a different namespace that touches a handful of pack
+        rows -- on a real export two candidates both scored 100%, one
+        reaching 203 packs of 342 and the other 12. Rate says "does this
+        resolve"; reach says "does it explain the pack list".
+        """
+        return self.packs_hit / self.packs_total if self.packs_total else 0.0
+
+
+def select_winners(scores) -> list:
+    """The candidates that clear both floors, best reach first.
+
+    Both floors, because each catches a kind of wrong answer the other lets
+    through: a narrow identifier that resolves perfectly, and a broad one
+    that mostly resolves to nothing.
+    """
+    winners = [s for s in scores
+               if s.rate >= MIN_LINK_RATE and s.reach >= MIN_PACK_REACH]
+    return sorted(winners, key=lambda s: s.reach, reverse=True)
 
 
 def _keys(series) -> set[str]:
@@ -133,14 +171,14 @@ def score(frame, packs, column: str) -> Score:
 
     hit = activity_ids & pack_ids
     return Score(column=column, referenced=referenced, matched=matched,
-                 packs_hit=len(hit),
+                 packs_hit=len(hit), packs_total=len(pack_ids),
                  orphan_activities=len(activity_ids - pack_ids),
                  orphan_packs=len(pack_ids - activity_ids),
                  samples=tuple(sorted(activity_ids)[:SAMPLE_COUNT]))
 
 
 SCORE_COLUMNS = ("column", "referenced", "matched", "rate", "packs_hit",
-                 "orphan_activities", "orphan_packs")
+                 "packs_total", "reach", "orphan_activities", "orphan_packs")
 
 
 def _write_scores(path: Path, scores: list[Score]) -> None:
@@ -149,7 +187,8 @@ def _write_scores(path: Path, scores: list[Score]) -> None:
         writer.writerow(SCORE_COLUMNS)
         for s in scores:
             writer.writerow([s.column, s.referenced, s.matched, f"{s.rate:.4f}",
-                             s.packs_hit, s.orphan_activities, s.orphan_packs])
+                             s.packs_hit, s.packs_total, f"{s.reach:.4f}",
+                             s.orphan_activities, s.orphan_packs])
     log(f"Scores written to {path}")
 
 
@@ -235,11 +274,12 @@ def main(argv: list[str] | None = None) -> int:
         # activity rows. A human makes the merge call off this table, and
         # "activities" beside a distinct-value count is a number they would
         # reasonably compare against the row count.
-        ["Column", "Referenced", "Matched", "Rate", "Packs hit",
+        ["Column", "Referenced", "Matched", "Rate", "Packs hit", "Reach",
          "Orphan IDs", "Orphan packs"],
         [(s.column, s.referenced, s.matched, f"{s.rate:.0%}", s.packs_hit,
-          s.orphan_activities, s.orphan_packs) for s in scores],
-        col_widths=[26, 11, 9, 7, 10, 12, 13])
+          f"{s.reach:.0%}", s.orphan_activities, s.orphan_packs)
+         for s in scores],
+        col_widths=[26, 11, 9, 7, 10, 7, 12, 13])
     print()
     for scored in scores:
         log(f"{scored.column} sample values: "
@@ -256,20 +296,22 @@ def main(argv: list[str] | None = None) -> int:
         f"{', '.join(pack_samples) if pack_samples else '(none)'}")
     print()
 
-    winners = [s for s in scores if s.rate >= MIN_LINK_RATE]
+    winners = select_winners(scores)
     if len(winners) == 1:
         log(f"PACK_LINK_COLUMN = {winners[0].column}  "
-            f"({winners[0].rate:.0%} of {winners[0].referenced} referenced)")
+            f"({winners[0].rate:.0%} of {winners[0].referenced} referenced, "
+            f"reaching {winners[0].reach:.0%} of the pack list)")
         print()
         if args.csv is not None:
             _write_scores(args.csv, scores)
         return 0
 
     if not winners:
-        log(f"No candidate reaches {MIN_LINK_RATE:.0%}. The exports do not link "
-            "on any of these columns -- that is the finding.")
+        log(f"No candidate clears both floors ({MIN_LINK_RATE:.0%} of its own "
+            f"references, {MIN_PACK_REACH:.0%} of the pack list). The exports "
+            "do not link on any of these columns -- that is the finding.")
     else:
-        log(f"{len(winners)} candidates clear {MIN_LINK_RATE:.0%}: "
+        log(f"{len(winners)} candidates clear both floors: "
             f"{', '.join(w.column for w in winners)}. Pick by hand, and say why.")
     print()
     if args.csv is not None:

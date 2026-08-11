@@ -931,9 +931,20 @@ PACKS_COLUMN_MAP = {
     # The pack's own identity. Absent from this map until the pack list was
     # sourced as an entity rather than counted through the activities, which
     # is why a pack could be sized but never named.
-    "Name of communication pack": "pack_name",
-    "Tracking cluster":         "tracking_cluster",
-    "Category":                 "category",
+    #
+    # These two names come from a real export, not from the form's field
+    # labels. The first attempt used the labels -- `Name of communication
+    # pack` and `Tracking cluster` -- and neither matched anything, so
+    # `pack_name` and `tracking_cluster` stayed empty in every row of
+    # `07-packs.csv` while every test passed against a fixture built from the
+    # same guess. `check_pack_link.py` is what surfaced it.
+    #
+    # `Title` is the pack's name, the same label the activity lists use for
+    # theirs. `cluser` is the source's own typo, kept verbatim for the reason
+    # `Tacking ID` and `Other seinor executives` are kept above: a map entry
+    # is a quotation of the export, not a correction of it.
+    "Title":                    "pack_name",
+    "Tracking cluser":          "tracking_cluster",
     "End date":                 "end_date",
 }
 

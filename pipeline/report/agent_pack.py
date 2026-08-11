@@ -112,14 +112,18 @@ ACTIVITIES_CSV_NAME = "05-activities.csv"
 BREAKDOWN_NAME = "06-breakdowns.csv"
 PACKS_CSV_NAME = "07-packs.csv"
 
-PACKS_HEADER = ("Pack ID", "Pack", "Cluster", "Category", "Lead", "Lead team",
+# No `Category` column: the form is documented to have one, the export does
+# not carry it, and a header over permanently empty cells asserts a
+# distinction the data never made -- the same reason the leadership split
+# columns arrive with a member list and not before.
+PACKS_HEADER = ("Pack ID", "Pack", "Cluster", "Lead", "Lead team",
                 "Partner team", "Divisions", "Regions", "Objective",
                 "Start", "End", "Launch", "Description",
                 "activities_in_scope", "activities_total", "in_report")
 
 # The pack frame's column behind each header above, in the same order. Two
 # are computed rather than read and are handled at the call site.
-PACK_FIELDS = ("cpid", "pack_name", "tracking_cluster", "category", "lead",
+PACK_FIELDS = ("cpid", "pack_name", "tracking_cluster", "lead",
                "lead_team", "partner_team", "business_division", "region",
                "strategic_objective", "start_date", "end_date", "launch_date",
                "short_description")
