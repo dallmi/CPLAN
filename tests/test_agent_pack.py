@@ -1300,10 +1300,47 @@ def test_the_two_activity_counts_are_not_the_same_number(tmp_path):
     assert int(row["activities_total"]) > int(row["activities_in_scope"])
 
 
+def test_in_report_actually_discriminates_survivors_from_the_excluded(tmp_path):
+    """`in_report` is computed per pack, not defaulted to one answer.
+
+    A pack whose activities all survive the report's own filters reads Yes; a
+    pack whose activities are all filtered out reads No. Built from the report
+    config's own objectives filter rather than by monkeypatching
+    `report_exclusion`: every fixture activity carries exactly the objective
+    "Objective", so excluding that prefix drops every row it names, including
+    all of CP-100's. Without this, inverting `if not report_exclusion(...)`
+    inside `pack_rows` passes every test in this file, because none of them
+    reads the `in_report` column through a `report_config`.
+    """
+    scope, config = _scope(tmp_path, with_packs=True)
+    wide_config = agent_pack.pack_config(config)
+
+    kept_dir = agent_pack.write_pack(scope, wide_config, tmp_path / "kept",
+                                     report_config=_config())
+    kept_row = {r["Pack ID"]: r for r in _packs_file(kept_dir)}["CP-100"]
+    assert kept_row["in_report"] == "Yes", "CP-100's activities are not excluded here"
+
+    dropped_dir = agent_pack.write_pack(
+        scope, wide_config, tmp_path / "dropped",
+        report_config=_config(exclude_objectives=("Objective",)))
+    dropped_row = {r["Pack ID"]: r for r in _packs_file(dropped_dir)}["CP-100"]
+    assert dropped_row["in_report"] == "No", "every one of CP-100's activities is excluded here"
+
+    plain_dir = agent_pack.write_pack(scope, wide_config, tmp_path / "plain")
+    plain_row = {r["Pack ID"]: r for r in _packs_file(plain_dir)}["CP-100"]
+    assert plain_row["in_report"] == "", "no report_config means no verdict to state"
+
+
 def test_without_a_pack_export_the_file_is_not_written(tmp_path):
-    """A missing optional input leaves today's pack exactly as it was."""
+    """A missing optional input leaves today's pack exactly as it was --
+    exactly `00`-`06`, the same seven-minus-one files as before this task.
+    """
     pack_dir, _, _, _ = _pack(tmp_path)
     assert not (pack_dir / agent_pack.PACKS_CSV_NAME).exists()
+    written = sorted(p.name for p in pack_dir.iterdir())
+    assert written == ["00-README.txt", "01-summary.txt", "02-glossary.txt",
+                       "03-data-quality.txt", "04-calendar.csv", "05-activities.csv",
+                       "06-breakdowns.csv"]
 
 
 def test_the_pack_is_written_where_it_can_be_uploaded_from(tmp_path, monkeypatch):
