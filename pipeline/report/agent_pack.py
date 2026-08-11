@@ -976,6 +976,17 @@ State how many rows you examined, every time. If you cannot see every row, say
 so plainly instead of estimating. A count from part of the file is not an
 answer - it is a guess wearing a number.
 
+## Name a row, cite its identifier
+
+Every time you name an activity, a pack or a cluster - in a sentence, in a
+table, in a list of forty - give its identifier beside the name. Activities
+carry `Tracking ID`, packs carry `Pack ID`, and both carry `Cluster ID`.
+
+A name is not unique and cannot be looked up. Two activities can be called
+"Q3 town hall"; nobody can find either of them in the planning system from
+that name, and a list of forty names is a list nobody can act on. The
+identifier is what makes an answer usable after the conversation ends.
+
 ## When to stop
 
 If the answer is not in these files, say so and point the user at the planning

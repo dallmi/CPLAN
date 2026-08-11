@@ -627,6 +627,14 @@ ACTIVITY_COLUMNS = (
     ("_executives", "GEB/GEB-1 involved"),
     ("executives", "GEB/GEB-1 members"),
     ("senior_executives", "Other senior executives"),
+    # The grouping hierarchy, top down: the cluster holds packs, a pack holds
+    # activities. `tracking_cluster_id` is the tracking ID's first segment,
+    # derived by `transform()` and present in the frame all along -- exported
+    # only now, because the agent is instructed to cite an identifier beside
+    # every row it names and for a cluster it had none to cite. It sits here
+    # rather than beside `Tracking ID` so the three identifiers a reader
+    # cross-references are not scattered across the row.
+    ("tracking_cluster_id", "Cluster ID"),
     # The name beside the number. `communication_pack` is mapped and
     # lookup-parsed exactly like every other reference field; it was simply
     # never exported, so the pack has always shown the identifier alone. A

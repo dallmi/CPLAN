@@ -216,6 +216,31 @@ def test_the_prompt_names_the_board_that_exists(tmp_path):
         assert board in text.lower()
 
 
+def test_every_surface_requires_the_identifier_beside_the_name(tmp_path):
+    """A name is not unique and cannot be looked up; an identifier is both.
+
+    An answer listing activities or packs by name alone reads well and is
+    not actionable -- two activities can share a name, and nobody can find
+    one in the source system from it. The rule has to sit in the prompt
+    rather than the reading guide: retrieval decides whether a guide is
+    read, and a rule that holds only when it happens to be retrieved is not
+    a rule.
+    """
+    for name, text in (("instructions", agent_builder.INSTRUCTIONS_TEXT),
+                       ("skill", agent_pack.SKILL_TEXT)):
+        for header in ("Tracking ID", "Pack ID", "Cluster ID"):
+            assert header in text, f"the {name} text never names {header}"
+
+    # The columns the rule points at have to exist, or it instructs the
+    # agent to cite something no file carries -- which is how the reading
+    # guide came to promise `pack_known` before any file shipped it.
+    from pipeline.report.table_sheets import ACTIVITY_COLUMNS
+
+    headers = {header for _, header in ACTIVITY_COLUMNS}
+    assert {"Tracking ID", "Pack ID", "Cluster ID"} <= headers
+    assert "Pack ID" in agent_pack.PACKS_HEADER
+
+
 def test_the_prompt_still_has_its_margin():
     """The rename costs characters in a field that is 97% full. Measured
     rather than assumed: the 200-character floor exists because the operator

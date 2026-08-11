@@ -533,6 +533,32 @@ def test_activities_file_holds_every_activity_once(tmp_path):
     assert rows[0]["Tracking ID"]
 
 
+def test_every_activity_row_carries_all_three_identifiers(tmp_path):
+    """A name is not unique; an identifier is.
+
+    An answer that lists activities or packs by name is not actionable --
+    two activities can share one, and nobody can look a name up in the
+    source system. The agent is instructed to cite the identifier beside
+    every row it names, which it can only do if all three are in the file.
+
+    `Cluster ID` is derived from the tracking ID's first segment and was in
+    the frame all along, unexported, exactly as the pack's name was.
+    """
+    pack_dir, _, _, _ = _pack(tmp_path)
+    with (pack_dir / agent_pack.ACTIVITIES_CSV_NAME).open(encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+
+    for header in ("Tracking ID", "Pack ID", "Cluster ID"):
+        assert header in rows[0], f"{header} is not in the activities file"
+
+    known = [row for row in rows if row["Tracking ID"]]
+    assert known, "the fixture's tracking IDs vanished"
+    # The cluster is the tracking ID's first segment, so the two cannot
+    # disagree -- if they ever do, one of them is being derived twice.
+    for row in known:
+        assert row["Cluster ID"] == row["Tracking ID"].split("-")[0]
+
+
 def test_the_activities_file_names_the_pack_it_only_numbered(tmp_path):
     """A bare identifier is not something a reader can ask about.
 
