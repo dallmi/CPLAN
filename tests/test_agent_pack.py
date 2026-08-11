@@ -1719,6 +1719,36 @@ def test_every_pack_file_is_named_by_the_things_that_index_it(tmp_path):
         assert name in instructions, f"the instructions do not list {name}"
 
 
+# Every numbered pack file, wherever it is named in prose. Upper case allowed
+# because `00-README.txt` is one of them.
+_PACK_FILE_NAME = re.compile(r"\d\d-[A-Za-z-]+\.(?:txt|csv)")
+
+
+@pytest.mark.parametrize("with_packs", [False, True])
+def test_the_packs_readme_names_every_file_beside_it_and_no_others(tmp_path, with_packs):
+    """The table of contents follows the folder, in both directions.
+
+    Naming a file that is not there sends a reader looking for it and, when
+    the reader is an agent, gets the miss answered from somewhere else.
+    Leaving one out is how `06-breakdowns.csv` shipped unmentioned once, and
+    how `07-packs.csv` -- the only answer to "which packs have nothing
+    planned" -- shipped unmentioned a release later.
+
+    Both states are real: the pack export is optional, so the file list is
+    six names on one machine and seven on another, and the README has to be
+    right on both.
+    """
+    pack_dir, _, _, _ = _pack(tmp_path / f"state-{with_packs}", with_packs=with_packs)
+    readme = (pack_dir / agent_pack.README_NAME).read_text(encoding="utf-8")
+
+    named = set(_PACK_FILE_NAME.findall(readme))
+    written = {path.name for path in pack_dir.iterdir()}
+    assert named == written, (
+        f"the README names {sorted(named - written)} that the folder does not hold, "
+        f"and omits {sorted(written - named)} that it does")
+    assert (agent_pack.PACKS_CSV_NAME in named) is with_packs
+
+
 def test_the_glossary_says_a_median_never_combines(tmp_path):
     """The overlap rule saves a reader from summing an overlapping block. It
     does not save them from summing a median, which is wrong on a partitioning

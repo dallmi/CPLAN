@@ -678,6 +678,15 @@ def data_quality_text(scope, config):
 
 
 def readme_text(scope, config, activity_rows, generated):
+    # The table of contents follows the folder, exactly as the figures above it
+    # follow the run. `write_pack` writes the pack file only where a pack list
+    # was synced, so naming it unconditionally would send a reader looking for
+    # a file that is not there -- the failure `06-breakdowns.csv` caused once
+    # in the other direction, when the file shipped and no table of contents
+    # mentioned it.
+    packs_entry = (f"\n  {PACKS_CSV_NAME}         one row per pack, "
+                   "including the ones with nothing planned against them"
+                   if scope.packs is not None else "")
     return f"""CPLAN AGENT PACK
 
 Machine-readable companion to the CPLAN calendar workbook. Same pipeline run
@@ -699,7 +708,7 @@ anything entered in the source system after it as not represented.
   {QUALITY_NAME}  completeness, pack coverage and record anomalies
   {CALENDAR_NAME}      one row per block x value x week
   {BREAKDOWN_NAME}    one row per block x value x measure - the crosses the calendar cannot make
-  {ACTIVITIES_CSV_NAME}    one row per activity, {activity_rows} rows
+  {ACTIVITIES_CSV_NAME}    one row per activity, {activity_rows} rows{packs_entry}
 
 Figures here are computed, not spreadsheet formulas. Percentages are of the
 in-scope total unless the line says otherwise.

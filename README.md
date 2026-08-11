@@ -161,7 +161,7 @@ Without that folder they land in `pipeline/output/agent-pack/` instead
 
 | | |
 |---|---|
-| `pack/` | four `.txt` and two `.csv`: what the skill archive is built from, and the readable copy of what the agent holds. **Not uploaded** — see below |
+| `pack/` | four `.txt` and two `.csv` — three where a pack export was synced: what the skill archive is built from, and the readable copy of what the agent holds. **Not uploaded** — see below |
 | `cplan-skill.zip` | the same content as a skill package, `SKILL.md` at the archive root |
 | `chart-standards-skill.zip` | the visual rules as a second skill. No data files, so it is rebuilt identically every run — upload it once and again only when the rules change |
 | `evaluation.csv` | the same questions as an importable test set. Safe to upload: an evaluation set is never grounded on |
@@ -267,9 +267,12 @@ be rebuilt and the other forgotten, and two packs built on two days are two
 vintages of one figure with nothing on either folder saying so.
 
 The surface holds 8,000 characters of Instructions and **no skill packages at
-all**, so the two skills have nowhere to go: `07-reading-guide.txt` and
-`08-chart-standards.txt` ship as knowledge files instead, and `upload/` holds
-those two plus the six data files — eight sources against a limit of twenty.
+all**, so the two skills have nowhere to go: `08-reading-guide.txt` and
+`09-chart-standards.txt` ship as knowledge files instead, and `upload/` holds
+those two, the three board files `10`–`12-board-*.txt`, and the data files —
+**eleven** sources on a machine with no pack export, **twelve** where
+`07-packs.csv` was written, against a limit of twenty. Both counts are real:
+the pack export is optional, and the folder is uploaded whole either way.
 `00-README.txt` stays out for the reason the skill archive leaves it out, and
 `checklist.md` stays out because an agent that can read the answer key passes
 without computing anything.
@@ -369,6 +372,37 @@ and cluster exports carry their own identifiers, and searching them would let a
 pack ID report as a found activity. Exit code 0 only when every listed ID was
 found.
 
+### Pack-link check (does the pack export actually join?)
+
+```bash
+# Which activity column links to the pack list, and how well
+PYTHONPATH=. .venv/bin/python -m pipeline.scripts.check_pack_link
+
+# ...against a folder that is not the usual input, keeping the scores
+PYTHONPATH=. .venv/bin/python -m pipeline.scripts.check_pack_link --input <folder> --csv scores.csv
+```
+
+Three activity columns could carry the pack's identifier —
+`communication_pack_cpid`, `campaign_ltid`, and the `tracking_pack_id` split out
+of the tracking ID — and the exports do not say which one the pack list answers
+to. Choosing by reasoning would put an unverified assumption under
+`07-packs.csv`, where a wrong join does not look wrong: it looks like a pack
+file with plausible numbers in it.
+
+So it is measured. This reads the same exports a refresh reads, read-only, and
+reports two things: which columns of the pack export the ETL does not map, and
+how each candidate column scores against the pack list. Three sample values are
+printed **per side**, because a candidate at 0% is otherwise unreadable — an
+export that does not link at all and one whose identifiers are merely spelled
+differently (`CP-100` against `100`) produce the same zero, and only the two
+sample lines tell them apart. On Windows, `packlink.cmd`.
+
+Exit code 0 only when exactly one candidate clears 80% of the activities that
+carry any pack reference at all. That floor is `packs.MIN_LINK_RATE`, the same
+one a report run warns below, and the winner is what `packs.PACK_LINK_COLUMN`
+holds. Run this whenever the pack export changes shape, and before merging any
+change to how the two are joined.
+
 ### Standalone studio (read-only)
 
 The third step exports the whole planning studio as one double-clickable file
@@ -394,6 +428,13 @@ The pipeline looks for CSV files in this order:
 Expected files:
 - `InternalCommunicationActivities*.csv`
 - `ExternalCommunicationActivities*.csv`
+- `CommunicationPacks*.csv` — the communication pack list. Optional, and
+  everything downstream of it is inert without it: no `07-packs.csv`, no
+  `pack_known` column on the activity rows, and no pack-list figures in
+  `03-data-quality.txt`. A machine syncing only the two activity exports
+  produces exactly the output it produced before the pack list existed, which
+  is why nothing errors when it is absent — run the pack-link check below to
+  see whether it is arriving and whether it joins.
 
 ## Output
 
@@ -406,5 +447,5 @@ Expected files:
 | `pipeline/output/reports/*.xlsx` | Calendar reports — this folder holds nothing else |
 | `pipeline/output/cplan_dashboard_standalone.html` | Standalone dashboard — Parquet + meta.json embedded as base64, runs from `file://` by double-click (CDN libs still require internet) |
 | `pipeline/output/cplan_studio_standalone.html` | Standalone planning studio — read-only, database-fed, fully offline (no CDN at all) |
-| `<OneDrive>/Projekte/CPLAN/Output/agent-builder/upload/` | Agent Builder knowledge — eight files, uploaded whole |
+| `<OneDrive>/Projekte/CPLAN/Output/agent-builder/upload/` | Agent Builder knowledge — eleven files, twelve where a pack export was synced; uploaded whole |
 | `<OneDrive>/Projekte/CPLAN/Output/agent-builder/instructions.md` | Agent Builder Instructions — pasted, after one find-and-replace |

@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-10.24"
+$manifestVersion = "2026-08-11.1"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-10.24"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-10.24"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-11.1"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -431,7 +431,7 @@ $manifest = @(
     # never picked it up. An old copy draws a board whose headline total is
     # larger than the workbook in the reader's hand, with nothing on the image
     # saying which of the two it is.
-    @{ Path = "pipeline\report\agent_builder.py"; Marker = "includes M the report excludes"; Why = "an image stating a total prints its scope, on the surface where the checklist asking for it is a retrieved file rather than a loaded one - an older copy asks the question in `08-chart-standards.txt` and states the answer nowhere at all" },
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "includes M the report excludes"; Why = "an image stating a total prints its scope, on the surface where the checklist asking for it is a retrieved file rather than a loaded one - an older copy asks the question in `09-chart-standards.txt` and states the answer nowhere at all" },
 
     # The follow-up block is justified by a surface, not by the agent, and it
     # was copied here without the justification being asked again.
@@ -536,7 +536,14 @@ $manifest = @(
     # Same pointer, mirrored into the Studio skill with the fuller wording
     # this surface can afford - it has no character limit, unlike the prompt
     # above.
-    @{ Path = "pipeline\report\agent_pack.py"; Marker = "how many activities sit in it"; Why = "SKILL.md's own file table names 07-packs.csv - an older copy ships the file in the skill archive but never mentions it in the skill text, so the agent never retrieves it" }
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "how many activities sit in it"; Why = "SKILL.md's own file table names 07-packs.csv - an older copy ships the file in the skill archive but never mentions it in the skill text, so the agent never retrieves it" },
+
+    # 00-README.txt is the human-readable table of contents, and it stopped at
+    # 05-activities.csv one release after 06-breakdowns.csv taught exactly this
+    # lesson: the files readme_text tells a reader to prefer had to move with
+    # the new file, and none of them did on the first pass. Same miss, same
+    # file, one entity later.
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "including the ones with nothing planned against them"; Why = "the pack's own 00-README.txt lists 07-packs.csv, conditionally on the file being written - an older copy stops the table of contents at 05-activities.csv, so the one file that answers `which packs have nothing planned` is delivered and never mentioned to the reader" }
 )
 
 Write-Host ""
