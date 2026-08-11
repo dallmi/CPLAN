@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-10.20"
+$manifestVersion = "2026-08-10.21"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-10.20"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-10.20"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-10.21"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -497,7 +497,20 @@ $manifest = @(
     # 08-reading-guide.txt, 09-chart-standards.txt, boards renumbered to
     # 10-12, and UPLOAD_DATA_FILES gaining agent_pack.PACKS_CSV_NAME so the
     # pack file sorts ahead of the rule documents in the uploaded folder.
-    @{ Path = "pipeline\report\agent_builder.py"; Marker = "turn a missing optional input into a crash in"; Why = "the copy loop skips 07-packs.csv when no pack export was synced instead of crashing on a missing source file - an older copy has UPLOAD_DATA_FILES without the pack file at all, and the rule documents numbered one lower" }
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "turn a missing optional input into a crash in"; Why = "the copy loop skips 07-packs.csv when no pack export was synced instead of crashing on a missing source file - an older copy has UPLOAD_DATA_FILES without the pack file at all, and the rule documents numbered one lower" },
+
+    # 01-summary.txt gains its own PACK COVERAGE section: "Distinct packs" is
+    # restated there for context, and -- once a pack list exists -- the two
+    # figures only the list can supply. An old copy has no such section, so a
+    # reader of the summary alone cannot tell a pack nobody planned against
+    # from one that simply is not in the list.
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "Packs with no activity in scope"; Why = "the summary states how many listed packs nothing was planned against and how many activities point at a pack the list does not have - an older copy answers neither question without opening 07-packs.csv and counting by hand" },
+
+    # The glossary's Packs entry described a limitation the pack file removed
+    # (no grouping dimension) rather than what a pack is. An old copy still
+    # points a reader at "the Data Quality sheet" for pack coverage, which
+    # is no longer where that reader would look first.
+    @{ Path = "pipeline\report\table_sheets.py"; Marker = "activities grouped around one"; Why = "the Packs glossary entry says what a pack is instead of naming a limitation the pack file already removed - an older copy sends a reader to the Data Quality sheet for coverage that 01-summary.txt and 07-packs.csv now state directly" }
 )
 
 Write-Host ""

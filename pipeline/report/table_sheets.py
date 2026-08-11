@@ -461,13 +461,12 @@ GLOSSARY_SECTIONS = (
         ("Lead time", "Days from creating the record to the activity's start."),
         ("Planning completeness", "Share of the required fields that are filled in."),
         ("Weekly counts", "Each activity counts once, in the week it starts."),
-        # Says what a pack is and where its number lives, without characterising
-        # the source system. The old wording ("the source data is unreliable")
-        # was a judgement on a colleague's system printed in a workbook that
-        # gets forwarded; the measured fact is on the Data Quality sheet, and a
-        # reader who wants to know how complete packs are should read it there.
-        ("Packs", "A communications pack. Not used as a grouping dimension; "
-                  "coverage is on the Data Quality sheet."),
+        # Says what a pack is. The old wording ("Not used as a grouping
+        # dimension") described a limitation that the pack file removed, and
+        # a definition that describes the tool rather than the thing goes
+        # stale the moment the tool changes.
+        ("Packs", "A communications pack: activities grouped around one "
+                  "communication objective, with its own lead and period."),
     )),
 )
 

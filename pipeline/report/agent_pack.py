@@ -470,6 +470,34 @@ def _summary_sections(scope, config, generated):
         ("Without a pack link", packs["without_pack"]),
     ]
 
+    # "Distinct packs" is always here -- it needs no list, only the pack
+    # identifiers activities already carry. The two list-derived figures
+    # below sit right beside it on purpose: they answer a related but
+    # different question (what the list says exists, not what an activity
+    # happened to name), and a reader comparing the two counts side by side
+    # is exactly how the gap between them -- the packs nobody has planned
+    # against -- gets noticed.
+    coverage = [("Distinct packs", packs.get("packs", 0))]
+    if scope.packs is not None:
+        in_scope_counts = packs_module.activity_counts(scope.frame, scope.packs)
+        # A pack whose in-scope count is zero has nothing counted through it
+        # this period -- not necessarily nothing ever, `07-packs.csv`'s own
+        # activities_total says that.
+        no_activity_in_scope = sum(
+            1 for _, pack in scope.packs.iterrows()
+            if not in_scope_counts.get(packs_module.key(pack.get("cpid")), 0))
+        # Only "No" -- a broken reference -- counts here. An empty
+        # `pack_known` is an activity that names no pack at all, which is
+        # ordinary and not this figure's business; folding it in would
+        # report a data problem that does not exist.
+        unmatched = (int((frame["pack_known"] == "No").sum())
+                    if "pack_known" in frame.columns else 0)
+        coverage += [
+            ("Packs in the list", len(scope.packs)),
+            ("Packs with no activity in scope", no_activity_in_scope),
+            ("Activities whose pack is not in the list", unmatched),
+        ]
+
     return [
         ("REPORT", report),
         ("VOLUME", volume),
@@ -478,6 +506,7 @@ def _summary_sections(scope, config, generated):
         ("LEADERSHIP AND AUDIENCE", leadership),
         ("PLANNING DISCIPLINE", discipline),
         ("DATA QUALITY", quality),
+        ("PACK COVERAGE", coverage),
     ]
 
 

@@ -1371,6 +1371,31 @@ def test_the_skill_archive_carries_the_pack_file_once_one_is_synced(tmp_path):
                 == (pack_dir / agent_pack.PACKS_CSV_NAME).read_bytes())
 
 
+def test_the_summary_separates_packs_in_the_list_from_packs_seen(tmp_path):
+    """Two numbers that look alike and are not.
+
+    "Distinct packs" counts identifiers seen on activities; "Packs in the
+    list" counts rows in the export. They differ by exactly the packs nobody
+    has planned against -- which is the figure this whole change exists to
+    produce, so both stay and the labels say which is which.
+    """
+    scope, config = _scope(tmp_path, with_packs=True)
+    pack_dir = agent_pack.write_pack(scope, agent_pack.pack_config(config),
+                                     tmp_path / "out")
+    pairs = _summary_pairs((pack_dir / agent_pack.SUMMARY_NAME).read_text(encoding="utf-8"))
+
+    assert pairs["Packs in the list"] == "2"
+    assert pairs["Packs with no activity in scope"] == "1"
+    assert pairs["Activities whose pack is not in the list"] == "0"
+
+
+def test_the_summary_omits_the_pack_list_figures_without_a_list(tmp_path):
+    pack_dir, _, _, _ = _pack(tmp_path)
+    text = (pack_dir / agent_pack.SUMMARY_NAME).read_text(encoding="utf-8")
+    assert "Packs in the list" not in text
+    assert "PACK COVERAGE" in text, "the activity-derived figures still belong"
+
+
 def test_the_pack_is_written_where_it_can_be_uploaded_from(tmp_path, monkeypatch):
     """The pack is the one artefact that has to leave the machine.
 
