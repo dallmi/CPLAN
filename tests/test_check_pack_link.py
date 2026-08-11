@@ -12,7 +12,7 @@ pytest.importorskip("pandas")
 
 from pipeline.scripts import check_pack_link
 from pipeline.scripts.process_cplan import load_activities, transform_packs, read_csv_auto
-from tests.report_fixtures import PACK_HEADER, write_pack_csv, write_activity_csvs
+from tests.report_fixtures import PACK_HEADER, PACK_ROWS, _write_csv, write_pack_csv, write_activity_csvs
 
 
 def test_it_names_the_columns_the_etl_does_not_map():
@@ -115,10 +115,66 @@ def test_an_activity_naming_no_pack_is_not_counted_against_the_rate(tmp_path):
     assert scored.referenced < len(frame), "the fixture's unpacked row vanished"
 
 
-def test_it_exits_non_zero_when_no_candidate_clears_the_floor(tmp_path, capsys):
-    """A pack list that links to nothing is a finding, not a crash."""
+def test_every_candidates_score_is_below_the_floor_when_the_pack_list_matches_nothing(tmp_path):
+    """The arithmetic `main()`'s zero-winner path depends on: every `score()`
+    sits below `MIN_LINK_RATE` when no pack id the list carries appears in any
+    candidate column. This checks only the scores; `test_main_exits_non_zero_
+    and_says_so_when_no_candidate_clears_the_floor` below is what checks that
+    `main()` actually turns this into exit code 1 and a printed finding --
+    this function's previous name promised that and did not test it.
+    """
     frame, packs = _frames(tmp_path)
     packs = packs.assign(cpid="NOTHING-MATCHES-THIS")
     scores = [check_pack_link.score(frame, packs, name)
               for name in check_pack_link.PACK_LINK_CANDIDATES]
     assert all(s.rate < check_pack_link.MIN_LINK_RATE for s in scores)
+
+
+def test_main_exits_zero_and_names_the_winner_when_exactly_one_candidate_clears_the_floor(tmp_path, capsys):
+    """The command's success contract, not just `score()`'s arithmetic.
+
+    Task 6 reads `PACK_LINK_COLUMN` off exactly this line of output, so the
+    line has to exist and the exit code has to be 0 -- a passing `score()`
+    test does not prove `main()` still reports either.
+    """
+    write_activity_csvs(tmp_path)
+    write_pack_csv(tmp_path)
+    assert check_pack_link.main(["--input", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "PACK_LINK_COLUMN = communication_pack_cpid" in out
+
+
+def test_main_exits_non_zero_and_says_so_when_no_candidate_clears_the_floor(tmp_path, capsys):
+    """A pack list that links to nothing is a finding, not a crash -- and
+    `main()`, not just `score()`, has to say so and exit non-zero.
+    """
+    write_activity_csvs(tmp_path)
+    # A pack export whose only identifier no activity column carries: every
+    # candidate scores 0%, on real input read through the real CLI entry
+    # point, not on a Score built by hand.
+    mismatched = [dict(row, LTID="NOTHING-MATCHES-THIS") for row in PACK_ROWS]
+    _write_csv(tmp_path / "CommunicationPacks.csv", mismatched, PACK_HEADER)
+
+    assert check_pack_link.main(["--input", str(tmp_path)]) == 1
+    out = capsys.readouterr().out
+    assert "No candidate reaches 80%" in out
+
+
+def test_main_exits_non_zero_and_names_the_tie_when_more_than_one_candidate_clears_the_floor(tmp_path, capsys):
+    """A tie is not `main()`'s to break silently.
+
+    A minimal, hand-built export where `Communication pack:C` and `Campaign
+    LTID` both carry the same pack id on every row -- so both candidates
+    clear the floor together. `main()` must name the tie and refuse to pick
+    one on its own: Task 6 reads a human's decision out of this output, not
+    a guess the tool made because it had to return something.
+    """
+    header = ["Communication pack:C", "Campaign LTID"]
+    rows = [{"Communication pack:C": "MULTI-1", "Campaign LTID": "MULTI-1"} for _ in range(3)]
+    _write_csv(tmp_path / "InternalCommunicationActivities.csv", rows, header)
+    tied_pack = [{"LTID": "MULTI-1"}]
+    _write_csv(tmp_path / "CommunicationPacks.csv", tied_pack, PACK_HEADER)
+
+    assert check_pack_link.main(["--input", str(tmp_path)]) == 1
+    out = capsys.readouterr().out
+    assert "2 candidates clear 80%: communication_pack_cpid, campaign_ltid" in out
