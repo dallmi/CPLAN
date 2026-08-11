@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-10.23"
+$manifestVersion = "2026-08-10.24"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-10.23"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-10.23"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-10.24"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -205,7 +205,13 @@ $manifest = @(
     # states in words, the rule count the glossary claims, and which files
     # readme_text tells a reader to prefer, all had to move together with
     # 06-breakdowns.csv and none of them did on the first pass.
-    @{ Path = "pipeline\report\agent_pack.py"; Marker = "five files shipped with"; Why = "the skill text counts the files in its own routing table, which gained a fifth row for 06-breakdowns.csv - an older copy still says four, and the agent cannot tell which file is spurious" },
+    #
+    # Marker updated a second time, not added to: it is a quote of this exact
+    # sentence, and the sentence legitimately changed again when 07-packs.csv
+    # got its own routing row -- a marker that still said "five" here would
+    # be stale by construction, watching text nothing shipped since Task 9
+    # still contains. The Why below records why the count moved this time.
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "six files shipped with"; Why = "the skill text counts the files in its own routing table, which gained a sixth row for 07-packs.csv - an older copy still says five, and a question the pack file uniquely answers routes to 03-data-quality.txt's counts instead" },
     # A third skill, in a file of its own rather than folded into the other two
     # entries above: the named board catalogue. agent_pack.py imports it at
     # module scope, so a copy that has the new agent_pack.py but not this new

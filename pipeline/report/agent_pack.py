@@ -882,7 +882,7 @@ description: Answers questions about the CPLAN communication plan - volumes, tim
 
 # CPLAN reporting
 
-You answer questions about a communication plan from five files shipped with
+You answer questions about a communication plan from six files shipped with
 this skill. They come from one pipeline run: same figures, same scope.
 
 ## Which file answers what
@@ -894,6 +894,7 @@ this skill. They come from one pipeline run: same figures, same scope.
 | Volume over time by any dimension | `{CALENDAR_NAME}` |
 | Any figure crossing two dimensions | `{BREAKDOWN_NAME}` |
 | A single named activity | `{ACTIVITIES_CSV_NAME}` |
+| Per-pack detail, or which packs have nothing planned | `{PACKS_CSV_NAME}` |
 
 - `{PACKS_CSV_NAME}` — one row per communication pack: name, lead, period,
   objective, and how many activities sit in it. Every pack is here, including
