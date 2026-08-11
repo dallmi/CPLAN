@@ -928,17 +928,24 @@ PACKS_COLUMN_MAP = {
     "Partner Team":             "partner_team",
     "Created":                  "created",
     "Modified":                 "modified",
+    # The pack's own identity. Absent from this map until the pack list was
+    # sourced as an entity rather than counted through the activities, which
+    # is why a pack could be sized but never named.
+    "Name of communication pack": "pack_name",
+    "Tracking cluster":         "tracking_cluster",
+    "Category":                 "category",
+    "End date":                 "end_date",
 }
 
 PACKS_LOOKUP_COLUMNS = {
     "business_division", "region", "lead", "lead_team",
     "strategic_objective", "communication_pack_lookup",
-    "partner_team",
+    "partner_team", "tracking_cluster",
 }
 
 PACKS_PERSON_COLUMNS = {"lead"}
 
-PACKS_DATE_COLUMNS = {"start_date", "launch_date", "created", "modified"}
+PACKS_DATE_COLUMNS = {"start_date", "end_date", "launch_date", "created", "modified"}
 
 PACKS_HTML_COLUMNS = {"short_description"}
 

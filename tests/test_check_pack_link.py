@@ -15,22 +15,39 @@ from pipeline.scripts.process_cplan import load_activities, transform_packs, rea
 from tests.report_fixtures import PACK_HEADER, PACK_ROWS, _write_csv, write_pack_csv, write_activity_csvs
 
 
-def test_it_names_the_columns_the_etl_does_not_map():
-    """The mapping carries none of the pack form's identity fields.
+def test_it_names_the_columns_that_say_what_a_pack_is():
+    """The mapping now carries the pack form's identity fields.
 
-    An unmapped column is invisible twice over: absent from the harmonised
-    frame, and absent from any error, because nothing asked for it. Listing
-    them is what turns "the mapping is probably incomplete" into a decision
-    someone can take.
+    This test used to assert the opposite: that `Name of communication
+    pack`, `Tracking cluster`, `Category` and `End date` were unmapped, which
+    was true until the map was widened to cover them. A pack file built
+    without them cannot name a pack -- so once the gap closed, the honest
+    version of this test is that they are mapped, not that the gap survived.
     """
     rows = check_pack_link.unmapped_columns(PACK_HEADER)
     by_name = {raw: status for raw, _, status in rows}
 
     assert by_name["LTID"] == "mapped"
-    assert by_name["Name of communication pack"] == "unmapped"
-    assert by_name["Tracking cluster"] == "unmapped"
-    assert by_name["Category"] == "unmapped"
-    assert by_name["End date"] == "unmapped"
+    assert by_name["Name of communication pack"] == "mapped"
+    assert by_name["Tracking cluster"] == "mapped"
+    assert by_name["Category"] == "mapped"
+    assert by_name["End date"] == "mapped"
+
+
+def test_the_map_now_covers_every_column_the_fixture_exports():
+    """The fixture is the documented pack form. A column it carries and the
+    map does not is a field the pack file cannot show.
+    """
+    unmapped = [raw for raw, _, status in check_pack_link.unmapped_columns(PACK_HEADER)
+                if status == "unmapped"]
+    assert unmapped == [], f"still unmapped: {unmapped}"
+
+
+def test_the_harmonised_pack_frame_carries_the_identity_fields(tmp_path):
+    packs = transform_packs(read_csv_auto(write_pack_csv(tmp_path)))
+    for column in ("cpid", "pack_name", "tracking_cluster", "category", "end_date"):
+        assert column in packs.columns, f"{column} is missing"
+    assert set(packs["pack_name"]) >= {"Pack one", "Pack with nothing planned"}
 
 
 def test_every_export_column_is_accounted_for():
