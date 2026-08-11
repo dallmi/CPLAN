@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-10.18"
+$manifestVersion = "2026-08-10.19"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-10.18"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-10.18"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-10.19"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -479,7 +479,13 @@ $manifest = @(
     # link column resolved, warning below the 80% floor. An old copy never
     # calls load_packs, so build_scope always receives pack_load=None and the
     # workbook run never reports a broken link even when one exists.
-    @{ Path = "pipeline\scripts\report_calendar.py"; Marker = "No pack export found"; Why = "resolve_scope loads the pack export and logs the link rate - an older copy never calls load_packs, so a broken pack link is never reported" }
+    @{ Path = "pipeline\scripts\report_calendar.py"; Marker = "No pack export found"; Why = "resolve_scope loads the pack export and logs the link rate - an older copy never calls load_packs, so a broken pack link is never reported" },
+
+    # 07-packs.csv: one row per pack in the list, including CP-200, the one
+    # nothing points at. An old copy has no pack_rows() and never writes the
+    # file, so "which packs have nothing planned" cannot be answered from the
+    # pack at all -- the row would simply be missing rather than showing zero.
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "def pack_rows"; Why = "07-packs.csv gets one row per pack, with an activities_in_scope and an activities_total that can legitimately differ - an older copy has no pack file, so a pack with nothing planned is absent rather than a visible zero" }
 )
 
 Write-Host ""

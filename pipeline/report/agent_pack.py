@@ -42,7 +42,7 @@ import zipfile
 from dataclasses import replace
 from datetime import date, timedelta
 
-from pipeline.report import dashboard_skill, derive, metrics
+from pipeline.report import dashboard_skill, derive, metrics, packs as packs_module
 from pipeline.report.calendar_sheet import (
     NOT_SPECIFIED,
     PARTITION_BREAKDOWN_FIELDS,
@@ -110,6 +110,19 @@ QUALITY_NAME = "03-data-quality.txt"
 CALENDAR_NAME = "04-calendar.csv"
 ACTIVITIES_CSV_NAME = "05-activities.csv"
 BREAKDOWN_NAME = "06-breakdowns.csv"
+PACKS_CSV_NAME = "07-packs.csv"
+
+PACKS_HEADER = ("Pack ID", "Pack", "Cluster", "Category", "Lead", "Lead team",
+                "Partner team", "Divisions", "Regions", "Objective",
+                "Start", "End", "Launch", "Description",
+                "activities_in_scope", "activities_total", "in_report")
+
+# The pack frame's column behind each header above, in the same order. Two
+# are computed rather than read and are handled at the call site.
+PACK_FIELDS = ("cpid", "pack_name", "tracking_cluster", "category", "lead",
+               "lead_team", "partner_team", "business_division", "region",
+               "strategic_objective", "start_date", "end_date", "launch_date",
+               "short_description")
 
 # The block name for the row that carries the portfolio itself. Upper case
 # because it is not a field: every other block names the column it groups by,
@@ -1378,6 +1391,56 @@ def activity_rows(scope, report_config=None):
     return headers, rows
 
 
+def pack_rows(scope, report_config=None):
+    """One row per pack in the list, including the ones with nothing planned.
+
+    Every pack, not only those an activity points at. A pack that holds no
+    activity has nothing to be counted through, so before this file it was
+    absent rather than merely undescribed -- and "which packs have nothing
+    planned" is the first question a planner asks of a pack list.
+
+    `activities_in_scope` is the figure to quote. `activities_total` says
+    whether a zero means "nothing this period" or "nothing at all", which
+    read very differently and cannot share one column. `in_report` follows
+    the activity rows: the pack is in the report when any of its activities
+    survives the workbook's own filters.
+    """
+    if scope.packs is None:
+        return []
+
+    in_scope = packs_module.activity_counts(scope.frame, scope.packs)
+    overall = scope.pack_counts_all or {}
+
+    reported = set()
+    if report_config is not None and packs_module.PACK_LINK_COLUMN in scope.frame.columns:
+        for _, activity in scope.frame.iterrows():
+            if not report_exclusion(activity, report_config):
+                identifier = packs_module.key(
+                    activity.get(packs_module.PACK_LINK_COLUMN))
+                if identifier:
+                    reported.add(identifier)
+
+    rows = []
+    for _, pack in scope.packs.iterrows():
+        identifier = packs_module.key(pack.get("cpid"))
+        values = []
+        for field in PACK_FIELDS:
+            value = pack.get(field)
+            if field in ("start_date", "end_date", "launch_date"):
+                values.append(value.date().isoformat()
+                              if hasattr(value, "date") and value == value else "")
+            else:
+                values.append("" if value is None or value != value else value)
+        values.append(in_scope.get(identifier, 0))
+        values.append(overall.get(identifier, 0))
+        if report_config is not None:
+            values.append("Yes" if identifier in reported else "No")
+        else:
+            values.append("")
+        rows.append(values)
+    return rows
+
+
 # --------------------------------------------------------------------------
 # Writing
 # --------------------------------------------------------------------------
@@ -1430,6 +1493,12 @@ def write_pack(scope, config, out_dir, generated=None, report_config=None):
     _write_csv(pack_dir / ACTIVITIES_CSV_NAME, headers, rows)
     _write_csv(pack_dir / BREAKDOWN_NAME, BREAKDOWN_HEADER,
                breakdown_rows(scope, config))
+    # Only when there is a list. An empty pack file would assert that the
+    # organisation has no packs, which is a much stronger claim than "this
+    # machine does not sync the pack export".
+    if scope.packs is not None:
+        _write_csv(pack_dir / PACKS_CSV_NAME, PACKS_HEADER,
+                   pack_rows(scope, report_config))
     (pack_dir / SUMMARY_NAME).write_text(
         summary_text(scope, config, generated, report_config), encoding="utf-8")
     (pack_dir / GLOSSARY_NAME).write_text(glossary_text(scope, config), encoding="utf-8")

@@ -1250,15 +1250,60 @@ def test_the_pack_carries_nothing_written_only_for_an_index(tmp_path):
     said so, and the skill archive deliberately left it out because an archive
     is read as text and the CSV beside it carries the same rows. With no index
     it had no reader at all, so no file here is one, whatever else is added.
+
+    Built with a pack list so the count reflects the full, packed shape --
+    `07-packs.csv` is one more file added since this list was last true.
     """
-    pack_dir, _, _, _ = _pack(tmp_path)
+    pack_dir, _, _, _ = _pack(tmp_path, with_packs=True)
     written = sorted(p.name for p in pack_dir.iterdir())
     assert not [n for n in written if n.endswith(".xlsx")], (
         f"a workbook is being written for a reader that no longer exists: {written}")
     assert not hasattr(agent_pack, "ACTIVITIES_XLSX_NAME")
     assert written == ["00-README.txt", "01-summary.txt", "02-glossary.txt",
                        "03-data-quality.txt", "04-calendar.csv", "05-activities.csv",
-                       "06-breakdowns.csv"]
+                       "06-breakdowns.csv", "07-packs.csv"]
+
+
+def _packs_file(pack_dir):
+    with (pack_dir / agent_pack.PACKS_CSV_NAME).open(encoding="utf-8") as handle:
+        return list(csv.DictReader(handle))
+
+
+def test_the_pack_file_holds_the_pack_nobody_planned_against(tmp_path):
+    """The row the file exists for.
+
+    A pack with no activity has nothing to be counted through, so before this
+    file it was not merely undescribed -- it was absent. "Which packs have
+    nothing planned" is the question that only a row per pack can answer.
+    """
+    scope, config = _scope(tmp_path, with_packs=True)
+    pack_dir = agent_pack.write_pack(scope, agent_pack.pack_config(config),
+                                     tmp_path / "out")
+    rows = {row["Pack ID"]: row for row in _packs_file(pack_dir)}
+
+    assert set(rows) == {"CP-100", "CP-200"}
+    assert rows["CP-200"]["Pack"] == "Pack with nothing planned"
+    assert rows["CP-200"]["activities_in_scope"] == "0"
+    assert rows["CP-200"]["activities_total"] == "0"
+    assert int(rows["CP-100"]["activities_in_scope"]) > 0
+
+
+def test_the_two_activity_counts_are_not_the_same_number(tmp_path):
+    """A pack with nothing this period reads differently from a pack with
+    nothing at all, and one column cannot carry both.
+    """
+    scope, config = _scope(tmp_path, with_packs=True,
+                           date_from=date(2025, 1, 1), date_to=date(2025, 3, 31))
+    pack_dir = agent_pack.write_pack(scope, agent_pack.pack_config(config),
+                                     tmp_path / "out")
+    row = {r["Pack ID"]: r for r in _packs_file(pack_dir)}["CP-100"]
+    assert int(row["activities_total"]) > int(row["activities_in_scope"])
+
+
+def test_without_a_pack_export_the_file_is_not_written(tmp_path):
+    """A missing optional input leaves today's pack exactly as it was."""
+    pack_dir, _, _, _ = _pack(tmp_path)
+    assert not (pack_dir / agent_pack.PACKS_CSV_NAME).exists()
 
 
 def test_the_pack_is_written_where_it_can_be_uploaded_from(tmp_path, monkeypatch):
