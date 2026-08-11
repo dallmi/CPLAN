@@ -1992,3 +1992,44 @@ def test_the_checklist_asks_about_the_split_only_where_it_exists(tmp_path):
     question, answer, control, _note, _probe = asked[0]
     assert answer == int((scope.frame["executives_geb"] != "").sum())
     assert control, "the summary states this figure, so reading it is enough"
+
+
+# Spelled-out counts the skill text's own prose has used. Not a bound on how
+# many files the skill could ever carry -- just enough words to read whatever
+# SKILL_TEXT currently states without the test itself hardcoding a number.
+_SPELLED_OUT_COUNTS = {
+    "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
+}
+
+
+def test_the_skill_texts_file_count_agrees_with_its_routing_table():
+    """The two have drifted apart twice already: four files stated for a
+    table that had grown to five, and five files stated once a sixth row --
+    07-packs.csv -- existed but was not yet in the table at all. Both times a
+    human caught it by reading the rendered text, which does not scale to a
+    third row-count change nobody happens to look for.
+
+    Both sides are derived from `SKILL_TEXT` at run time, not hardcoded here:
+    a hardcoded "six" on either side would freeze today's value instead of
+    holding the invariant, and would itself go stale the next time a file is
+    added or removed.
+    """
+    text = agent_pack.SKILL_TEXT
+
+    table = re.search(r"\| Question \| File \|\n\|-+\|-+\|\n(.*?)\n\n", text, re.S)
+    assert table, "the routing table was not found in the shape this test expects"
+    row_count = len([line for line in table.group(1).splitlines() if line.strip()])
+
+    stated = re.search(r"from (\w+) files shipped with", text)
+    assert stated, "the file-count sentence was not found in the shape this test expects"
+    word = stated.group(1)
+    assert word in _SPELLED_OUT_COUNTS, (
+        f"{word!r} is not a spelled-out count this test knows how to read -- "
+        f"add it to _SPELLED_OUT_COUNTS rather than assuming the table is wrong"
+    )
+
+    assert _SPELLED_OUT_COUNTS[word] == row_count, (
+        f"the skill text says {word!r} files but its own routing table has "
+        f"{row_count} rows -- a question answered by a file with no table row "
+        "routes to whichever row happens to look closest instead"
+    )
