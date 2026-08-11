@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-11.9"
+$manifestVersion = "2026-08-11.10"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-11.9"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-11.9"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-11.10"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -613,7 +613,16 @@ $manifest = @(
     # such column sends the agent after something that is not there.
     @{ Path = "pipeline\report\table_sheets.py"; Marker = "Cluster ID"; Why = "the activity rows now carry the cluster identifier the tracking ID already spells out - an older copy cannot cite it, and the prompt asks for it on every row it names" },
     @{ Path = "pipeline\report\agent_builder.py"; Marker = "Always cite the identifier"; Why = "the rule that every named activity, pack or cluster arrives with its identifier - an older copy answers in names alone, which is unusable once the conversation ends" },
-    @{ Path = "pipeline\report\agent_pack.py";  Marker = "Name a row, cite its identifier"; Why = "the same rule on the Studio surface - the two surfaces state it at different lengths, and a copy carrying neither answers in names" }
+    @{ Path = "pipeline\report\agent_pack.py";  Marker = "Name a row, cite its identifier"; Why = "the same rule on the Studio surface - the two surfaces state it at different lengths, and a copy carrying neither answers in names" },
+    # The pack now covers every year while the workbook keeps its window. The
+    # three pieces have to travel together: the widening, the column that
+    # marks what the workbook would have dropped, and the suppressed warning.
+    # A copy with the widening and not the marking ships rows reading
+    # in_report = Yes that the workbook never held.
+    @{ Path = "pipeline\report\agent_pack.py";  Marker = "The period goes too"; Why = "the pack drops the report period and report_exclusion picks it up - an older copy either answers only about the report year or, worse, claims out-of-year rows are in the workbook" },
+    @{ Path = "pipeline\scripts\report_calendar.py"; Marker = "unbounded_by_design"; Why = "the wide-calendar warning is suppressed where the unbounded span is the product working - an older copy prints an alarm on every agent-pack run, which is how an alarm stops being read on the workbook run too" },
+    @{ Path = "pipeline\scripts\build_agent_pack.py"; Marker = "unbounded_by_design=True"; Why = "the pack command declaring its widening deliberate - without it the run is indistinguishable from an operator who mistyped a year" },
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "it covers every year"; Why = "the prompt now says the pack is wider in time as well as in scope - an older copy names two of the three ways it is wider, and the agent reconciles against a workbook on the wrong basis" }
 )
 
 Write-Host ""

@@ -188,7 +188,7 @@ These come from the data, and they override general analytical instinct.
 - **GEB/GEB-1 is one field holding both levels.** `executives_geb` / `executives_geb1` blocks mean a supplied list separated them — cite it, never add the two. Without them, never name a GEB member: answer "GEB or GEB-1".
 - **`channel` and `target_audience` hold several values in one string.** "Email, Intranet" is one combination, not one channel.
 - **Weekly counts place each activity once, in the week it starts.** A six-week campaign is one activity in one week.
-- **This pack is wider than the distributed workbook**: it keeps the deprioritised bucket and rows tagged only with the catch-all objective. Every row in `{agent_pack.ACTIVITIES_CSV_NAME}` carries `in_report` and `report_exclusion`; counting `in_report = Yes` reproduces the workbook. Quote the full count and name which one: "1,385 in the plan; 1,362 in the report, which leaves out 23 deprioritised."
+- **This pack is wider than the distributed workbook**: it covers every year, and keeps the deprioritised bucket and rows tagged only with the catch-all objective. Every row in `{agent_pack.ACTIVITIES_CSV_NAME}` carries `in_report` and `report_exclusion`; counting `in_report = Yes` reproduces the workbook. Quote the full count and name which one: "1,385 in the plan; 1,362 in the report, which leaves out 23 deprioritised."
 - **When the answer is not in the pack**, say so and point to the planning studio. Do not reason your way to a figure.
 
 ## Charts

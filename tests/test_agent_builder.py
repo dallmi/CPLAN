@@ -626,7 +626,7 @@ def test_one_run_writes_both_deliveries(tmp_path, monkeypatch, capsys):
     vintages of the same figure, which is the failure this repository is built
     to prevent -- and it is invisible, because both folders look freshly built.
     """
-    def _scope(args, config):
+    def _scope(args, config, **kwargs):
         return load_fixture_scope(tmp_path / "csv", config), config
 
     monkeypatch.setattr(build, "find_onedrive_root", lambda: None)
@@ -849,7 +849,7 @@ def test_a_named_folder_that_is_not_there_is_an_error_rather_than_a_fallback(tmp
 def test_the_run_mirrors_without_being_asked_and_says_where(tmp_path, monkeypatch, capsys):
     """The whole point: one command, and the folder the agent reads is current.
     """
-    def _scope(args, config):
+    def _scope(args, config, **kwargs):
         return load_fixture_scope(tmp_path / "csv", config), config
 
     home = tmp_path / "home"
@@ -872,7 +872,7 @@ def test_a_mirror_that_was_asked_for_and_did_not_happen_fails_the_run(tmp_path, 
     """Zero would report it as a clean run, which is how a stale folder gets
     uploaded from. Its own code, because the pack itself was written.
     """
-    def _scope(args, config):
+    def _scope(args, config, **kwargs):
         return load_fixture_scope(tmp_path / "csv", config), config
 
     monkeypatch.setattr(build.Path, "home", staticmethod(lambda: tmp_path / "home"))
@@ -892,7 +892,7 @@ def test_a_mirror_that_was_asked_for_and_did_not_happen_fails_the_run(tmp_path, 
 def test_a_run_with_no_agent_folder_anywhere_is_still_a_clean_run(tmp_path, monkeypatch, capsys):
     """Nobody asked for a mirror on that machine. The run says how to ask.
     """
-    def _scope(args, config):
+    def _scope(args, config, **kwargs):
         return load_fixture_scope(tmp_path / "csv", config), config
 
     monkeypatch.setattr(build.Path, "home", staticmethod(lambda: tmp_path / "home"))

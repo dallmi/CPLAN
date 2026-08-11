@@ -228,7 +228,7 @@ def main(argv=None):
     # row can still say whether the workbook would have held it.
     report_config = config
     config = agent_pack.pack_config(config)
-    scope, config = resolve_scope(args, config)
+    scope, config = resolve_scope(args, config, unbounded_by_design=True)
     if scope is None:
         return 1
     if report_config.exclude_priorities or report_config.exclude_objectives:

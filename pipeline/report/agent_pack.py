@@ -1395,9 +1395,18 @@ def pack_config(config):
     planning instrument, both wrong for an agent someone asks "which
     deprioritised activities are coming up".
 
-    The period is not touched. It is what the report *is* about, the pack
-    states it at the top, and a pack covering every year answers a question
-    nobody asked while making every figure in it mean something else.
+    The period goes too, and that reverses what this docstring used to argue.
+    The old reasoning was that the period is what the report *is* about, so a
+    pack covering every year answers a question nobody asked. What that missed
+    is who asks the questions: the workbook is handed to someone planning a
+    year, while the agent is asked "when did we last run this" and "what is
+    already in the diary for next year", and a period boundary turns both into
+    "the dataset does not contain sufficient evidence" -- the one answer that
+    is worse than a wrong one, because it sounds careful.
+
+    Every figure keeps meaning what it says: the pack states its span at the
+    top, and `report_exclusion` marks each row the workbook's own window would
+    have dropped, so the two can still be reconciled row by row.
     """
     # Two dimensions the workbook has no block for and the pack needs: a board
     # that names a team or a priority level has nowhere else to read one, and
@@ -1409,6 +1418,7 @@ def pack_config(config):
     extra = tuple(field for field in ("priority", "lead_team")
                   if field not in config.breakdown_fields)
     return replace(config, exclude_priorities=(), exclude_objectives=(),
+                   date_from=None, date_to=None,
                    breakdown_fields=config.breakdown_fields + extra)
 
 
@@ -1423,6 +1433,16 @@ def report_exclusion(activity, report_config):
     """
     if not report_config:
         return ""
+    # First, because it is the widest of the three and the only one the pack
+    # did not always drop. `covers` is the workbook's own overlap test, called
+    # rather than restated: a second implementation of "is this row in the
+    # period" is how this column would start disagreeing with the workbook it
+    # exists to reconcile against.
+    start = activity.get("start_day")
+    if start is not None and start == start:
+        end = activity.get("end_day")
+        if not report_config.covers(start, end if end == end else None):
+            return "date window"
     if report_config.exclude_priorities:
         if derive.priority_number(activity.get("priority")) in set(
                 report_config.exclude_priorities):

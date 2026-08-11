@@ -89,13 +89,18 @@ def test_summary_figures_match_the_workbook(tmp_path):
     literal label to match them on -- which is the whole reason this pack
     exists. `test_volume_counts_match_the_workbook` covers them by position.
 
-    "Breakdown dimensions" is excluded by choice, not by construction: it is a
-    literal label on both sides, but `_pack` now builds the pack through
-    `pack_config` (`test_the_pack_breaks_down_by_priority_and_lead_team`),
-    which appends `priority` and `lead_team` to the field list this row
-    states. The workbook is built from the unwidened `config` `_pack` returns,
-    so the two lists disagree by design -- that gap is the whole reason the
-    two configs exist -- and always will.
+    "Breakdown dimensions" and "Period" are excluded by choice, not by
+    construction: both are literal labels on both sides, but `_pack` builds
+    the pack through `pack_config`, which appends `priority` and `lead_team`
+    to the field list one row states and clears the window the other states.
+    The workbook is built from the unwidened `config` `_pack` returns, so the
+    two disagree by design -- that gap is the whole reason the two configs
+    exist -- and always will.
+
+    Everything else must still match, and that is the point of the test: the
+    pack covering every year is allowed to say so, and is not allowed to
+    disagree with the workbook about a single counted figure computed over
+    the same rows.
     """
     pack_dir, _, scope, config = _pack(tmp_path)
     sheet = build_workbook(scope, config)["Executive Summary"]
@@ -115,7 +120,8 @@ def test_summary_figures_match_the_workbook(tmp_path):
             workbook_pairs[label.strip()] = value
 
     pack_pairs = _summary_pairs((pack_dir / agent_pack.SUMMARY_NAME).read_text(encoding="utf-8"))
-    shared = (set(workbook_pairs) & set(pack_pairs)) - {"Breakdown dimensions"}
+    shared = (set(workbook_pairs) & set(pack_pairs)) - {"Breakdown dimensions",
+                                                        "Period"}
     assert len(shared) > 10, f"too few comparable labels ({sorted(shared)})"
     for label in sorted(shared):
         assert str(workbook_pairs[label]) == pack_pairs[label], (
@@ -533,6 +539,44 @@ def test_activities_file_holds_every_activity_once(tmp_path):
     assert rows[0]["Tracking ID"]
 
 
+def test_the_pack_covers_every_year_and_still_says_what_the_workbook_holds(tmp_path):
+    """The pack drops the period; `in_report` has to pick the filter up.
+
+    Widening the scope without widening `report_exclusion` is the failure
+    that matters here: every row outside the workbook's year would ship
+    reading `in_report = Yes`, and an answer reconciling itself against a
+    workbook somebody is holding would be wrong in the one column built to
+    prevent exactly that.
+
+    The fixture has an activity in 2024, outside the report's 2025 window.
+    """
+    report_config = _config()
+    scope = load_fixture_scope(tmp_path / "csv", agent_pack.pack_config(report_config))
+
+    assert agent_pack.pack_config(report_config).date_from is None
+    assert agent_pack.pack_config(report_config).date_to is None
+
+    headers, rows = agent_pack.activity_rows(scope, report_config)
+    by_id = {row[headers.index("Tracking ID")]: row for row in rows}
+
+    outside = by_id["IC-0011"]          # "Outside the window", starts 2024-06-04
+    inside = by_id["IC-0001"]           # "Single division Q1", starts 2025-02-12
+    assert outside[headers.index("in_report")] == "No"
+    assert outside[headers.index("report_exclusion")] == "date window"
+    assert inside[headers.index("in_report")] == "Yes"
+
+
+def test_a_widened_pack_still_hides_nothing_the_workbook_shows(tmp_path):
+    """Wider, never narrower. Every row the workbook keeps is in the pack."""
+    report_config = _config()
+    narrow = load_fixture_scope(tmp_path / "a", report_config)
+    wide = load_fixture_scope(tmp_path / "b", agent_pack.pack_config(report_config))
+
+    narrow_ids = set(narrow.frame["tracking_id"])
+    wide_ids = set(wide.frame["tracking_id"])
+    assert narrow_ids < wide_ids, "the widened scope lost rows the workbook keeps"
+
+
 def test_every_activity_row_carries_all_three_identifiers(tmp_path):
     """A name is not unique; an identifier is.
 
@@ -669,11 +713,18 @@ def test_the_pack_never_names_the_operators_own_files(tmp_path):
 
 
 def test_the_summary_states_that_scope_is_a_filter(tmp_path):
-    """Otherwise a filtered-out activity reads as a zero rather than as absent."""
+    """Otherwise a filtered-out activity reads as a zero rather than as absent.
+
+    The span asserted is the pack's own, not the workbook's: the pack drops
+    the period, so it has to state the span it actually covers. Asserting the
+    workbook's window here would demand that the pack announce a boundary it
+    no longer applies -- the exact mismatch between prose and payload this
+    file tests for everywhere else.
+    """
     pack_dir, _, _, config = _pack(tmp_path)
     text = (pack_dir / agent_pack.SUMMARY_NAME).read_text(encoding="utf-8")
     assert "OUT OF SCOPE" in text
-    assert config.period_label() in text
+    assert agent_pack.pack_config(config).period_label() in text
     assert "Rows read" in text and "Excluded: date window" in text
 
 

@@ -181,7 +181,7 @@ def resolve_config(config, args, parser):
     return replace(config, date_from=args.date_from, date_to=args.date_to)
 
 
-def resolve_scope(args, config):
+def resolve_scope(args, config, unbounded_by_design=False):
     """Read the exports and filter them to `config`, or report why it cannot.
 
     Returns `(scope, config)`; `(None, None)` when something the operator has
@@ -278,7 +278,14 @@ def resolve_scope(args, config):
         weeks = len(scope.grid.weeks)
         log(f"Calendar spans {weeks} weeks: "
             f"{first.monday.isoformat()} to {(last.monday + timedelta(days=6)).isoformat()}")
-        if weeks > WIDE_GRID_WEEKS and config.date_from is None and config.date_to is None:
+        # `unbounded_by_design` is what the agent pack passes: it drops the
+        # period deliberately, so an unbounded grid there is the product
+        # working, not an operator's mistyped year. Warning anyway would
+        # print an alarm on every single run of that command, which is how a
+        # warning stops being read at all -- including on the workbook run,
+        # where it still means what it says.
+        if (weeks > WIDE_GRID_WEEKS and not unbounded_by_design
+                and config.date_from is None and config.date_to is None):
             log(f"WARNING: that is {weeks / 52:.0f} years wide. Without --year or")
             log("         --from/--to the calendar spans every dated activity, so a")
             log("         single mistyped date stretches the whole sheet. The dates")
