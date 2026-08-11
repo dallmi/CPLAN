@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-11.2"
+$manifestVersion = "2026-08-11.3"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-11.2"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-11.2"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-11.3"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -480,6 +480,13 @@ $manifest = @(
     # `packs`, `pack_link` or `pack_counts_all` on Scope, so nothing
     # downstream can read a link rate or a pack's activity count.
     @{ Path = "pipeline\report\data.py";       Marker = "pack_counts_all";              Why = "Scope carries the pack frame, the link result and the pre-filter per-pack counts - an older copy has none of the three, so a pack file cannot be built from the scope alone" },
+
+    # The link rate is measured on the same rows the floor was set against.
+    # An old copy computes it on the filtered frame at one of the two Scope
+    # construction sites and on the unfiltered frame at the other, then
+    # compares either to MIN_LINK_RATE - a warning that stays silent through
+    # a real breakage whenever the filters keep the well-linked rows.
+    @{ Path = "pipeline\report\data.py";       Marker = "for the same reason the floor"; Why = "pack_link is measured on the pre-filter frame, the population check_pack_link.py scores and MIN_LINK_RATE was established over - an older copy measures the normal path on in-scope rows only and compares that to the same floor" },
 
     # resolve_scope now loads the pack export itself and logs how well the
     # link column resolved, warning below the 80% floor. An old copy never

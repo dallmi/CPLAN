@@ -56,6 +56,12 @@ class Scope:
     # syncs only the activity lists is in, and the one that must still render
     # today's pack.
     packs: object = None
+    # How well the pack references resolved, over every row the export
+    # carried rather than the rows that survived the filters. That is the
+    # denominator `check_pack_link.py` measures on, and the one
+    # `MIN_LINK_RATE` was established against; measuring a rate here over a
+    # different set of rows and comparing it to that floor is a warning that
+    # fires, or stays quiet, for reasons that have nothing to do with the link.
     pack_link: object = None
     # Activities per pack *before* the filters, so a pack showing zero in
     # scope can say whether it has zero overall. Those read very differently
@@ -147,6 +153,16 @@ def build_scope(load, config, membership=None, pack_load=None):
     # Counted on the unfiltered frame, before any filter has run.
     pack_counts_all = (packs_module.activity_counts(frame, pack_frame)
                        if pack_frame is not None else None)
+    # Measured on the unfiltered frame too, and for the same reason the floor
+    # it is compared against was: `check_pack_link.py` scores every row the
+    # export carries, and `MIN_LINK_RATE` is that measurement's floor. A rate
+    # over in-scope rows only would be compared against a floor established
+    # over all of them -- silent through a real breakage whenever the filters
+    # happen to keep the well-linked rows, and crying wolf whenever they keep
+    # the badly-linked ones. Neither failure looks like a filter question from
+    # the log line, which is what makes it worth stating here.
+    pack_link = (packs_module.link(frame, pack_frame)
+                 if pack_frame is not None else None)
 
     source_files = [
         (key, path.name) for key, path in sorted(load.files.items())
@@ -159,8 +175,7 @@ def build_scope(load, config, membership=None, pack_load=None):
                      duplicates_removed=load.duplicates_removed,
                      membership=membership,
                      packs=pack_frame,
-                     pack_link=(packs_module.link(frame, pack_frame)
-                                if pack_frame is not None else None),
+                     pack_link=pack_link,
                      pack_counts_all=pack_counts_all)
 
     frame = frame.copy()
@@ -321,7 +336,6 @@ def build_scope(load, config, membership=None, pack_load=None):
         membership=membership,
         unmatched_members=unmatched,
         packs=pack_frame,
-        pack_link=(packs_module.link(frame, pack_frame)
-                   if pack_frame is not None else None),
+        pack_link=pack_link,
         pack_counts_all=pack_counts_all,
     )

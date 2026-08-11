@@ -7,6 +7,7 @@ import pytest
 pytest.importorskip("pandas")
 import pandas as pd
 
+from pipeline.report import packs as packs_module
 from pipeline.report.config import BAND_10_50K, BAND_OVER_100K, ReportConfig
 from pipeline.report.data import EXCLUSION_ORDER, build_scope
 from pipeline.scripts.process_cplan import ActivityLoad
@@ -619,6 +620,44 @@ def test_the_scope_carries_the_pack_list_and_the_link_rate(tmp_path):
     assert scope.pack_counts_all["CP-100"] > in_scope_cp100
     assert scope.pack_counts_all["CP-200"] == 0
     assert "pack_known" in scope.frame.columns
+
+
+def test_the_link_rate_is_measured_over_every_row_the_export_carried(tmp_path):
+    """The rate and the floor it is compared against need one denominator.
+
+    `MIN_LINK_RATE` was established by `check_pack_link.py`, which scores
+    every row the export carries. Measuring here over in-scope rows only
+    compares two different populations: this fixture is a total link failure
+    -- half the references resolve to nothing -- that a filtered measurement
+    reports as a perfect 100%, because the one row carrying the evidence is
+    outside the period.
+
+    The mirror case is as bad and not testable in one fixture: filters that
+    keep the badly-linked rows make a healthy export cry wolf. Both look like
+    a link problem from the log line, and neither is one.
+    """
+    from pipeline.scripts.process_cplan import find_input_files, load_packs
+    from tests.report_fixtures import write_pack_csv
+
+    write_pack_csv(tmp_path)
+    pack_load = load_packs(find_input_files(tmp_path))
+
+    frame = _frame([
+        _row(tracking_id="IC-1", start_date="2025-03-05", end_date="2025-03-06",
+             communication_pack_cpid="CP-100"),
+        # The only row that says anything is wrong, and the only one a
+        # filtered measurement cannot see: outside the period, and naming a
+        # pack the list does not carry.
+        _row(tracking_id="IC-2", start_date="2019-03-05", end_date="2019-03-06",
+             communication_pack_cpid="CP-NOT-IN-THE-LIST"),
+    ])
+    scope = build_scope(ActivityLoad(frame, {}, {}), _config(), None, pack_load)
+
+    assert len(scope.frame) == 1, "the badly-linked row is out of scope, as intended"
+    assert (scope.pack_link.referenced, scope.pack_link.matched) == (2, 1)
+    assert scope.pack_link.rate == 0.5
+    assert scope.pack_link.rate < packs_module.MIN_LINK_RATE, (
+        "a rate this bad has to reach the warning the floor exists for")
 
 
 def test_a_scope_without_a_pack_export_is_unchanged(tmp_path):
