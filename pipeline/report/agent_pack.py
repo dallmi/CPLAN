@@ -1526,12 +1526,22 @@ def _write_skill_zip(pack_dir, zip_path):
     the glossary travels as a supporting file because the skill instructions
     point at it by name. The .xlsx is left out: a skill package is read as
     text, and the CSV beside it already carries the same rows.
+
+    Called unconditionally from `write_pack`, one stage after the write that
+    tolerates a pack export that was never synced -- so `PACKS_CSV_NAME` is
+    included only when `pack_dir` actually has it. `zipfile.ZipFile.write` on
+    a path that does not exist raises `FileNotFoundError`, and without this
+    guard that turns the supported no-pack-export case into a crash here
+    instead of the absence the file's own writer already allows for.
     """
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("SKILL.md", SKILL_TEXT)
         for name in (GLOSSARY_NAME, SUMMARY_NAME, QUALITY_NAME,
-                     CALENDAR_NAME, BREAKDOWN_NAME, ACTIVITIES_CSV_NAME):
-            archive.write(pack_dir / name, name)
+                     CALENDAR_NAME, BREAKDOWN_NAME, ACTIVITIES_CSV_NAME,
+                     PACKS_CSV_NAME):
+            source = pack_dir / name
+            if source.exists():
+                archive.write(source, name)
 
 
 def _write_brand_skill_zip(zip_path):

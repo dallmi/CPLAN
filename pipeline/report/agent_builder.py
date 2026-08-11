@@ -31,8 +31,8 @@ DESCRIPTION_NAME = "description.txt"
 STARTER_PROMPTS_NAME = "starter-prompts.md"
 README_NAME = "README.txt"
 
-READING_GUIDE_NAME = "07-reading-guide.txt"
-CHART_STANDARDS_NAME = "08-chart-standards.txt"
+READING_GUIDE_NAME = "08-reading-guide.txt"
+CHART_STANDARDS_NAME = "09-chart-standards.txt"
 
 # One file per board rather than one catalogue, because a skill package loads
 # whole and a knowledge file is retrieved in chunks. A hit that returns panel 3
@@ -44,9 +44,9 @@ CHART_STANDARDS_NAME = "08-chart-standards.txt"
 # folder that sorts into reading order is one fewer thing to explain.
 BOARD_FILE_NAMES = {
     "board-head-of-communications-overview.md":
-        "09-board-head-of-communications-overview.txt",
-    "board-leadership-attention.md": "10-board-leadership-attention.txt",
-    "board-plan-trust.md": "11-board-plan-trust.txt",
+        "10-board-head-of-communications-overview.txt",
+    "board-leadership-attention.md": "11-board-leadership-attention.txt",
+    "board-plan-trust.md": "12-board-plan-trust.txt",
 }
 
 
@@ -88,9 +88,11 @@ in the panels you cannot see.
 """
 
 
-# The six the skill archive carries, in the order they are numbered. `00-README`
+# The seven the skill archive carries, in the order they are numbered. `00-README`
 # is left out for the reason the archive leaves it out: it explains the pack to
-# a person, and the reading guide does that job for the agent.
+# a person, and the reading guide does that job for the agent. `07-packs.csv`
+# is last of the data files and, unlike the other six, optional -- the copy
+# loop below skips it when no pack export was synced.
 UPLOAD_DATA_FILES = (
     agent_pack.SUMMARY_NAME,
     agent_pack.GLOSSARY_NAME,
@@ -98,6 +100,7 @@ UPLOAD_DATA_FILES = (
     agent_pack.CALENDAR_NAME,
     agent_pack.ACTIVITIES_CSV_NAME,
     agent_pack.BREAKDOWN_NAME,
+    agent_pack.PACKS_CSV_NAME,
 )
 
 
@@ -135,7 +138,7 @@ You answer questions about communications planning activity using only the CPLAN
 - `{agent_pack.BREAKDOWN_NAME}` — one row per block × value × measure, for crossing two dimensions
 - `{READING_GUIDE_NAME}` — audiences, analysis steps, good follow-up questions
 - `{CHART_STANDARDS_NAME}` — chart choice and multi-panel layout
-- `09`–`11-board-*.txt` — one per named executive board: head of communications overview, leadership attention, plan trust
+- `10`–`12-board-*.txt` — one per named executive board: head of communications overview, leadership attention, plan trust
 
 Prefer `{agent_pack.SUMMARY_NAME}`, `{agent_pack.CALENDAR_NAME}` and `{agent_pack.BREAKDOWN_NAME}` for any figure they already state: those were computed by tested code, and a figure you derive from `{agent_pack.ACTIVITIES_CSV_NAME}` has not been through the report's rules. There is no Excel workbook behind this agent.
 
@@ -522,7 +525,12 @@ def write_builder_pack(pack_dir, out_dir, scope=None, config=None):
     upload_dir.mkdir(parents=True, exist_ok=True)
 
     for name in UPLOAD_DATA_FILES:
-        shutil.copyfile(pack_dir / name, upload_dir / name)
+        source = pack_dir / name
+        # The pack file is absent when no pack export was synced. Copying it
+        # unconditionally would turn a missing optional input into a crash in
+        # the delivery step, one stage after the run that tolerated it.
+        if source.exists():
+            shutil.copyfile(source, upload_dir / name)
     (upload_dir / READING_GUIDE_NAME).write_text(READING_GUIDE_TEXT,
                                                  encoding="utf-8")
     (upload_dir / CHART_STANDARDS_NAME).write_text(CHART_STANDARDS_TEXT,

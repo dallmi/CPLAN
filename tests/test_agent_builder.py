@@ -29,6 +29,38 @@ def _builder(tmp_path):
     return pack_dir, upload_dir, out_dir
 
 
+def _builder_with_packs(tmp_path):
+    """`_builder`, on a run that has the pack export too."""
+    config = ReportConfig(date_from=date(2025, 1, 1), date_to=date(2025, 12, 31))
+    scope = load_fixture_scope(tmp_path / "csv", config, with_packs=True)
+    pack_dir = agent_pack.write_pack(scope, config, tmp_path / "pack-out")
+    out_dir = tmp_path / "builder-out"
+    upload_dir = agent_builder.write_builder_pack(pack_dir, out_dir, scope, config)
+    return pack_dir, upload_dir, out_dir
+
+
+def test_the_upload_folder_carries_the_pack_file_in_reading_order(tmp_path):
+    """Data files first, rules behind them. An operator uploads a folder, and
+    a folder that sorts into reading order is one fewer thing to explain.
+    """
+    _, upload_dir, _ = _builder_with_packs(tmp_path)
+
+    names = sorted(p.name for p in upload_dir.iterdir())
+    assert agent_pack.PACKS_CSV_NAME in names
+    assert names.index("07-packs.csv") < names.index("08-reading-guide.txt")
+    assert len(names) <= agent_builder.KNOWLEDGE_SOURCE_LIMIT
+
+
+def test_a_run_without_the_pack_export_still_delivers(tmp_path):
+    """The copy step runs one stage after the run that tolerated the missing
+    input. Turning it into a crash there would undo the tolerance.
+    """
+    _, upload_dir, _ = _builder(tmp_path)
+    names = [p.name for p in upload_dir.iterdir()]
+    assert agent_pack.PACKS_CSV_NAME not in names
+    assert "08-reading-guide.txt" in names
+
+
 def test_the_builder_folder_is_created_only_where_the_sync_is_proven(tmp_path, monkeypatch):
     """`Input/` existing is the proof, and `Output/` is created beside it.
 
@@ -425,15 +457,22 @@ def test_every_board_file_answers_on_its_own(tmp_path):
 
 
 def test_the_upload_folder_holds_exactly_what_is_uploaded(tmp_path):
-    """Eleven files, and the folder is the instruction.
+    """Eleven files without a pack export, and the folder is the instruction.
 
     An operator uploading a folder uploads the folder. Anything in it that
     should not be knowledge becomes knowledge, and the two candidates are both
     written next door: the answer key, and a README addressed to a person.
+
+    Built without a pack export, so `07-packs.csv` is one of `UPLOAD_DATA_FILES`
+    that this run never had to copy -- filtered against the pack directory
+    rather than hardcoded, so this test does not itself assume which of the
+    data files are optional.
     """
-    _, upload_dir, _ = _builder(tmp_path)
+    pack_dir, upload_dir, _ = _builder(tmp_path)
     names = sorted(p.name for p in upload_dir.iterdir())
-    assert names == sorted(agent_builder.UPLOAD_DATA_FILES
+    data_files = tuple(name for name in agent_builder.UPLOAD_DATA_FILES
+                       if (pack_dir / name).exists())
+    assert names == sorted(data_files
                            + (agent_builder.READING_GUIDE_NAME,
                               agent_builder.CHART_STANDARDS_NAME)
                            + tuple(agent_builder.BOARD_FILE_NAMES.values()))
@@ -461,8 +500,12 @@ def test_the_uploaded_data_is_the_pack_byte_for_byte(tmp_path):
     A copy that transformed anything on the way through would let the two
     agents disagree about a figure while both citing the same run, and the
     disagreement would surface as a wrong number that looks right.
+
+    Built with a pack export so every name in `UPLOAD_DATA_FILES` -- including
+    `07-packs.csv`, present only on this fixture -- has a source file to
+    compare against.
     """
-    pack_dir, upload_dir, _ = _builder(tmp_path)
+    pack_dir, upload_dir, _ = _builder_with_packs(tmp_path)
     for name in agent_builder.UPLOAD_DATA_FILES:
         assert (upload_dir / name).read_bytes() == (pack_dir / name).read_bytes(), (
             f"{name} differs between the two deliveries")

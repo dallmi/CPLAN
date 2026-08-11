@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-10.19"
+$manifestVersion = "2026-08-10.20"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-10.19"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-10.19"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-10.20"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -485,7 +485,19 @@ $manifest = @(
     # nothing points at. An old copy has no pack_rows() and never writes the
     # file, so "which packs have nothing planned" cannot be answered from the
     # pack at all -- the row would simply be missing rather than showing zero.
-    @{ Path = "pipeline\report\agent_pack.py"; Marker = "def pack_rows"; Why = "07-packs.csv gets one row per pack, with an activities_in_scope and an activities_total that can legitimately differ - an older copy has no pack file, so a pack with nothing planned is absent rather than a visible zero" }
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "def pack_rows"; Why = "07-packs.csv gets one row per pack, with an activities_in_scope and an activities_total that can legitimately differ - an older copy has no pack file, so a pack with nothing planned is absent rather than a visible zero" },
+
+    # The Copilot Studio skill archive now carries 07-packs.csv too, guarded
+    # the same way the Agent Builder copy loop already is. An old copy writes
+    # a hardcoded six-name tuple with zipfile.ZipFile.write, which raises
+    # FileNotFoundError the moment a run has no pack export -- turning a
+    # supported situation into a crash on exactly the machines that lack one.
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "included only when"; Why = "the skill archive includes 07-packs.csv only when pack_dir actually has it - an older copy writes a fixed six-name tuple with zipfile.ZipFile.write, which raises FileNotFoundError for any run with no pack export" },
+
+    # 08-reading-guide.txt, 09-chart-standards.txt, boards renumbered to
+    # 10-12, and UPLOAD_DATA_FILES gaining agent_pack.PACKS_CSV_NAME so the
+    # pack file sorts ahead of the rule documents in the uploaded folder.
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "turn a missing optional input into a crash in"; Why = "the copy loop skips 07-packs.csv when no pack export was synced instead of crashing on a missing source file - an older copy has UPLOAD_DATA_FILES without the pack file at all, and the rule documents numbered one lower" }
 )
 
 Write-Host ""

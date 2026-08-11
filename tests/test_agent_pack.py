@@ -1343,6 +1343,34 @@ def test_without_a_pack_export_the_file_is_not_written(tmp_path):
                        "06-breakdowns.csv"]
 
 
+def test_a_run_with_no_pack_export_still_produces_a_valid_skill_archive(tmp_path):
+    """`_write_skill_zip` runs unconditionally, one stage after the write that
+    tolerates a missing pack export. `zipfile.ZipFile.write` on a path that
+    does not exist raises `FileNotFoundError`, so without its own guard this
+    turns a supported situation -- no pack export synced -- into a crash that
+    only fires on the machines that do not have one.
+    """
+    pack_dir, out_dir, _, _ = _pack(tmp_path)
+    assert not (pack_dir / agent_pack.PACKS_CSV_NAME).exists()
+    with zipfile.ZipFile(out_dir / agent_pack.SKILL_ZIP_NAME) as archive:
+        assert agent_pack.PACKS_CSV_NAME not in archive.namelist()
+        assert archive.testzip() is None, "the archive was written but is not valid"
+
+
+def test_the_skill_archive_carries_the_pack_file_once_one_is_synced(tmp_path):
+    """The Copilot Studio agent and the Agent Builder upload are two deliveries
+    of the same run -- a pack file copied into one and left out of the other
+    would have the two disagree about which packs exist.
+    """
+    scope, config = _scope(tmp_path, with_packs=True)
+    out_dir = tmp_path / "out"
+    pack_dir = agent_pack.write_pack(scope, agent_pack.pack_config(config), out_dir)
+    with zipfile.ZipFile(out_dir / agent_pack.SKILL_ZIP_NAME) as archive:
+        assert agent_pack.PACKS_CSV_NAME in archive.namelist()
+        assert (archive.read(agent_pack.PACKS_CSV_NAME)
+                == (pack_dir / agent_pack.PACKS_CSV_NAME).read_bytes())
+
+
 def test_the_pack_is_written_where_it_can_be_uploaded_from(tmp_path, monkeypatch):
     """The pack is the one artefact that has to leave the machine.
 
