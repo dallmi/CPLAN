@@ -26,7 +26,7 @@ from openpyxl.utils import get_column_letter
 
 from pipeline.report import regions, style
 from pipeline.report.config import AUDIENCE_BAND_ORDER, EXECUTIVES_SPLIT, FIELD_TITLES
-from pipeline.report.derive import PRIORITY_LEVELS, split_multi, split_semicolon
+from pipeline.report.derive import priority_rank, split_multi, split_semicolon
 
 SHEET_NAME = "Calendar"
 LABEL_COL = 1
@@ -42,18 +42,26 @@ NOT_SPECIFIED = "Not specified"
 
 # Most blocks read best alphabetically. The region groups do not: they have a
 # natural reading order, and Global -- the largest value in the source -- would
-# otherwise sit between EMEA and Switzerland. Priority does not either: sorted
-# alphabetically, "Critical" and "High" fall after "Low", which is exactly
-# backwards for a chart whose question is how urgent the plan is. The pack's
-# `priority` block carries `derive.priority_level`'s four bucket names -- see
-# `agent_pack.iter_blocks` -- so this orders those, not the raw source text.
+# otherwise sit between EMEA and Switzerland.
+#
+# Priority is not here. It used to be, listing the four bucket names the pack
+# folded its values onto; the pack now carries the source's own labels, and
+# there is no fixed list of those to enumerate. `_sort_key` ranks it instead.
+# A map naming values nothing produces any more would order nothing and read
+# as though it did.
 FIELD_ORDER = {
     "region_group": {name: i for i, name in enumerate(regions.GROUP_ORDER)},
-    "priority": {name: i for i, name in enumerate(PRIORITY_LEVELS)},
 }
 
 
 def _sort_key(field, name):
+    # Priority has no fixed list to order by: two vocabularies are live at
+    # once -- the source's numbered labels and the studio's words -- and both
+    # appear verbatim rather than folded onto a shared four. So it orders by
+    # the rank both of them yield, most urgent first, exactly as the
+    # workbook's Mix sheet does. Name breaks ties so the order is stable.
+    if field == "priority":
+        return (name == NOT_SPECIFIED, -priority_rank(name), name)
     order = FIELD_ORDER.get(field)
     if order is None:
         return (name == NOT_SPECIFIED, name)

@@ -269,20 +269,20 @@ def iter_blocks(scope, config):
                     f"PARTITION_BREAKDOWN_FIELDS if it is genuinely allowed to "
                     f"carry more than one value."
                 )
-            # Priority is the one field this loop groups by meaning rather than
-            # by raw text: the source's numbered labels and the studio's words
-            # are two vocabularies for the same four levels, and grouping on
-            # the raw string would give a donut six to ten slices wide instead
-            # of the five the chart rules cap it at, in an order nothing
-            # orders by urgency. `derive.priority_level` reuses the same rank
-            # `analytics.js::priorityRank` computes, so this cannot drift onto
-            # a second, disagreeing mapping of its own. A comma inside a
-            # priority label reaches this line intact -- `_split_for` no longer
-            # breaks these values on it -- and `priority_level` reads the
-            # leading digit or the words, neither of which the comma disturbs.
-            if field == "priority":
-                names = [name if name == NOT_SPECIFIED else derive.priority_level(name)
-                         for name in names]
+            # Priority is grouped on the source's own text, like every other
+            # field here. It used to be folded onto Critical/High/Medium/Low
+            # to keep a donut inside the five slices the chart rules cap it
+            # at -- a presentation constraint deciding what the data says.
+            #
+            # The label IS the meaning: a numbered source label names which
+            # category of urgency applies, and "High" names only that someone
+            # mapped it onto a word the source never uses. The workbook never
+            # did this; its Mix sheet prints the source label and orders by
+            # `priority_rank`, and the pack was the one instrument answering
+            # in a vocabulary nobody could look up. Ordering is `_sort_key`'s
+            # job and follows the same rank, so the block still reads from
+            # most urgent to least. A chart with more slices than the rules
+            # allow is a chart-type problem, not a reason to rename the data.
             for name in names:
                 values.setdefault(name, []).append(activity.name)
         overlaps = field not in PARTITION_BREAKDOWN_FIELDS

@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-11.10"
+$manifestVersion = "2026-08-11.11"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-11.10"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-11.10"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-11.11"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -386,9 +386,9 @@ $manifest = @(
     # that wider donut, or lets a three-week-old pack claim its "next 30 days"
     # tile describes today, or leaves panel 2's Chart line silent about the
     # split, divider and peak marker its own footnote already promises.
-    @{ Path = "pipeline\report\derive.py"; Marker = "def priority_level"; Why = "collapses both priority vocabularies onto the four levels the board's donut groups by, reusing priority_rank rather than a second mapping" },
-    @{ Path = "pipeline\report\calendar_sheet.py"; Marker = "PRIORITY_LEVELS"; Why = "the priority block now sorts by urgency, not alphabetically -- an older copy interleaves Critical and Low" },
-    @{ Path = "pipeline\report\agent_pack.py"; Marker = "derive.priority_level(name)"; Why = "the pack's priority block groups by the four shared urgency levels instead of raw source text -- an older copy ships a donut over the chart rules' own five-segment cap" },
+    @{ Path = "pipeline\report\derive.py"; Marker = "There is deliberately no"; Why = "the level-collapsing helper is gone and the file records why - an older copy still offers a mapping onto four words the source never says, and the next caller uses it" },
+    @{ Path = "pipeline\report\calendar_sheet.py"; Marker = "Priority is not here"; Why = "priority is ranked rather than looked up in a fixed list - an older copy carries a map of four bucket names nothing produces any more, and orders nothing while reading as though it did" },
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "The label IS the meaning"; Why = "the pack states the source priority label verbatim - an older copy answers in Critical/High/Medium/Low, a vocabulary the source system does not use and nobody can look up" },
     @{ Path = "pipeline\report\dashboard_skill.py"; Marker = "Next 30 days from the data date"; Why = "the tile names its own anchor so a stale pack cannot be misread as describing today; panel 2's Chart line also states the solid/dashed split, the vintage divider and the peak marker its footnote already promised" },
     @{ Path = "pipeline\report\agent_builder.py"; Marker = "let one activity count twice"; Why = "the overlap rule now says a partitioning block sums to the portfolio too, not only block=TOTAL" },
 

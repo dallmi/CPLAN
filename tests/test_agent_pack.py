@@ -539,6 +539,33 @@ def test_activities_file_holds_every_activity_once(tmp_path):
     assert rows[0]["Tracking ID"]
 
 
+def test_the_priority_block_states_the_source_labels_not_four_invented_words(tmp_path):
+    """The pack used to fold priorities onto Critical/High/Medium/Low.
+
+    Those four are the studio's vocabulary. The source system's are numbered
+    labels whose text carries the rank -- and the label is the meaning: a
+    "1 - ..." says which category of urgency it is, and "Critical" says only
+    that someone mapped it. The workbook never collapsed them; its Mix sheet
+    prints the source label and orders by `priority_rank`. The pack was the
+    one instrument answering in a vocabulary the source does not use.
+    """
+    scope, config = _scope(tmp_path)
+    rows = agent_pack.breakdown_rows(scope, agent_pack.pack_config(config))
+    values = [value for block, value, _, measure, _ in rows
+              if block == "priority" and measure == "activities"]
+
+    assert "2 - label" in values, "the source label was replaced by a bucket name"
+    assert "4 - deprioritised" in values
+    # The studio's words are real values too where the source carries them --
+    # they are not translated away either, in whichever direction.
+    assert "Medium" in values and "Low" in values
+    assert "Critical" not in values, "a bucket name nothing in the source says"
+
+    # Ordered by urgency, the way the workbook's Mix sheet orders it. The
+    # fixture is built so rank order and alphabetical order disagree.
+    assert values == ["2 - label", "Medium", "4 - deprioritised", "Low"]
+
+
 def test_the_pack_covers_every_year_and_still_says_what_the_workbook_holds(tmp_path):
     """The pack drops the period; `in_report` has to pick the filter up.
 
