@@ -895,6 +895,12 @@ this skill. They come from one pipeline run: same figures, same scope.
 | Any figure crossing two dimensions | `{BREAKDOWN_NAME}` |
 | A single named activity | `{ACTIVITIES_CSV_NAME}` |
 
+- `{PACKS_CSV_NAME}` — one row per communication pack: name, lead, period,
+  objective, and how many activities sit in it. Every pack is here, including
+  those with nothing planned against them (`activities_in_scope = 0`), which
+  is the only place that fact appears. Join it to `{ACTIVITIES_CSV_NAME}` on
+  `Pack ID`.
+
 Prefer `{SUMMARY_NAME}`, `{CALENDAR_NAME}` and `{BREAKDOWN_NAME}` for any
 counting question. Those figures were computed by tested code. A number you
 derive yourself from `{ACTIVITIES_CSV_NAME}` has not been through the report's

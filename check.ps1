@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-10.22"
+$manifestVersion = "2026-08-10.23"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-10.22"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-10.22"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-10.23"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -517,7 +517,20 @@ $manifest = @(
     # (no grouping dimension) rather than what a pack is. An old copy still
     # points a reader at "the Data Quality sheet" for pack coverage, which
     # is no longer where that reader would look first.
-    @{ Path = "pipeline\report\table_sheets.py"; Marker = "activities grouped around one"; Why = "the Packs glossary entry says what a pack is instead of naming a limitation the pack file already removed - an older copy sends a reader to the Data Quality sheet for coverage that 03-data-quality.txt and 07-packs.csv now state directly" }
+    @{ Path = "pipeline\report\table_sheets.py"; Marker = "activities grouped around one"; Why = "the Packs glossary entry says what a pack is instead of naming a limitation the pack file already removed - an older copy sends a reader to the Data Quality sheet for coverage that 03-data-quality.txt and 07-packs.csv now state directly" },
+
+    # A knowledge file cannot announce itself: retrieval answers a question,
+    # it does not tell the agent which questions have a file waiting. Agent
+    # Builder's prompt now points at 07-packs.csv in its own file list, and
+    # its reading guide says how to join an activity row to that file. An
+    # older copy ships the pack file but never tells the agent it is there.
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "including packs with nothing planned"; Why = "the prompt's file list names 07-packs.csv - an older copy is silent about the pack file even though it already ships in the upload folder, so the agent never retrieves it" },
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "worth reporting when it is common"; Why = "the reading guide explains the Pack ID join and that activities_in_scope = 0 is an answer, not a defect - an older copy has no Packs section, so an agent asked a pack's lead or objective has no file it knows to open" },
+
+    # Same pointer, mirrored into the Studio skill with the fuller wording
+    # this surface can afford - it has no character limit, unlike the prompt
+    # above.
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "how many activities sit in it"; Why = "SKILL.md's own file table names 07-packs.csv - an older copy ships the file in the skill archive but never mentions it in the skill text, so the agent never retrieves it" }
 )
 
 Write-Host ""

@@ -136,6 +136,7 @@ You answer questions about communications planning activity using only the CPLAN
 - `{agent_pack.CALENDAR_NAME}` — one row per block × value × week
 - `{agent_pack.ACTIVITIES_CSV_NAME}` — one row per activity
 - `{agent_pack.BREAKDOWN_NAME}` — one row per block × value × measure, for crossing two dimensions
+- `{agent_pack.PACKS_CSV_NAME}` — one row per pack, including packs with nothing planned
 - `{READING_GUIDE_NAME}` — audiences, analysis steps, good follow-up questions
 - `{CHART_STANDARDS_NAME}` — chart choice and multi-panel layout
 - `10`–`12-board-*.txt` — one per named executive board: head of communications overview, leadership attention, plan trust
@@ -310,6 +311,22 @@ Include definitions, assumptions and limitations.
    participation, exceptional lead times. Show exact figures.
 4. **Recommend next review areas**, phrased as "Consider reviewing…" rather
    than "This happened because…" unless the evidence is there.
+
+## Packs
+
+A communication pack groups activities around one objective, with its own
+lead, period and brief. `07-packs.csv` has one row per pack.
+
+It holds every pack, including those with no activity in the period. A pack
+showing `activities_in_scope = 0` is an answer — nothing planned against it,
+not a defect. Check `activities_total` before calling it dormant: zero in
+scope with a positive total means nothing *this period*.
+
+To go from an activity to its pack, match the activity's `Pack ID` to the
+pack row's `Pack ID`. The pack's lead, dates and objective are in that row
+and nowhere else; the activity row carries the pack's name and identifier
+only. `pack_known = No` on an activity means its pack is not in the list,
+which is a data-quality finding worth reporting when it is common.
 
 ## What this pack answers well
 

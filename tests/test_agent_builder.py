@@ -612,3 +612,20 @@ def test_the_uploaded_glossary_follows_the_run_not_the_prompt(tmp_path):
     assert agent_pack.GEB_RULE_COMBINED not in glossary
     breakdowns = (upload / agent_pack.BREAKDOWN_NAME).read_text(encoding="utf-8")
     assert "executives_geb," in breakdowns
+
+
+def test_the_prompt_tells_the_agent_the_pack_file_exists():
+    """Retrieval answers a question; it does not say which questions have a
+    file waiting. The pointer is the only thing that does.
+    """
+    assert agent_pack.PACKS_CSV_NAME in agent_builder.INSTRUCTIONS_TEXT
+
+
+def test_the_reading_guide_says_how_the_two_files_join():
+    """The cost of not copying the pack's lead onto the activity row is that
+    the agent has to be told where to look instead.
+    """
+    text = agent_builder.READING_GUIDE_TEXT
+    assert agent_pack.PACKS_CSV_NAME in text
+    assert "Pack ID" in text
+    assert "nothing planned" in text.lower()
