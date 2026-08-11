@@ -161,7 +161,7 @@ Without that folder they land in `pipeline/output/agent-pack/` instead
 
 | | |
 |---|---|
-| `pack/` | four `.txt` and two `.csv` — three where a pack export was synced: what the skill archive is built from, and the readable copy of what the agent holds. **Not uploaded** — see below |
+| `pack/` | four `.txt` and three `.csv` — four where a pack export was synced: what the skill archive is built from, and the readable copy of what the agent holds. **Not uploaded** — see below |
 | `cplan-skill.zip` | the same content as a skill package, `SKILL.md` at the archive root |
 | `chart-standards-skill.zip` | the visual rules as a second skill. No data files, so it is rebuilt identically every run — upload it once and again only when the rules change |
 | `evaluation.csv` | the same questions as an importable test set. Safe to upload: an evaluation set is never grounded on |
@@ -398,10 +398,11 @@ differently (`CP-100` against `100`) produce the same zero, and only the two
 sample lines tell them apart. On Windows, `packlink.cmd`.
 
 Exit code 0 only when exactly one candidate clears 80% of the activities that
-carry any pack reference at all. That floor is `packs.MIN_LINK_RATE`, the same
-one a report run warns below, and the winner is what `packs.PACK_LINK_COLUMN`
-holds. Run this whenever the pack export changes shape, and before merging any
-change to how the two are joined.
+carry any pack reference at all. That floor is `packs.MIN_LINK_RATE` itself —
+the check imports it rather than restating it, so the rate this gate passes at
+and the rate a report run warns below cannot drift apart — and the winner is
+what `packs.PACK_LINK_COLUMN` holds. Run this whenever the pack export changes
+shape, and before merging any change to how the two are joined.
 
 ### Standalone studio (read-only)
 
@@ -433,7 +434,7 @@ Expected files:
   `pack_known` column on the activity rows, and no pack-list figures in
   `03-data-quality.txt`. A machine syncing only the two activity exports
   produces exactly the output it produced before the pack list existed, which
-  is why nothing errors when it is absent — run the pack-link check below to
+  is why nothing errors when it is absent — run the pack-link check above to
   see whether it is arriving and whether it joins.
 
 ## Output

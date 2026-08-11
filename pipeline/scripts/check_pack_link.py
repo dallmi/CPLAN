@@ -37,6 +37,18 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+# The floor a candidate must clear to count as the link, imported rather than
+# restated. `report_calendar` warns below this value on every run and this tool
+# exits non-zero below it before a merge, so the two are one policy: a gate that
+# passes at a rate the runtime warns about is drift nobody would see, because
+# each side looks internally consistent. Both modules previously carried their
+# own `0.8` under a comment calling it "the same floor" as the other one, which
+# is a coupling asserted by prose and enforced by nothing.
+#
+# `PACK_LINK_CANDIDATES` below deliberately does NOT follow it there: which
+# columns are worth scoring is this tool's own business, and `packs.py` holds
+# only the answer this tool produced.
+from pipeline.report.packs import MIN_LINK_RATE  # noqa: E402
 from pipeline.scripts.process_cplan import (  # noqa: E402
     _is_noise_col,
     decode_sp_column_name,
@@ -60,10 +72,6 @@ PACK_KEY = "packs"
 # the answer.
 PACK_LINK_CANDIDATES = ("communication_pack_cpid", "campaign_ltid",
                         "tracking_pack_id")
-
-# Below this a candidate is not a link. It is the same floor the load path
-# warns against once a winner has been chosen.
-MIN_LINK_RATE = 0.8
 
 SAMPLE_COUNT = 3
 

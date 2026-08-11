@@ -177,6 +177,20 @@ def test_main_exits_non_zero_and_says_so_when_no_candidate_clears_the_floor(tmp_
     assert "No candidate reaches 80%" in out
 
 
+def test_the_pre_merge_gate_and_the_runtime_warning_share_one_floor():
+    """One policy, one value, and not two that agree today.
+
+    `report_calendar` warns below `packs.MIN_LINK_RATE` on every run; this
+    tool exits non-zero below its own. While those were two literals, each
+    commented as "the same floor" as the other, a gate could pass at a rate
+    the runtime warns about -- and both sides would look internally
+    consistent, which is what makes that drift the kind nobody finds.
+    """
+    from pipeline.report import packs
+
+    assert check_pack_link.MIN_LINK_RATE == packs.MIN_LINK_RATE
+
+
 def test_the_zero_result_prints_both_sides_of_the_comparison(tmp_path, capsys):
     """The outcome this tool exists for is the one it could not diagnose.
 

@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-11.4"
+$manifestVersion = "2026-08-11.5"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-11.4"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-11.4"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-11.5"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -465,6 +465,7 @@ $manifest = @(
     # 100" looked identical to the person making the merge call.
     @{ Path = "pipeline\scripts\check_pack_link.py"; Marker = "pack list sample values"; Why = "the pack list's own identifiers are printed beside the activity-side samples - an older copy prints one side, and a zero for every candidate cannot be told from a format mismatch" },
     @{ Path = "pipeline\scripts\check_pack_link.py"; Marker = "Orphan IDs"; Why = "the orphan column is headed by what it counts, distinct identifiers - an older copy heads it `Orphan act.`, which reads as a row count and is compared against the activity total" },
+    @{ Path = "pipeline\scripts\check_pack_link.py"; Marker = "from pipeline.report.packs import MIN_LINK_RATE"; Why = "the pre-merge gate and the runtime warning read one floor - an older copy carries its own 0.8 literal, so moving the report's floor leaves this check passing at a rate the run warns about, with both sides looking internally consistent" },
 
     # PACKS_COLUMN_MAP carried none of the pack form's own identity fields --
     # a pack could be sized and linked but never named. An old copy maps
