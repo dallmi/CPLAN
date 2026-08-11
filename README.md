@@ -277,6 +277,32 @@ the pack export is optional, and the folder is uploaded whole either way.
 `checklist.md` stays out because an agent that can read the answer key passes
 without computing anything.
 
+##### The upload folder mirrors itself
+
+The knowledge files also land in the agent's **own** folder in the same run, so
+the copy that used to close this delivery no longer has to be made by hand. A
+hand copy is a step that can be skipped, and a skipped one is invisible: the
+folder still looks full, and the agent answers this month's questions from last
+month's pack.
+
+That folder is not named in this repository, because it cannot be. It sits in a
+synced document library, under a tenant and a site that differ per machine, per
+person and per agent. Its *shape* is what the run looks for: a folder called
+`CPLAN/agent`, one or two levels below the user profile. Creating it in
+Explorer is the whole instruction. `-AgentDir` names one instead, and so does
+`CPLAN_AGENT_DIR`; two candidate folders and none is written to, because the
+wrong knowledge in the right place is not visible from either.
+
+Only the numbered knowledge files are mirrored — never `checklist.md`, never
+`instructions.md`. Everything in that folder is grounded on, exactly as in
+`upload/`. Numbered files an earlier run left behind are removed, and that half
+cannot be skipped: the numbering shifts whenever a file is added — the boards
+moved from `09`–`11` to `10`–`12` when the chart rules became a knowledge file
+— so copying alone leaves the previous run's board beside this run's, both
+retrievable and both looking current. Anything else in the folder is left
+alone. A folder that was named and is not there ends the run with exit code
+`3`: the pack was written, and only the mirror was not.
+
 The prompt is a separate hand-written literal rather than the Studio one with
 sections removed: which rules survive a compression to 8,000 characters is an
 editorial judgement, and `tests/test_agent_builder.py` holds it to a named list
@@ -450,3 +476,4 @@ Expected files:
 | `pipeline/output/cplan_studio_standalone.html` | Standalone planning studio — read-only, database-fed, fully offline (no CDN at all) |
 | `<OneDrive>/Projekte/CPLAN/Output/agent-builder/upload/` | Agent Builder knowledge — eleven files, twelve where a pack export was synced; uploaded whole |
 | `<OneDrive>/Projekte/CPLAN/Output/agent-builder/instructions.md` | Agent Builder Instructions — pasted, after one find-and-replace |
+| `<synced library>/CPLAN/agent/` | the same knowledge files, mirrored into the folder the agent is fed from — created by hand once, kept current by every run |

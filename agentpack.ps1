@@ -16,6 +16,19 @@ Usage (from the repo root, or just double-click agentpack.cmd):
   .\agentpack.ps1 -Out C:\tmp\pack      # somewhere else
   .\agentpack.ps1 -InputDir C:\tmp\csv  # read from here instead of OneDrive
   .\agentpack.ps1 -GebMembers C:\tmp\geb-members.xlsx   # split GEB / GEB-1
+  .\agentpack.ps1 -AgentDir "C:\...\CPLAN\agent"        # mirror into this folder
+
+The knowledge files also land in the agent's own folder, so the upload that
+used to be a manual copy is already done. That folder is not named here: it
+sits in a synced document library under a tenant and a site that differ per
+machine. Create a folder called CPLAN\agent inside the library, one or two
+levels below your user profile, and the run finds it. -AgentDir names one
+instead, and so does the CPLAN_AGENT_DIR environment variable.
+
+Only the twelve numbered knowledge files are mirrored -- never the answer key,
+never the instructions. Numbered files left over from an earlier run are
+removed, because a board file under its old number is retrieved beside the new
+one and both look current. Anything else in that folder is left alone.
 
 The member list is the same file report.ps1 takes, and is found without the
 flag when it sits in the repository root as geb-members.xlsx or .csv. With it
@@ -51,7 +64,8 @@ param(
     [switch]$NoOpen,
     [string]$Out,
     [string]$InputDir,
-    [string]$GebMembers
+    [string]$GebMembers,
+    [string]$AgentDir
 )
 
 $ErrorActionPreference = "Stop"
@@ -93,10 +107,18 @@ try {
     if ($Out) { $args += @("--out", $Out) }
     if ($InputDir) { $args += @("--input-dir", $InputDir) }
     if ($GebMembers) { $args += @("--geb-members", $GebMembers) }
+    if ($AgentDir) { $args += @("--agent-dir", $AgentDir) }
 
     Write-Host "== CPLAN agent pack: CSV -> .txt + .csv ==" -ForegroundColor Cyan
     & $python @args
-    if ($LASTEXITCODE -ne 0) { throw "build_agent_pack failed (exit code $LASTEXITCODE)" }
+    $code = $LASTEXITCODE
+    # 3 says the pack was written and only the mirror was not. Thrown as an
+    # error it would collect the advice below, which is about a missing export
+    # -- true of a failed run, and a wrong place to look for this one.
+    if ($code -eq 3) {
+        Write-Host "The pack was written. Only the agent folder was not - the reason is above." -ForegroundColor Yellow
+    }
+    elseif ($code -ne 0) { throw "build_agent_pack failed (exit code $code)" }
 
     # Open the folder that holds every artefact, not the pack subfolder: the
     # skill packages, the instructions and the checklist are what a reader has
@@ -116,6 +138,9 @@ try {
             Start-Process $written
         }
     }
+    # Carried out of the run rather than dropped: a mirror that did not happen
+    # is the one thing here a caller downstream would want to see.
+    exit $code
 }
 catch {
     Write-Host "`nERROR: $_" -ForegroundColor Red

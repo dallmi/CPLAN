@@ -19,6 +19,9 @@ pipeline/output/reports/
 # that are meant to be uploaded rather than committed -- and checklist.md holds
 # the answer key beside them.
 pipeline/output/agent-pack/
+# The same figures again, and the same answer key: this is where the Agent
+# Builder delivery lands on a machine with no OneDrive.
+pipeline/output/agent-builder/
 
 # Pipeline docs (internal only)
 pipeline/docs/

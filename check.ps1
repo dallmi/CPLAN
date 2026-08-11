@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-11.5"
+$manifestVersion = "2026-08-11.6"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-11.5"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-11.5"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-11.6"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -580,7 +580,16 @@ $manifest = @(
     # pack file is there only sometimes.
     @{ Path = "pipeline\report\agent_builder.py"; Marker = "def reading_guide_text"; Why = "08-reading-guide.txt drops its Packs section where no pack export was synced - an older copy explains 07-packs.csv and the pack_known column to an agent whose upload folder holds neither" },
     @{ Path = "pipeline\report\agent_builder.py"; Marker = "Present only where a pack list was synced"; Why = "the pasted prompt describes both states of the pack file - an older copy asserts it unconditionally, and a prompt is pasted once and left while the pack is rebuilt underneath it" },
-    @{ Path = "pipeline\report\agent_builder.py"; Marker = "Only that one name is guarded"; Why = "the copy loop guards 07-packs.csv alone - an older copy guards all seven, so a required file that failed to write leaves an upload folder that is quietly one file short and is uploaded whole anyway" }
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "Only that one name is guarded"; Why = "the copy loop guards 07-packs.csv alone - an older copy guards all seven, so a required file that failed to write leaves an upload folder that is quietly one file short and is uploaded whole anyway" },
+
+    # The upload set now lands in the agent's own folder in the same run. The
+    # copy it replaces was done by hand, which is a step that can be skipped -
+    # and a skipped copy is invisible, because the folder still looks full.
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "def mirror_upload"; Why = "the upload set is written into the agent's own synced folder by the run itself - an older copy leaves that copy to be done by hand, and a hand copy that is forgotten answers this month's questions from last month's pack" },
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "MIRRORED_NAME"; Why = "the mirror removes the numbered files an earlier run left behind and touches nothing else - an older copy would leave a board under its old number beside the new one, both retrievable and both looking current" },
+    @{ Path = "pipeline\scripts\build_agent_pack.py"; Marker = "def resolve_agent_dir"; Why = "the run finds the agent folder by shape, reports an ambiguous match instead of guessing, and says how to name one - an older copy mirrors nowhere and gives the operator no line saying so" },
+    @{ Path = "pipeline\scripts\build_agent_pack.py"; Marker = "MIRROR_MISSING_EXIT"; Why = "a named agent folder that is not there ends the run with its own exit code - an older copy reports a run whose upload set went nowhere as clean" },
+    @{ Path = "agentpack.ps1";                 Marker = "-AgentDir"; Why = "the launcher forwards the agent folder and its header says which files are mirrored and which never are - an older copy cannot pass one at all, so an operator with two candidate folders has no way to choose" }
 )
 
 Write-Host ""

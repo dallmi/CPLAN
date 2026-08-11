@@ -11,6 +11,7 @@ Usage:
     python pipeline/scripts/build_agent_pack.py --year 2026
     python pipeline/scripts/build_agent_pack.py --from 2026-01-01 --to 2026-06-30
     python pipeline/scripts/build_agent_pack.py --out /path/to/folder
+    python pipeline/scripts/build_agent_pack.py --agent-dir /path/to/CPLAN/agent
 
 Takes the same period flags as the report, which is what keeps the two about
 the same year. Only the period: the pack keeps the deprioritised bucket and the
@@ -18,6 +19,7 @@ catch-all-only rows that the report plans past, so its totals are larger by
 design. `in_report = Yes` in the activities file reproduces the workbook.
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -109,6 +111,92 @@ def resolve_builder_output_dir():
     return BUILDER_LOCAL_OUTPUT_DIR
 
 
+# The folder the agent's knowledge is synced from, which is not a folder this
+# repository can name. It sits in a synced document library -- beside OneDrive
+# rather than inside it -- under a tenant and a site that differ per machine,
+# per person and per agent, so the path cannot be written down here and a
+# hardcoded one would be wrong on every machine but one.
+#
+# Its *shape* can be written down: two named segments at the end of a path,
+# created by hand by whoever wants the mirror. Creating that folder is the
+# whole instruction, and it is one the operator gives in Explorer without
+# touching a config file.
+AGENT_DIR_ENV = "CPLAN_AGENT_DIR"
+AGENT_DIR_TAIL = Path("CPLAN") / "agent"
+
+# Its own exit code, because "the pack was not built" and "the pack was built
+# and not mirrored" ask for different things from whoever reads it, and the
+# launcher's advice for the first ("the export has not landed yet") sends the
+# operator looking in the wrong folder for the second. Not 1, which is a failed
+# run, and not 2, which argparse already uses for a mistyped flag.
+MIRROR_MISSING_EXIT = 3
+
+
+def find_agent_dirs():
+    """Every `CPLAN\\agent` folder under the user profile, sorted.
+
+    Searched one and two folders deep, which is where both layouts put it: a
+    synced library lands at `<profile>\\<tenant>\\<site> - <library>\\`, and the
+    OneDrive the exports already use is one level shallower. Deeper than that
+    is not guessed at -- `--agent-dir` names it instead, and the run says so.
+
+    Nothing is created, and nothing inside the checkout counts: a repository
+    that one day grows an `agent/` folder must not silently become the
+    destination for a knowledge upload.
+    """
+    home = Path.home()
+    tail = AGENT_DIR_TAIL.as_posix()
+    found = []
+    for depth in ("*", "*/*"):
+        for path in home.glob(f"{depth}/{tail}"):
+            if path.is_dir() and REPO_DIR not in path.parents and path not in found:
+                found.append(path)
+    return sorted(found)
+
+
+def named_agent_dir(explicit=None):
+    """The folder the operator named -- by flag, then by environment."""
+    named = explicit or os.environ.get(AGENT_DIR_ENV)
+    return Path(named).expanduser() if named else None
+
+
+def resolve_agent_dir(explicit=None):
+    """Where to mirror the upload set, or None -- with the reason said out loud.
+
+    A named folder that is not there is an error rather than a fallback: the
+    operator asked for the mirror, and a run that quietly does not mirror hands
+    them a folder that looks maintained and holds last week's figures. A folder
+    that was never named is not an error at all -- nothing was asked for -- and
+    the run says how to ask.
+
+    Two candidates end the same way as none. Guessing between them would feed
+    an agent nobody meant to feed, and the wrong knowledge in the right place
+    is not visible from either folder.
+    """
+    named = named_agent_dir(explicit)
+    if named:
+        if named.is_dir():
+            return named
+        log(f"The agent folder {named} does not exist, so nothing was mirrored. "
+            "Create it, or name another one.")
+        return None
+
+    found = find_agent_dirs()
+    if len(found) == 1:
+        return found[0]
+    if not found:
+        log(f"No {AGENT_DIR_TAIL} folder under {Path.home()}, so the upload set was "
+            "not mirrored anywhere.")
+        log(f"  Create that folder in your synced library, or name it with "
+            f"--agent-dir / {AGENT_DIR_ENV}.")
+        return None
+    log(f"{len(found)} agent folders found, so none was written to:")
+    for path in found:
+        log(f"  {path}")
+    log(f"  Name the one you mean with --agent-dir or {AGENT_DIR_ENV}.")
+    return None
+
+
 def build_pack_parser():
     """The report's own parser, with `--out` renamed to what it means here."""
     parser = build_parser()
@@ -116,6 +204,10 @@ def build_pack_parser():
         if action.dest == "out":
             action.help = (f"Output folder (default: OneDrive\\{ONEDRIVE_INPUT_DIR}, "
                            f"or {LOCAL_OUTPUT_DIR} when that is not present)")
+    parser.add_argument("--agent-dir",
+                        help=(f"Folder to mirror the upload set into (default: the "
+                              f"{AGENT_DIR_TAIL} folder under your user profile, when "
+                              f"exactly one exists)"))
     parser.description = "Generate the agent pack from the CSV exports"
     return parser
 
@@ -190,6 +282,27 @@ def main(argv=None):
         log(f"  {name:<22} {path.stat().st_size / 1024:>8.1f} KB  {note}")
     log("")
     log(f"Written to {builder_dir}")
+
+    # The last step of the delivery, and the one that used to be done by hand.
+    # It runs after both folders are written and reported, so a mirror that
+    # cannot happen costs the operator a line of output rather than the run.
+    agent_dir = resolve_agent_dir(args.agent_dir)
+    log("")
+    if agent_dir is None:
+        log("The agent's own folder was not written to. Nothing else changed.")
+        # Named and missing is the operator's own instruction going unfollowed,
+        # and a zero exit code would report it as a clean run.
+        return MIRROR_MISSING_EXIT if named_agent_dir(args.agent_dir) else 0
+
+    copied, removed = agent_builder.mirror_upload(upload_dir, agent_dir)
+    log(f"{agent_dir}")
+    log(f"  {len(copied):>3} files mirrored from {agent_builder.UPLOAD_DIRNAME}\\ "
+        "-- the upload is already done for a folder-backed knowledge source")
+    if removed:
+        # Named rather than counted: a removal is the only thing this step does
+        # that the operator cannot undo by running it again.
+        log(f"  {len(removed):>3} superseded by this run's numbering, removed: "
+            f"{', '.join(removed)}")
     return 0
 
 

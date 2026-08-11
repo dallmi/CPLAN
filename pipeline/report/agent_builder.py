@@ -14,6 +14,7 @@ guides goes in a document. If the document is missed the agent draws an ugly
 chart; if the palette were in it, the agent would draw an off-brand one.
 """
 
+import re
 import shutil
 
 from pipeline.report import agent_pack, dashboard_skill
@@ -607,3 +608,52 @@ def write_builder_pack(pack_dir, out_dir, scope=None, config=None):
         (out_dir / agent_pack.CHECKLIST_NAME).write_text(
             agent_pack.checklist_text(scope, config), encoding="utf-8")
     return upload_dir
+
+
+# Every file the upload folder holds is numbered, and nothing else this mirror
+# meets is. That is what makes the set removable without a manifest: a file of
+# this shape in the destination came from an earlier run of this same step, and
+# a file of any other shape was put there by the operator.
+MIRRORED_NAME = re.compile(r"^\d{2}-.+\.(txt|csv)$")
+
+
+def mirror_upload(upload_dir, target):
+    """This run's upload set, in the folder the agent is really fed from.
+
+    `upload_dir` is written where the pipeline can write -- a OneDrive Output
+    folder, or the checkout. The agent is fed from wherever its knowledge is
+    synced, which is a different folder chosen by whoever set the agent up, and
+    the two were joined by a manual copy. A copy outside the run is a copy that
+    can be forgotten, and forgetting it produces exactly the failure this
+    module already names in another form: two vintages of one figure, with
+    nothing on either folder saying which is which.
+
+    Superseded files are removed, and that half cannot be skipped. The
+    numbering shifts whenever a file is added -- the boards moved from 09-11 to
+    10-12 when the chart rules became a knowledge file -- so copying alone
+    leaves the previous run's board sitting beside this run's, both retrievable
+    and both looking current. Only `MIRRORED_NAME` is removed; a note or a
+    screenshot the operator keeps in that folder is left alone.
+
+    Never creates `target`. A folder conjured inside a sync that is not really
+    set up takes the upload set nowhere while looking like it worked, which is
+    the rule the resolvers in `build_agent_pack` follow for the same reason --
+    and why this one is handed a folder that already exists.
+
+    Returns `(copied, removed)`, both as sorted file names, so the run can say
+    what it did to a folder the operator is not looking at.
+    """
+    copied = []
+    for path in sorted(upload_dir.iterdir()):
+        if path.is_file():
+            shutil.copyfile(path, target / path.name)
+            copied.append(path.name)
+
+    current = set(copied)
+    removed = []
+    for path in sorted(target.iterdir()):
+        if (path.is_file() and path.name not in current
+                and MIRRORED_NAME.match(path.name)):
+            path.unlink()
+            removed.append(path.name)
+    return copied, removed

@@ -684,3 +684,198 @@ def test_the_reading_guide_says_how_the_two_files_join():
     assert agent_pack.PACKS_CSV_NAME in text
     assert "Pack ID" in text
     assert "nothing planned" in text.lower()
+
+
+def test_the_mirror_puts_this_runs_upload_set_in_the_agents_own_folder(tmp_path):
+    """The step that used to be a manual copy, and could be forgotten.
+
+    A pack rebuilt and not copied leaves the agent answering from the previous
+    run while both folders look freshly built -- the failure this module is
+    written around, arriving through the one gap the run did not close.
+    """
+    _, upload_dir, _ = _builder_with_packs(tmp_path)
+    target = tmp_path / "agent"
+    target.mkdir()
+
+    copied, removed = agent_builder.mirror_upload(upload_dir, target)
+
+    assert copied == sorted(p.name for p in upload_dir.iterdir())
+    assert removed == []
+    assert sorted(p.name for p in target.iterdir()) == copied
+    for name in copied:
+        assert (target / name).read_bytes() == (upload_dir / name).read_bytes()
+
+
+def test_the_mirror_removes_a_file_this_runs_numbering_replaced(tmp_path):
+    """The boards moved from 09-11 to 10-12 when the chart rules became a
+    knowledge file. Copying alone would leave both numberings in the folder,
+    both retrievable and both looking current.
+    """
+    _, upload_dir, _ = _builder(tmp_path)
+    target = tmp_path / "agent"
+    target.mkdir()
+    stale = target / "09-board-leadership-attention.txt"
+    stale.write_text("last month's board", encoding="utf-8")
+
+    copied, removed = agent_builder.mirror_upload(upload_dir, target)
+
+    assert removed == [stale.name]
+    assert not stale.exists()
+    assert sorted(p.name for p in target.iterdir()) == copied
+
+
+def test_the_mirror_leaves_alone_what_it_did_not_write(tmp_path):
+    """The folder belongs to whoever set the agent up, not to this run. A
+    mirror that tidies is a mirror that deletes someone's notes.
+    """
+    _, upload_dir, _ = _builder(tmp_path)
+    target = tmp_path / "agent"
+    target.mkdir()
+    kept = target / "notes.txt"
+    kept.write_text("why this agent exists", encoding="utf-8")
+
+    _, removed = agent_builder.mirror_upload(upload_dir, target)
+
+    assert removed == []
+    assert kept.read_text(encoding="utf-8") == "why this agent exists"
+
+
+def test_the_mirror_carries_no_answer_key_and_no_instructions(tmp_path):
+    """Everything in that folder is knowledge, exactly as in `upload/`. An
+    agent that can read the answers passes without computing anything, and one
+    grounded on its own instructions quotes them back as findings.
+    """
+    _, upload_dir, out_dir = _builder(tmp_path)
+    target = tmp_path / "agent"
+    target.mkdir()
+
+    copied, _ = agent_builder.mirror_upload(upload_dir, target)
+
+    for name in (agent_pack.CHECKLIST_NAME, agent_builder.INSTRUCTIONS_NAME,
+                 agent_builder.README_NAME, agent_builder.STARTER_PROMPTS_NAME):
+        assert (out_dir / name).exists(), "the delivery no longer writes " + name
+        assert name not in copied
+        assert not (target / name).exists()
+
+
+def test_the_mirror_never_creates_the_folder_it_writes_into(tmp_path):
+    """A folder conjured inside a sync that is not really set up takes the
+    upload set nowhere and looks like it worked -- the same rule the output
+    resolvers follow, for the same reason.
+    """
+    _, upload_dir, _ = _builder(tmp_path)
+    missing = tmp_path / "not-synced" / "agent"
+
+    with pytest.raises(FileNotFoundError):
+        agent_builder.mirror_upload(upload_dir, missing)
+    assert not missing.exists()
+
+
+def test_the_agent_folder_is_found_by_shape_and_never_inside_the_checkout(tmp_path, monkeypatch):
+    """The path holds a tenant and a site that differ per machine, so the run
+    cannot know it -- only that the operator created a folder of that shape.
+    A checkout that grew one must not become the destination for an upload.
+    """
+    home = tmp_path / "home"
+    monkeypatch.setattr(build.Path, "home", staticmethod(lambda: home))
+
+    (home / "Library - Documents" / build.AGENT_DIR_TAIL).mkdir(parents=True)
+    assert build.find_agent_dirs() == [home / "Library - Documents" / build.AGENT_DIR_TAIL]
+
+    checkout = home / "checkout"
+    monkeypatch.setattr(build, "REPO_DIR", checkout)
+    (checkout / build.AGENT_DIR_TAIL).mkdir(parents=True)
+    assert build.find_agent_dirs() == [home / "Library - Documents" / build.AGENT_DIR_TAIL]
+
+
+def test_two_candidate_folders_are_reported_rather_than_guessed_between(tmp_path, monkeypatch, capsys):
+    """The wrong knowledge in the right place is not visible from either
+    folder, so an ambiguous match writes to neither.
+    """
+    home = tmp_path / "home"
+    monkeypatch.setattr(build.Path, "home", staticmethod(lambda: home))
+    monkeypatch.delenv(build.AGENT_DIR_ENV, raising=False)
+    for site in ("Site A - Documents", "Site B - Documents"):
+        (home / site / build.AGENT_DIR_TAIL).mkdir(parents=True)
+
+    assert build.resolve_agent_dir() is None
+    out = capsys.readouterr().out
+    assert "Site A - Documents" in out and "Site B - Documents" in out
+    assert "--agent-dir" in out
+
+
+def test_a_named_folder_that_is_not_there_is_an_error_rather_than_a_fallback(tmp_path, monkeypatch, capsys):
+    """Falling back would hand the operator a folder that looks maintained and
+    holds last week's figures -- the run has to say the mirror did not happen.
+    """
+    home = tmp_path / "home"
+    (home / "Library - Documents" / build.AGENT_DIR_TAIL).mkdir(parents=True)
+    monkeypatch.setattr(build.Path, "home", staticmethod(lambda: home))
+    monkeypatch.setenv(build.AGENT_DIR_ENV, str(tmp_path / "typo"))
+
+    assert build.resolve_agent_dir() is None
+    assert "does not exist" in capsys.readouterr().out
+
+    # And the flag outranks the environment, both ways round.
+    assert build.resolve_agent_dir(str(home / "Library - Documents" / build.AGENT_DIR_TAIL)) \
+        == home / "Library - Documents" / build.AGENT_DIR_TAIL
+
+
+def test_the_run_mirrors_without_being_asked_and_says_where(tmp_path, monkeypatch, capsys):
+    """The whole point: one command, and the folder the agent reads is current.
+    """
+    def _scope(args, config):
+        return load_fixture_scope(tmp_path / "csv", config), config
+
+    home = tmp_path / "home"
+    target = home / "Library - Documents" / build.AGENT_DIR_TAIL
+    target.mkdir(parents=True)
+    monkeypatch.setattr(build.Path, "home", staticmethod(lambda: home))
+    monkeypatch.delenv(build.AGENT_DIR_ENV, raising=False)
+    monkeypatch.setattr(build, "find_onedrive_root", lambda: None)
+    monkeypatch.setattr(build, "BUILDER_LOCAL_OUTPUT_DIR", tmp_path / "builder")
+    monkeypatch.setattr(build, "resolve_scope", _scope)
+
+    assert build.main(["--out", str(tmp_path / "pack"), "--year", "2025"]) == 0
+
+    upload_dir = tmp_path / "builder" / agent_builder.UPLOAD_DIRNAME
+    assert sorted(p.name for p in target.iterdir()) == sorted(p.name for p in upload_dir.iterdir())
+    assert str(target) in capsys.readouterr().out
+
+
+def test_a_mirror_that_was_asked_for_and_did_not_happen_fails_the_run(tmp_path, monkeypatch):
+    """Zero would report it as a clean run, which is how a stale folder gets
+    uploaded from. Its own code, because the pack itself was written.
+    """
+    def _scope(args, config):
+        return load_fixture_scope(tmp_path / "csv", config), config
+
+    monkeypatch.setattr(build.Path, "home", staticmethod(lambda: tmp_path / "home"))
+    monkeypatch.setattr(build, "find_onedrive_root", lambda: None)
+    monkeypatch.setattr(build, "BUILDER_LOCAL_OUTPUT_DIR", tmp_path / "builder")
+    monkeypatch.setattr(build, "resolve_scope", _scope)
+
+    code = build.main(["--out", str(tmp_path / "pack"), "--year", "2025",
+                       "--agent-dir", str(tmp_path / "typo")])
+
+    assert code == build.MIRROR_MISSING_EXIT
+    assert code not in (0, 1, 2), "shares a code with a failed run or a mistyped flag"
+    assert (tmp_path / "builder" / agent_builder.INSTRUCTIONS_NAME).exists(), (
+        "the pack itself has to survive a mirror that could not happen")
+
+
+def test_a_run_with_no_agent_folder_anywhere_is_still_a_clean_run(tmp_path, monkeypatch, capsys):
+    """Nobody asked for a mirror on that machine. The run says how to ask.
+    """
+    def _scope(args, config):
+        return load_fixture_scope(tmp_path / "csv", config), config
+
+    monkeypatch.setattr(build.Path, "home", staticmethod(lambda: tmp_path / "home"))
+    monkeypatch.delenv(build.AGENT_DIR_ENV, raising=False)
+    monkeypatch.setattr(build, "find_onedrive_root", lambda: None)
+    monkeypatch.setattr(build, "BUILDER_LOCAL_OUTPUT_DIR", tmp_path / "builder")
+    monkeypatch.setattr(build, "resolve_scope", _scope)
+
+    assert build.main(["--out", str(tmp_path / "pack"), "--year", "2025"]) == 0
+    out = capsys.readouterr().out
+    assert build.AGENT_DIR_ENV in out and "--agent-dir" in out
