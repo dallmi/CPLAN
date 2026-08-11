@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-11.11"
+$manifestVersion = "2026-08-11.12"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-11.11"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-11.11"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-11.12"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -622,7 +622,13 @@ $manifest = @(
     @{ Path = "pipeline\report\agent_pack.py";  Marker = "The period goes too"; Why = "the pack drops the report period and report_exclusion picks it up - an older copy either answers only about the report year or, worse, claims out-of-year rows are in the workbook" },
     @{ Path = "pipeline\scripts\report_calendar.py"; Marker = "unbounded_by_design"; Why = "the wide-calendar warning is suppressed where the unbounded span is the product working - an older copy prints an alarm on every agent-pack run, which is how an alarm stops being read on the workbook run too" },
     @{ Path = "pipeline\scripts\build_agent_pack.py"; Marker = "unbounded_by_design=True"; Why = "the pack command declaring its widening deliberate - without it the run is indistinguishable from an operator who mistyped a year" },
-    @{ Path = "pipeline\report\agent_builder.py"; Marker = "it covers every year"; Why = "the prompt now says the pack is wider in time as well as in scope - an older copy names two of the three ways it is wider, and the agent reconciles against a workbook on the wrong basis" }
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "it covers every year"; Why = "the prompt now says the pack is wider in time as well as in scope - an older copy names two of the three ways it is wider, and the agent reconciles against a workbook on the wrong basis" },
+    # The grain between one week and the whole period was missing, and its
+    # absence was measured on the real agent: over two minutes and repeated
+    # timeouts for one year-over-year comparison, because it had to sum fifty
+    # week rows per value per year out of the calendar.
+    @{ Path = "pipeline\report\agent_pack.py";  Marker = "PERIODS_CSV_NAME"; Why = "the year, quarter and year-to-date rollups - an older copy makes the agent sum the week grain for every period comparison, which times out, and its year-to-date cut is whatever the model guesses" },
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "09-reading-guide.txt"; Why = "the rule documents moved up behind the new data file - an older copy uploads a folder whose numbering collides at 08 and whose prompt names files by the wrong number" }
 )
 
 Write-Host ""

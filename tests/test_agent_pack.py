@@ -539,6 +539,109 @@ def test_activities_file_holds_every_activity_once(tmp_path):
     assert rows[0]["Tracking ID"]
 
 
+def _periods(pack_dir):
+    with (pack_dir / agent_pack.PERIODS_CSV_NAME).open(encoding="utf-8") as handle:
+        return list(csv.DictReader(handle))
+
+
+def test_a_year_over_year_question_needs_no_arithmetic(tmp_path):
+    """The gap between `06-breakdowns.csv` and `04-calendar.csv`.
+
+    One collapses time entirely, the other is at week grain, and there was
+    nothing in between -- so comparing two years meant summing fifty-odd week
+    rows per value per year. Measured on the real agent: over two minutes and
+    repeated timeouts for one priority comparison.
+    """
+    config = _config()
+    wide = agent_pack.pack_config(config)
+    scope = load_fixture_scope(tmp_path / "csv", wide)
+    rows = agent_pack.period_rows(scope, wide,
+                                  generated=date(2025, 8, 11))
+
+    years = {(r[4], r[6]) for r in rows
+             if r[0] == "priority" and r[3] == "year" and r[5] == "activities"}
+    assert years, "no yearly figure for the priority block"
+    # The fixture spans 2024 and 2025, so a year-over-year answer is a
+    # lookup of two rows rather than a sum over a hundred.
+    assert {period for period, _ in years} >= {"2024", "2025"}
+
+    # Every measure at year grain, so "did leadership involvement grow" is
+    # answerable too, not only "how many".
+    measures = {r[5] for r in rows if r[3] == "year"}
+    assert "with_executives" in measures and "median_completeness" in measures
+
+
+def test_the_year_to_date_pair_cuts_both_years_on_the_same_day(tmp_path):
+    """The one grain the agent cannot safely derive.
+
+    It would have to know the data date and apply it identically to both
+    years. Get it wrong and a full prior year is set against a part-year, and
+    the answer reports a collapse that is an artefact of the cut. The reading
+    guide already warns against exactly this comparison; until now it warned
+    without offering a safe way to make it.
+    """
+    config = _config()
+    wide = agent_pack.pack_config(config)
+    scope = load_fixture_scope(tmp_path / "csv", wide)
+    rows = agent_pack.period_rows(scope, wide,
+                                  generated=date(2025, 6, 30))
+
+    ytd = [r for r in rows if r[3] == "ytd" and r[0] == "TOTAL"
+           and r[5] == "activities"]
+    periods = {r[4]: r[6] for r in ytd}
+    assert set(periods) == {"2025 YTD", "2024 YTD"}, periods
+
+    # Cut on 30 June: the fixture's 2025 rows after that date must be absent
+    # from the YTD figure while the full-year figure keeps them.
+    full = {r[4]: r[6] for r in rows
+            if r[3] == "year" and r[0] == "TOTAL" and r[5] == "activities"}
+    assert periods["2025 YTD"] < full["2025"], (
+        "the year-to-date cut kept rows from the second half of the year")
+
+
+def test_the_pair_is_always_a_pair_even_when_one_year_is_empty(tmp_path):
+    """A missing row reads as "no information"; the fact is "none".
+
+    Everywhere else in this pack an empty subset is skipped rather than
+    written as a zero, and rightly -- a median over no rows is not a figure.
+    The year-to-date pair is the exception, because its entire purpose is the
+    comparison: with the prior year's row absent, an agent cannot tell a year
+    that had nothing from a year the file forgot, and the safest thing it can
+    then say is nothing at all.
+    """
+    config = _config()
+    wide = agent_pack.pack_config(config)
+    scope = load_fixture_scope(tmp_path / "csv", wide)
+    # A cut in January: 2024 has nothing before it, 2025 does.
+    rows = agent_pack.period_rows(scope, wide, generated=date(2025, 1, 31))
+
+    ytd = {r[4]: r[6] for r in rows
+           if r[3] == "ytd" and r[0] == "TOTAL" and r[5] == "activities"}
+    assert set(ytd) == {"2025 YTD", "2024 YTD"}
+    assert ytd["2024 YTD"] == 0
+
+    # Only the count is written for an empty side. A median over no rows is
+    # still not a figure, and inventing one would be worse than the gap.
+    empty_measures = {r[5] for r in rows
+                      if r[3] == "ytd" and r[4] == "2024 YTD" and r[0] == "TOTAL"}
+    assert empty_measures == {"activities"}
+
+
+def test_quarters_carry_the_count_and_not_the_other_six_measures(tmp_path):
+    """Proportion, deliberately. Every measure at quarter grain multiplies the
+    file sevenfold to answer questions nobody asks by quarter.
+    """
+    config = _config()
+    wide = agent_pack.pack_config(config)
+    scope = load_fixture_scope(tmp_path / "csv", wide)
+    rows = agent_pack.period_rows(scope, wide,
+                                  generated=date(2025, 8, 11))
+
+    quarter_measures = {r[5] for r in rows if r[3] == "quarter"}
+    assert quarter_measures == {"activities"}
+    assert any(r[4].endswith("-Q1") for r in rows if r[3] == "quarter")
+
+
 def test_the_priority_block_states_the_source_labels_not_four_invented_words(tmp_path):
     """The pack used to fold priorities onto Critical/High/Medium/Low.
 
@@ -1392,7 +1495,7 @@ def test_the_pack_carries_nothing_written_only_for_an_index(tmp_path):
     assert not hasattr(agent_pack, "ACTIVITIES_XLSX_NAME")
     assert written == ["00-README.txt", "01-summary.txt", "02-glossary.txt",
                        "03-data-quality.txt", "04-calendar.csv", "05-activities.csv",
-                       "06-breakdowns.csv", "07-packs.csv"]
+                       "06-breakdowns.csv", "07-packs.csv", "08-periods.csv"]
 
 
 def _packs_file(pack_dir):
@@ -1471,7 +1574,7 @@ def test_without_a_pack_export_the_file_is_not_written(tmp_path):
     written = sorted(p.name for p in pack_dir.iterdir())
     assert written == ["00-README.txt", "01-summary.txt", "02-glossary.txt",
                        "03-data-quality.txt", "04-calendar.csv", "05-activities.csv",
-                       "06-breakdowns.csv"]
+                       "06-breakdowns.csv", "08-periods.csv"]
 
 
 def test_a_run_with_no_pack_export_still_produces_a_valid_skill_archive(tmp_path):

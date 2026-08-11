@@ -111,6 +111,7 @@ CALENDAR_NAME = "04-calendar.csv"
 ACTIVITIES_CSV_NAME = "05-activities.csv"
 BREAKDOWN_NAME = "06-breakdowns.csv"
 PACKS_CSV_NAME = "07-packs.csv"
+PERIODS_CSV_NAME = "08-periods.csv"
 
 # No `Category` column: the form is documented to have one, the export does
 # not carry it, and a header over permanently empty cells asserts a
@@ -351,6 +352,96 @@ def breakdown_rows(scope, config):
             if measure in suppressed:
                 continue
             rows.append((block, value, "yes" if overlaps else "no", measure, figure))
+    return rows
+
+
+PERIODS_HEADER = ("block", "value", "overlaps", "grain", "period", "measure",
+                  "figure")
+
+# Quarters carry the count alone. Every measure at quarter grain multiplies
+# the file sevenfold to answer questions nobody asks by quarter -- "was
+# leadership involvement higher in Q2" is a year-grain question wearing a
+# quarter's clothes, and the year grain answers it.
+QUARTER_MEASURES = ("activities",)
+
+
+def _ytd_cut(day, cut):
+    """Is `day` on or before `cut`'s day-of-year, in whichever year it falls?
+
+    Compared as (month, day) rather than by subtracting dates, so the same
+    calendar cut applies to both years. A 29 February cut simply keeps
+    everything up to the 29th in a year that has one and up to the 28th in a
+    year that does not, which is the behaviour a reader expects and the one
+    that cannot silently shift a year's worth of rows.
+    """
+    return (day.month, day.day) <= (cut.month, cut.day)
+
+
+def period_rows(scope, config, generated=None):
+    """One row per block x value x grain x period x measure.
+
+    The level that was missing. `06-breakdowns.csv` collapses time entirely
+    and `04-calendar.csv` is at week grain, so a question comparing two years
+    meant summing fifty-odd week rows per value per year -- measured on the
+    real agent at over two minutes and repeated timeouts for a single
+    priority comparison. These are the same blocks from the same
+    `iter_blocks`, cut by period instead of by week.
+
+    Three grains, each earning its place:
+
+    * `year`, with every measure, because the year is the comparison people
+      actually make and "did leadership involvement grow" is as common as
+      "how many were there".
+    * `quarter`, with the count alone -- see `QUARTER_MEASURES`.
+    * `ytd`, the current year and the one before it, both cut on the data
+      date's day-of-year. This is the only grain the agent cannot derive
+      safely: it would have to know the cut and apply it identically to both
+      years, and getting it wrong sets a full prior year against a part-year
+      and reports a collapse that is an artefact of the cut. The reading
+      guide has warned against that comparison all along without offering a
+      safe way to make it.
+    """
+    generated = generated or date.today()
+    rows = []
+    for block, value, overlaps, subset in iter_blocks(scope, config):
+        if subset.empty:
+            continue
+        suppressed = TAUTOLOGICAL_MEASURES.get(block, ())
+        flag = "yes" if overlaps else "no"
+        days = subset["start_day"]
+
+        def emit(grain, period, frame, measures, zero_when_empty=False):
+            # An empty subset is skipped everywhere else in this pack, and
+            # rightly: a median over no rows is not a figure. The year-to-date
+            # pair is the exception, because the comparison IS the file's
+            # purpose -- with one side absent an agent cannot tell a year that
+            # had nothing from a year the file forgot, and the safest thing it
+            # can then say is nothing at all. So the count is written as zero
+            # and the other six are still left out.
+            if frame.empty:
+                if zero_when_empty and "activities" not in suppressed:
+                    rows.append((block, value, flag, grain, period,
+                                 "activities", 0))
+                return
+            for measure, figure in _measures(frame):
+                if measure in suppressed or measure not in measures:
+                    continue
+                rows.append((block, value, flag, grain, period, measure, figure))
+
+        every = {name for name, _ in _measures(subset)}
+        for year in sorted({day.year for day in days if day == day}):
+            emit("year", str(year), subset[[d == d and d.year == year
+                                            for d in days]], every)
+        for label in sorted({f"{d.year}-Q{(d.month - 1) // 3 + 1}"
+                             for d in days if d == d}):
+            emit("quarter", label,
+                 subset[[d == d and f"{d.year}-Q{(d.month - 1) // 3 + 1}" == label
+                         for d in days]], set(QUARTER_MEASURES))
+        # Both years, always in the same order, so the pair reads as a pair.
+        for year in (generated.year, generated.year - 1):
+            emit("ytd", f"{year} YTD",
+                 subset[[d == d and d.year == year and _ytd_cut(d, generated)
+                         for d in days]], every, zero_when_empty=True)
     return rows
 
 
@@ -713,12 +804,14 @@ anything entered in the source system after it as not represented.
   {CALENDAR_NAME}      one row per block x value x week
   {BREAKDOWN_NAME}    one row per block x value x measure - the crosses the calendar cannot make
   {ACTIVITIES_CSV_NAME}    one row per activity, {activity_rows} rows{packs_entry}
+  {PERIODS_CSV_NAME}      the same blocks by year, quarter and year-to-date
 
 Figures here are computed, not spreadsheet formulas. Percentages are of the
 in-scope total unless the line says otherwise.
 
-Prefer {SUMMARY_NAME}, {CALENDAR_NAME} and {BREAKDOWN_NAME} for any counting
-question: those figures were computed by tested code. A figure derived from
+Prefer {SUMMARY_NAME}, {CALENDAR_NAME}, {BREAKDOWN_NAME} and
+{PERIODS_CSV_NAME} for any counting question: those figures were computed
+by tested code. A figure derived from
 {ACTIVITIES_CSV_NAME} has not been through the report's rules.
 
 The rules this data does not survive without are in {GLOSSARY_NAME}, stated
@@ -915,12 +1008,12 @@ description: Answers questions about the CPLAN communication plan - volumes, tim
 """
 
 _SKILL_INTRO_WITH_PACKS = """
-You answer questions about a communication plan from six files shipped with
+You answer questions about a communication plan from seven files shipped with
 this skill. They come from one pipeline run: same figures, same scope.
 """
 
 _SKILL_INTRO_WITHOUT_PACKS = """
-You answer questions about a communication plan from five files shipped with
+You answer questions about a communication plan from six files shipped with
 this skill. They come from one pipeline run: same figures, same scope.
 """
 
@@ -934,6 +1027,7 @@ _SKILL_ROUTING = f"""
 | Volume over time by any dimension | `{CALENDAR_NAME}` |
 | Any figure crossing two dimensions | `{BREAKDOWN_NAME}` |
 | A single named activity | `{ACTIVITIES_CSV_NAME}` |
+| Any comparison of periods: year over year, quarters, year to date | `{PERIODS_CSV_NAME}` |
 """
 
 _SKILL_PACK_ROUTING = f"""\
@@ -1638,6 +1732,11 @@ def write_pack(scope, config, out_dir, generated=None, report_config=None):
     if scope.packs is not None:
         _write_csv(pack_dir / PACKS_CSV_NAME, PACKS_HEADER,
                    pack_rows(scope, report_config))
+    # Unconditional: it needs no optional export, only the activities every
+    # run already has. The grain between "one week" and "the whole period"
+    # was missing, and its absence cost the agent minutes per question.
+    _write_csv(pack_dir / PERIODS_CSV_NAME, PERIODS_HEADER,
+               period_rows(scope, config, generated))
     (pack_dir / SUMMARY_NAME).write_text(
         summary_text(scope, config, generated, report_config), encoding="utf-8")
     (pack_dir / GLOSSARY_NAME).write_text(glossary_text(scope, config), encoding="utf-8")
@@ -1687,7 +1786,8 @@ def _write_skill_zip(pack_dir, zip_path):
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("SKILL.md", skill_text(with_packs))
         for name in (GLOSSARY_NAME, SUMMARY_NAME, QUALITY_NAME,
-                     CALENDAR_NAME, BREAKDOWN_NAME, ACTIVITIES_CSV_NAME):
+                     CALENDAR_NAME, BREAKDOWN_NAME, ACTIVITIES_CSV_NAME,
+                     PERIODS_CSV_NAME):
             archive.write(pack_dir / name, name)
         if with_packs:
             archive.write(packs_source, PACKS_CSV_NAME)

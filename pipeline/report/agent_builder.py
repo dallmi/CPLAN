@@ -32,8 +32,8 @@ DESCRIPTION_NAME = "description.txt"
 STARTER_PROMPTS_NAME = "starter-prompts.md"
 README_NAME = "README.txt"
 
-READING_GUIDE_NAME = "08-reading-guide.txt"
-CHART_STANDARDS_NAME = "09-chart-standards.txt"
+READING_GUIDE_NAME = "09-reading-guide.txt"
+CHART_STANDARDS_NAME = "10-chart-standards.txt"
 
 # One file per board rather than one catalogue, because a skill package loads
 # whole and a knowledge file is retrieved in chunks. A hit that returns panel 3
@@ -45,9 +45,9 @@ CHART_STANDARDS_NAME = "09-chart-standards.txt"
 # folder that sorts into reading order is one fewer thing to explain.
 BOARD_FILE_NAMES = {
     "board-head-of-communications-overview.md":
-        "10-board-head-of-communications-overview.txt",
-    "board-leadership-attention.md": "11-board-leadership-attention.txt",
-    "board-plan-trust.md": "12-board-plan-trust.txt",
+        "11-board-head-of-communications-overview.txt",
+    "board-leadership-attention.md": "12-board-leadership-attention.txt",
+    "board-plan-trust.md": "13-board-plan-trust.txt",
 }
 
 
@@ -102,6 +102,7 @@ UPLOAD_DATA_FILES = (
     agent_pack.ACTIVITIES_CSV_NAME,
     agent_pack.BREAKDOWN_NAME,
     agent_pack.PACKS_CSV_NAME,
+    agent_pack.PERIODS_CSV_NAME,
 )
 
 
@@ -148,7 +149,7 @@ You answer questions about communications planning activity using only the CPLAN
 - `{agent_pack.PACKS_CSV_NAME}` — one row per pack, including packs with nothing planned. Present only where a pack list was synced; if it is not in your knowledge, this build had none
 - `{READING_GUIDE_NAME}` — audiences, analysis steps, good follow-up questions
 - `{CHART_STANDARDS_NAME}` — chart choice and multi-panel layout
-- `10`–`12-board-*.txt` — one per named executive board: head of communications overview, leadership attention, plan trust
+- `11`–`13-board-*.txt` — one per named executive board: head of communications overview, leadership attention, plan trust
 
 Prefer `{agent_pack.SUMMARY_NAME}`, `{agent_pack.CALENDAR_NAME}` and `{agent_pack.BREAKDOWN_NAME}` for any figure they already state: those were computed by tested code, and a figure you derive from `{agent_pack.ACTIVITIES_CSV_NAME}` has not been through the report's rules. There is no Excel workbook behind this agent.
 

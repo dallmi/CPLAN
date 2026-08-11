@@ -48,7 +48,7 @@ def test_the_upload_folder_carries_the_pack_file_in_reading_order(tmp_path):
 
     names = sorted(p.name for p in upload_dir.iterdir())
     assert agent_pack.PACKS_CSV_NAME in names
-    assert names.index("07-packs.csv") < names.index("08-reading-guide.txt")
+    assert names.index("08-periods.csv") < names.index("09-reading-guide.txt")
     assert len(names) <= agent_builder.KNOWLEDGE_SOURCE_LIMIT
 
 
@@ -59,7 +59,7 @@ def test_a_run_without_the_pack_export_still_delivers(tmp_path):
     _, upload_dir, _ = _builder(tmp_path)
     names = [p.name for p in upload_dir.iterdir()]
     assert agent_pack.PACKS_CSV_NAME not in names
-    assert "08-reading-guide.txt" in names
+    assert "09-reading-guide.txt" in names
 
 
 def test_a_missing_required_file_fails_the_delivery_rather_than_shrinking_it(tmp_path):
