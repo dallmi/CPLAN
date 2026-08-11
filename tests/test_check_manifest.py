@@ -197,3 +197,72 @@ def test_no_manifest_path_is_absolute():
                 if path.startswith(("/", "\\")) or ":" in path[:3]]
 
     assert not absolute, f"absolute paths in the manifest: {absolute}"
+
+
+# The manifest catches a file that is *stale*. A file that is *absent* from it
+# is invisible to the same check, and the two failures look identical from the
+# operator's side: a run that dies on an import, after a check that reported
+# every file it knew about as current. That is not hypothetical -- 
+# `pipeline/report/packs.py` was added, imported by every report module, and
+# left unlisted, and the next run on the machine without git died on
+# `cannot import name 'packs'` with the traceback naming data.py instead.
+#
+# Held for one entry point rather than all of them: this is the chain behind
+# the launchers an operator actually double-clicks, and it reaches the report
+# and process modules the workbook and the daily refresh share. A blanket rule
+# over every script would pull in the developer tools nobody hand-copies, and
+# an entry for those is noise in a report that has to stay worth reading.
+PACK_ENTRY_POINT = REPO_ROOT / "pipeline" / "scripts" / "build_agent_pack.py"
+
+
+def _first_party_imports(path: Path) -> set[Path]:
+    """Every `pipeline.*` module `path` imports, as files that exist."""
+    import ast
+
+    found = set()
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("pipeline"):
+            package = REPO_ROOT.joinpath(*node.module.split("."))
+            for alias in node.names:
+                # `from pipeline.report import packs` names a module; `from
+                # pipeline.report.data import _is_blank` names a symbol in one.
+                module = package / f"{alias.name}.py"
+                found.add(module if module.exists() else package.with_suffix(".py"))
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name.startswith("pipeline"):
+                    found.add(REPO_ROOT.joinpath(*alias.name.split(".")).with_suffix(".py"))
+    return {path for path in found if path.is_file()}
+
+
+def _import_chain(entry: Path) -> set[Path]:
+    seen: set[Path] = set()
+    queue = [entry]
+    while queue:
+        current = queue.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        queue.extend(_first_party_imports(current))
+    return seen
+
+
+def test_every_module_the_pack_run_imports_is_listed():
+    """A module nobody listed is a module nobody hand-copies.
+
+    Fix by adding an entry for it, not by narrowing this test: the operator's
+    only signal that a new file exists at all is check.ps1 printing its
+    download URL.
+    """
+    listed = {path.replace("\\", "/") for path, _, _ in ENTRIES}
+    unlisted = sorted(
+        str(path.relative_to(REPO_ROOT)).replace("\\", "/")
+        for path in _import_chain(PACK_ENTRY_POINT)
+        if str(path.relative_to(REPO_ROOT)).replace("\\", "/") not in listed
+    )
+
+    assert not unlisted, (
+        f"{PACK_ENTRY_POINT.name} imports {unlisted}, which check.ps1 does not list -- "
+        "a machine without git is never told those files exist, and the run dies on an "
+        "import error naming whichever module imported them"
+    )
