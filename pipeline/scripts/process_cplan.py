@@ -1354,6 +1354,55 @@ def load_activities(files):
     return ActivityLoad(combined, raw_columns, activity_files, dupes)
 
 
+PACK_KEY = "packs"
+
+
+class PackLoad(NamedTuple):
+    """The harmonised pack list plus what it took to build it.
+
+    `raw_columns` exists for `check_pack_link.py`, which reports which of them
+    the map does not cover; the report path uses `frame` alone.
+    """
+
+    frame: "pd.DataFrame"
+    raw_columns: list
+    path: object
+    duplicates_removed: int = 0
+
+
+def load_packs(files):
+    """Read and harmonise the pack export, or return None when there is none.
+
+    None rather than an empty frame, and never an exception: a machine that
+    syncs only the activity lists has no pack export, and that is a normal
+    state rather than a fault. Every caller treats None as "no pack list" --
+    the same rule the GEB member list follows, for the same reason.
+    """
+    path = files.get(PACK_KEY)
+    if path is None:
+        return None
+
+    log(f"Reading {path.name}...")
+    df = read_csv_auto(path)
+    log(f"  packs: {len(df)} rows, {len(df.columns)} columns")
+    raw_columns = [c.strip() for c in df.columns]
+    df = transform_packs(df)
+
+    # Same rule as the activity de-dup: the most recently modified row wins,
+    # and the number dropped is reported rather than swallowed.
+    dupes = 0
+    if "cpid" in df.columns:
+        before = len(df)
+        if "modified" in df.columns:
+            df = df.sort_values("modified", ascending=False, na_position="last")
+        df = df.drop_duplicates(subset=["cpid"], keep="first").reset_index(drop=True)
+        dupes = before - len(df)
+        if dupes:
+            log(f"  Removed {dupes} duplicate pack rows (by cpid)")
+
+    return PackLoad(df, raw_columns, path, dupes)
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------

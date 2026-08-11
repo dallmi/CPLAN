@@ -81,6 +81,38 @@ def test_load_activities_with_a_header_only_csv_returns_an_empty_frame(tmp_path)
     assert set(load.files) == {"internal"}
 
 
+def test_loading_packs_without_an_export_is_not_an_error(tmp_path):
+    """The state every machine that syncs only the activity lists is in.
+
+    A missing optional input returns None so callers can carry on, the same
+    rule the GEB member list follows. Raising here would stop a run over a
+    file most deployments will never have.
+    """
+    from pipeline.scripts.process_cplan import load_packs
+    from tests.report_fixtures import write_activity_csvs
+
+    assert load_packs(write_activity_csvs(tmp_path)) is None
+
+
+def test_the_pack_load_de_duplicates_on_the_identifier(tmp_path):
+    """Two rows for one pack, newest Modified winning -- the rule the
+    activity load already applies to a repeated tracking ID.
+    """
+    from pipeline.scripts.process_cplan import find_input_files, load_packs
+    from tests.report_fixtures import (FIXTURE_PACK_COUNT, write_activity_csvs,
+                                       write_pack_csv)
+
+    write_activity_csvs(tmp_path)
+    write_pack_csv(tmp_path)
+    load = load_packs(find_input_files(tmp_path))
+
+    assert load is not None
+    assert len(load.frame) == FIXTURE_PACK_COUNT
+    assert load.duplicates_removed == 1
+    surviving = load.frame.set_index("cpid")["pack_name"].to_dict()
+    assert surviving["CP-100"] == "Pack one", "the stale row won the de-dup"
+
+
 # --- column mapping: the layer where two real bugs lived ---------------------
 
 def _mapped(header, row):

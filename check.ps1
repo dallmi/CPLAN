@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-10.16"
+$manifestVersion = "2026-08-10.17"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-10.16"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-10.16"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-10.17"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -458,7 +458,15 @@ $manifest = @(
     # `Name of communication pack`, `Tracking cluster`, `Category` and `End
     # date` to nothing, so the harmonised pack frame has no pack_name,
     # tracking_cluster, category or end_date column for a pack file to read.
-    @{ Path = "pipeline\scripts\process_cplan.py"; Marker = "The pack's own identity"; Why = "PACKS_COLUMN_MAP widened to map the pack's name, tracking cluster, category and end date - an older copy leaves all four unmapped, so the pack file cannot say what a pack is" }
+    @{ Path = "pipeline\scripts\process_cplan.py"; Marker = "The pack's own identity"; Why = "PACKS_COLUMN_MAP widened to map the pack's name, tracking cluster, category and end date - an older copy leaves all four unmapped, so the pack file cannot say what a pack is" },
+
+    # load_packs() is the loader report_calendar.resolve_scope calls: it reads
+    # the pack export through transform_packs, de-duplicates on cpid the same
+    # way load_activities de-duplicates on tracking_id, and returns None (not
+    # an empty frame, not an exception) when a machine has no pack export at
+    # all. An old copy has no such function, so nothing can load the pack list
+    # for the report path.
+    @{ Path = "pipeline\scripts\process_cplan.py"; Marker = "class PackLoad"; Why = "the pack loader load_packs() and its PackLoad return type - an older copy cannot load the pack export at all, so the report path has no pack list to build a scope from" }
 )
 
 Write-Host ""
