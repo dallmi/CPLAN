@@ -107,7 +107,7 @@ def test_different_figures_do_not_change_the_page_furniture(data):
     before = furniture(_render(data))
 
     louder = json.loads(json.dumps(data))
-    for key in ("activities_total", "rows_read", "short_notice_activities",
+    for key in ("activities_total", "activities_in_plan", "short_notice_activities",
                 "leadership_activities", "large_audience_activities",
                 "internal_activities", "external_activities"):
         louder[key] *= 2
@@ -172,22 +172,31 @@ def test_the_short_notice_card_is_worded_as_the_pack_states_it(data):
     assert "under 14 days’ notice" in render(build_view(data, fortnight))
 
 
-def test_the_volume_card_states_scope_rather_than_a_year_on_year_change(data):
-    """The export is a snapshot of now, so a prior-period figure would be last
-    year as it stands today, missing every row deleted since. Rows read and the
-    scope total are both stated by the pack, and the difference between them is
-    the caveat the agent's instructions require beside any total."""
+def test_the_volume_card_sets_the_period_against_the_plan(data):
+    """Not a year-on-year change: the export is a snapshot of now, so a prior
+    period would be last year as it stands today, missing every row deleted
+    since. Not "N excluded" either -- at quarter grain most of the difference
+    is the other quarters, and calling that an exclusion says a filter rejected
+    rows it never saw."""
     page = _render(data)
-    excluded = data["rows_read"] - data["activities_total"]
-    assert f'color: #000000;">{excluded} excluded' in page
-    assert f"of {data['rows_read']:,}".replace(",", "\u2019") in page
+    share = round(data["activities_total"] / data["activities_in_plan"] * 100)
+    assert f'color: #000000;">{share}% of the plan' in page
+    assert f"{data['activities_in_plan']:,}".replace(",", "\u2019") in page
     assert "vs Q3 2025" not in page
+    assert "excluded" not in page
 
 
-def test_reading_fewer_rows_than_are_in_scope_is_reported(data):
-    """A negative exclusion would render as a minus sign nobody could explain."""
-    impossible = dict(data, rows_read=data["activities_total"] - 1)
-    assert any("fewer than" in c for c in validate(impossible))
+def test_a_period_larger_than_its_own_plan_is_reported(data):
+    """The share would render above 100%, which no reader can act on."""
+    impossible = dict(data, activities_in_plan=data["activities_total"] - 1)
+    assert any("larger than the plan" in c for c in validate(impossible))
+
+
+def test_the_lead_time_card_says_it_is_not_this_period(data):
+    """The pack states a lead-time median for the whole plan and at no finer
+    grain. Every other figure on the page is the period's, so the one that is
+    not has to say so on the card rather than in a footnote nobody reads."""
+    assert "across the whole plan" in _render(data)
 
 
 # ---------------------------------------------------------------------------

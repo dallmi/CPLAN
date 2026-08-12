@@ -81,7 +81,7 @@ def test_a_rebuild_removes_the_previous_numbering_from_the_upload_folder(tmp_pat
     # The shape a previous version left behind, plus something that is not
     # ours at all.
     (upload_dir / "08-reading-guide.txt").write_text("stale", encoding="utf-8")
-    (upload_dir / "12-board-plan-trust.txt").write_text("stale", encoding="utf-8")
+    (upload_dir / "13-board-plan-trust.txt").write_text("stale", encoding="utf-8")
     (upload_dir / "notes.md").write_text("the operator's own", encoding="utf-8")
 
     pack_dir, _, _ = _builder_with_packs(tmp_path)
@@ -89,7 +89,7 @@ def test_a_rebuild_removes_the_previous_numbering_from_the_upload_folder(tmp_pat
 
     after = sorted(p.name for p in upload_dir.iterdir())
     assert "08-reading-guide.txt" not in after
-    assert "12-board-plan-trust.txt" not in after
+    assert "13-board-plan-trust.txt" not in after
     assert after == sorted(current + ["notes.md"]), (
         "a rebuild changed the upload set beyond removing the superseded files")
     assert len(after) - 1 <= agent_builder.KNOWLEDGE_SOURCE_LIMIT

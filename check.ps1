@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-12.6"
+$manifestVersion = "2026-08-12.7"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-12.6"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-12.6"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-12.7"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -364,14 +364,12 @@ $manifest = @(
     # that never changed what anyone did. An old copy still ships
     # board-portfolio-overview.md and points the routing table at it, so an
     # agent asked where to intervene opens a board that cannot answer.
-    @{ Path = "pipeline\report\dashboard_skill.py"; Marker = "HEAD_OF_COMMUNICATIONS_OVERVIEW"; Why = "the general portfolio board is replaced by one built for a head of communications - an older copy still routes to board-portfolio-overview.md, which this version no longer produces" },
     # Agent Builder has no skill package, so its own file names and its own
     # prompt have to follow the same rename separately -- neither is read by
     # the other. An old copy still asks `write_builder_pack` for
     # board-portfolio-overview.md, which raises KeyError against the renamed
     # `dashboard_skill.BOARDS`, and its prompt still tells the agent to expect
     # a board this version no longer ships.
-    @{ Path = "pipeline\report\agent_builder.py"; Marker = "board-head-of-communications-overview.md"; Why = "the Agent Builder file names and prompt follow the board rename - an older copy raises KeyError building the upload folder and, short of that, still points an agent at a board that no longer exists" },
     # The checklist graded a question a counting one by searching only the two
     # prose files, from before 06-breakdowns.csv existed. Once lead_team
     # became a breakdown block, its top-team total was stated there outright,
@@ -389,7 +387,6 @@ $manifest = @(
     @{ Path = "pipeline\report\derive.py"; Marker = "There is deliberately no"; Why = "the level-collapsing helper is gone and the file records why - an older copy still offers a mapping onto four words the source never says, and the next caller uses it" },
     @{ Path = "pipeline\report\calendar_sheet.py"; Marker = "Priority is not here"; Why = "priority is ranked rather than looked up in a fixed list - an older copy carries a map of four bucket names nothing produces any more, and orders nothing while reading as though it did" },
     @{ Path = "pipeline\report\agent_pack.py"; Marker = "The label IS the meaning"; Why = "the pack states the source priority label verbatim - an older copy answers in Critical/High/Medium/Low, a vocabulary the source system does not use and nobody can look up" },
-    @{ Path = "pipeline\report\dashboard_skill.py"; Marker = "Next 30 days from the data date"; Why = "the tile names its own anchor so a stale pack cannot be misread as describing today; panel 2's Chart line also states the solid/dashed split, the vintage divider and the peak marker its footnote already promised" },
     @{ Path = "pipeline\report\agent_builder.py"; Marker = "let one activity count twice"; Why = "the overlap rule now says a partitioning block sums to the portfolio too, not only block=TOTAL" },
 
     # A lead team named after two disciplines carries a comma inside its own
@@ -412,7 +409,6 @@ $manifest = @(
     @{ Path = "pipeline\report\agent_pack.py"; Marker = "a subset of GEB/GEB-1 involvement"; Why = "the summary states the GEB count as a named subset instead of an indented sub-row - an older copy leaves the pack without the figure the workbook prints, and indentation is exactly what a chunked read drops" },
     @{ Path = "pipeline\report\agent_pack.py"; Marker = "GEB list entries never matched"; Why = "the pack reports how many list entries matched nothing, as the Data Quality sheet does - without it a typo in the list and a genuine GEB-1 person look identical, and both quietly land under GEB-1" },
     @{ Path = "pipeline\report\agent_builder.py"; Marker = "never add the two"; Why = "the second delivery's prompt carries the same conditional rule as the first - an older copy hands Agent Builder a pack with split blocks and a rule forbidding their use, and the two deliveries then disagree about the same field" },
-    @{ Path = "pipeline\report\dashboard_skill.py"; Marker = "a member list was supplied"; Why = "the boards stop asserting that nothing can separate the levels, while still labelling their own panels GEB/GEB-1 because those panels count the combined field - an older copy contradicts the pack it is drawn from" },
     @{ Path = "agentpack.ps1";                 Marker = ".\agentpack.ps1 -GebMembers"; Why = "the pack launcher documents the member-list flag it has always forwarded - an older copy leaves the operator with no way to learn that the agent pack can split the levels at all" },
 
     # The 2026-08-10 render of the overview drew one panel's heading, question,
@@ -424,7 +420,6 @@ $manifest = @(
     # copy of any file below draws that image again and reports nothing wrong.
     @{ Path = "pipeline\report\agent_pack.py"; Marker = "Cut the canvas into panel rectangles"; Why = "the layout rules are written as construction rules, and a panel's parts are placed against its own rectangle - an older copy states only that nothing may overlap, which is a property the agent cannot verify without seeing what it drew" },
     @{ Path = "pipeline\report\agent_builder.py"; Marker = "Cut the canvas into panel rectangles"; Why = "the same geometry on the surface with no skills - an older copy leaves this delivery with the check-it-afterwards wording the other one has already dropped" },
-    @{ Path = "pipeline\report\dashboard_skill.py"; Marker = "naming one board, and only one"; Why = "the overview routes to one of the three boards that exist - an older copy sends a head of communications to `Planning discipline`, which is deferred and undrawable, and invites a read-out that lists every route and so chooses none" },
 
     # The scope footnote reached the Studio prompt eighteen minutes after the
     # Agent Builder prompt was cut from it, and eight later edits to that file
@@ -676,7 +671,29 @@ $manifest = @(
     @{ Path = "pipeline\report\dashboard_contract.py"; Marker = "CONTRACT_TEXT"; Why = "what the agent returns for the board that is rendered rather than drawn - a NEW file; without it dashboard_skill.py fails to import and no board archive is written at all" },
     @{ Path = "pipeline\report\dashboard_contract.py"; Marker = "One grain, one board"; Why = "every count on the board comes from year grain because the quarter grain carries the count alone - an older copy lets a quarterly total stand beside a yearly leadership share with nothing on the page saying they are different periods" },
     @{ Path = "pipeline\report\dashboard_skill.py"; Marker = "The one board you do not draw"; Why = "the index routes the campaign activity overview to its contract instead of to a panel list - an older copy sends an agent to draw a board whose markup is already frozen, and the drawn one is what the reader gets" },
-    @{ Path = "pipeline\report\agent_builder.py"; Marker = "CONTRACT_FILE_NAMES"; Why = "the contract ships as a fourteenth knowledge file on the surface with no skills - an older copy uploads thirteen, and the one board that is rendered has nothing telling the agent what to return for it" }
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "CONTRACT_FILE_NAMES"; Why = "the contract ships as its own knowledge file on the surface with no skills - an older copy uploads only the drawn boards, and the one board that is rendered has nothing telling the agent what to return for it" },
+
+    # The overview stopped existing twice. It was a drawn panel list and a
+    # frozen template at once, which is two answers to one board name, and the
+    # rendered one is the artefact - so the panel list is gone and the
+    # catalogue routes that board to its contract. Still three boards, two
+    # drawn and one rendered.
+    #
+    # The board is quarterly, and that is what moved the pack. Quarter grain
+    # carried the activity count alone on the grounds that nothing asked by
+    # quarter; a quarterly board asks. Three shares join it - measured at
+    # 1.42x the periods file against 1.84x for all seven, on a surface that
+    # retrieves rather than loads and has no budget to spare.
+    #
+    # An old copy of any file below is the dangerous state rather than the
+    # broken one: it still draws the overview from a panel list that no longer
+    # matches the rendered page, and cites quarter measures its own pack does
+    # not write.
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "Somebody asks now"; Why = "quarter grain carries the three shares a quarterly board reads, not the count alone - an older copy writes a pack whose quarter rows cannot fill the contract, and the agent either answers with a year figure or with nothing" },
+    @{ Path = "pipeline\report\dashboard_skill.py"; Marker = "Still three boards"; Why = "the overview is routed to its contract and its drawn panel list is gone - an older copy offers both, so one board name has a drawn answer and a rendered one and nothing chooses between them" },
+    @{ Path = "pipeline\report\dashboard_contract.py"; Marker = "grain=quarter"; Why = "every count is read at quarter grain, matching the period the page names - an older copy cites year grain and puts a whole year's leadership share beside a quarter's total with nothing saying they differ" },
+    @{ Path = "pipeline\report\dashboard_contract.py"; Marker = "across the whole plan"; Why = "the two whole-plan figures are named as such and the page labels them on the card - an older copy lets a lead-time median spanning every year be read as the quarter's" },
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "13-contract-head-of-communications-overview.txt"; Why = "the upload numbering follows the overview becoming a contract - an older copy delivers a drawn board file under a number the prompt no longer names, beside the contract that replaced it" }
 )
 
 Write-Host ""

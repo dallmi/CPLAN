@@ -237,11 +237,11 @@ def validate(data):
             f"{swiss(total)} -- the residual is unnamed"
         )
 
-    if data["rows_read"] < total:
+    if data["activities_in_plan"] < total:
         complaints.append(
-            f"{swiss(data['rows_read'])} rows read is fewer than the "
-            f"{swiss(total)} in scope -- the volume card would show a "
-            f"negative exclusion"
+            f"the plan holds {swiss(data['activities_in_plan'])} activities, "
+            f"fewer than the {swiss(total)} in this period -- a period cannot "
+            f"be larger than the plan that contains it"
         )
 
     weeks = data["weeks"]
@@ -359,11 +359,15 @@ def build_view(data, thresholds=None):
 
     # What the volume card says instead of a year-on-year change. The export is
     # a snapshot of now: last year's rows survive in it, but only as they stand
-    # today, and rows deleted since leave no trace at all. `rows_read` and the
-    # scope total are both stated by the pack, and together they say something
-    # true about this quarter rather than something shaky about the last one.
-    rows_read = data["rows_read"]
-    excluded = rows_read - total
+    # today, and rows deleted since leave no trace at all.
+    #
+    # It said "N excluded of M rows read" while the board was a year view. At
+    # quarter grain that reads as a filter rejecting rows, when most of the
+    # difference is simply the other quarters -- so the card sets the quarter
+    # against the plan instead. Both figures are stated by the pack, at their
+    # own grain, and the sentence says which is which.
+    in_plan = data["activities_in_plan"]
+    plan_share = total / in_plan if in_plan else 0.0
 
     # --- Panel 01: timing ----------------------------------------------
     axis_max, axis_step = axis_scale(
@@ -445,7 +449,10 @@ def build_view(data, thresholds=None):
         "data_as_of": esc(data["data_as_of"]),
         "base_label": f"{swiss(total)} activities",
 
-        "leadtime_definition": "Median days from the data date to activity start",
+        # The one figure on the page that is not this period's. The pack states
+        # a lead-time median for the whole plan and at no finer grain, so the
+        # card says so rather than letting a quarter be read into it.
+        "leadtime_definition": "Median days to activity start, across the whole plan",
         "leadtime_value": swiss(lead_time),
         "leadtime_unit": "days",
         "leadtime_value_colour": BLACK,
@@ -476,11 +483,11 @@ def build_view(data, thresholds=None):
 
         "volume_value": swiss(total),
         # Scope, not growth. Black because it is neither good nor bad: it says
-        # how much of what was read survived the filters, which is the caveat
-        # the agent's own instructions require beside any stated total.
-        "volume_delta": f"{swiss(excluded)} excluded",
+        # how much of the plan this period holds, which is the caveat the
+        # agent's own instructions require beside any stated total.
+        "volume_delta": f"{percent(plan_share)} of the plan",
         "volume_delta_colour": BLACK,
-        "volume_compare": f"of {swiss(rows_read)} rows read",
+        "volume_compare": f"{swiss(in_plan)} activities in total",
 
         "timing_measure": "Activities",
         "timing_average_label": f"{MOVING_AVERAGE_WEEKS}-week moving average",

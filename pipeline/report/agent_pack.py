@@ -366,11 +366,31 @@ def breakdown_rows(scope, config):
 PERIODS_HEADER = ("block", "value", "overlaps", "grain", "period", "measure",
                   "figure")
 
-# Quarters carry the count alone. Every measure at quarter grain multiplies
-# the file sevenfold to answer questions nobody asks by quarter -- "was
-# leadership involvement higher in Q2" is a year-grain question wearing a
-# quarter's clothes, and the year grain answers it.
-QUARTER_MEASURES = ("activities",)
+# Quarters carried the count alone, on the grounds that every measure at
+# quarter grain multiplies the file sevenfold to answer questions nobody asks
+# by quarter. The first half of that is still true and the second half stopped
+# being true: the campaign activity overview is a quarterly board, and its
+# contract needs a leadership share, a short-notice share and a large-audience
+# share for the quarter it names. Somebody asks now.
+#
+# So three measures join the count, and only three. Measured rather than
+# estimated, through the path `test_quarters_carry_what_a_quarterly_board_reads`
+# uses -- `load_fixture_scope` against `pack_config`, generated 2025-08-11:
+#
+#     count alone     quarter  63 rows, file 501
+#     count + 3       quarter 242 rows, file 680   (1.36x)
+#     all seven       quarter 421 rows, file 859   (1.71x)
+#
+# The arithmetic guess was 1.42x and 1.84x; both were high, because an empty
+# subset emits no measure at all. The remaining three -- without_pack,
+# unknown_audience, median_completeness -- stay at year grain, where the plan
+# trust board reads them and where nothing asks for them by quarter.
+#
+# The cost is a retrieval cost, not a disk cost. This file competes for the
+# same budget as every other on a surface that retrieves rather than loads, so
+# a measure is added when a named consumer reads it and not before.
+QUARTER_MEASURES = ("activities", "with_executives", "large_audience",
+                    "short_notice")
 
 # Not every block earns a row here. This file's size is decided by how many
 # distinct values its blocks carry, multiplied by every year and quarter in
