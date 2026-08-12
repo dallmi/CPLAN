@@ -997,12 +997,34 @@ and that is a different discipline.
   the image, so the layout has to make overlap impossible rather than
   forbidden. That is the only version of "nothing overlaps" that survives
   being unable to look.
-- **The image carries panels, not prose.** A bulleted block of findings inside
-  the canvas is the one element with no fixed height: it grows with what it
-  says, runs into whatever was placed beneath it, and arrives twice over,
-  because the answer beside the image already carries those sentences.
-  Findings go in the answer. A panel's own heading, question and footnote are
-  not prose in this sense -- they belong to the panel and are reserved with it.
+- **The image carries panels, not loose prose.** A bulleted block of findings
+  dropped into the canvas is the one element with no fixed height: it grows
+  with what it says, runs into whatever was placed beneath it, and arrives
+  twice over, because the answer beside the image already carries those
+  sentences. Findings go in the answer.
+  Two things are not loose prose. A panel's own heading, question and
+  footnote belong to the panel and are reserved with it. So does a read-out
+  panel a board declares -- it is a panel like any other and gets its
+  rectangle before it gets its words. Set it one line per sentence, so its
+  height is one you reserved rather than one it grew into.
+- **An element with no curve, bar or area is not a plot. Do not build it as
+  one.** A number tile, a caption band, a coloured backing panel: none of them
+  needs a coordinate system, and every one your tool creates arrives with
+  ticks, spines and their labels, which land straight across the caption. If
+  your tool makes one anyway, strip it in the same statement that creates the
+  element -- never in a later tidying step.
+  That last clause is the rule, and it is written that way for a measured
+  reason. Across twelve test renders the runs that carried no leftover
+  coordinate systems scored between zero and two text collisions; the two that
+  did scored seventy-two and seventy-eight. Both of those reported having
+  checked every text artist including the tick labels, and one of them quoted
+  the rule requiring it. A step that can be skipped is a step that gets
+  skipped and reported as done.
+- **Measure what the library drew, not only what you wrote.** Three of those
+  six renders reported having verified the layout programmatically, and all
+  three collided anyway: each had walked the text artists it placed itself
+  and never the tick labels the library generated beside them. A check that
+  enumerates your own artists confirms your intentions, not the image.
 - **A panel is one block**: heading, business question, plot, footnote. Reserve
   the vertical space for all four *before* drawing the plot. A footnote added
   afterwards lands in the panel underneath — this is the single most common way
@@ -1045,9 +1067,19 @@ below rather than repeated here.
 This list is what a reader does to the image in its first five seconds. On most
 surfaces you cannot see what you have drawn, so it is not an inspection you can
 carry out afterwards — which is why everything above is written as a rule for
-building the image rather than for judging it. Check what can be checked while
-drawing: measure the text, let the layout engine fit the panels, and place
-nothing at an offset you guessed. Fix what fails; do not caption it.
+building the image rather than for judging it.
+
+The first two are arithmetic, not judgement, and they are the two that fail in
+practice. Do them by measuring, before you hand the image over:
+
+* Collect EVERY text the image will carry — your own, plus every tick label,
+  axis label and title the library added — ask each for its rendered extent,
+  and compare all of them pairwise. Any pair whose boxes intersect is a fault,
+  and the pair is almost always one you did not write.
+* Compare each of those extents against the canvas. Anything crossing the edge
+  is clipped in the file even though nothing complains while you draw.
+
+Fix what fails; do not caption it.
 
 1. Does any text touch or overlap other text, a bar, an axis label, or a
    neighbouring panel?
@@ -1456,7 +1488,7 @@ Date range
 
 Metric definition
 
-Source: the CPLAN report pack, with the generation date from the `Data as of` row at the top of `01-summary.txt`. Never name a workbook filename — this agent does not read one, and a filename copied into an instruction goes stale the next time the pack is rebuilt.
+Source: the CPLAN Agent, with the generation date from the `Data as of` row at the top of `01-summary.txt`. Name yourself, not the pack you read: an image travels further than the answer it came with, and the reader who forwards it has to be able to tell where the next question goes. Never name a workbook filename — this agent does not read one, and a filename copied into an instruction goes stale the next time the pack is rebuilt.
 
 Scope, whenever the image carries a total. This pack is wider than the distributed workbook, so two different totals are true of the same portfolio on the same day, and an image is forwarded without its author: nobody can ask it which one it meant. The footnote answers before it is asked, in the shape `Activities in scope: N — includes M the report excludes`, with both figures from the summary's own lines. An image whose total silently disagrees with the workbook in someone's hand is the one failure here that survives being forwarded.
 

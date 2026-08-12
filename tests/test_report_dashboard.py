@@ -22,7 +22,7 @@ from pathlib import Path
 import pytest
 
 import pipeline.scripts.report_dashboard as report_dashboard
-from pipeline.report import dashboard_render
+from pipeline.report import dashboard_render, template_engine
 from pipeline.report.dashboard_render import (
     THRESHOLDS,
     TemplateError,
@@ -161,9 +161,18 @@ def test_the_leadership_target_drives_both_the_label_and_the_colour(data):
 
 
 def test_the_short_notice_window_reaches_the_card_it_describes(data):
-    assert "within the next two weeks" in _render(data)
-    weekly = dict(THRESHOLDS, short_notice_window_days=7)
-    assert "within the next one week" in render(build_view(data, weekly))
+    """Seven days is what the rest of CPLAN means by short notice, and the card
+    that describes the window is worded from the same number the filter uses --
+    so the two cannot drift into disagreeing about what they are counting."""
+    assert "within the next week" in _render(data)
+
+    fortnight = dict(THRESHOLDS, short_notice_window_days=14)
+    assert "within the next two weeks" in render(build_view(data, fortnight))
+
+    # Anything that is not a whole number of weeks falls back to days rather
+    # than inventing a phrase for it.
+    odd = dict(THRESHOLDS, short_notice_window_days=10)
+    assert "within the next 10 days" in render(build_view(data, odd))
 
 
 def test_volume_change_is_never_coloured_as_a_status(data):
@@ -218,15 +227,21 @@ def test_team_names_break_near_the_middle(name, expected):
 # ---------------------------------------------------------------------------
 # The template file itself
 # ---------------------------------------------------------------------------
-def test_the_renderer_contains_no_markup():
+@pytest.mark.parametrize("module", [dashboard_render, template_engine])
+def test_the_renderer_contains_no_markup(module):
     """Every style literal in the finished page comes from the template file.
 
     If a tag ever appears in the renderer, the golden file stops being a
     complete description of how the page looks and the freeze leaks.
+
+    Both modules are checked over their whole source. This used to skip past
+    everything above `class TemplateError` on the grounds that the imports and
+    constants could not hold markup -- then the substitution machinery moved to
+    `template_engine` and the anchor vanished, taking the check with it. There
+    is nothing above the constants worth exempting, so nothing is.
     """
-    source = Path(dashboard_render.__file__).read_text(encoding="utf-8")
-    body = source[source.index("class TemplateError"):]
-    assert "<div" not in body and "<span" not in body and "style=" not in body
+    source = Path(module.__file__).read_text(encoding="utf-8")
+    assert "<div" not in source and "<span" not in source and "style=" not in source
 
 
 def test_every_row_template_is_used(data):

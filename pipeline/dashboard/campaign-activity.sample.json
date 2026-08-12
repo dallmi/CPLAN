@@ -12,7 +12,14 @@
     "",
     "Known gap, carried over from the design and reported by validate(): the",
     "seven teams account for 3'541 of 3'934 activities. The residual is real and",
-    "unnamed, and every run says so until the source data or the row set changes."
+    "unnamed, and every run says so until the source data or the row set changes.",
+    "",
+    "Priority labels read '<n> - label' on purpose. The source system's own",
+    "labels are internal governance wording that docs/CPLAN_KNOWLEDGE_BASE.md",
+    "keeps out of this repository; only the numbering carries meaning for the",
+    "code. A real run renders whatever the source says -- the renderer prints",
+    "the value it is given and never folds it onto invented words -- so it is",
+    "this committed sample, not the dashboard, that carries placeholders."
   ],
 
   "eyebrow": "Communications portfolio · Management view",
@@ -49,10 +56,10 @@
   ],
 
   "priorities": [
-    { "label": "1 – Share price sensitive", "activities": 1102 },
-    { "label": "2 – High",                  "activities": 1257 },
-    { "label": "3 – Medium",                "activities": 982 },
-    { "label": "4 – Low",                   "activities": 593 }
+    { "label": "1 – label", "activities": 1102 },
+    { "label": "2 – label", "activities": 1257 },
+    { "label": "3 – label", "activities": 982 },
+    { "label": "4 – label", "activities": 593 }
   ],
 
   "teams": [
@@ -77,7 +84,7 @@
 
   "insights": {
     "timing": "The four weeks from 10 Aug to 31 Aug carry four of the five heaviest loads. Consider shifting non-critical sends out of the week of 17 Aug.",
-    "priority": "60% of activities are rated High or share-price sensitive — a prioritisation review would free capacity.",
+    "priority": "60% of activities sit in the top two priority levels — a prioritisation review would free capacity.",
     "ownership": "Group Communications plans nearly 1.5× the next team — check whether that reflects mandate or backlog.",
     "leadership": "Four of seven teams sit at or below the portfolio average; Group Functions and Central Teams have the widest gap to the 20% target.",
     "reach": "Executive time is spread thin: only 1 in 6 activities has board participation, while a third of the portfolio faces external audiences."
@@ -85,7 +92,7 @@
 
   "footer_notes": "Audience figures are planning estimates, not measured reach. Scope is based on period overlap, not start date. Targets set by the Communications Leadership Team.",
   "footer_source": [
-    "Source: CPLAN report pack (calendar, activities, breakdowns)",
+    "Source: CPLAN Agent (calendar, activities, breakdowns)",
     "Powered by ECC Measurement & Insights"
   ]
 }

@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ title }} · {{ period_label }}</title>
+<style>
+  body { margin: 0; background: #f7f7f5; font-family: "Frutiger 45 Light", "Frutiger", "Helvetica Neue", Arial, "Segoe UI", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+</style>
+</head>
+<body>
+
+<div style="width: 1600px; height: 1120px; margin: 0 auto; padding: 48px 56px; box-sizing: border-box; background: #ffffff; color: #000000; font-variant-numeric: tabular-nums; display: grid; grid-template-rows: auto auto 1fr auto auto; gap: 24px; align-content: start;">
+
+  <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 56px;">
+    <div style="display: grid; gap: 8px;">
+      <div style="font-size: 40px; font-weight: 300; line-height: 1.1; letter-spacing: -0.015em; color: #000000;">{{ title }}</div>
+      <div style="font-size: 14px; font-weight: 400; color: #7a7870; max-width: 72ch; line-height: 1.45;">{{ subtitle }}</div>
+    </div>
+    <div style="display: grid; gap: 7px; justify-items: end; font-size: 12.5px; white-space: nowrap;">
+      <div style="display: flex; gap: 12px;"><span style="color: #7a7870;">Period</span><span style="color: #404040; font-weight: 600;">{{ period_label }}</span></div>
+      <div style="display: flex; gap: 12px;"><span style="color: #7a7870;">Data as of</span><span style="color: #404040; font-weight: 600;">{{ data_as_of }}</span></div>
+      <div style="display: flex; gap: 12px;"><span style="color: #7a7870;">Activities in scope</span><span style="color: #404040; font-weight: 600;">{{ base_label }}</span></div>
+    </div>
+  </div>
+
+  <div style="display: grid; gap: 10px;">
+    <div style="display: grid; gap: 3px;">
+      <div style="font-size: 17px; font-weight: 600; line-height: 1.35; color: #000000;">Field completeness</div>
+      <div style="font-size: 13px; font-weight: 400; font-style: italic; line-height: 1.35; color: #7a7870;">Which fields are missing often enough to matter?</div>
+    </div>
+    <div style="display: grid; grid-template-columns: 208px 1fr; gap: 16px;">
+      <div style="display: grid; gap: 6px; align-content: start;">
+{{ field_names }}
+      </div>
+      <div style="display: grid; gap: 6px; align-content: start; border-left: 1px solid #000000; padding-left: 10px;">
+{{ field_bars }}
+      </div>
+    </div>
+    <div style="display: grid; gap: 5px; padding-left: 224px;">
+      <div style="font-size: 13px; color: #000000;">Complete on every row: {{ complete_fields }}.</div>
+      <div style="font-size: 13px; color: #7a7870;">Not counted: {{ not_counted_fields }} — absent from the export, so neither missing nor complete.</div>
+    </div>
+    <div style="font-size: 11px; font-weight: 400; line-height: 1.5; color: #7a7870;">A field absent from the export is listed in the glossary as not counted, rather than counted as missing.</div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: 1.08fr 1.08fr 1.24fr; gap: 44px; align-items: start; min-height: 0;">
+
+    <div style="display: grid; grid-template-rows: auto 1fr auto; gap: 14px;">
+      <div style="display: grid; gap: 3px;">
+        <div style="font-size: 17px; font-weight: 600; line-height: 1.35; color: #000000;">Activities without a pack link, by division</div>
+        <div style="font-size: 13px; font-weight: 400; font-style: italic; line-height: 1.35; color: #7a7870;">Where is pack membership not being recorded?</div>
+      </div>
+      <div style="display: grid; grid-template-columns: 152px 1fr; gap: 14px; align-content: start;">
+        <div style="display: grid; gap: 8px; align-content: start;">
+{{ pack_names }}
+        </div>
+        <div style="display: grid; gap: 8px; align-content: start; border-left: 1px solid #000000; padding-left: 10px;">
+{{ pack_bars }}
+        </div>
+      </div>
+      <div style="font-size: 11px; font-weight: 400; line-height: 1.5; color: #7a7870;">A standalone activity is complete without a pack, which is why planning completeness excludes pack linkage and this is tracked separately.</div>
+    </div>
+
+    <div style="display: grid; grid-template-rows: auto 1fr auto; gap: 14px;">
+      <div style="display: grid; gap: 3px;">
+        <div style="font-size: 17px; font-weight: 600; line-height: 1.35; color: #000000;">Median planning completeness by division</div>
+        <div style="font-size: 13px; font-weight: 400; font-style: italic; line-height: 1.35; color: #7a7870;">Which divisions fill in the fields they control?</div>
+      </div>
+      <div style="display: grid; grid-template-columns: 152px 1fr; gap: 14px; align-content: start;">
+        <div style="display: grid; gap: 8px; align-content: start;">
+{{ median_names }}
+        </div>
+        <div style="display: grid; gap: 8px; align-content: start; border-left: 1px solid #000000; padding-left: 10px;">
+{{ median_bars }}
+        </div>
+      </div>
+      <div style="font-size: 11px; font-weight: 400; line-height: 1.5; color: #7a7870;">A median per division; medians never combine, so these bars are read against each other and never added.</div>
+    </div>
+
+    <div style="display: grid; grid-template-rows: auto 1fr auto; gap: 14px;">
+      <div style="display: grid; gap: 3px;">
+        <div style="font-size: 17px; font-weight: 600; line-height: 1.35; color: #000000;">Record anomalies</div>
+        <div style="font-size: 13px; font-weight: 400; font-style: italic; line-height: 1.35; color: #7a7870;">What is wrong with the records themselves?</div>
+      </div>
+      <div style="display: grid; grid-template-columns: 268px 1fr; gap: 14px; align-content: start;">
+        <div style="display: grid; gap: 8px; align-content: start;">
+{{ anomaly_names }}
+        </div>
+        <div style="display: grid; gap: 8px; align-content: start; border-left: 1px solid #000000; padding-left: 10px;">
+{{ anomaly_bars }}
+        </div>
+      </div>
+      <div style="font-size: 11px; font-weight: 400; line-height: 1.5; color: #7a7870;">Duplicates are counted before de-duplication; the rows the pack holds are already unique.</div>
+    </div>
+  </div>
+
+  <div style="display: grid; gap: 10px;">
+    <div style="display: grid; gap: 3px;">
+      <div style="font-size: 17px; font-weight: 600; line-height: 1.35; color: #000000;">Executive read-out</div>
+      <div style="font-size: 13px; font-weight: 400; font-style: italic; line-height: 1.35; color: #7a7870;">What is the most expensive gap, and what does it cost?</div>
+    </div>
+    <div style="background: #ecebe4; padding: 20px 22px; max-width: 118ch; font-size: 14px; font-weight: 400; line-height: 1.65; color: #000000; text-wrap: pretty;">The report read {{ rows_read }} rows to build this board. {{ unknown_audience_band }} of the activities in scope carry no audience band, which is the gap that reaches furthest: an activity with no band sits outside every audience cut, so any statement about who the plan addresses is made without it. The executive fields are the other side of the same problem — they are recorded on a minority of the plan, so the leadership picture is a floor and never a total. Neither is a planning failure; both are fields nobody was asked to fill. Chase the audience band first: it is one field, it is on every form, and it unlocks the cut that gets asked for most.</div>
+  </div>
+
+  <div style="border-top: 1px solid #cccabc; padding-top: 12px; font-size: 11px; font-weight: 400; color: #7a7870;">{{ footer_line }}</div>
+</div>
+</body>
+</html>
+
+<!--ROWS
+Row templates for the repeating structures above. They live here rather than in
+the renderer so that every style literal in the finished page comes from this
+one file: the renderer joins rows, it never writes markup. A block runs from
+its [name] header to the next one.
+
+A bar appears twice, once per label placement. Past about two thirds of the
+axis there is no room outside the bar, and a label put there anyway leaves the
+plot -- so a long bar carries its value inside itself, right-aligned against
+its end, and a short one carries it outside. Which of the two a bar gets is the
+renderer's call, because only the renderer knows the width; what each one looks
+like is this file's.
+
+Unlike the leadership attention board, all four panels here share one pair
+rather than repeating it. There the label sits inside the bar row, so a row
+carries its panel's label-column width and the panels cannot share one. Here
+the labels are a column of their own beside the bars -- which is what lets each
+panel draw the single thin black baseline its chart standards ask for, as one
+border on the bar column rather than one stroke per row -- and the two column
+widths sit on the panel container above. Nothing panel-specific reaches a row,
+so one pair serves all four.
+
+[name_row]
+          <div style="height: 20px; display: flex; align-items: center; font-size: 13px; color: #000000; white-space: nowrap;">{{ name }}</div>
+
+[name_row_qualified]
+          <div style="height: 20px; display: flex; align-items: baseline; gap: 6px; font-size: 13px; color: #000000; white-space: nowrap;"><span>{{ name }}</span><span style="font-size: 11px; color: #7a7870;">{{ qualifier }}</span></div>
+
+[bar_inside]
+          <div style="height: 20px; display: flex; align-items: center; gap: 8px;"><div style="height: 20px; display: flex; align-items: center; justify-content: flex-end; padding-right: 8px; box-sizing: border-box; width: {{ width }}; background: {{ colour }};"><span style="font-size: 13px; color: #ffffff;">{{ value }}</span></div></div>
+
+[bar_outside]
+          <div style="height: 20px; display: flex; align-items: center; gap: 8px;"><div style="height: 20px; width: {{ width }}; background: {{ colour }};"></div><span style="font-size: 13px; color: #000000;">{{ value }}</span></div>
+-->

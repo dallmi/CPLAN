@@ -253,8 +253,34 @@ def test_both_surfaces_carry_the_three_rules_a_render_can_obey_while_drawing():
     for name, text in (("chart standards", agent_builder.CHART_STANDARDS_TEXT),
                        ("brand skill", agent_pack.BRAND_SKILL_TEXT)):
         assert "coordinate you worked out yourself" in text, name
-        assert "carries panels, not prose" in text, name
+        assert "carries panels, not loose prose" in text, name
         assert "inside the bar once the bar is long" in text, name
+        # Measured over six renders: the tile axes nobody turned off produced
+        # 89 of 186 collisions, and three runs that claimed a programmatic
+        # check had walked only their own text artists.
+        assert "is not a plot. Do not build it as" in text, name
+        assert "Measure what the library drew" in text, name
+
+
+def test_the_prose_rule_does_not_forbid_a_panel_the_boards_require():
+    """The first cut of that rule contradicted the boards.
+
+    Every board's last panel is declared `Chart: none (prose), four to five
+    sentences ending in a route`. A rule reading "the image carries panels,
+    not prose" forbids it outright, and two test renders hit the conflict and
+    had to invent their own way out. The rule targets a findings block nobody
+    reserved space for -- a declared read-out panel is a panel.
+    """
+    from pipeline.report import dashboard_skill
+
+    for board in dashboard_skill.BOARDS.values():
+        assert "prose" in board, "a board stopped declaring its read-out"
+
+    for text in (agent_builder.CHART_STANDARDS_TEXT, agent_pack.BRAND_SKILL_TEXT):
+        assert "a read-out\n  panel a board declares" in text or \
+               "read-out\npanel a board declares" in text or \
+               "read-out panel a board declares" in text, (
+            "the prose rule no longer excepts the panel every board requires")
 
 
 def test_the_two_copies_of_the_layout_rules_do_not_drift():

@@ -1,17 +1,22 @@
 <#
-CPLAN campaign activity dashboard - one standalone HTML page.
+CPLAN executive boards - one standalone HTML page.
 
-Renders the frozen template in pipeline\dashboard\ from a data file. No model
+Renders a frozen template in pipeline\dashboard\ from a data file. No model
 sits in this path: same data in, byte-identical page out. That is the point of
 the freeze, and dashboard.ps1 -Check is what proves it still holds.
 
 Usage (from the repo root, or just double-click dashboard.cmd):
-  .\dashboard.ps1                      # the sample figures, then open it
+  .\dashboard.ps1                      # the campaign activity board, then open it
+  .\dashboard.ps1 -Board leadership-attention
   .\dashboard.ps1 -Data C:\tmp\q4.json # a quarter of your own
   .\dashboard.ps1 -Out C:\tmp\page.html
   .\dashboard.ps1 -NoOpen              # write it, leave it closed
   .\dashboard.ps1 -Check               # compare against the golden file
   .\dashboard.ps1 -Strict              # exit non-zero if the figures do not add up
+
+Boards:
+  campaign-activity     the communications portfolio, for a management audience
+  leadership-attention  where executive time goes, and where it is missing
 
 The thresholds - planning horizon, lead time, the short-notice limit, the
 leadership target - are not switches. They are the organisation's targets, they
@@ -21,6 +26,8 @@ filter behind it. Until this launcher existed they were prose inside the markup,
 which is how a regenerated dashboard came to re-invent them every run.
 #>
 param(
+    [ValidateSet("campaign-activity", "leadership-attention")]
+    [string]$Board = "campaign-activity",
     [string]$Data,
     [string]$Out,
     [switch]$NoOpen,
@@ -58,25 +65,25 @@ Write-Host "Using Python: $python" -ForegroundColor DarkGray
 Push-Location $root
 $env:PYTHONPATH = "."
 try {
-    $args = @("pipeline\scripts\report_dashboard.py")
+    $args = @("pipeline\scripts\report_dashboard.py", "--board", $Board)
     if ($Data) { $args += @("--data", $Data) }
     if ($Out) { $args += @("--out", $Out) }
     if ($Check) { $args += "--check" }
     if ($UpdateGolden) { $args += "--update-golden" }
     if ($Strict) { $args += "--strict" }
 
-    & $python @args
+    # The script says where it wrote, so the launcher reads that rather than
+    # guessing from a file glob. Each board writes its own name pattern, and a
+    # glob would have to learn every one of them to stay right.
+    & $python @args 2>&1 | Tee-Object -Variable captured | ForEach-Object { Write-Host $_ }
     if ($LASTEXITCODE -ne 0) { throw "report_dashboard failed (exit code $LASTEXITCODE)" }
 
     # -Check and -UpdateGolden write nothing the user wants opened.
     if (-not $NoOpen -and -not $Check -and -not $UpdateGolden) {
-        if ($Out) {
-            $written = $Out
-        }
-        else {
-            $written = Get-ChildItem (Join-Path $root "pipeline\output\reports") -Filter "CPLAN_dashboard_*.html" |
-                Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
-        }
+        $written = $captured |
+            Where-Object { $_ -match '^Wrote (.+)$' } |
+            ForEach-Object { $Matches[1] } |
+            Select-Object -Last 1
         if ($written -and (Test-Path $written)) {
             Write-Host "Opening $written" -ForegroundColor Green
             Start-Process $written
@@ -85,8 +92,8 @@ try {
 }
 catch {
     Write-Host "`nERROR: $_" -ForegroundColor Red
-    Write-Host "If it says 'differs from campaign-activity.golden.html', the template," -ForegroundColor Yellow
-    Write-Host "the renderer or the sample data changed the page. That is meant to be a" -ForegroundColor Yellow
+    Write-Host "If it says 'differs from <board>.golden.html', the template, the" -ForegroundColor Yellow
+    Write-Host "renderer or the sample data changed the page. That is meant to be a" -ForegroundColor Yellow
     Write-Host "deliberate act: check the diff, then rerun with -UpdateGolden and commit" -ForegroundColor Yellow
     Write-Host "the new golden file alongside the change that caused it." -ForegroundColor Yellow
     exit 1

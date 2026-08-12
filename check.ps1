@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-12.2"
+$manifestVersion = "2026-08-12.4"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-12.2"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-12.2"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-12.4"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -652,7 +652,13 @@ $manifest = @(
     # rules are judgements about a finished image, on a surface where the
     # model never sees one. These three can be obeyed while drawing.
     @{ Path = "pipeline\report\agent_builder.py"; Marker = "coordinate you worked out yourself"; Why = "layout by a grid that reserves space, never by hand-computed positions - an older copy relies on rules that can only be checked after the image exists, on a surface where nobody can look" },
-    @{ Path = "pipeline\report\agent_pack.py";  Marker = "carries panels, not prose"; Why = "no free-growing prose block inside the canvas - an older copy draws findings into the image, where they have no fixed height, run into the panels below and arrive twice" }
+    @{ Path = "pipeline\report\agent_pack.py";  Marker = "carries panels, not loose prose"; Why = "no free-growing prose block inside the canvas - an older copy draws findings into the image, where they have no fixed height, run into the panels below and arrive twice" },
+    # Six test renders, 186 text collisions measured off the rendered artists.
+    # 89 came from tile axes nobody turned off; three runs reported having
+    # verified the layout programmatically and had walked only their own text.
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "never in a later tidying step"; Why = "a number tile drawn as an axes brings ticks and spines with it, straight across the caption - the single largest source of collisions measured, and an older copy does not mention it" },
+    @{ Path = "pipeline\report\agent_pack.py";  Marker = "Measure what the library drew"; Why = "the self-check has to include the artists the library added - an older copy lets a run report a verified layout after checking only the text it wrote itself, which is what three of six test renders did" },
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "panel a board declares"; Why = "the prose rule no longer forbids the read-out panel every board requires - an older copy contradicts its own board specs, and a run has to invent its way out of the conflict" }
 )
 
 Write-Host ""

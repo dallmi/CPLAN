@@ -20,12 +20,24 @@ target, not a presentation detail, and a regenerated page was re-inventing it
 every time.
 """
 
-import html
-import re
 from pathlib import Path
+
+from pipeline.report.template_engine import (
+    TemplateError,
+    esc,
+    load_template as _load_template,
+    render_rows,
+    substitute,
+)
 
 PIPELINE_DIR = Path(__file__).resolve().parent.parent
 TEMPLATE_PATH = PIPELINE_DIR / "dashboard" / "campaign-activity.template.html"
+
+__all__ = [
+    "THRESHOLDS", "TemplateError", "build_view", "esc", "load_template",
+    "percent", "render", "render_rows", "substitute", "swiss", "validate",
+    "window_phrase", "wrap_label",
+]
 
 # ---------------------------------------------------------------------------
 # CONFIGURATION -- this is the block to edit.
@@ -41,11 +53,10 @@ THRESHOLDS = {
     "lead_time_weeks": 4,
     "lead_time_tolerance_weeks": 0.5,
     # An activity counts as short notice if it starts inside this window. The
-    # design's card says "within the next two weeks"; the calendar report's
-    # own SHORT_NOTICE_DAYS is 7, and the two are genuinely different
-    # questions, so this dashboard carries its own number rather than
-    # borrowing one that means something else.
-    "short_notice_window_days": 14,
+    # design mock said two weeks; seven days is what the rest of CPLAN means by
+    # short notice (pipeline/report/config.py::SHORT_NOTICE_DAYS), and one
+    # number answering the question everywhere beats two that quietly disagree.
+    "short_notice_window_days": 7,
     "short_notice_limit_share": 0.15,
     # Share of activities with executive board participation.
     "leadership_share": 0.20,
@@ -87,81 +98,16 @@ LEADERSHIP_AXIS_MAX_SHARE = 0.40
 OWNERSHIP_AXIS_MAX_SHARE = 0.30
 MOVING_AVERAGE_WEEKS = 4
 
-_PLACEHOLDER = re.compile(r"\{\{\s*(\w+)\s*\}\}")
-_ROWS_BLOCK = re.compile(r"\n?<!--ROWS\n(.*?)\n-->\s*$", re.DOTALL)
-_ROW_HEADER = re.compile(r"^\[(\w+)\]$", re.MULTILINE)
-
-
-class TemplateError(RuntimeError):
-    """A placeholder had no value, or a row template was missing."""
-
-
 # ---------------------------------------------------------------------------
-# Template loading and substitution
+# Template loading
 # ---------------------------------------------------------------------------
 def load_template(path=None):
-    """Split the template file into the page and its row templates.
+    """Split this page's template file into the page and its row templates.
 
-    The row templates sit in a trailing `<!--ROWS ... -->` comment so the file
-    stays a single artefact: one thing to review, one thing to freeze, one
-    thing a diff can be read against.
+    The machinery lives in `template_engine`, which knows no board. What
+    belongs here is only which file this dashboard is frozen into.
     """
-    text = Path(path or TEMPLATE_PATH).read_text(encoding="utf-8")
-    match = _ROWS_BLOCK.search(text)
-    if match is None:
-        raise TemplateError(f"no <!--ROWS ... --> block in {path or TEMPLATE_PATH}")
-    page = text[: match.start()].rstrip("\n") + "\n"
-    return page, _parse_rows(match.group(1))
-
-
-def _parse_rows(block):
-    rows = {}
-    headers = list(_ROW_HEADER.finditer(block))
-    for index, header in enumerate(headers):
-        end = headers[index + 1].start() if index + 1 < len(headers) else len(block)
-        body = block[header.end() : end]
-        # A row template is joined with "\n", so it must not carry its own
-        # leading or trailing blank lines -- they would show up as drifting
-        # whitespace between rows and make the golden file churn.
-        rows[header.group(1)] = body.strip("\n")
-    return rows
-
-
-def substitute(template, values, *, where):
-    """Replace every `{{ name }}` in `template`, refusing to leave one behind.
-
-    Silently rendering an unresolved placeholder is how a dashboard ends up
-    shipping the literal text "{{ leadership_value }}" to a management audience.
-    """
-    missing = set()
-
-    def replace(match):
-        name = match.group(1)
-        if name not in values:
-            missing.add(name)
-            return match.group(0)
-        return str(values[name])
-
-    result = _PLACEHOLDER.sub(replace, template)
-    if missing:
-        raise TemplateError(
-            f"{where}: no value for {', '.join(sorted(missing))}"
-        )
-    return result
-
-
-def render_rows(rows, name, items, *, indent=""):
-    """Expand one row template once per item and join the results."""
-    if name not in rows:
-        raise TemplateError(f"no row template named [{name}]")
-    rendered = [
-        substitute(rows[name], item, where=f"row [{name}] #{index}")
-        for index, item in enumerate(items)
-    ]
-    if not indent:
-        return "\n".join(rendered)
-    return "\n".join(indent + line if line else line
-                     for chunk in rendered for line in chunk.split("\n"))
+    return _load_template(path or TEMPLATE_PATH)
 
 
 def render(view, *, template_path=None):
@@ -236,18 +182,9 @@ def window_phrase(days):
     """
     if days % 7 == 0 and days // 7 in _SMALL_NUMBERS:
         weeks = days // 7
-        return f"{_SMALL_NUMBERS[weeks]} week{'s' if weeks > 1 else ''}"
+        # "within the next week", not "within the next one week".
+        return "week" if weeks == 1 else f"{_SMALL_NUMBERS[weeks]} weeks"
     return f"{days} days"
-
-
-def esc(text):
-    """Escape a data string for HTML.
-
-    Everything the template receives is escaped, including prose, so the data
-    object never carries markup or entities. Write "&" and "—" literally in the
-    data; the file is UTF-8 and the page declares it.
-    """
-    return html.escape(str(text), quote=False)
 
 
 def wrap_label(name):

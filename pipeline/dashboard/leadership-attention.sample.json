@@ -1,0 +1,65 @@
+{
+  "_comment": [
+    "The figures of the approved board, as data. This file is what the golden",
+    "test renders, so the frozen artefact is the board that was signed off",
+    "rather than a fresh invention of it.",
+    "",
+    "Counts and labels only. No colours, no widths, no percentages, no markup:",
+    "everything presentational is derived in pipeline/report/",
+    "leadership_render.py. Write text with literal characters (& — < >); the",
+    "renderer escapes it. Numbers in the read-out carry the ’ separator the",
+    "rest of CPLAN prints, because validate() compares them against the",
+    "board's own figures spelled the same way.",
+    "",
+    "WHERE THESE FIGURES COME FROM. The portfolio counts and the per-value",
+    "`activities` figures are the pack's own: 01-summary.txt · VOLUME and",
+    "06-breakdowns.csv · measure=activities, from the 2026-08-12 generation.",
+    "The `leadership` figures are NOT. In that pack every with_executives",
+    "measure is 0, because the seed generator never fills the source system's",
+    "bod_geb field, so a board rendered from it would carry five empty panels",
+    "and could not be judged. The leadership counts below are demo figures,",
+    "consistent with the structure the pack guarantees -- the exclusive bands",
+    "close on 312, the overlapping blocks deliberately sum past it -- and they",
+    "are what to replace first when a pack with the field filled in arrives.",
+    "",
+    "The bands are listed in band order and stay in it. The divisions and",
+    "regions may be listed in any order; the renderer ranks them."
+  ],
+
+  "eyebrow": "Executive board",
+  "title": "Leadership attention",
+  "subtitle": "Where executive time is going, and where it is missing.",
+  "period_label": "All dates",
+  "data_as_of": "2026-08-12",
+
+  "activities_total": 2400,
+  "leadership_activities": 312,
+  "large_audience_activities": 995,
+
+  "divisions": [
+    { "name": "Asset Management",            "activities": 418, "leadership": 48 },
+    { "name": "Global Wealth Management",    "activities": 411, "leadership": 96 },
+    { "name": "Group Functions",             "activities": 377, "leadership": 118 },
+    { "name": "Investment Bank",             "activities": 408, "leadership": 74 },
+    { "name": "Personal & Corporate Banking", "activities": 402, "leadership": 61 },
+    { "name": "Technology",                  "activities": 384, "leadership": 27 }
+  ],
+
+  "audience_bands": [
+    { "name": "< 1000",   "activities": 461, "leadership": 21 },
+    { "name": "1–10k",    "activities": 450, "leadership": 34 },
+    { "name": "10–50k",   "activities": 494, "leadership": 58 },
+    { "name": "50–100k",  "activities": 507, "leadership": 88 },
+    { "name": "> 100k",   "activities": 488, "leadership": 111 }
+  ],
+
+  "regions": [
+    { "name": "Global",      "activities": 455, "leadership": 141 },
+    { "name": "Americas",    "activities": 492, "leadership": 52 },
+    { "name": "APAC",        "activities": 462, "leadership": 38 },
+    { "name": "EMEA",        "activities": 512, "leadership": 74 },
+    { "name": "Switzerland", "activities": 479, "leadership": 96 }
+  ],
+
+  "readout": "Leadership involvement is recorded on 312 of the 2’400 activities in scope, or 13% of the plan. Group Functions binds the most executive attention at 118 activities, well ahead of Global Wealth Management at 96, while Technology records 27 against a division volume of 384. Involvement rises with planned audience size — 111 of the 312 sit in the largest band, against 21 in the smallest — and 995 activities in scope fall in the top two bands, so the plan holds large-audience communication that records no leadership at all. Consider reviewing where that gap is deliberate."
+}

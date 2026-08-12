@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ title }}</title>
+<style>
+  body { margin: 0; background: #ffffff; font-family: "Frutiger 45 Light", "Frutiger", "Helvetica Neue", Arial, "Segoe UI", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+</style>
+</head>
+<body>
+
+<div style="width: 1440px; margin: 0 auto; padding: 48px; box-sizing: border-box; background: #ffffff; color: #000000; font-variant-numeric: tabular-nums; display: grid; gap: 40px;">
+
+  <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 48px;">
+    <div style="display: flex; gap: 18px;">
+      <div style="width: 5px; background: #e60000; flex: none;"></div>
+      <div style="display: grid; gap: 8px;">
+        <div style="font-size: 11px; font-weight: 600; letter-spacing: 0.06em; color: #5a5d5c;">{{ eyebrow }}</div>
+        <div style="font-size: 40px; font-weight: 300; line-height: 1.1; letter-spacing: -0.015em; color: #000000;">{{ title }}</div>
+        <div style="font-size: 14px; font-weight: 400; color: #7a7870; max-width: 62ch; line-height: 1.45;">{{ subtitle }}</div>
+      </div>
+    </div>
+    <div style="display: grid; gap: 7px; font-size: 12.5px; justify-items: end; white-space: nowrap;">
+      <div style="display: flex; gap: 12px;"><span style="color: #7a7870;">Reporting period</span><span style="color: #404040; font-weight: 600;">{{ period_label }}</span></div>
+      <div style="display: flex; gap: 12px;"><span style="color: #7a7870;">Data as of</span><span style="color: #404040; font-weight: 600;">{{ data_as_of }}</span></div>
+      <div style="display: flex; gap: 12px;"><span style="color: #7a7870;">Base</span><span style="color: #404040; font-weight: 600;">{{ base_label }}</span></div>
+    </div>
+  </div>
+
+  <div style="display: grid; gap: 16px;">
+    <div style="display: grid; gap: 4px;">
+      <div style="font-size: 16px; font-weight: 600; line-height: 1.4; color: #000000;">Leadership involvement in the plan</div>
+      <div style="font-size: 12.5px; font-weight: 400; line-height: 1.4; color: #7a7870;">How much of the plan records leadership involvement?</div>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 280px)); gap: 40px; align-items: start;">
+{{ tiles }}
+    </div>
+    <div style="font-size: 11px; font-weight: 400; line-height: 1.5; color: #7a7870; max-width: 90ch;">The share is the first figure over the second. The source field holds both levels and cannot separate them.</div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: 1.24fr 1fr 1fr; gap: 40px;">
+
+    <div style="display: grid; grid-template-rows: auto 1fr auto; gap: 16px;">
+      <div style="display: grid; gap: 4px; margin-bottom: 16px;">
+        <div style="font-size: 16px; font-weight: 600; line-height: 1.4; color: #000000;">Leadership share by division</div>
+        <div style="font-size: 12.5px; font-weight: 400; line-height: 1.4; color: #7a7870;">Which divisions bind the most executive attention?</div>
+      </div>
+      <div style="display: grid; gap: 14px; align-content: start;">
+{{ division_bars }}
+      </div>
+      <div style="font-size: 11px; font-weight: 400; line-height: 1.5; color: #7a7870;">An activity naming several divisions appears under each; the bars do not sum to the portfolio.</div>
+    </div>
+
+    <div style="display: grid; grid-template-rows: auto 1fr auto; gap: 16px;">
+      <div style="display: grid; gap: 4px; margin-bottom: 16px;">
+        <div style="font-size: 16px; font-weight: 600; line-height: 1.4; color: #000000;">Leadership by audience size</div>
+        <div style="font-size: 12.5px; font-weight: 400; line-height: 1.4; color: #7a7870;">Does leadership involvement follow audience size?</div>
+      </div>
+      <div style="display: grid; gap: 14px; align-content: start;">
+{{ audience_bars }}
+      </div>
+      <div style="font-size: 11px; font-weight: 400; line-height: 1.5; color: #7a7870;">A planning estimate, never measured reach. Read this beside the band totals, not as a share of anything stated here.</div>
+    </div>
+
+    <div style="display: grid; grid-template-rows: auto 1fr auto; gap: 16px;">
+      <div style="display: grid; gap: 4px; margin-bottom: 16px;">
+        <div style="font-size: 16px; font-weight: 600; line-height: 1.4; color: #000000;">Leadership by region</div>
+        <div style="font-size: 12.5px; font-weight: 400; line-height: 1.4; color: #7a7870;">Where is leadership involvement recorded?</div>
+      </div>
+      <div style="display: grid; gap: 14px; align-content: start;">
+{{ region_bars }}
+      </div>
+      <div style="font-size: 11px; font-weight: 400; line-height: 1.5; color: #7a7870;">An activity naming several regions appears under each; the bars do not sum to the portfolio.</div>
+    </div>
+  </div>
+
+  <div style="display: grid; gap: 16px;">
+    <div style="display: grid; gap: 4px;">
+      <div style="font-size: 16px; font-weight: 600; line-height: 1.4; color: #000000;">Executive read-out</div>
+      <div style="font-size: 12.5px; font-weight: 400; line-height: 1.4; color: #7a7870;">What should a reader take away?</div>
+    </div>
+    <div style="background: #ecebe4; padding: 24px; font-size: 14px; font-weight: 400; line-height: 1.65; color: #000000; max-width: 90ch; text-wrap: pretty;">
+      {{ readout }}
+    </div>
+  </div>
+
+  <div style="border-top: 1px solid #cccabc; padding-top: 16px; font-size: 11px; font-weight: 400; color: #7a7870;">
+    {{ footer_source }}
+  </div>
+</div>
+</body>
+</html>
+
+<!--ROWS
+Row templates for the repeating structures above. They live here rather than in
+the renderer so that every style literal in the finished page comes from this
+one file: the renderer joins rows, it never writes markup. A block runs from
+its [name] header to the next one.
+
+A bar appears twice, once per label placement. Past about two thirds of the
+axis there is no room outside the bar, and a label put there anyway leaves the
+plot and lands in whatever is beside it -- so a long bar carries its value
+inside itself, right-aligned against its end, and a short one carries it
+outside. Which of the two a bar gets is the renderer's call, because only the
+renderer knows the width; what each one looks like is this file's.
+
+The three panels repeat the pair rather than sharing it because their label
+columns are different widths, and a horizontal bar panel is as wide as its
+longest category name. Sharing one row template would mean passing that width
+in from the renderer, which is how a style literal escapes this file.
+
+[tiles]
+      <div style="display: grid; gap: 8px; align-content: start;">
+        <div style="font-size: 36px; font-weight: 300; line-height: 1; color: #000000;">{{ value }}</div>
+        <div style="font-size: 12px; font-weight: 400; line-height: 1.45; color: #7a7870;">{{ caption }}</div>
+      </div>
+
+[division_bar_inside]
+        <div style="display: grid; grid-template-columns: 178px 1fr; align-items: center; gap: 14px;">
+          <div style="font-size: 12.5px; color: #404040; white-space: nowrap;">{{ label }}</div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <div style="width: {{ width }}; height: 22px; background: {{ colour }}; display: flex; align-items: center; justify-content: flex-end; padding-right: 8px; box-sizing: border-box;"><span style="font-size: 12px; font-weight: 600; color: #ffffff;">{{ value }}</span></div>
+          </div>
+        </div>
+
+[division_bar_outside]
+        <div style="display: grid; grid-template-columns: 178px 1fr; align-items: center; gap: 14px;">
+          <div style="font-size: 12.5px; color: #404040; white-space: nowrap;">{{ label }}</div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <div style="width: {{ width }}; height: 22px; background: {{ colour }};"></div>
+            <span style="font-size: 12px; color: #404040;">{{ value }}</span>
+          </div>
+        </div>
+
+[audience_bar_inside]
+        <div style="display: grid; grid-template-columns: 74px 1fr; align-items: center; gap: 14px;">
+          <div style="font-size: 12.5px; color: #404040; white-space: nowrap;">{{ label }}</div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <div style="width: {{ width }}; height: 22px; background: {{ colour }}; display: flex; align-items: center; justify-content: flex-end; padding-right: 8px; box-sizing: border-box;"><span style="font-size: 12px; font-weight: 600; color: #ffffff;">{{ value }}</span></div>
+          </div>
+        </div>
+
+[audience_bar_outside]
+        <div style="display: grid; grid-template-columns: 74px 1fr; align-items: center; gap: 14px;">
+          <div style="font-size: 12.5px; color: #404040; white-space: nowrap;">{{ label }}</div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <div style="width: {{ width }}; height: 22px; background: {{ colour }};"></div>
+            <span style="font-size: 12px; color: #404040;">{{ value }}</span>
+          </div>
+        </div>
+
+[region_bar_inside]
+        <div style="display: grid; grid-template-columns: 84px 1fr; align-items: center; gap: 14px;">
+          <div style="font-size: 12.5px; color: #404040; white-space: nowrap;">{{ label }}</div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <div style="width: {{ width }}; height: 22px; background: {{ colour }}; display: flex; align-items: center; justify-content: flex-end; padding-right: 8px; box-sizing: border-box;"><span style="font-size: 12px; font-weight: 600; color: #ffffff;">{{ value }}</span></div>
+          </div>
+        </div>
+
+[region_bar_outside]
+        <div style="display: grid; grid-template-columns: 84px 1fr; align-items: center; gap: 14px;">
+          <div style="font-size: 12.5px; color: #404040; white-space: nowrap;">{{ label }}</div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <div style="width: {{ width }}; height: 22px; background: {{ colour }};"></div>
+            <span style="font-size: 12px; color: #404040;">{{ value }}</span>
+          </div>
+        </div>
+-->

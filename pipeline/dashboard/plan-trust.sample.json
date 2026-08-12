@@ -1,0 +1,68 @@
+{
+  "_comment": [
+    "Sample figures for the Plan trust board. Counts and labels only -- no",
+    "colours, no widths, no percentages: everything presentational is derived",
+    "in pipeline/report/board_render.py, so swapping one period's figures for",
+    "another's cannot change how the page looks.",
+    "",
+    "field_completeness carries filled and missing, never a share. The share is",
+    "missing / activities_in_scope and a second copy of it in this file is a",
+    "second thing that can be wrong.",
+    "",
+    "communication_pack_cpid is deliberately absent from field_completeness:",
+    "planning completeness excludes pack linkage, which is what the second",
+    "panel tracks separately."
+  ],
+
+  "title": "Plan trust",
+  "subtitle": "What can I not yet rely on, and what is worth chasing before the plan is used to decide anything?",
+  "period_label": "1 July 2026 – 31 December 2026",
+  "data_as_of": "12 August 2026",
+
+  "activities_in_scope": 1842,
+  "rows_read": 2014,
+  "unknown_audience_band": 431,
+
+  "field_completeness": [
+    { "field": "other_executives",     "filled":  638, "missing": 1204 },
+    { "field": "strategic_objectives", "filled": 1111, "missing":  731 },
+    { "field": "activity_description", "filled": 1374, "missing":  468 },
+    { "field": "target_audience",      "filled": 1547, "missing":  295 },
+    { "field": "region",               "filled": 1655, "missing":  187 },
+    { "field": "lead_team",            "filled": 1720, "missing":  122 },
+    { "field": "channel",              "filled": 1746, "missing":   96 },
+    { "field": "end_date",             "filled": 1781, "missing":   61 },
+    { "field": "priority",             "filled": 1788, "missing":   54 },
+    { "field": "lead",                 "filled": 1811, "missing":   31 },
+    { "field": "activity_name",        "filled": 1842, "missing":    0 },
+    { "field": "start_date",           "filled": 1842, "missing":    0 },
+    { "field": "business_division",    "filled": 1842, "missing":    0 },
+    { "field": "audience",             "filled": 1842, "missing":    0 }
+  ],
+
+  "fields_not_counted": ["bod_geb"],
+
+  "without_pack_by_division": [
+    { "division": "Investment Banking", "activities": 148 },
+    { "division": "Group Functions",    "activities":  96 },
+    { "division": "Wealth Management",  "activities":  71 },
+    { "division": "Retail & Corporate", "activities":  54 },
+    { "division": "Asset Management",   "activities":  38 }
+  ],
+
+  "median_completeness_by_division": [
+    { "division": "Investment Banking", "percent": 91 },
+    { "division": "Asset Management",   "percent": 88 },
+    { "division": "Wealth Management",  "percent": 79 },
+    { "division": "Retail & Corporate", "percent": 74 },
+    { "division": "Group Functions",    "percent": 62 }
+  ],
+
+  "record_anomalies": [
+    { "anomaly": "Missing end date",                         "count": 61 },
+    { "anomaly": "Archived",                                 "count": 42 },
+    { "anomaly": "Duplicate tracking IDs removed on load",   "count": 37 },
+    { "anomaly": "End date before start date",               "count": 23 },
+    { "anomaly": "Blank tracking ID (after de-duplication)", "count":  4 }
+  ]
+}
