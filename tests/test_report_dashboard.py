@@ -107,7 +107,7 @@ def test_different_figures_do_not_change_the_page_furniture(data):
     before = furniture(_render(data))
 
     louder = json.loads(json.dumps(data))
-    for key in ("activities_total", "activities_prior", "short_notice_activities",
+    for key in ("activities_total", "rows_read", "short_notice_activities",
                 "leadership_activities", "large_audience_activities",
                 "internal_activities", "external_activities"):
         louder[key] *= 2
@@ -160,29 +160,34 @@ def test_the_leadership_target_drives_both_the_label_and_the_colour(data):
     assert "▼ Below target" not in page
 
 
-def test_the_short_notice_window_reaches_the_card_it_describes(data):
-    """Seven days is what the rest of CPLAN means by short notice, and the card
-    that describes the window is worded from the same number the filter uses --
-    so the two cannot drift into disagreeing about what they are counting."""
-    assert "within the next week" in _render(data)
+def test_the_short_notice_card_is_worded_as_the_pack_states_it(data):
+    """The pack's own line is "Planned at under 7 days' notice", and
+    `metrics.lead_time_stats` counts exactly that -- a lead time under
+    `SHORT_NOTICE_DAYS`. Wording the card from the same number the filter uses
+    is what stops the two drifting into counting different things under one
+    name, which is what "within the next two weeks" was doing."""
+    assert "Planned at under 7 days’ notice" in _render(data)
 
     fortnight = dict(THRESHOLDS, short_notice_window_days=14)
-    assert "within the next two weeks" in render(build_view(data, fortnight))
-
-    # Anything that is not a whole number of weeks falls back to days rather
-    # than inventing a phrase for it.
-    odd = dict(THRESHOLDS, short_notice_window_days=10)
-    assert "within the next 10 days" in render(build_view(data, odd))
+    assert "under 14 days’ notice" in render(build_view(data, fortnight))
 
 
-def test_volume_change_is_never_coloured_as_a_status(data):
-    """A change has no target, so RAG green would be asserting that growth is
-    success. Both directions stay black."""
+def test_the_volume_card_states_scope_rather_than_a_year_on_year_change(data):
+    """The export is a snapshot of now, so a prior-period figure would be last
+    year as it stands today, missing every row deleted since. Rows read and the
+    scope total are both stated by the pack, and the difference between them is
+    the caveat the agent's instructions require beside any total."""
     page = _render(data)
-    assert 'color: #000000;">▲ +3%' in page
+    excluded = data["rows_read"] - data["activities_total"]
+    assert f'color: #000000;">{excluded} excluded' in page
+    assert f"of {data['rows_read']:,}".replace(",", "\u2019") in page
+    assert "vs Q3 2025" not in page
 
-    shrinking = dict(data, activities_prior=data["activities_total"] * 2)
-    assert 'color: #000000;">▼ -50%' in render(build_view(shrinking, THRESHOLDS))
+
+def test_reading_fewer_rows_than_are_in_scope_is_reported(data):
+    """A negative exclusion would render as a minus sign nobody could explain."""
+    impossible = dict(data, rows_read=data["activities_total"] - 1)
+    assert any("fewer than" in c for c in validate(impossible))
 
 
 # ---------------------------------------------------------------------------
@@ -222,7 +227,7 @@ def test_the_timing_panel_counts_activities_and_never_sums_audience(data):
     page = _render(data)
     assert "Activity load by week" in page
     assert ">Activities<" in page
-    assert "contacts" not in page.replace("contacts each", "")
+    assert "contacts" not in page
 
 
 def test_the_peak_marker_names_the_busiest_week_by_activities(data):

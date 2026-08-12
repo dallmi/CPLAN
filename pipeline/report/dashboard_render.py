@@ -37,33 +37,39 @@ TEMPLATE_PATH = PIPELINE_DIR / "dashboard" / "campaign-activity.template.html"
 __all__ = [
     "THRESHOLDS", "TemplateError", "axis_scale", "build_view", "esc",
     "load_template", "percent", "render", "render_rows", "substitute", "swiss",
-    "validate", "window_phrase", "wrap_label",
+    "validate", "wrap_label",
 ]
 
 # ---------------------------------------------------------------------------
 # CONFIGURATION -- this is the block to edit.
 # ---------------------------------------------------------------------------
 THRESHOLDS = {
-    # Weeks of plan beyond the end of the reporting period. Higher is better:
-    # it means the calendar is filled in rather than assembled week by week.
-    "planning_horizon_weeks": 12,
-    # Weeks between now and the average activity start. This one is a band, not
-    # a floor -- being far *above* it is not obviously good, so anything within
-    # the tolerance reads as on target rather than as a breach in either
-    # direction.
-    "lead_time_weeks": 4,
-    "lead_time_tolerance_weeks": 0.5,
-    # An activity counts as short notice if it starts inside this window. The
-    # design mock said two weeks; seven days is what the rest of CPLAN means by
-    # short notice (pipeline/report/config.py::SHORT_NOTICE_DAYS), and one
-    # number answering the question everywhere beats two that quietly disagree.
+    # Median days between the data date and an activity's start -- the statistic
+    # the pack states, in the unit it states it in ("Median lead time (days)").
+    # It reads as a band rather than a floor: being far above the target is not
+    # obviously good, so only a shortfall is a breach.
+    "lead_time_days": 28,
+    "lead_time_tolerance_days": 3,
+    # The pack counts an activity as short notice when its lead time is under
+    # this many days -- `metrics.lead_time_stats` against
+    # `config.SHORT_NOTICE_DAYS` -- and states it as "Planned at under 7 days'
+    # notice". One number answering the question everywhere beats two that
+    # quietly disagree, so this is that number and not the mock's fortnight.
     "short_notice_window_days": 7,
     "short_notice_limit_share": 0.15,
-    # Share of activities with executive board participation.
+    # Share of activities with executive board involvement.
     "leadership_share": 0.20,
-    # Contacts per activity at or above which the audience counts as large.
-    "large_audience_contacts": 100_000,
 }
+
+# No planning-horizon threshold, and no large-audience contact threshold.
+#
+# The pack states neither. Its HORIZON section splits the plan into "planned to
+# date", "next 30 days from the data date" and "rest of the period" -- three
+# counts, not an average distance -- so a card reading "15.2 weeks planned
+# beyond period end" had nothing behind it. And "large audience" is the top two
+# audience *bands*, not a contact count: the pack bands an activity, it never
+# compares it to 100k. A threshold here would have been a second definition of
+# a word the pack already defines.
 # ---------------------------------------------------------------------------
 
 # Approved tokens only. The design review closed with thirteen values in the
@@ -146,14 +152,6 @@ def percent(share, digits=0):
     return f"{share * 100:.{digits}f}%"
 
 
-def compact_contacts(value):
-    if value >= 1_000_000:
-        return f"{value / 1_000_000:.2f}".rstrip("0").rstrip(".") + "M"
-    if value >= 1_000:
-        return f"{value / 1_000:.0f}k"
-    return str(int(value))
-
-
 def axis_scale(max_value, max_intervals=4):
     """A round ceiling at or above `max_value`, and the step that divides it.
 
@@ -174,24 +172,6 @@ def axis_scale(max_value, max_intervals=4):
     # Unreachable for positive input: factor 10 always divides the magnitude
     # into at most `max_intervals`, but a bare fallback beats a None.
     return int(max_value), int(max_value)
-
-
-_SMALL_NUMBERS = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six"}
-
-
-def window_phrase(days):
-    """Word the short-notice window the way a reader would say it.
-
-    The number comes from THRESHOLDS so the card can never disagree with the
-    filter behind it, but "within the next two weeks" is what the signed-off
-    page says and what a planner reads without converting. Whole weeks are
-    spelled; anything else falls back to days.
-    """
-    if days % 7 == 0 and days // 7 in _SMALL_NUMBERS:
-        weeks = days // 7
-        # "within the next week", not "within the next one week".
-        return "week" if weeks == 1 else f"{_SMALL_NUMBERS[weeks]} weeks"
-    return f"{days} days"
 
 
 def wrap_label(name):
@@ -257,6 +237,13 @@ def validate(data):
             f"{swiss(total)} -- the residual is unnamed"
         )
 
+    if data["rows_read"] < total:
+        complaints.append(
+            f"{swiss(data['rows_read'])} rows read is fewer than the "
+            f"{swiss(total)} in scope -- the volume card would show a "
+            f"negative exclusion"
+        )
+
     weeks = data["weeks"]
     if not weeks:
         complaints.append("no weeks in the reporting period")
@@ -271,19 +258,11 @@ def _status(label, colour):
     return {"label": label, "colour": colour}
 
 
-def _horizon_status(weeks, thresholds):
-    target = thresholds["planning_horizon_weeks"]
-    if weeks >= target:
-        return _status("▲ Above target", SUCCESS)
-    return _status("▼ Below target", DANGER)
-
-
-def _lead_time_status(weeks, thresholds):
-    target = thresholds["lead_time_weeks"]
-    tolerance = thresholds["lead_time_tolerance_weeks"]
-    if abs(weeks - target) <= tolerance:
+def _lead_time_status(days, thresholds):
+    target = thresholds["lead_time_days"]
+    if abs(days - target) <= thresholds["lead_time_tolerance_days"]:
         return _status("● On target", SUCCESS)
-    if weeks > target:
+    if days > target:
         return _status("▲ Above target", SUCCESS)
     return _status("▼ Below target", DANGER)
 
@@ -370,18 +349,21 @@ def build_view(data, thresholds=None):
     total = data["activities_total"]
 
     # --- KPI row --------------------------------------------------------
-    horizon = data["planning_horizon_weeks"]
-    lead_time = data["lead_time_weeks"]
+    lead_time = data["lead_time_median_days"]
     short_notice_share = data["short_notice_activities"] / total
     leadership_share = data["leadership_activities"] / total
 
-    horizon_status = _horizon_status(horizon, thresholds)
     lead_time_status = _lead_time_status(lead_time, thresholds)
     short_notice_status = _short_notice_status(short_notice_share, thresholds)
     leadership_status = _leadership_status(leadership_share, thresholds)
 
-    prior = data["activities_prior"]
-    delta_share = (total - prior) / prior if prior else 0.0
+    # What the volume card says instead of a year-on-year change. The export is
+    # a snapshot of now: last year's rows survive in it, but only as they stand
+    # today, and rows deleted since leave no trace at all. `rows_read` and the
+    # scope total are both stated by the pack, and together they say something
+    # true about this quarter rather than something shaky about the last one.
+    rows_read = data["rows_read"]
+    excluded = rows_read - total
 
     # --- Panel 01: timing ----------------------------------------------
     axis_max, axis_step = axis_scale(
@@ -463,23 +445,17 @@ def build_view(data, thresholds=None):
         "data_as_of": esc(data["data_as_of"]),
         "base_label": f"{swiss(total)} activities",
 
-        "horizon_value": f"{horizon:.1f}",
-        "horizon_unit": "weeks",
-        "horizon_value_colour": BLACK,
-        "horizon_status": horizon_status["label"],
-        "horizon_status_colour": horizon_status["colour"],
-        "horizon_target": f"target {thresholds['planning_horizon_weeks']} wks",
-
-        "leadtime_value": f"{lead_time:.1f}",
-        "leadtime_unit": "weeks",
+        "leadtime_definition": "Median days from the data date to activity start",
+        "leadtime_value": swiss(lead_time),
+        "leadtime_unit": "days",
         "leadtime_value_colour": BLACK,
         "leadtime_status": lead_time_status["label"],
         "leadtime_status_colour": lead_time_status["colour"],
-        "leadtime_target": f"target {thresholds['lead_time_weeks']} wks",
+        "leadtime_target": f"target {thresholds['lead_time_days']} days",
 
         "shortnotice_definition":
-            "Starting within the next "
-            f"{window_phrase(thresholds['short_notice_window_days'])}",
+            "Planned at under "
+            f"{thresholds['short_notice_window_days']} days’ notice",
         "shortnotice_value": percent(short_notice_share),
         "shortnotice_unit": f"{swiss(data['short_notice_activities'])} activities",
         "shortnotice_value_colour":
@@ -499,12 +475,12 @@ def build_view(data, thresholds=None):
         "leadership_target": f"target ≥{percent(thresholds['leadership_share'])}",
 
         "volume_value": swiss(total),
-        # A change is neither good nor bad and has no target, so it stays
-        # black: RAG green here would assert that growth is success.
-        "volume_delta": f"{'▲' if delta_share >= 0 else '▼'} "
-                        f"{'+' if delta_share >= 0 else ''}{percent(delta_share)}",
+        # Scope, not growth. Black because it is neither good nor bad: it says
+        # how much of what was read survived the filters, which is the caveat
+        # the agent's own instructions require beside any stated total.
+        "volume_delta": f"{swiss(excluded)} excluded",
         "volume_delta_colour": BLACK,
-        "volume_compare": f"vs {esc(data['prior_period_label'])} ({swiss(prior)})",
+        "volume_compare": f"of {swiss(rows_read)} rows read",
 
         "timing_measure": "Activities",
         "timing_average_label": f"{MOVING_AVERAGE_WEEKS}-week moving average",
@@ -530,8 +506,7 @@ def build_view(data, thresholds=None):
             f"target ≥{percent(thresholds['leadership_share'])}",
         "reach_large_value": swiss(data["large_audience_activities"]),
         "reach_large_detail":
-            f"{percent(large_share)} of total · "
-            f"≥{compact_contacts(thresholds['large_audience_contacts'])} contacts each",
+            f"{percent(large_share)} of total · top two audience bands",
         "reach_internal_share": percent(internal_share),
         "reach_external_share": percent(1 - internal_share),
         "reach_split_detail":
