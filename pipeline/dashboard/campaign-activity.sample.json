@@ -40,19 +40,19 @@
   "external_activities": 1298,
 
   "weeks": [
-    { "commencing": "29 Jun", "contacts": 620000,  "activities": 191 },
-    { "commencing": "6 Jul",  "contacts": 700000,  "activities": 215 },
-    { "commencing": "13 Jul", "contacts": 560000,  "activities": 172 },
-    { "commencing": "20 Jul", "contacts": 833000,  "activities": 256 },
-    { "commencing": "27 Jul", "contacts": 953000,  "activities": 293 },
-    { "commencing": "3 Aug",  "contacts": 1020000, "activities": 314 },
-    { "commencing": "10 Aug", "contacts": 980000,  "activities": 301 },
-    { "commencing": "17 Aug", "contacts": 1150000, "activities": 354 },
-    { "commencing": "24 Aug", "contacts": 1053000, "activities": 324 },
-    { "commencing": "31 Aug", "contacts": 1080000, "activities": 332 },
-    { "commencing": "7 Sep",  "contacts": 960000,  "activities": 295 },
-    { "commencing": "14 Sep", "contacts": 820000,  "activities": 252 },
-    { "commencing": "21 Sep", "contacts": 640000,  "activities": 197 }
+    { "commencing": "29 Jun", "activities": 191 },
+    { "commencing": "6 Jul",  "activities": 215 },
+    { "commencing": "13 Jul", "activities": 172 },
+    { "commencing": "20 Jul", "activities": 256 },
+    { "commencing": "27 Jul", "activities": 293 },
+    { "commencing": "3 Aug",  "activities": 314 },
+    { "commencing": "10 Aug", "activities": 301 },
+    { "commencing": "17 Aug", "activities": 354 },
+    { "commencing": "24 Aug", "activities": 324 },
+    { "commencing": "31 Aug", "activities": 332 },
+    { "commencing": "7 Sep",  "activities": 295 },
+    { "commencing": "14 Sep", "activities": 252 },
+    { "commencing": "21 Sep", "activities": 197 }
   ],
 
   "priorities": [
@@ -90,7 +90,7 @@
     "reach": "Executive time is spread thin: only 1 in 6 activities has board participation, while a third of the portfolio faces external audiences."
   },
 
-  "footer_notes": "Audience figures are planning estimates, not measured reach. Scope is based on period overlap, not start date. Targets set by the Communications Leadership Team.",
+  "footer_notes": "Audience size is a planning estimate, never measured reach, and is used here only to band an activity as large. Scope is based on period overlap, not start date. Targets set by the Communications Leadership Team.",
   "footer_source": [
     "Source: CPLAN Agent (calendar, activities, breakdowns)",
     "Powered by ECC Measurement & Insights"

@@ -20,6 +20,7 @@ target, not a presentation detail, and a regenerated page was re-inventing it
 every time.
 """
 
+import math
 from pathlib import Path
 
 from pipeline.report.template_engine import (
@@ -34,9 +35,9 @@ PIPELINE_DIR = Path(__file__).resolve().parent.parent
 TEMPLATE_PATH = PIPELINE_DIR / "dashboard" / "campaign-activity.template.html"
 
 __all__ = [
-    "THRESHOLDS", "TemplateError", "build_view", "esc", "load_template",
-    "percent", "render", "render_rows", "substitute", "swiss", "validate",
-    "window_phrase", "wrap_label",
+    "THRESHOLDS", "TemplateError", "axis_scale", "build_view", "esc",
+    "load_template", "percent", "render", "render_rows", "substitute", "swiss",
+    "validate", "window_phrase", "wrap_label",
 ]
 
 # ---------------------------------------------------------------------------
@@ -153,20 +154,26 @@ def compact_contacts(value):
     return str(int(value))
 
 
-def axis_label(value, axis_max):
-    """Tick label in the unit the top of the axis is in.
+def axis_scale(max_value, max_intervals=4):
+    """A round ceiling at or above `max_value`, and the step that divides it.
 
-    `compact_contacts` picks a unit per value, which is right for a figure
-    quoted on its own and wrong for a column of ticks: 1.2M above 800k above
-    400k asks the reader to convert between units while scanning a scale.
+    Returns `(ceiling, step)` where `ceiling` is a multiple of `step` and the
+    axis needs no more than `max_intervals` of them. Picking the ceiling from
+    the data rather than fixing it means a quiet quarter is not drawn against
+    a busy quarter's scale -- and picking a round step is what lets the ticks
+    read 400 / 300 / 200 / 100 rather than 354 / 266 / 177 / 89.
     """
-    if value <= 0:
-        return "0"
-    if axis_max >= 1_000_000:
-        return f"{value / 1_000_000:.1f}M"
-    if axis_max >= 1_000:
-        return f"{value / 1_000:.0f}k"
-    return str(int(round(value)))
+    if max_value <= 0:
+        return 1, 1
+    magnitude = 10 ** math.floor(math.log10(max_value / max_intervals))
+    for factor in (1, 2, 5, 10):
+        step = int(magnitude * factor) or 1
+        ceiling = math.ceil(max_value / step) * step
+        if ceiling // step <= max_intervals:
+            return int(ceiling), step
+    # Unreachable for positive input: factor 10 always divides the magnitude
+    # into at most `max_intervals`, but a bare fallback beats a None.
+    return int(max_value), int(max_value)
 
 
 _SMALL_NUMBERS = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six"}
@@ -208,11 +215,6 @@ def wrap_label(name):
     return esc(" ".join(words[:best])) + "<br>" + esc(" ".join(words[best:]))
 
 
-def _nice_ceiling(value, step):
-    """Smallest multiple of `step` at or above `value`."""
-    if value <= 0:
-        return step
-    return step * ((int(value) + step - 1) // step)
 
 
 def _rank_colour(rank, ramp):
@@ -312,16 +314,24 @@ def _moving_average(values, window):
     return out
 
 
-def _timing_section(data, axis_max):
-    contacts = [week["contacts"] for week in data["weeks"]]
-    peak_index = max(range(len(contacts)), key=contacts.__getitem__)
+def _timing_section(data, axis_max, axis_step):
+    """Panel 01: activities per week.
+
+    Activities, not summed audience. The pack refuses to sum audience size on
+    purpose -- `agent_pack` states it in as many words: summing it counts
+    contacts, not people, because one person inside six activities counts six
+    times. A chart whose y-axis the pack will not supply is a chart that cannot
+    be grounded, so the panel plots the thing the pack does count.
+    """
+    counts = [week["activities"] for week in data["weeks"]]
+    peak_index = max(range(len(counts)), key=counts.__getitem__)
 
     bars = [
         {
             "height": _round_half_up(value / axis_max * TIMING_PLOT_HEIGHT),
             "colour": "var(--accent, #e60000)" if index == peak_index else GREY_3,
         }
-        for index, value in enumerate(contacts)
+        for index, value in enumerate(counts)
     ]
 
     labels = [
@@ -332,13 +342,13 @@ def _timing_section(data, axis_max):
         for index, week in enumerate(data["weeks"])
     ]
 
-    # Four ticks, top to bottom, matching the template's space-between column.
+    # Ticks top to bottom, matching the template's space-between column.
     axis = [
-        {"label": axis_label(axis_max * fraction, axis_max)}
-        for fraction in (1.0, 2 / 3, 1 / 3, 0.0)
+        {"label": swiss(value)}
+        for value in range(axis_max, -1, -axis_step)
     ]
 
-    averages = _moving_average(contacts, MOVING_AVERAGE_WEEKS)
+    averages = _moving_average(counts, MOVING_AVERAGE_WEEKS)
     points = " ".join(
         f"{TIMING_BAR_ORIGIN + TIMING_BAR_PITCH * index},"
         f"{TIMING_PLOT_HEIGHT - _round_half_up(value / axis_max * TIMING_PLOT_HEIGHT)}"
@@ -374,10 +384,10 @@ def build_view(data, thresholds=None):
     delta_share = (total - prior) / prior if prior else 0.0
 
     # --- Panel 01: timing ----------------------------------------------
-    axis_max = _nice_ceiling(
-        max(week["contacts"] for week in data["weeks"]), 200_000
+    axis_max, axis_step = axis_scale(
+        max(week["activities"] for week in data["weeks"])
     )
-    bars, labels, axis, points, _, peak = _timing_section(data, axis_max)
+    bars, labels, axis, points, _, peak = _timing_section(data, axis_max, axis_step)
 
     # --- Panel 02: priority mix ----------------------------------------
     priority_rows = []
@@ -496,16 +506,14 @@ def build_view(data, thresholds=None):
         "volume_delta_colour": BLACK,
         "volume_compare": f"vs {esc(data['prior_period_label'])} ({swiss(prior)})",
 
-        "timing_measure": "Estimated audience (contacts)",
+        "timing_measure": "Activities",
         "timing_average_label": f"{MOVING_AVERAGE_WEEKS}-week moving average",
         "timing_axis_caption": "Week commencing",
         "timing_viewbox_width":
             TIMING_BAR_ORIGIN * 2 + TIMING_BAR_PITCH * (len(data["weeks"]) - 1),
         "timing_average_points": points,
         "timing_peak_label": f"week of {esc(peak['commencing'])}",
-        "timing_peak_detail":
-            f"{compact_contacts(peak['contacts'])} contacts · "
-            f"{swiss(peak['activities'])} activities",
+        "timing_peak_detail": f"{swiss(peak['activities'])} activities",
 
         "priority_gradient": ", ".join(stops),
         "priority_total": swiss(total),

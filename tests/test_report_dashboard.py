@@ -26,6 +26,7 @@ from pipeline.report import dashboard_render, template_engine
 from pipeline.report.dashboard_render import (
     THRESHOLDS,
     TemplateError,
+    axis_scale,
     build_view,
     render,
     validate,
@@ -113,7 +114,6 @@ def test_different_figures_do_not_change_the_page_furniture(data):
     for row in louder["priorities"] + louder["teams"]:
         row["activities"] *= 2
     for week in louder["weeks"]:
-        week["contacts"] *= 2
         week["activities"] *= 2
 
     assert furniture(_render(louder)) == before
@@ -206,6 +206,46 @@ def test_a_priority_mix_that_misses_activities_is_caught(data):
     short = json.loads(json.dumps(data))
     short["priorities"][0]["activities"] -= 100
     assert any("priority counts" in complaint for complaint in validate(short))
+
+
+# ---------------------------------------------------------------------------
+# Panel 01 plots what the pack will actually supply
+# ---------------------------------------------------------------------------
+def test_the_timing_panel_counts_activities_and_never_sums_audience(data):
+    """`agent_pack` refuses to sum audience size, in as many words: summing it
+    counts contacts, not people, because one person inside six activities
+    counts six times. A y-axis the pack will not supply cannot be grounded, so
+    the panel plots activities -- and the data object carries no contacts at
+    all, which is what stops one being reintroduced by accident."""
+    assert all("contacts" not in week for week in data["weeks"])
+
+    page = _render(data)
+    assert "Activity load by week" in page
+    assert ">Activities<" in page
+    assert "contacts" not in page.replace("contacts each", "")
+
+
+def test_the_peak_marker_names_the_busiest_week_by_activities(data):
+    busiest = max(data["weeks"], key=lambda week: week["activities"])
+    page = _render(data)
+    assert f"Peak · week of {busiest['commencing']}" in page
+    assert f"{busiest['activities']} activities" in page
+
+
+@pytest.mark.parametrize("largest, expected", [
+    (354, (400, 100)),
+    (18_000, (20_000, 5_000)),
+    (7, (8, 2)),
+    (0, (1, 1)),
+])
+def test_the_axis_ceiling_is_round_and_never_below_the_data(largest, expected):
+    """A tick column reading 354 / 266 / 177 / 89 is arithmetic done at the
+    reader. The ceiling is picked from the data so a quiet quarter is not drawn
+    against a busy quarter's scale, but the step is always round."""
+    ceiling, step = axis_scale(largest)
+    assert (ceiling, step) == expected
+    assert ceiling >= largest
+    assert ceiling % step == 0
 
 
 # ---------------------------------------------------------------------------
