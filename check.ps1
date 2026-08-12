@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-12.5"
+$manifestVersion = "2026-08-12.6"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-12.5"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-12.5"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-12.6"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -659,7 +659,24 @@ $manifest = @(
     @{ Path = "pipeline\report\agent_builder.py"; Marker = "never in a later tidying step"; Why = "a number tile drawn as an axes brings ticks and spines with it, straight across the caption - the single largest source of collisions measured, and an older copy does not mention it" },
     @{ Path = "pipeline\report\agent_pack.py";  Marker = "Measure what the library drew"; Why = "the self-check has to include the artists the library added - an older copy lets a run report a verified layout after checking only the text it wrote itself, which is what three of six test renders did" },
     @{ Path = "pipeline\report\agent_builder.py"; Marker = "panel a board declares"; Why = "the prose rule no longer forbids the read-out panel every board requires - an older copy contradicts its own board specs, and a run has to invent its way out of the conflict" },
-    @{ Path = "pipeline\report\agent_builder.py"; Marker = "Sweep what this run did not write"; Why = "the upload folder drops the previous numbering - an older copy leaves last run's reading guide and boards beside this run's, so twelve files upload as fourteen, two of them the same rules under a number the prompt no longer names" }
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "Sweep what this run did not write"; Why = "the upload folder drops the previous numbering - an older copy leaves last run's reading guide and boards beside this run's, so twelve files upload as fourteen, two of them the same rules under a number the prompt no longer names" },
+
+    # One board stopped being drawn. Its markup is frozen and a tested renderer
+    # produces the page byte for byte, so what the agent supplies for it is a
+    # JSON object rather than a picture. An old copy of any file below has no
+    # contract at all: the agent meets a board it is told to draw, draws it,
+    # and the four revision rounds that reached a conformant page are spent
+    # again on every run.
+    #
+    # The grain is the part an old copy gets silently wrong rather than
+    # loudly. 08-periods.csv carries every measure at year grain and the
+    # activity count alone at quarter grain, so a contract citing quarter for
+    # a total and year for a share sets two periods side by side and prints
+    # neither.
+    @{ Path = "pipeline\report\dashboard_contract.py"; Marker = "CONTRACT_TEXT"; Why = "what the agent returns for the board that is rendered rather than drawn - a NEW file; without it dashboard_skill.py fails to import and no board archive is written at all" },
+    @{ Path = "pipeline\report\dashboard_contract.py"; Marker = "One grain, one board"; Why = "every count on the board comes from year grain because the quarter grain carries the count alone - an older copy lets a quarterly total stand beside a yearly leadership share with nothing on the page saying they are different periods" },
+    @{ Path = "pipeline\report\dashboard_skill.py"; Marker = "The one board you do not draw"; Why = "the index routes the campaign activity overview to its contract instead of to a panel list - an older copy sends an agent to draw a board whose markup is already frozen, and the drawn one is what the reader gets" },
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "CONTRACT_FILE_NAMES"; Why = "the contract ships as a fourteenth knowledge file on the surface with no skills - an older copy uploads thirteen, and the one board that is rendered has nothing telling the agent what to return for it" }
 )
 
 Write-Host ""

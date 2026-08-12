@@ -17,7 +17,7 @@ chart; if the palette were in it, the agent would draw an off-brand one.
 import re
 import shutil
 
-from pipeline.report import agent_pack, dashboard_skill
+from pipeline.report import agent_pack, dashboard_contract, dashboard_skill
 
 # The surface's own numbers, from the Microsoft Learn documentation for Agent
 # Builder. Named rather than inlined because a test asserts against them and a
@@ -48,6 +48,13 @@ BOARD_FILE_NAMES = {
         "11-board-head-of-communications-overview.txt",
     "board-leadership-attention.md": "12-board-leadership-attention.txt",
     "board-plan-trust.md": "13-board-plan-trust.txt",
+}
+
+# The board that is rendered rather than drawn. It sits after the three drawn
+# ones because a reader scanning the numbered folder meets the boards first and
+# this is the exception to them, not a fourth of the same kind.
+CONTRACT_FILE_NAMES = {
+    dashboard_contract.CONTRACT_NAME: "14-contract-campaign-activity-overview.txt",
 }
 
 
@@ -663,8 +670,14 @@ def write_builder_pack(pack_dir, out_dir, scope=None, config=None):
     for key, name in BOARD_FILE_NAMES.items():
         (upload_dir / name).write_text(
             BOARD_RULES_TEXT + dashboard_skill.BOARDS[key], encoding="utf-8")
+    # The contract carries no board rules. Nothing in it is drawn, so the rules
+    # about red elements and tile colours would be eleven hundred characters of
+    # advice against a mistake this file cannot produce.
+    for key, name in CONTRACT_FILE_NAMES.items():
+        (upload_dir / name).write_text(
+            dashboard_contract.CONTRACTS[key], encoding="utf-8")
     written.update({READING_GUIDE_NAME, CHART_STANDARDS_NAME,
-                    *BOARD_FILE_NAMES.values()})
+                    *BOARD_FILE_NAMES.values(), *CONTRACT_FILE_NAMES.values()})
 
     # Sweep what this run did not write. `mirror_upload` has done this for the
     # mirror all along and its docstring names the reason; the folder the
