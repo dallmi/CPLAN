@@ -191,7 +191,13 @@ GEB_RULE_SPLIT = (
     "block=executives_geb1 everyone else in the field. Naming someone as a GEB "
     "member is allowed here, and says where it comes from: the supplied list, "
     "not the source data. The two blocks do NOT sum -- one activity naming "
-    "people at both levels counts in both.")
+    "people at both levels counts in both. The GEB base is small: only a few "
+    "percent of activities name a GEB member at all, spread over the list and "
+    f"the years, so a figure per person per year in {PERIODS_CSV_NAME} is a "
+    "handful. Quote it with its size, and do not read a move from eight to "
+    "four as a halving -- at that base it is noise. The GEB block is absent "
+    f"from {CALENDAR_NAME} for the same reason: by the week there is almost "
+    "nothing to see.")
 
 
 def geb_rule(scope):
@@ -407,7 +413,23 @@ PERIOD_BLOCKS = (TOTAL_BLOCK, "business_division", "region_group", "priority",
 # one per week and "which division binds the most executive attention" is
 # exactly what the file is for. This is the pack's calendar only; the
 # workbook's Calendar sheet is built elsewhere and still carries both.
-CALENDAR_SKIP_BLOCKS = ("country", "executives")
+#
+# The two split blocks are here for the same reason, and leaving them out was
+# a real gap: a run WITH a member list never produces `executives` at all --
+# `resolve_scope` swaps it for these two -- so dropping only the combined
+# field covered the machines that do not have the list and missed the ones
+# that do. Measured there, `executives_geb1` costs 1,165 calendar rows at 8%
+# coverage, the very expense the drop was meant to remove.
+#
+# `executives_geb` is small enough to afford and still does not belong at
+# week grain: thirteen people at 3% coverage means almost every weekly cell
+# is a zero or a one. It stays in the crosses and in the period file, where
+# the figures are large enough to carry a comparison.
+#
+# No board reads a leadership block from the calendar -- checked against all
+# three -- so nothing downstream loses a source.
+CALENDAR_SKIP_BLOCKS = ("country", "executives", "executives_geb",
+                        "executives_geb1")
 
 
 def _ytd_cut(day, cut):

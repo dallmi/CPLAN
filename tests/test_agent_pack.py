@@ -617,12 +617,60 @@ def test_the_calendar_leaves_out_the_blocks_it_cannot_afford_by_the_week(tmp_pat
     calendar = {r[0] for r in agent_pack.calendar_rows(scope, wide)}
     breakdowns = {r[0] for r in agent_pack.breakdown_rows(scope, wide)}
 
-    for field in agent_pack.CALENDAR_SKIP_BLOCKS:
+    # Only the blocks a run without a member list produces. The two split
+    # leadership blocks exist solely where a list was supplied, and
+    # `test_neither_leadership_split_block_is_costed_by_the_week` covers
+    # them on a run that has one.
+    for field in ("country", "executives"):
+        assert field in agent_pack.CALENDAR_SKIP_BLOCKS
         assert field not in calendar, f"{field} is still costed by the week"
         assert field in breakdowns, f"{field} was dropped from the crosses too"
 
     # The cheap, well-covered blocks are untouched on both sides.
     assert {"business_division", "region_group", "priority"} <= calendar
+
+
+def test_neither_leadership_split_block_is_costed_by_the_week(tmp_path):
+    """The expensive block came back through the other door.
+
+    Dropping `executives` from the calendar covered a run with no member
+    list. A run that has one never produces that field at all: `resolve_scope`
+    swaps it for `executives_geb` and `executives_geb1`, and measured on a
+    real export the second costs 1,165 calendar rows at 8% coverage -- the
+    same expense the drop was meant to remove, on the machine that actually
+    runs this.
+
+    The GEB side is small enough to afford and still does not belong at week
+    grain: 13 people at 3% coverage means almost every weekly cell is a zero
+    or a one. It stays in the crosses and in the period file, where the
+    figures are large enough to mean something.
+    """
+    # Through the helper, because loading the list and leaving the fields
+    # alone would build a pack the product never ships.
+    _, _, scope, config = _pack_with_members(tmp_path, GEB_PERSON)
+    wide = _split_config(config)
+
+    calendar = {r[0] for r in agent_pack.calendar_rows(scope, wide)}
+    breakdowns = {r[0] for r in agent_pack.breakdown_rows(scope, wide)}
+
+    for field in ("executives_geb", "executives_geb1"):
+        assert field not in calendar, f"{field} is still costed by the week"
+    assert "executives_geb" in breakdowns
+
+
+def test_the_glossary_warns_that_the_geb_base_is_small(tmp_path):
+    """Cheap to carry is not the same as safe to read.
+
+    Around 3% of activities name a GEB member at all, spread over thirteen
+    people and several years -- a handful each per year. A year-on-year move
+    from eight to four is noise that reads as a halving, and the agent is
+    instructed elsewhere to quantify every change it reports.
+    """
+    _, _, scope, config = _pack_with_members(tmp_path, GEB_PERSON)
+    text = agent_pack.glossary_text(scope, agent_pack.pack_config(config))
+
+    assert "small" in text.lower()
+    assert agent_pack.PERIODS_CSV_NAME in text
 
 
 def test_the_two_cheapest_axes_are_carried_over_time(tmp_path):
@@ -2208,6 +2256,18 @@ def _members(*names):
 
 # The one fixture activity that names anybody in `bod_geb` (IC-0007).
 GEB_PERSON = "Example, Ada"
+
+
+def _split_config(config):
+    """`config` with `executives` swapped for its two halves, as the command does."""
+    from dataclasses import replace as _replace
+
+    from pipeline.report.config import EXECUTIVES_SPLIT
+
+    fields = []
+    for field in agent_pack.pack_config(config).breakdown_fields:
+        fields.extend(EXECUTIVES_SPLIT) if field == "executives" else fields.append(field)
+    return _replace(agent_pack.pack_config(config), breakdown_fields=tuple(fields))
 
 
 def _pack_with_members(tmp_path, *names, **overrides):
