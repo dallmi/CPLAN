@@ -23,6 +23,8 @@ rather than leaving a board pointing at a line that no longer exists.
 
 import zipfile
 
+from pipeline.report import dashboard_contract
+
 SKILL_NAME = "cplan-dashboards"
 
 SKILL_TEXT = """---
@@ -45,6 +47,15 @@ becomes.
 Open the file for the board being asked for and draw exactly the panels it
 lists, in the order it lists them. If the request names no board, say which
 three exist and what each decides, and ask which one — do not blend them.
+
+## The one board you do not draw
+
+`contract-campaign-activity-overview.md` — the campaign activity overview. Its
+markup is frozen and a tested renderer produces the page, so what it asks of
+you is a JSON object rather than a picture. Open it when that board is named,
+return the object it specifies, and draw nothing. The panel rules below do not
+apply to it: it has no red element to place and no tile to colour, because you
+are not the one drawing it.
 
 You still need the other two skills: `cplan-reporting` for the pack itself, and
 `chart-standards` for how anything is drawn. This file says only which panels.
@@ -347,4 +358,6 @@ def write_zip(zip_path):
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("SKILL.md", SKILL_TEXT)
         for name, text in BOARDS.items():
+            archive.writestr(name, text)
+        for name, text in dashboard_contract.CONTRACTS.items():
             archive.writestr(name, text)

@@ -16,7 +16,7 @@ import pytest
 pytest.importorskip("openpyxl")
 pytest.importorskip("pandas")
 
-from pipeline.report import agent_pack, dashboard_skill, metrics
+from pipeline.report import agent_pack, dashboard_contract, dashboard_skill, metrics
 from pipeline.report.calendar_sheet import LABEL_COL, _split_for
 from pipeline.report.config import AUDIENCE_BAND_ORDER, ReportConfig
 from pipeline.scripts.report_calendar import build_workbook
@@ -1353,12 +1353,20 @@ def test_the_boards_ship_as_their_own_skill(tmp_path):
         names = archive.namelist()
         skill = archive.read("SKILL.md").decode("utf-8")
         boards = {name: archive.read(name).decode("utf-8")
-                  for name in names if name != "SKILL.md"}
+                  for name in names if name in dashboard_skill.BOARDS}
+        contracts = {name for name in names
+                     if name in dashboard_contract.CONTRACTS}
 
     assert skill.startswith("---\nname: cplan-dashboards\n")
     assert sorted(boards) == ["board-head-of-communications-overview.md",
                               "board-leadership-attention.md",
                               "board-plan-trust.md"]
+    # The fourth file is not a fourth board. It describes the one board the
+    # agent does not draw, and the assertions below about panels, highlights
+    # and the red budget are about drawing, so they exclude it by name rather
+    # than by "everything that is not the index".
+    assert contracts == {"contract-campaign-activity-overview.md"}
+    assert sorted(names) == sorted({"SKILL.md", *boards, *contracts})
 
     description = next(line for line in skill.splitlines()
                        if line.startswith("description:"))
@@ -1381,9 +1389,7 @@ def test_each_board_spends_the_red_budget_exactly_once(tmp_path):
     """
     _, out_dir, _, _ = _pack(tmp_path)
     with zipfile.ZipFile(out_dir / agent_pack.DASHBOARD_SKILL_ZIP_NAME) as archive:
-        for name in archive.namelist():
-            if name == "SKILL.md":
-                continue
+        for name in dashboard_skill.BOARDS:
             text = archive.read(name).decode("utf-8")
             highlights = [line for line in text.splitlines()
                           if line.strip().startswith("Highlight:")]
@@ -1403,9 +1409,7 @@ def test_every_panel_carries_the_whole_contract(tmp_path):
     """
     _, out_dir, _, _ = _pack(tmp_path)
     with zipfile.ZipFile(out_dir / agent_pack.DASHBOARD_SKILL_ZIP_NAME) as archive:
-        for name in archive.namelist():
-            if name == "SKILL.md":
-                continue
+        for name in dashboard_skill.BOARDS:
             text = archive.read(name).decode("utf-8")
             panels = re.split(r"^### ", text, flags=re.M)[1:]
             assert panels, f"{name} defines no panels"
@@ -2096,6 +2100,47 @@ def test_every_board_citation_resolves_against_the_pack(tmp_path):
                 raise AssertionError(f"{name}: {error}") from None
             checked += 1
     assert checked >= 20, f"only {checked} citations checked; a board lost its sources"
+
+
+def test_every_contract_citation_resolves_against_the_pack(tmp_path):
+    """The contract is the same promise as a board, for the board that is
+    rendered rather than drawn: it reads figures, it does not compute them.
+
+    Worth its own test rather than a line in the one above, because the two
+    fail for different reasons. A board citation breaks when a panel is
+    repointed; a contract citation breaks when a *grain* moves -- the quarter
+    grain carries the count alone, so a field quietly re-cited at quarter
+    would put one period's total beside another period's share and say
+    nothing about it.
+    """
+    pack_dir, _, _, _ = _pack(tmp_path)
+    checked = 0
+    for name, text in dashboard_contract.CONTRACTS.items():
+        citations = _citations(text)
+        assert citations, f"{name} cites nothing"
+        for citation in citations:
+            try:
+                _resolve(citation, pack_dir)
+            except AssertionError as error:
+                raise AssertionError(f"{name}: {error}") from None
+            checked += 1
+    assert checked >= 10, f"only {checked} citations checked; the contract lost sources"
+
+
+def test_the_contract_takes_every_count_from_one_grain(tmp_path):
+    """The rule the contract states about itself, checked rather than trusted.
+
+    `08-periods.csv` carries every measure at year grain and the activity count
+    alone at quarter grain. A board mixing the two would set a quarterly total
+    against a yearly leadership share, and nothing in the rendered page would
+    show that it had.
+    """
+    for name, text in dashboard_contract.CONTRACTS.items():
+        grains = {part.split("=", 1)[1]
+                  for citation in _citations(text)
+                  for part in (p.strip() for p in citation.split("·"))
+                  if part.startswith("grain=")}
+        assert grains == {"year"}, f"{name} cites grains {sorted(grains)}"
 
 
 def test_boards_cite_only_measures_the_breakdowns_file_writes(tmp_path):
