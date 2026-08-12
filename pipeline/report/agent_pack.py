@@ -990,6 +990,19 @@ and that is a different discipline.
   the 2026-08-10 test render one panel's heading, its question, its chart and
   its legend were all drawn across the category labels of the panel beside it,
   while its own rectangle stood empty.
+- **Place nothing at a coordinate you worked out yourself.** Use a layout
+  mechanism that reserves space and refuses to overlap -- a grid with
+  constrained layout in a plotting library, a CSS grid in HTML. Every rule
+  here is one you cannot verify afterwards on a surface where you never see
+  the image, so the layout has to make overlap impossible rather than
+  forbidden. That is the only version of "nothing overlaps" that survives
+  being unable to look.
+- **The image carries panels, not prose.** A bulleted block of findings inside
+  the canvas is the one element with no fixed height: it grows with what it
+  says, runs into whatever was placed beneath it, and arrives twice over,
+  because the answer beside the image already carries those sentences.
+  Findings go in the answer. A panel's own heading, question and footnote are
+  not prose in this sense -- they belong to the panel and are reserved with it.
 - **A panel is one block**: heading, business question, plot, footnote. Reserve
   the vertical space for all four *before* drawing the plot. A footnote added
   afterwards lands in the panel underneath — this is the single most common way
@@ -1003,6 +1016,11 @@ and that is a different discipline.
   measure the longest one and give the panel the width it needs. If the width
   is not available, shorten the names and say in the footnote that you did — a
   name is never clipped, and never travels into a neighbour.
+- **A bar's value label goes inside the bar once the bar is long.** Past about
+  two thirds of the axis there is no room outside it, and a label put there
+  anyway leaves the plot and lands in whatever is beside it. Inside, set it
+  right-aligned against the bar's end; outside only while the bar is short
+  enough that the whole label still falls within the axis.
 - **Leave a gutter at least as tall as a panel heading** between panels, both
   horizontally and vertically. Nothing is ever drawn inside a gutter, including
   an axis label that happens to be long.

@@ -241,6 +241,44 @@ def test_every_surface_requires_the_identifier_beside_the_name(tmp_path):
     assert "Pack ID" in agent_pack.PACKS_HEADER
 
 
+def test_both_surfaces_carry_the_three_rules_a_render_can_obey_while_drawing():
+    """The layout rules were already there, and the render broke them anyway.
+
+    "Nothing overlaps anything" and "reserve the space before drawing" are
+    judgements about a finished image, on a surface where the model never
+    sees one. A rule that can only be checked afterwards is not a rule there.
+    These three can be obeyed while drawing: no free coordinates, no prose
+    block, and a value label that goes inside a long bar.
+    """
+    for name, text in (("chart standards", agent_builder.CHART_STANDARDS_TEXT),
+                       ("brand skill", agent_pack.BRAND_SKILL_TEXT)):
+        assert "coordinate you worked out yourself" in text, name
+        assert "carries panels, not prose" in text, name
+        assert "inside the bar once the bar is long" in text, name
+
+
+def test_the_two_copies_of_the_layout_rules_do_not_drift():
+    """One set of rules, delivered twice.
+
+    The two surfaces hold their own copy, differing by one paragraph about
+    where a rule is checked. Any other difference is drift: a fix applied to
+    the file one operator uploads and not to the archive the other loads.
+    """
+    import difflib
+
+    section = "## Laying out more than one chart"
+    a = agent_builder.CHART_STANDARDS_TEXT
+    b = agent_pack.BRAND_SKILL_TEXT
+    changed = [line for line in difflib.unified_diff(
+        b[b.index(section):].splitlines(),
+        a[a.index(section):].splitlines(), lineterm="", n=0)
+        if line.startswith(("+", "-")) and not line.startswith(("+++", "---"))]
+
+    # The known paragraph, and nothing else. Six lines of it, plus the blank.
+    assert len(changed) <= 7, "the two copies of the layout rules have drifted:\n" + \
+        "\n".join(changed)
+
+
 def test_the_prompt_still_has_its_margin():
     """The rename costs characters in a field that is 97% full. Measured
     rather than assumed: the 200-character floor exists because the operator

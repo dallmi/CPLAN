@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-12.1"
+$manifestVersion = "2026-08-12.2"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-12.1"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-12.1"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-12.2"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -646,7 +646,13 @@ $manifest = @(
     @{ Path = "pipeline\report\calendar_sheet.py"; Marker = "All three are fields"; Why = "source_type partitions the portfolio - an older copy marks internal against external as overlapping, and a reader adding the two gets a number larger than the plan" },
     @{ Path = "pipeline\scripts\check_cardinality.py"; Marker = "was a real defect"; Why = "the cardinality check loads the GEB member list - an older copy passes None, so the leadership field never splits and the table reports no GEB block on a machine that has the list" },
     @{ Path = "pipeline\report\agent_pack.py";  Marker = "the very expense the drop was meant to remove"; Why = "both split leadership blocks leave the calendar - an older copy drops only the combined field, which a run WITH a member list never produces, so the expensive block returns on exactly the machines that run this" },
-    @{ Path = "pipeline\report\agent_pack.py";  Marker = "at that base it is noise"; Why = "the glossary says the GEB base is small - an older copy lets the agent report a year-on-year move of a handful as a trend, on a field only a few percent of activities name" }
+    @{ Path = "pipeline\report\agent_pack.py";  Marker = "at that base it is noise"; Why = "the glossary says the GEB base is small - an older copy lets the agent report a year-on-year move of a handful as a trend, on a field only a few percent of activities name" },
+    # A render on 2026-08-12 broke rules the chart standards already carried:
+    # a prose block ran through the tile row, bar labels left the plot. Those
+    # rules are judgements about a finished image, on a surface where the
+    # model never sees one. These three can be obeyed while drawing.
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "coordinate you worked out yourself"; Why = "layout by a grid that reserves space, never by hand-computed positions - an older copy relies on rules that can only be checked after the image exists, on a surface where nobody can look" },
+    @{ Path = "pipeline\report\agent_pack.py";  Marker = "carries panels, not prose"; Why = "no free-growing prose block inside the canvas - an older copy draws findings into the image, where they have no fixed height, run into the panels below and arrive twice" }
 )
 
 Write-Host ""
