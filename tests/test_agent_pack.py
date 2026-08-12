@@ -814,9 +814,18 @@ def test_the_pair_is_always_a_pair_even_when_one_year_is_empty(tmp_path):
     assert empty_measures == {"activities"}
 
 
-def test_quarters_carry_the_count_and_not_the_other_six_measures(tmp_path):
-    """Proportion, deliberately. Every measure at quarter grain multiplies the
-    file sevenfold to answer questions nobody asks by quarter.
+def test_quarters_carry_what_a_quarterly_board_reads_and_nothing_more(tmp_path):
+    """Proportion, deliberately, and the proportion moved once.
+
+    Quarters carried the count alone while nothing read them by quarter. The
+    campaign activity overview is a quarterly board, so three shares joined it
+    -- and only three. Measured on this fixture: quarter rows 63 -> 242 and the
+    file 501 -> 680, which is 1.36x, against 859 rows and 1.71x for all seven.
+    The other three stay at year grain, where the plan trust board reads them.
+
+    Asserted as an exact set in both directions: a measure added without a
+    board reading it costs retrieval budget on a surface that has none to
+    spare, and a measure removed silently empties a card.
     """
     config = _config()
     wide = agent_pack.pack_config(config)
@@ -825,8 +834,15 @@ def test_quarters_carry_the_count_and_not_the_other_six_measures(tmp_path):
                                   generated=date(2025, 8, 11))
 
     quarter_measures = {r[5] for r in rows if r[3] == "quarter"}
-    assert quarter_measures == {"activities"}
+    assert quarter_measures == {"activities", "with_executives",
+                                "large_audience", "short_notice"}
     assert any(r[4].endswith("-Q1") for r in rows if r[3] == "quarter")
+
+    # The three that stay behind, and the grain that still carries them.
+    year_measures = {r[5] for r in rows if r[3] == "year"}
+    assert {"without_pack", "unknown_audience", "median_completeness"} <= year_measures
+    assert not ({"without_pack", "unknown_audience", "median_completeness"}
+                & quarter_measures)
 
 
 def test_the_priority_block_states_the_source_labels_not_four_invented_words(tmp_path):
@@ -1358,14 +1374,13 @@ def test_the_boards_ship_as_their_own_skill(tmp_path):
                      if name in dashboard_contract.CONTRACTS}
 
     assert skill.startswith("---\nname: cplan-dashboards\n")
-    assert sorted(boards) == ["board-head-of-communications-overview.md",
-                              "board-leadership-attention.md",
+    assert sorted(boards) == ["board-leadership-attention.md",
                               "board-plan-trust.md"]
     # The fourth file is not a fourth board. It describes the one board the
     # agent does not draw, and the assertions below about panels, highlights
     # and the red budget are about drawing, so they exclude it by name rather
     # than by "everything that is not the index".
-    assert contracts == {"contract-campaign-activity-overview.md"}
+    assert contracts == {"contract-head-of-communications-overview.md"}
     assert sorted(names) == sorted({"SKILL.md", *boards, *contracts})
 
     description = next(line for line in skill.splitlines()
@@ -1436,11 +1451,16 @@ def test_the_overview_board_is_the_one_designed_for_the_role(tmp_path):
     """One overview, not two. Two general boards give the agent no criterion
     by which to pick, which is the case where it grabs blindly.
     """
-    assert "board-head-of-communications-overview.md" in dashboard_skill.BOARDS
+    assert "contract-head-of-communications-overview.md" in dashboard_contract.CONTRACTS
+    assert "board-head-of-communications-overview.md" not in dashboard_skill.BOARDS, (
+        "the overview is rendered from its contract; a drawn panel list beside "
+        "it is a second answer to one board name")
     assert "board-portfolio-overview.md" not in dashboard_skill.BOARDS
-    assert len(dashboard_skill.BOARDS) == 3
+    # Still three boards. Two are drawn, one is rendered.
+    assert len(dashboard_skill.BOARDS) + len(dashboard_contract.CONTRACTS) == 3
 
-    joined = dashboard_skill.SKILL_TEXT + "".join(dashboard_skill.BOARDS.values())
+    joined = (dashboard_skill.SKILL_TEXT + "".join(dashboard_skill.BOARDS.values())
+              + "".join(dashboard_contract.CONTRACTS.values()))
     assert "portfolio overview" not in joined.lower(), (
         "the replaced board is still named somewhere")
 
@@ -1459,11 +1479,15 @@ def test_the_overview_names_teams_as_work_received(tmp_path):
     notice" tile, a machine-parsed pointer nobody reads as wording -- unlike
     panel 4's business question and footnote, which a reader does.
     """
-    board = dashboard_skill.BOARDS["board-head-of-communications-overview.md"]
-    assert "requests received at" in board.lower()
-    prose = "\n".join(line for line in board.splitlines()
-                      if not line.strip().startswith("Source:"))
-    assert "planned at under" not in prose.lower()
+    contract = dashboard_contract.CONTRACTS[
+        "contract-head-of-communications-overview.md"]
+    # The figure is a portfolio count, not a per-team one, which is the
+    # data-supportable form of the same guard: nothing in the pack says who
+    # caused a short lead time, so it is never cut by team.
+    short_notice = contract[contract.index("### short_notice_activities"):]
+    short_notice = short_notice[:short_notice.index("###", 3)]
+    assert "block=TOTAL" in short_notice
+    assert "lead_team" not in short_notice
 
 
 def test_no_board_sends_the_reader_to_a_board_that_does_not_exist():
@@ -1487,12 +1511,14 @@ def test_the_overview_spends_its_red_on_the_intervention(tmp_path):
     """Same rule, different answer, because the board asks a different
     question: the panel that answers it is the one that gets the accent.
     """
-    board = dashboard_skill.BOARDS["board-head-of-communications-overview.md"]
-    panels = re.split(r"^### ", board, flags=re.M)[1:]
-    highlighted = [p.splitlines()[0] for p in panels
-                   if any(line.strip() == "Highlight: yes" for line in p.splitlines())]
-    assert len(highlighted) == 1
-    assert "lead team" in highlighted[0].lower()
+    contract = dashboard_contract.CONTRACTS[
+        "contract-head-of-communications-overview.md"]
+    # No highlight to declare, because the agent is not the one drawing. Where
+    # this board spends its red is a property of the frozen template, and
+    # `tests/test_report_dashboard.py` pins it against the golden file and the
+    # approved palette.
+    assert "Highlight:" not in contract
+    assert "rendered, not drawn" in contract
 
 
 def test_an_image_that_carries_a_total_says_what_it_counts(tmp_path):
@@ -2099,7 +2125,7 @@ def test_every_board_citation_resolves_against_the_pack(tmp_path):
             except AssertionError as error:
                 raise AssertionError(f"{name}: {error}") from None
             checked += 1
-    assert checked >= 20, f"only {checked} citations checked; a board lost its sources"
+    assert checked >= 12, f"only {checked} citations checked; a board lost its sources"
 
 
 def test_every_contract_citation_resolves_against_the_pack(tmp_path):
@@ -2109,9 +2135,9 @@ def test_every_contract_citation_resolves_against_the_pack(tmp_path):
     Worth its own test rather than a line in the one above, because the two
     fail for different reasons. A board citation breaks when a panel is
     repointed; a contract citation breaks when a *grain* moves -- the quarter
-    grain carries the count alone, so a field quietly re-cited at quarter
-    would put one period's total beside another period's share and say
-    nothing about it.
+    grain carries four measures and the year grain seven, so a field quietly
+    re-cited at year would put one period's total beside another period's
+    share and say nothing about it.
     """
     pack_dir, _, _, _ = _pack(tmp_path)
     checked = 0
@@ -2130,17 +2156,17 @@ def test_every_contract_citation_resolves_against_the_pack(tmp_path):
 def test_the_contract_takes_every_count_from_one_grain(tmp_path):
     """The rule the contract states about itself, checked rather than trusted.
 
-    `08-periods.csv` carries every measure at year grain and the activity count
-    alone at quarter grain. A board mixing the two would set a quarterly total
-    against a yearly leadership share, and nothing in the rendered page would
-    show that it had.
+    `08-periods.csv` carries the count and three shares at quarter grain and
+    every measure at year grain. A board mixing the two would set a quarterly
+    total against a yearly leadership share, and nothing in the rendered page
+    would show that it had.
     """
     for name, text in dashboard_contract.CONTRACTS.items():
         grains = {part.split("=", 1)[1]
                   for citation in _citations(text)
                   for part in (p.strip() for p in citation.split("·"))
                   if part.startswith("grain=")}
-        assert grains == {"year"}, f"{name} cites grains {sorted(grains)}"
+        assert grains == {"quarter"}, f"{name} cites grains {sorted(grains)}"
 
 
 def test_boards_cite_only_measures_the_breakdowns_file_writes(tmp_path):
@@ -2497,7 +2523,8 @@ def test_the_pasted_prompts_hold_whichever_pack_is_underneath(tmp_path):
     instructions = (out_dir / agent_pack.INSTRUCTIONS_NAME).read_text(encoding="utf-8")
     with zipfile.ZipFile(out_dir / agent_pack.SKILL_ZIP_NAME) as archive:
         skill = archive.read("SKILL.md").decode("utf-8")
-    boards = "".join(dashboard_skill.BOARDS.values())
+    boards = ("".join(dashboard_skill.BOARDS.values())
+              + "".join(dashboard_contract.CONTRACTS.values()))
 
     for text, name in ((instructions, "instructions"), (skill, "skill"),
                        (boards, "boards")):

@@ -1,36 +1,39 @@
-"""What the agent produces for a board that is rendered rather than drawn.
+"""What the agent returns for a board that is rendered rather than drawn.
 
-Three boards are drawn by the agent from `dashboard_skill`. This one is not.
-Its markup is frozen in `pipeline/dashboard/campaign-activity.template.html`
-and rendered by `pipeline/scripts/report_dashboard.py`, byte for byte from a
-data object -- so the agent's job is to produce that object, not a picture.
+The head of communications overview is not drawn. Its markup is frozen in
+`pipeline/dashboard/campaign-activity.template.html` -- the page is titled
+"Campaign activity overview" -- and `pipeline/scripts/report_dashboard.py`
+renders it byte for byte from a data object. So the agent supplies the object,
+not the picture, and this file says which pack line fills which field.
 
 The trade is deliberate. Drawing is where a rule gets dropped: it took four
 revision rounds to reach a conformant page, and one of them undid two
-corrections an earlier one had made. Filling a form from cited lines is the
-thing a retrieval agent is reliable at, and it is checkable -- every `Source:`
-line here resolves against the pack generated in the same run, the same way
-`tests/test_agent_pack.py` holds the board files to theirs.
+corrections an earlier round had made. Filling a form from cited lines is what
+a retrieval agent is reliable at, and unlike a drawing it is checkable -- every
+`Source:` line here resolves against a pack generated in the same run, through
+the resolver the board citations already use.
 
 Data-free, like the board catalogue: no figure, no period, no generation date.
-It is rebuilt identically every run and re-uploaded only when the contract
-changes.
+Rebuilt identically every run, re-uploaded only when the contract changes.
 
-The grain rule below is not a preference. `08-periods.csv` carries every
-measure at year grain and the count alone at quarter grain, and
-`01-summary.txt` describes the whole run because `agent_pack.pack_config`
-drops the report's period on purpose. A board that took its total from one
-grain and its leadership share from another would be mixing periods without
-saying so, which is the one failure a management page must not have.
+The grain rule below is the part that would fail silently. `08-periods.csv`
+carries the count and three shares at quarter grain and every measure at year
+grain, and `01-summary.txt` describes the whole plan because
+`agent_pack.pack_config` drops the report's period on purpose. A board taking
+its total from one grain and its leadership share from another would put two
+periods side by side and print neither, which is the one failure a management
+page must not have.
 """
 
-CONTRACT_NAME = "contract-campaign-activity-overview.md"
+CONTRACT_NAME = "contract-head-of-communications-overview.md"
 
-CONTRACT_TEXT = """# Data contract — Campaign activity overview
+CONTRACT_TEXT = """# Data contract — Head of communications overview
+
+**The decision:** where do I intervene, and with whom?
 
 This board is **rendered, not drawn**. Produce the data object below; a tested
-renderer turns it into the page. Do not draw this board, and do not describe
-what it would look like.
+renderer turns it into the page, which is titled "Campaign activity overview".
+Do not draw this board, and do not describe what it would look like.
 
 ## What to return
 
@@ -41,18 +44,16 @@ after the object, rather than a figure to estimate.
 
 ## One grain, one board
 
-Every count in the object comes from **year grain** in `08-periods.csv`, for
-the one year the reader asked about.
+Every count in the object comes from **quarter grain** in `08-periods.csv`, for
+the one quarter the reader asked about.
 
-That is forced, not chosen. `08-periods.csv` carries every measure at year
-grain and the activity count alone at quarter grain, and `01-summary.txt`
-describes the whole plan rather than a period. So a quarterly version of this
-board can state its volume and nothing else, and a board mixing a quarterly
-total with a yearly leadership share would be comparing two different periods
-without saying which.
+Two fields are the stated exceptions and both describe the **whole plan**, not
+the quarter. They are marked below, and the page labels them on the card so a
+reader cannot take them for the period's.
 
-Two fields are the stated exceptions, and both are whole-plan figures. They are
-marked below and their labels on the page say so.
+`08-periods.csv` carries the activity count and three shares at quarter grain.
+Anything else you need by quarter is not there, and the year-grain row beside
+it is a different period wearing the same block name.
 
 ## The object
 
@@ -61,11 +62,11 @@ marked below and their labels on the page say so.
   "eyebrow": "Communications portfolio · Management view",
   "title": "Campaign activity overview",
   "subtitle": "Where leadership intervention may be needed — and with which teams or audiences.",
-  "period_label": "<the year, e.g. 2026>",
+  "period_label": "<e.g. 2026 Q3 · 01 Jul – 30 Sep>",
   "data_as_of": "<YYYY-MM-DD>",
 
   "activities_total": 0,
-  "rows_read": 0,
+  "activities_in_plan": 0,
   "lead_time_median_days": 0,
   "short_notice_activities": 0,
   "leadership_activities": 0,
@@ -94,50 +95,59 @@ The first three fields and the last two are fixed text. Copy them exactly.
 ## Where every figure comes from
 
 ### period_label
-The year you filtered on, as four digits. Not a range, not a quarter.
+The quarter you filtered on, with its dates, e.g. `2026 Q3 · 01 Jul – 30 Sep`.
+The quarter labels in the periods file read `2026-Q3`; write the readable form
+here and filter on the file's.
 
 ### data_as_of
 Source: 01-summary.txt · REPORT · Data as of
 
 ### activities_total
-Source: 08-periods.csv · block=TOTAL · grain=year · measure=activities
+Source: 08-periods.csv · block=TOTAL · grain=quarter · measure=activities
 
-### rows_read — whole plan, not the year
-Source: 01-summary.txt · REPORT · Rows read
-The page prints this beside the total as "N excluded of M rows read", which is
-the scope caveat your instructions require beside any stated total.
+### activities_in_plan — whole plan, not the quarter
+Source: 01-summary.txt · VOLUME · Activities in scope
+The page prints the quarter as a share of this. It is not an exclusion count:
+most of the difference is the other quarters, and calling it excluded would say
+a filter rejected rows it never saw.
 
-### lead_time_median_days — whole plan, not the year
+### lead_time_median_days — whole plan, not the quarter
 Source: 01-summary.txt · PLANNING DISCIPLINE · Median lead time (days)
-The only lead-time statistic the pack states, and it is a median in days. Never
-convert it to an average or to weeks.
+The only lead-time statistic the pack states, at no finer grain than the whole
+plan. A median in days: never convert it to an average or to weeks. The card
+says "across the whole plan" for this reason.
 
 ### short_notice_activities
-Source: 08-periods.csv · block=TOTAL · grain=year · measure=short_notice
+Source: 08-periods.csv · block=TOTAL · grain=quarter · measure=short_notice
 Counts a lead time *under* the pack's short-notice threshold. The page words
 the card from the same number, so do not reword it.
 
 ### leadership_activities
-Source: 08-periods.csv · block=TOTAL · grain=year · measure=with_executives
+Source: 08-periods.csv · block=TOTAL · grain=quarter · measure=with_executives
+Both levels together. The source field holds GEB and GEB-1 and nothing in it
+separates them, so never call this figure "the GEB". Only an `executives_geb`
+block separates the two, and only when a member list was supplied — when it is
+present it is a subset of this measure and never a second figure to add to it.
+The page says "executive board participation" for the same reason.
 
 ### large_audience_activities
-Source: 08-periods.csv · block=TOTAL · grain=year · measure=large_audience
+Source: 08-periods.csv · block=TOTAL · grain=quarter · measure=large_audience
 The top two audience bands. Not a contact threshold — the pack bands an
 activity, it never compares one to a number of contacts.
 
 ### internal_activities and external_activities
-Source: 08-periods.csv · block=source_type · grain=year · measure=activities
+Source: 08-periods.csv · block=source_type · grain=quarter · measure=activities
 Two rows, one per value. They partition the total.
 
 ### weeks
 Source: 04-calendar.csv · block=TOTAL
-One entry per week of the year that has a row, in date order. `commencing` is
-the `week_start` date written as day and short month, e.g. `17 Aug`.
-`activities` is the row's count. Weeks with no activity have no row and are
-left out here too.
+Every week of the quarter that has a row, in date order. `commencing` is the
+`week_start` date written as day and short month, e.g. `17 Aug`. `activities`
+is the row's count. Weeks with no activity have no row and are left out here
+too.
 
 ### priorities
-Source: 08-periods.csv · block=priority · grain=year · measure=activities
+Source: 08-periods.csv · block=priority · grain=quarter · measure=activities
 One entry per value, ordered most urgent first — the source's numbered labels
 lead with their number, so ordering is by that number. **Print the source's own
 label.** Do not translate it, shorten it, or fold it onto Critical / High /
@@ -145,11 +155,11 @@ Medium / Low: the numbering carries the meaning for the code and the wording
 carries it for the reader.
 
 ### teams
-Source: 08-periods.csv · block=lead_team · grain=year · measure=activities
+Source: 08-periods.csv · block=lead_team · grain=quarter · measure=activities
 Ordered by count, largest first.
 
 ### leadership_by_team
-Source: 08-periods.csv · block=lead_team · grain=year · measure=with_executives; 08-periods.csv · block=lead_team · grain=year · measure=activities
+Source: 08-periods.csv · block=lead_team · grain=quarter · measure=with_executives; 08-periods.csv · block=lead_team · grain=quarter · measure=activities
 A share per team: involvement divided by that team's activities, as a decimal
 between 0 and 1. Two cited figures divided, which is allowed — both are audited
 counts. Ordered by share, highest first.
@@ -161,15 +171,18 @@ Leave a string empty to drop that panel's insight line.
 
 ## Before you return the object
 
-1. Does every count come from the same year?
-2. Are `rows_read` and `lead_time_median_days` the only whole-plan figures?
-3. Do `internal_activities` and `external_activities` sum to `activities_total`?
-4. Do the `priorities` counts sum to `activities_total`?
-5. Do the `teams` counts sum to `activities_total`? If not, say so in a
+1. Does every count come from the same quarter?
+2. Are `activities_in_plan` and `lead_time_median_days` the only whole-plan
+   figures?
+3. Is `activities_in_plan` larger than `activities_total`? A period cannot be
+   bigger than the plan holding it.
+4. Do `internal_activities` and `external_activities` sum to `activities_total`?
+5. Do the `priorities` counts sum to `activities_total`?
+6. Do the `teams` counts sum to `activities_total`? If not, say so in a
    sentence after the object — the renderer reports the residual and a reader
    deserves to know it was expected.
-6. Is every priority label the source's own?
-7. Is the object valid JSON with no trailing commas?
+7. Is every priority label the source's own?
+8. Is the object valid JSON with no trailing commas?
 
 An object failing one of these is corrected, not explained.
 """

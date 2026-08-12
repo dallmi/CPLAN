@@ -33,7 +33,7 @@
   "data_as_of": "2026-08-11",
 
   "activities_total": 3934,
-  "rows_read": 4187,
+  "activities_in_plan": 18394,
   "lead_time_median_days": 29,
   "short_notice_activities": 708,
   "leadership_activities": 620,

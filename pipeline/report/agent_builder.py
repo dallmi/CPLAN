@@ -44,17 +44,16 @@ CHART_STANDARDS_NAME = "10-chart-standards.txt"
 # Numbered on from the two rule documents: an operator uploads a folder, and a
 # folder that sorts into reading order is one fewer thing to explain.
 BOARD_FILE_NAMES = {
-    "board-head-of-communications-overview.md":
-        "11-board-head-of-communications-overview.txt",
-    "board-leadership-attention.md": "12-board-leadership-attention.txt",
-    "board-plan-trust.md": "13-board-plan-trust.txt",
+    "board-leadership-attention.md": "11-board-leadership-attention.txt",
+    "board-plan-trust.md": "12-board-plan-trust.txt",
 }
 
 # The board that is rendered rather than drawn. It sits after the three drawn
 # ones because a reader scanning the numbered folder meets the boards first and
 # this is the exception to them, not a fourth of the same kind.
 CONTRACT_FILE_NAMES = {
-    dashboard_contract.CONTRACT_NAME: "14-contract-campaign-activity-overview.txt",
+    dashboard_contract.CONTRACT_NAME:
+        "13-contract-head-of-communications-overview.txt",
 }
 
 
