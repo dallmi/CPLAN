@@ -646,10 +646,12 @@ def write_builder_pack(pack_dir, out_dir, scope=None, config=None):
     # upload folder -- which is uploaded whole and grounded on, with nothing on
     # the surface saying a file is missing. A crash here is the cheap failure.
     with_packs = (pack_dir / agent_pack.PACKS_CSV_NAME).exists()
+    written = set()
     for name in UPLOAD_DATA_FILES:
         if name == agent_pack.PACKS_CSV_NAME and not with_packs:
             continue
         shutil.copyfile(pack_dir / name, upload_dir / name)
+        written.add(name)
     # The guide is written per run, so it follows the folder the way SKILL.md
     # does next door: its Packs section explains a file and a column that only
     # a pack export produces, and a knowledge file describing a document the
@@ -661,6 +663,27 @@ def write_builder_pack(pack_dir, out_dir, scope=None, config=None):
     for key, name in BOARD_FILE_NAMES.items():
         (upload_dir / name).write_text(
             BOARD_RULES_TEXT + dashboard_skill.BOARDS[key], encoding="utf-8")
+    written.update({READING_GUIDE_NAME, CHART_STANDARDS_NAME,
+                    *BOARD_FILE_NAMES.values()})
+
+    # Sweep what this run did not write. `mirror_upload` has done this for the
+    # mirror all along and its docstring names the reason; the folder the
+    # operator actually uploads from was never swept, which is the half that
+    # matters more -- most machines have no mirror configured.
+    #
+    # The numbering shifts every time a data file is added: the boards went
+    # 09-11, then 10-12, then 11-13. Writing this run's names over the last
+    # run's leaves both sets side by side, so the operator uploads what he
+    # sees, twelve files arrive as fourteen, and two of them are the same
+    # rules under a number the prompt no longer names. It also spends
+    # knowledge slots on a surface that allows twenty.
+    #
+    # `MIRRORED_NAME` and nothing else: a note or a screenshot the operator
+    # keeps in that folder is his, and this run has no business deleting it.
+    for path in sorted(upload_dir.iterdir()):
+        if (path.is_file() and path.name not in written
+                and MIRRORED_NAME.match(path.name)):
+            path.unlink()
 
     # Beside the upload folder, never inside it: an agent grounded on its own
     # instructions reads them as data, quotes them back as findings, and the

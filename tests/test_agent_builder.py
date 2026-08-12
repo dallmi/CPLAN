@@ -62,6 +62,39 @@ def test_a_run_without_the_pack_export_still_delivers(tmp_path):
     assert "09-reading-guide.txt" in names
 
 
+def test_a_rebuild_removes_the_previous_numbering_from_the_upload_folder(tmp_path):
+    """The folder is the delivery, so a stale file in it is delivered.
+
+    Every time a data file is added the rule documents shift up: the boards
+    went 09-11, then 10-12, then 11-13. Writing this run's names without
+    removing the last run's leaves both sets side by side -- the operator
+    uploads twelve files and fourteen arrive, two of them the same rules
+    under a number that no longer matches what the prompt names.
+
+    `mirror_upload` has removed superseded files all along, and its docstring
+    names this exact failure. It was only ever applied to the mirror; the
+    folder the operator actually uploads from was never swept.
+    """
+    _, upload_dir, _ = _builder_with_packs(tmp_path)
+    current = sorted(p.name for p in upload_dir.iterdir())
+
+    # The shape a previous version left behind, plus something that is not
+    # ours at all.
+    (upload_dir / "08-reading-guide.txt").write_text("stale", encoding="utf-8")
+    (upload_dir / "12-board-plan-trust.txt").write_text("stale", encoding="utf-8")
+    (upload_dir / "notes.md").write_text("the operator's own", encoding="utf-8")
+
+    pack_dir, _, _ = _builder_with_packs(tmp_path)
+    agent_builder.write_builder_pack(pack_dir, tmp_path / "builder-out")
+
+    after = sorted(p.name for p in upload_dir.iterdir())
+    assert "08-reading-guide.txt" not in after
+    assert "12-board-plan-trust.txt" not in after
+    assert after == sorted(current + ["notes.md"]), (
+        "a rebuild changed the upload set beyond removing the superseded files")
+    assert len(after) - 1 <= agent_builder.KNOWLEDGE_SOURCE_LIMIT
+
+
 def test_a_missing_required_file_fails_the_delivery_rather_than_shrinking_it(tmp_path):
     """The tolerance above is for the pack file, and for nothing else.
 
