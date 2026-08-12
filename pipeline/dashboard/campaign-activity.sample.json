@@ -1,0 +1,91 @@
+{
+  "_comment": [
+    "The figures of the approved design, as data. This file is what the golden",
+    "test renders, so the frozen artefact is the page that was signed off rather",
+    "than a fresh invention of it.",
+    "",
+    "Counts and labels only. No colours, no pixel heights, no percentages, no",
+    "markup: everything presentational is derived in pipeline/report/",
+    "dashboard_render.py, which is what stops next quarter's numbers from",
+    "changing how the page looks. Write text with literal characters (& — · ≥ ×);",
+    "the renderer escapes it.",
+    "",
+    "Known gap, carried over from the design and reported by validate(): the",
+    "seven teams account for 3'541 of 3'934 activities. The residual is real and",
+    "unnamed, and every run says so until the source data or the row set changes."
+  ],
+
+  "eyebrow": "Communications portfolio · Management view",
+  "title": "Campaign activity overview",
+  "subtitle": "Where leadership intervention may be needed — and with which teams or audiences.",
+  "period_label": "2026 Q3 · 01 Jul – 30 Sep",
+  "prior_period_label": "Q3 2025",
+  "data_as_of": "2026-08-11",
+
+  "activities_total": 3934,
+  "activities_prior": 3812,
+  "planning_horizon_weeks": 15.2,
+  "lead_time_weeks": 4.1,
+  "short_notice_activities": 708,
+  "leadership_activities": 620,
+  "large_audience_activities": 410,
+  "internal_activities": 2636,
+  "external_activities": 1298,
+
+  "weeks": [
+    { "commencing": "29 Jun", "contacts": 620000,  "activities": 191 },
+    { "commencing": "6 Jul",  "contacts": 700000,  "activities": 215 },
+    { "commencing": "13 Jul", "contacts": 560000,  "activities": 172 },
+    { "commencing": "20 Jul", "contacts": 833000,  "activities": 256 },
+    { "commencing": "27 Jul", "contacts": 953000,  "activities": 293 },
+    { "commencing": "3 Aug",  "contacts": 1020000, "activities": 314 },
+    { "commencing": "10 Aug", "contacts": 980000,  "activities": 301 },
+    { "commencing": "17 Aug", "contacts": 1150000, "activities": 354 },
+    { "commencing": "24 Aug", "contacts": 1053000, "activities": 324 },
+    { "commencing": "31 Aug", "contacts": 1080000, "activities": 332 },
+    { "commencing": "7 Sep",  "contacts": 960000,  "activities": 295 },
+    { "commencing": "14 Sep", "contacts": 820000,  "activities": 252 },
+    { "commencing": "21 Sep", "contacts": 640000,  "activities": 197 }
+  ],
+
+  "priorities": [
+    { "label": "1 – Share price sensitive", "activities": 1102 },
+    { "label": "2 – High",                  "activities": 1257 },
+    { "label": "3 – Medium",                "activities": 982 },
+    { "label": "4 – Low",                   "activities": 593 }
+  ],
+
+  "teams": [
+    { "name": "Group Communications",         "activities": 944 },
+    { "name": "Wealth Management",            "activities": 669 },
+    { "name": "Personal & Corporate Banking", "activities": 551 },
+    { "name": "Asset Management",             "activities": 433 },
+    { "name": "Investment Bank",              "activities": 354 },
+    { "name": "Group Functions",              "activities": 315 },
+    { "name": "Other / Central Teams",        "activities": 275 }
+  ],
+
+  "leadership_by_team": [
+    { "name": "Group Communications",         "share": 0.28 },
+    { "name": "Wealth Management",            "share": 0.22 },
+    { "name": "Investment Bank",              "share": 0.18 },
+    { "name": "Asset Management",             "share": 0.16 },
+    { "name": "Personal & Corporate Banking", "share": 0.14 },
+    { "name": "Group Functions",              "share": 0.12 },
+    { "name": "Other / Central Teams",        "share": 0.10 }
+  ],
+
+  "insights": {
+    "timing": "The four weeks from 10 Aug to 31 Aug carry four of the five heaviest loads. Consider shifting non-critical sends out of the week of 17 Aug.",
+    "priority": "60% of activities are rated High or share-price sensitive — a prioritisation review would free capacity.",
+    "ownership": "Group Communications plans nearly 1.5× the next team — check whether that reflects mandate or backlog.",
+    "leadership": "Four of seven teams sit at or below the portfolio average; Group Functions and Central Teams have the widest gap to the 20% target.",
+    "reach": "Executive time is spread thin: only 1 in 6 activities has board participation, while a third of the portfolio faces external audiences."
+  },
+
+  "footer_notes": "Audience figures are planning estimates, not measured reach. Scope is based on period overlap, not start date. Targets set by the Communications Leadership Team.",
+  "footer_source": [
+    "Source: CPLAN report pack (calendar, activities, breakdowns)",
+    "Powered by ECC Measurement & Insights"
+  ]
+}
