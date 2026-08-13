@@ -634,7 +634,7 @@ def test_every_board_file_answers_on_its_own(tmp_path):
 
 
 def test_the_upload_folder_holds_exactly_what_is_uploaded(tmp_path):
-    """Twelve files without a pack export, and the folder is the instruction.
+    """Thirteen files without a pack export, and the folder is the instruction.
 
     An operator uploading a folder uploads the folder. Anything in it that
     should not be knowledge becomes knowledge, and the two candidates are both
@@ -653,7 +653,8 @@ def test_the_upload_folder_holds_exactly_what_is_uploaded(tmp_path):
                            + (agent_builder.READING_GUIDE_NAME,
                               agent_builder.CHART_STANDARDS_NAME)
                            + tuple(agent_builder.BOARD_FILE_NAMES.values())
-                           + tuple(agent_builder.CONTRACT_FILE_NAMES.values()))
+                           + tuple(agent_builder.CONTRACT_FILE_NAMES.values())
+                           + (agent_builder.BUNDLE_FILE_NAME,))
     assert agent_pack.CHECKLIST_NAME not in names, (
         "an agent that can read the answer key passes without computing anything")
     assert agent_pack.README_NAME not in names, (

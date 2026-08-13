@@ -124,22 +124,50 @@ def test_status_marks_are_drawn_and_never_typed(view):
 def test_the_renderer_reports_which_face_it_drew_with(view):
     _, chosen, _ = board_image.render(view)
     assert chosen.name
-    assert Path(chosen.path).exists()
+    assert set(chosen.faces) == {"light", "regular", "medium", "bold"}
+    for path, _index in chosen.faces.values():
+        assert Path(path).exists()
     assert isinstance(chosen.graded, bool)
 
 
-def test_a_bundled_font_wins_the_ladder(tmp_path):
-    """The only entry that makes two machines agree by construction, so it is
-    first and stays first."""
-    assert board_image.FONT_LADDER[0][0] == "bundled"
-    assert board_image.FONT_LADDER[0][1].startswith("fonts/")
+def test_the_ladder_prefers_a_bundled_face_then_the_sandbox_one():
+    """Order is a decision, not an accident.
+
+    `bundled` first because dropping a licensed face into fonts/ is a
+    deliberate act. DejaVu next -- ahead of anything local -- because it is what
+    the agent's sandbox has, and a ladder that preferred this machine's fonts
+    would give whoever renders here a prettier board than the readers get.
+    """
+    names = [name for name, _ in board_image.FONT_LADDER]
+    assert names[0] == "bundled"
+    assert names[1] == "DejaVu Sans"
+    assert names.index("DejaVu Sans") < names.index("Helvetica Neue")
+
+
+def test_a_family_missing_one_weight_is_skipped_whole(tmp_path):
+    """A family that opens for body text and fails for the light face would
+    draw a board whose hero figures silently changed weight."""
+    real = board_image.resolve_font()
+    crippled = dict(real.faces)
+    crippled["light"] = ("/nowhere/absent.ttf", 0)
+    with pytest.raises(RuntimeError, match="no drawable font"):
+        board_image.resolve_font(ladder=(("half a family", crippled),))
 
 
 def test_no_drawable_font_is_an_error_not_a_blank_page():
+    absent = {w: ("/nowhere/none.ttf", 0)
+              for w in ("light", "regular", "medium", "bold")}
     with pytest.raises(RuntimeError, match="no drawable font"):
-        board_image.resolve_font(ladder=(("nothing", "/nowhere/none.ttf",
-                                          {"light": 0, "regular": 0,
-                                           "medium": 0, "bold": 0}),))
+        board_image.resolve_font(ladder=(("nothing", absent),))
+
+
+def test_the_face_report_counts_distinct_files_not_entries(view):
+    """A single-weight family maps four weights onto one file. `weights` says
+    1 there and 4 for a graded family, which is what a caller comparing two
+    runs needs to know."""
+    _, chosen, _ = board_image.render(view)
+    assert chosen.weights == len(set(chosen.faces.values()))
+    assert chosen.graded is (chosen.weights > 1)
 
 
 # ---------------------------------------------------------------------------

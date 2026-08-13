@@ -35,7 +35,34 @@ This board is **rendered, not drawn**. Produce the data object below; a tested
 renderer turns it into the page, which is titled "Campaign activity overview".
 Do not draw this board, and do not describe what it would look like.
 
-## What to return
+## What to do with it
+
+Build the object, write it beside you, and draw the board:
+
+```python
+import json, pathlib
+data = { ... the object below ... }
+pathlib.Path("board.json").write_text(json.dumps(data), encoding="utf-8")
+
+src = pathlib.Path("14-board-draw.txt").read_text(encoding="utf-8")
+ns = {}
+exec(compile(src, "14-board-draw.txt", "exec"), ns)
+path, face, weights = ns["draw_from_json"]("board.json", "board.png")
+print(path, face, weights)
+```
+
+Then show `board.png` in the chat.
+
+`14-board-draw.txt` is the renderer the page itself is drawn with. Do not
+rewrite it, do not draw the board yourself, and do not substitute a chart of
+your own if it fails — say what failed. It refuses rather than returning an
+image when two pieces of text would overlap, which is a real answer and a
+picture with a sentence lying across a label is not.
+
+If the file is not beside you, list your working directory, say what you found,
+and stop.
+
+## The object itself
 
 One JSON object and nothing else — no prose above it, no commentary below it,
 no code fence language other than `json`. Every field is required. A field you
