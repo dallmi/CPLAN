@@ -115,3 +115,91 @@ account of having read it. Each step is chosen so that it cannot:
 The instruction "if `open()` fails, the correct answer is that it failed" is
 doing real work. Without it the helpful answer and the true answer point in
 opposite directions, and the helpful one is what arrives.
+
+---
+
+# Probe 2 — what the sandbox can draw with
+
+Probe 1 answers whether the drawing code can *arrive*. Three things decide
+whether it can *run*, and each of them kills a different part of the design if
+the answer is no.
+
+- **Is Pillow there?** Nothing can be installed in a sandbox with no network,
+  so a missing library is final rather than inconvenient.
+- **Does an image the code writes reach the chat?** A PNG on a sandbox
+  filesystem that nobody can see is not a delivered board.
+- **What faces does it have?** This decides whether a font has to ship at all.
+  A sandbox holding one single-weight face draws a correct board whose
+  hierarchy is carried by size alone — worth knowing before shipping tens of
+  kilobytes of base64 to avoid it.
+
+## Paste this into the agent
+
+```
+Second diagnostic. Same rules: every line must come from code you
+actually run in this turn, and a step that cannot run is reported as
+having failed rather than described.
+
+Step 1 — is Pillow available?
+Run:
+    try:
+        import PIL
+        from PIL import Image, ImageDraw, ImageFont
+        print("pillow", PIL.__version__)
+    except Exception as e:
+        print("pillow MISSING", type(e).__name__, e)
+Report the line verbatim.
+
+Step 2 — what faces does this machine have?
+Run:
+    import os
+    roots = ["/usr/share/fonts", "/usr/local/share/fonts",
+             "/Library/Fonts", "/System/Library/Fonts",
+             "C:/Windows/Fonts", os.path.expanduser("~/.fonts")]
+    found = []
+    for r in roots:
+        for dirpath, _, names in os.walk(r):
+            for n in names:
+                if n.lower().endswith((".ttf", ".ttc", ".otf")):
+                    found.append(os.path.join(dirpath, n))
+    print(len(found), "font files")
+    for p in sorted(found)[:25]:
+        print("   ", p)
+Report the count and the list.
+
+Step 3 — can you run code that arrived as a knowledge file?
+From the directory probe 1 found, read any one of the .txt knowledge
+files and print its first line, using open() rather than memory. Then
+run:
+    code = "VALUE = 6 * 7\n"
+    ns = {}
+    exec(code, ns)
+    print("exec works:", ns["VALUE"])
+Report both.
+
+Step 4 — does an image you create reach me?
+Run:
+    from PIL import Image, ImageDraw
+    img = Image.new("RGB", (400, 120), "white")
+    d = ImageDraw.Draw(img)
+    d.rectangle([20, 20, 380, 100], outline="#e60000", width=3)
+    d.text((40, 55), "probe 2", fill="#000000")
+    img.save("probe2.png")
+    import os; print("wrote", os.path.abspath("probe2.png"),
+                     os.path.getsize("probe2.png"), "bytes")
+Then show me that image in this chat, and say plainly whether you were
+able to display it or only to write the file.
+```
+
+## Read the answer
+
+| What comes back | What it means |
+|---|---|
+| Step 1 says MISSING | Pillow is out. The board would have to be drawn with whatever *is* there, or not drawn in the agent at all. |
+| Step 2 lists no fonts | A face has to ship as base64 — not an optimisation but the only way to get type on the page. |
+| Step 2 lists one single-weight face | A font ships if the weight ladder matters; otherwise the board is correct and flatter. |
+| Step 3 fails on `exec` | The code cannot be shipped as a file after all, whatever probe 1 said. Back to reproducing it verbatim, and small. |
+| Step 4 writes but cannot display | The last mile is missing: the picture exists where nobody can see it, and the delivery needs a different final hop. |
+
+**Step 4 is the one to read first.** A board the agent can draw and cannot hand
+over is the same as no board, and it is the step most easily assumed to work.
