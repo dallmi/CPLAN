@@ -203,3 +203,79 @@ able to display it or only to write the file.
 
 **Step 4 is the one to read first.** A board the agent can draw and cannot hand
 over is the same as no board, and it is the step most easily assumed to work.
+
+---
+
+# Probe 3 — can the sandbox turn HTML into a document?
+
+The board is drawn twice: once as a page from a frozen template, once as a
+raster by `board_image.py`. The second exists only because a picture appears
+inline in a chat and a page does not — and every defect found since the board
+met real data has been a raster defect. Text colliding, a bar leaving its
+panel, a name running under a chart, a bar width going negative at fifty-two
+weeks, a font that differs per machine: the page has none of these, because
+flexbox pushes and a browser resolves fonts.
+
+So if the sandbox can turn the page into a PDF or an image, the raster renderer
+stops being necessary — one renderer instead of two, and vector output instead
+of pixels. If it cannot, the two stay: the page for printing, the picture for
+the chat.
+
+## Paste this into the agent
+
+```
+Third diagnostic. Same rules: every line comes from code you run in
+this turn, and a step that cannot run is reported as failed rather
+than described.
+
+Step 1 — is any HTML renderer importable?
+Run:
+    for name in ("weasyprint", "cairosvg", "imgkit", "pdfkit",
+                 "xhtml2pdf", "playwright", "selenium", "reportlab"):
+        try:
+            m = __import__(name)
+            print(name, "OK", getattr(m, "__version__", ""))
+        except Exception as e:
+            print(name, "MISSING", type(e).__name__)
+Report every line.
+
+Step 2 — is any browser or converter on the machine?
+Run:
+    import shutil
+    for b in ("chromium", "chromium-browser", "google-chrome", "chrome",
+              "wkhtmltopdf", "wkhtmltoimage", "libreoffice", "soffice",
+              "pandoc", "weasyprint"):
+        print(b, shutil.which(b))
+Report the list.
+
+Step 3 — can you attach a file that is not an image?
+Run:
+    import pathlib
+    pathlib.Path("probe3.html").write_text(
+        "<h1>probe 3</h1><p>if you can see this rendered, "
+        "HTML travels.</p>", encoding="utf-8")
+    print("wrote probe3.html")
+Then try to attach probe3.html to your reply, and say plainly whether
+you were able to attach it, whether it displays, or whether only a
+download link is possible.
+
+Step 4 — and a PDF?
+Only if step 1 or step 2 found something. Use it to turn probe3.html
+into probe3.pdf, print the file size, attach it, and say which tool
+you used. If nothing was found, say that no converter is available and
+stop — do not build a PDF some other way.
+```
+
+## Read the answer
+
+| What comes back | What it means |
+|---|---|
+| Step 1 or 2 finds a converter, and step 4 attaches a PDF | The raster renderer can go. One renderer, vector output, and every raster-only defect disappears with it. |
+| Nothing in 1 or 2, but step 3 attaches the HTML | The page can be delivered for printing, but the reader does the printing. Keep both renderers: the page as an attachment, the picture for the chat. |
+| Step 3 cannot attach a non-image | Only pictures travel. The raster renderer is the delivery, and the page stays a thing produced on a machine with a browser. |
+
+One caveat whichever way it goes: the frozen template carries no print rules
+at all today — no `@page`, no `@media print`. It is a fixed 1440-pixel page, so
+printing it without those clips the right-hand column. That is small work, but
+it is not nothing, and it only becomes worth doing if this probe says the page
+can be printed where it is produced.
