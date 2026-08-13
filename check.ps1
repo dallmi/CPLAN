@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-13.2"
+$manifestVersion = "2026-08-13.3"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-13.2"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-13.2"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-13.3"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -740,7 +740,13 @@ $manifest = @(
     @{ Path = "pipeline\report\board_image.py"; Marker = "def clip_text"; Why = "a name too long for its column is clipped rather than run under the bars - the collision check compares text with text and a bar track is not text, so an older copy passes the check and covers the chart" },
     @{ Path = "pipeline\report\dashboard_render.py"; Marker = "measured backwards is not a lead time"; Why = "the lead-time tile is gone; the pack states a median over the whole plan and the plan is mostly past - an older copy prints a large negative number as a planning KPI" },
     @{ Path = "pipeline\dashboard\campaign-activity.template.html"; Marker = "repeat(3, 1fr)"; Why = "three tiles, the lead-time one having been removed rather than relabelled - an older copy leaves a fourth column whose figure nothing supplies" },
-    @{ Path = "pipeline\report\dashboard_contract.py"; Marker = "the only whole-plan figure"; Why = "one stated exception rather than two - an older copy still asks the agent for a lead-time median the board no longer has a tile for" }
+    @{ Path = "pipeline\report\dashboard_contract.py"; Marker = "the only whole-plan figure"; Why = "one stated exception rather than two - an older copy still asks the agent for a lead-time median the board no longer has a tile for" },
+
+    # The renderer switched on the suffix from the day it was written and the
+    # contract never said so, so an agent asked for a PDF had nothing to follow
+    # and improvised. A capability nobody is told about is a capability nobody
+    # has.
+    @{ Path = "pipeline\report\dashboard_contract.py"; Marker = "If a PDF is asked for"; Why = "the contract names the PDF path and what to do when the surface refuses the attachment - an older copy documents only the PNG, and the agent invents its own answer for the other half of the request" }
 )
 
 Write-Host ""

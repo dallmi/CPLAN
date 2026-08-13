@@ -53,6 +53,18 @@ print(path, face, weights)
 
 Then show `board.png` in the chat.
 
+**If a PDF is asked for**, pass a `.pdf` name instead — the renderer switches on
+the suffix and nothing else changes:
+
+```python
+path, face, weights = ns["draw_from_json"]("board.json", "board.pdf")
+```
+
+Attach it. If this surface will not let you attach a PDF, say so in one
+sentence and give the PNG — do not print the board as text, and do not describe
+what the PDF would have shown. The PDF is the same picture in a document
+wrapper, so nothing is lost but the file type.
+
 `14-board-draw.txt` is the renderer the page itself is drawn with. Do not
 rewrite it, do not draw the board yourself, and do not substitute a chart of
 your own if it fails — say what failed. It refuses rather than returning an
