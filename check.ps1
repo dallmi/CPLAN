@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-13.3"
+$manifestVersion = "2026-08-13.4"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-13.3"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-13.3"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-13.4"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -746,7 +746,17 @@ $manifest = @(
     # contract never said so, so an agent asked for a PDF had nothing to follow
     # and improvised. A capability nobody is told about is a capability nobody
     # has.
-    @{ Path = "pipeline\report\dashboard_contract.py"; Marker = "If a PDF is asked for"; Why = "the contract names the PDF path and what to do when the surface refuses the attachment - an older copy documents only the PNG, and the agent invents its own answer for the other half of the request" }
+    @{ Path = "pipeline\report\dashboard_contract.py"; Marker = "If a PDF is asked for"; Why = "the contract names the PDF path and what to do when the surface refuses the attachment - an older copy documents only the PNG, and the agent invents its own answer for the other half of the request" },
+
+    # Second contact with a real quarter, and the same class of fault twice
+    # more. A team at 100% leadership involvement against a ceiling fixed at
+    # 40% drew a bar two and a half times the height of its own plot, climbed
+    # out of the panel and over the one above it; the source's own priority
+    # labels ran off the legend. Neither is a collision between two pieces of
+    # text, which is why nothing caught them: a bar is not text and a panel
+    # edge is not a label.
+    @{ Path = "pipeline\report\dashboard_render.py"; Marker = "No fixed ceiling for the leadership axis"; Why = "the leadership axis takes its ceiling from the data - an older copy draws any share above 40 percent outside its own panel, silently, in both the page and the picture" },
+    @{ Path = "pipeline\report\board_image.py"; Marker = "a legend is a column too"; Why = "the priority legend is clipped to its column like the team names already were - an older copy prints the source's governance labels off the edge of the panel" }
 )
 
 Write-Host ""

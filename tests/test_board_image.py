@@ -302,3 +302,19 @@ def test_a_long_name_is_clipped_rather_than_run_under_the_bars(view):
         "the longest team name reached the canvas whole and now runs under the bars")
     assert any(t.startswith("Risk and Compliance") and t.endswith("\u2026")
                for t in ownership), "the name was dropped rather than clipped"
+
+
+def test_a_long_priority_label_is_clipped_to_its_legend(view):
+    """The source's own priority labels are governance wording and long -- the
+    legend ran off the panel because only the ownership column was clipped. A
+    legend is a column too."""
+    raw = SAMPLE.read_text(encoding="utf-8")
+    base = json.loads(re.sub(r'"_comment":\s*\[[^\]]*\],', "", raw))
+    wordy = json.loads(json.dumps(base))
+    for i, row in enumerate(wordy["priorities"]):
+        row["label"] = f"{i + 1} - a governance label long enough to overflow its column"
+    canvas = _canvas(build_view(wordy, THRESHOLDS))
+    legend = [item for item in canvas.drawn if item.zone == "priority"]
+    assert any("…" in item.text for item in legend), "nothing was clipped"
+    for item in legend:
+        assert item.box[2] <= 900, f"{item.text!r} runs past the panel"

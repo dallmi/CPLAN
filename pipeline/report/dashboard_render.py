@@ -101,7 +101,11 @@ TIMING_PLOT_HEIGHT = 180
 TIMING_BAR_PITCH = 28
 TIMING_BAR_ORIGIN = 9
 LEADERSHIP_PLOT_HEIGHT = 160
-LEADERSHIP_AXIS_MAX_SHARE = 0.40
+# No fixed ceiling for the leadership axis. It was 0.40, which held for the
+# sample and broke on the first real quarter: a team at 100% drew a 400px bar
+# in a 160px plot, climbed out of its panel and over the one above it. The
+# collision check could not see it -- a bar is not text -- so the ceiling now
+# comes from the data, like the timing axis already did.
 OWNERSHIP_AXIS_MAX_SHARE = 0.30
 MOVING_AVERAGE_WEEKS = 4
 
@@ -404,13 +408,16 @@ def build_view(data, thresholds=None):
     ]
 
     # --- Panel 04: leadership by team ----------------------------------
+    lead_ceiling_pct, _ = axis_scale(
+        max((item["share"] for item in data["leadership_by_team"]), default=0) * 100)
+    lead_ceiling = lead_ceiling_pct / 100
     leadership_rows = []
     for rank, item in enumerate(data["leadership_by_team"]):
         share = item["share"]
         leadership_rows.append({
             "share": percent(share),
             "height": _round_half_up(
-                share / LEADERSHIP_AXIS_MAX_SHARE * LEADERSHIP_PLOT_HEIGHT
+                share / lead_ceiling * LEADERSHIP_PLOT_HEIGHT
             ),
             "colour": _rank_colour(rank, LEADERSHIP_COLOURS),
             "label_colour": _rank_colour(rank, LEADERSHIP_LABEL_COLOURS),
@@ -423,7 +430,7 @@ def build_view(data, thresholds=None):
         for rank, item in enumerate(data["leadership_by_team"])
     ]
     average_offset = _round_half_up(
-        leadership_share / LEADERSHIP_AXIS_MAX_SHARE * LEADERSHIP_PLOT_HEIGHT
+        min(leadership_share, lead_ceiling) / lead_ceiling * LEADERSHIP_PLOT_HEIGHT
     )
 
     # --- Panel 05: reach ------------------------------------------------
