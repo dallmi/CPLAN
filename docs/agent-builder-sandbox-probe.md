@@ -279,3 +279,65 @@ at all today — no `@page`, no `@media print`. It is a fixed 1440-pixel page, s
 printing it without those clips the right-hand column. That is small work, but
 it is not nothing, and it only becomes worth doing if this probe says the page
 can be printed where it is produced.
+
+## What probe 3 answered — 2026-08-13
+
+Measured, not assumed. Recording it because the next person to wonder will
+otherwise measure it again.
+
+**Importable:** `weasyprint` 66.0, `cairosvg` 2.8.2, `pdfkit` 1.0.0,
+`playwright`, `selenium` 4.39.0, `reportlab` 4.4.6.
+**Not importable:** `imgkit`, `xhtml2pdf`.
+**On PATH:** `weasyprint`, `libreoffice`, `soffice`, `pandoc`.
+**Not on PATH:** every browser — no `chromium`, `chromium-browser`,
+`google-chrome`, `chrome` — and no `wkhtmltopdf` or `wkhtmltoimage`.
+
+`weasyprint` converted the probe page to a 5,679-byte PDF. Both the `.html` and
+the `.pdf` came back as downloadable attachment links; inline display was not
+verified for either, where probe 2's PNG had rendered inline.
+
+### What that rules out
+
+Three of the six importable libraries are dead ends on this machine.
+`playwright` and `selenium` drive a browser and there is none; `pdfkit` drives
+`wkhtmltopdf` and there is none. The only working HTML-to-PDF path is
+WeasyPrint, which is not a browser but a much narrower CSS engine.
+
+### Why "just print the page" is not free
+
+The frozen board is built on **81 flex containers, 11 CSS grids and one
+`conic-gradient`** — the donut. WeasyPrint's flexbox and grid support is
+partial, and `conic-gradient` is unsupported outright, so the donut would
+simply not draw. Printing the existing page is therefore not a delivery
+decision but a rewrite of the template into WeasyPrint's subset: the same
+template the golden file pins and five review rounds settled.
+
+So this probe does **not** remove the raster renderer, which was the hope. What
+it removes is the guesswork about why.
+
+### The finding worth keeping
+
+`cairosvg` is the interesting one, and it was not what anybody was looking for.
+
+The renderer already computes absolute coordinates for everything it draws --
+bar heights in pixels, x positions, the moving-average polyline, the donut's
+segment angles. That is precisely what SVG consumes. An HTML layout engine
+would have to re-derive those positions from flex rules; SVG is handed the
+numbers that already exist.
+
+And `cairosvg` writes both PDF and PNG. One renderer over the same view would
+then produce a vector document for printing and a raster for the chat, with no
+layout engine between the figures and the page.
+
+It is not free: SVG has no text flow either, so the fitting and collision work
+stays exactly as it is. It would be a rewrite of `board_image.py`, not a
+deletion of it — two renderers becoming one rather than two becoming none.
+
+### What was decided
+
+Nothing changes now. The raster board is tested, renders inline, and has just
+taken four rounds of fixes to sit still against real data; swapping the drawing
+layer during that is how the same defects get found twice. The moment to
+revisit is after the board has survived two or three real quarters unchanged,
+when it would be a rewrite toward a known target rather than a second open
+front beside the first.
