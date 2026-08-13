@@ -502,6 +502,14 @@ def build_view(data, thresholds=None):
             f"{percent(large_share)} of total · top two audience bands",
         "reach_internal_share": percent(internal_share),
         "reach_external_share": percent(1 - internal_share),
+        # The printed share and the drawn width are separate on purpose. A data
+        # object whose internal and external counts do not sum to the total is
+        # already reported by `validate`, and the honest thing on the page is to
+        # print what it says -- but a share above 1 drove the split bar to a
+        # negative width, and Pillow raises on that. A wrong-looking bar beside
+        # a complaint beats a stack trace where a board should be.
+        "reach_internal_width": percent(min(max(internal_share, 0.0), 1.0)),
+        "reach_external_width": percent(1 - min(max(internal_share, 0.0), 1.0)),
         "reach_split_detail":
             f"{swiss(data['internal_activities'])} internal · "
             f"{swiss(data['external_activities'])} external",

@@ -245,6 +245,17 @@ class Canvas:
             self.line(x, y, min(x + dash, x2), y, fill=fill, width=width)
             x += dash + gap
 
+    def reference_line(self, x1, y, x2, fill=GREY_5):
+        """A dashed rule that stays readable wherever it crosses.
+
+        Drawn over the bars rather than under them, on a thin white knockout.
+        Under them it vanished the moment the average sat below every bar --
+        which is the ordinary case, not the awkward one: a portfolio average is
+        usually lower than the teams a panel is ranking.
+        """
+        self.line(x1, y, x2, y, fill=WHITE, width=3)
+        self.dashed(x1, y, x2, fill=fill)
+
     def polygon(self, points, fill):
         s = self.scale
         self.draw.polygon([(px * s, py * s) for px, py in points], fill=self.ink(fill))
@@ -705,7 +716,6 @@ def render(view, *, font=None, check=True):
     bar_w = (inner_w - gap4 * (len(lead) - 1)) / len(lead)
     c.line(inner_x, top + LEADERSHIP_PLOT_H, inner_x + inner_w, top + LEADERSHIP_PLOT_H, BLACK, 1)
     avg_y = top + LEADERSHIP_PLOT_H - float(V["leadership_average_offset"])
-    c.dashed(inner_x, avg_y, inner_x + inner_w)
     # Above the plot, not beside the line. Sitting by the line puts it exactly
     # where a bar at the average has its own label, and a bar at the average is
     # the ordinary case rather than the awkward one.
@@ -717,6 +727,7 @@ def render(view, *, font=None, check=True):
                fill=bar["colour"])
         c.text(bx + bar_w / 2, top + LEADERSHIP_PLOT_H - bar["height"] - 18,
                bar["share"], 12.5, MEDIUM, bar["label_colour"], anchor="ma")
+    c.reference_line(inner_x, avg_y, inner_x + inner_w)
     name_size = fit_label_size(
         c, [part for l in names for part in plain(l["label"]).split("<br>")],
         bar_w + gap4 - 4)
@@ -757,7 +768,7 @@ def render(view, *, font=None, check=True):
             c.text(tx, ry + 24, detail, 11, REGULAR, GREY_5)
         else:
             bar_w2 = w5 - (tx - x5) - 22
-            share = float(V["reach_internal_share"].rstrip("%")) / 100
+            share = float(V["reach_internal_width"].rstrip("%")) / 100
             c.rect(tx, ry + 44, bar_w2, 10, fill=ROW_ALT)
             c.rect(tx, ry + 44, bar_w2 * share, 10, fill=GREY_5)
             c.rect(tx + bar_w2 * share, ry + 44, bar_w2 * (1 - share), 10, fill=GREY_1)

@@ -192,7 +192,8 @@
       </div>
       <div style="flex: 1; display: flex; flex-direction: column; gap: 18px; padding: 20px 22px 18px;">
         <div style="position: relative; height: 160px; border-bottom: 1px solid #000000;">
-          <div style="position: absolute; left: 0; right: 0; bottom: {{ leadership_average_offset }}px; border-top: 1.25px dashed #5a5d5c; z-index: 0;"></div>
+          <div style="position: absolute; left: 0; right: 0; bottom: {{ leadership_average_offset }}px; border-top: 3px solid #ffffff; z-index: 2;"></div>
+          <div style="position: absolute; left: 0; right: 0; bottom: {{ leadership_average_offset }}px; border-top: 1.25px dashed #5a5d5c; z-index: 2;"></div>
           <div style="position: absolute; right: 0; bottom: {{ leadership_average_label_offset }}px; font-size: 11px; color: #5a5d5c; background: #ffffff; padding: 0 4px; z-index: 2;">{{ leadership_average_label }}</div>
           <div style="position: absolute; inset: 0; display: flex; align-items: flex-end; gap: 24px; z-index: 1;">
 {{ leadership_bars }}
@@ -246,7 +247,7 @@
             </div>
             <div style="flex: 1; display: flex; flex-direction: column; gap: 7px;">
               <div style="font-size: 12.5px; font-weight: 600;">Internal vs. external split</div>
-              <div style="display: flex; height: 10px; background: #f8f7f2;"><div style="width: {{ reach_internal_share }}; background: #5a5d5c;"></div><div style="width: {{ reach_external_share }}; background: #cccabc;"></div></div>
+              <div style="display: flex; height: 10px; background: #f8f7f2;"><div style="width: {{ reach_internal_width }}; background: #5a5d5c;"></div><div style="width: {{ reach_external_width }}; background: #cccabc;"></div></div>
               <div style="font-size: 11px; color: #5a5d5c;">{{ reach_split_detail }}</div>
             </div>
           </div>

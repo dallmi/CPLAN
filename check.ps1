@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-13.4"
+$manifestVersion = "2026-08-13.5"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-13.4"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-13.4"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-13.5"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -756,7 +756,21 @@ $manifest = @(
     # text, which is why nothing caught them: a bar is not text and a panel
     # edge is not a label.
     @{ Path = "pipeline\report\dashboard_render.py"; Marker = "No fixed ceiling for the leadership axis"; Why = "the leadership axis takes its ceiling from the data - an older copy draws any share above 40 percent outside its own panel, silently, in both the page and the picture" },
-    @{ Path = "pipeline\report\board_image.py"; Marker = "a legend is a column too"; Why = "the priority legend is clipped to its column like the team names already were - an older copy prints the source's governance labels off the edge of the panel" }
+    @{ Path = "pipeline\report\board_image.py"; Marker = "a legend is a column too"; Why = "the priority legend is clipped to its column like the team names already were - an older copy prints the source's governance labels off the edge of the panel" },
+
+    # The reference line was drawn under the bars, which held while the average
+    # sat mid-plot and failed the moment it sat below every bar -- the ordinary
+    # case, since a portfolio average is usually lower than the teams a panel
+    # ranks. A real quarter put it at 14% against bars of 50 to 100 and it
+    # disappeared completely.
+    #
+    # Beside it, a data fault that had been reported for weeks became a crash:
+    # a split whose parts exceed their total drove the bar to a negative width,
+    # and Pillow raises on that. A wrong-looking bar next to the complaint the
+    # run already printed beats a stack trace where a board should be.
+    @{ Path = "pipeline\report\board_image.py"; Marker = "def reference_line"; Why = "the average line is drawn over the bars on a white knockout - an older copy hides it behind them whenever the average is lower than the teams, which is most of the time" },
+    @{ Path = "pipeline\report\dashboard_render.py"; Marker = "reach_internal_width"; Why = "the drawn width and the printed share are separate, so an inconsistent split renders instead of raising - an older copy turns a reported data fault into a crash" },
+    @{ Path = "pipeline\dashboard\campaign-activity.template.html"; Marker = "reach_internal_width"; Why = "the page draws the split from the clamped width and prints the true share beside it - an older copy lays out a flex row from a percentage above 100 and reads as if the halves were reversed" }
 )
 
 Write-Host ""

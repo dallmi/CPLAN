@@ -26,7 +26,8 @@ import pytest
 pytest.importorskip("PIL")
 
 from pipeline.report import board_image  # noqa: E402
-from pipeline.report.dashboard_render import THRESHOLDS, build_view  # noqa: E402
+from pipeline.report.dashboard_render import (  # noqa: E402
+    THRESHOLDS, build_view, validate as dashboard_validate)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SAMPLE = REPO_ROOT / "pipeline" / "dashboard" / "campaign-activity.sample.json"
@@ -318,3 +319,44 @@ def test_a_long_priority_label_is_clipped_to_its_legend(view):
     assert any("…" in item.text for item in legend), "nothing was clipped"
     for item in legend:
         assert item.box[2] <= 900, f"{item.text!r} runs past the panel"
+
+
+def test_the_average_line_survives_the_bars_it_crosses(view):
+    """It was drawn under them, which held while the average sat mid-plot and
+    failed the moment it sat below every bar -- the ordinary case, since a
+    portfolio average is usually lower than the teams a panel is ranking. Real
+    data put it at 14% against bars of 50 to 100 and it vanished entirely.
+    """
+    raw = SAMPLE.read_text(encoding="utf-8")
+    base = json.loads(re.sub(r'"_comment":\s*\[[^\]]*\],', "", raw))
+    low = json.loads(json.dumps(base))
+    low["leadership_activities"] = int(low["activities_total"] * 0.14)
+    low["leadership_by_team"] = [{"name": "ALL", "share": 1.00},
+                                 {"name": "Group Legal", "share": 0.67}]
+    view2 = build_view(low, THRESHOLDS)
+    image, _, _ = board_image.render(view2)
+
+    # Where the line crosses the first bar, which is black.
+    offset = float(view2["scalars"]["leadership_average_offset"])
+    y = int(board_image.PANEL_ROW1_H + 20 + 200 + 20 + 78 + 26
+            + board_image.LEADERSHIP_PLOT_H - offset) + board_image.PAD + 140
+    strip = [image.getpixel((x, y)) for x in range(80, 170)]
+    assert any(sum(px) > 300 for px in strip), (
+        "no light pixel where the reference line crosses the black bar -- "
+        "it is behind the bars again")
+
+
+def test_a_split_that_does_not_add_up_draws_rather_than_raising(view):
+    """`validate` already reports it. A share above 1 drove the split bar to a
+    negative width and Pillow raises on that, so a board became a stack trace
+    over a data fault the run had already named."""
+    raw = SAMPLE.read_text(encoding="utf-8")
+    base = json.loads(re.sub(r'"_comment":\s*\[[^\]]*\],', "", raw))
+    broken = json.loads(json.dumps(base))
+    broken["activities_total"] = 849          # internal + external now exceed it
+    complaints = dashboard_validate(broken)
+    assert any("internal + external" in c for c in complaints)
+
+    view3 = build_view(broken, THRESHOLDS)
+    board_image.render(view3)                 # must not raise
+    assert float(view3["scalars"]["reach_internal_width"].rstrip("%")) <= 100
