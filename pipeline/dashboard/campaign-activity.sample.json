@@ -21,9 +21,9 @@
     "the value it is given and never folds it onto invented words -- so it is",
     "this committed sample, not the dashboard, that carries placeholders.",
     "",
-    "No planning horizon and no prior period: the pack states neither. Lead",
-    "time is a median in days because that is the statistic the pack states,",
-    "and large audience is the top two bands rather than a contact count."
+    "No planning horizon, no prior period and no lead time: the pack states",
+    "none of them for a period. Large audience is the top two bands rather",
+    "than a contact count."
   ],
 
   "eyebrow": "Communications portfolio · Management view",
@@ -34,7 +34,6 @@
 
   "activities_total": 3934,
   "activities_in_plan": 18394,
-  "lead_time_median_days": 29,
   "short_notice_activities": 708,
   "leadership_activities": 620,
   "large_audience_activities": 410,

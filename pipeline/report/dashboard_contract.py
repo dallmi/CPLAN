@@ -74,9 +74,8 @@ after the object, rather than a figure to estimate.
 Every count in the object comes from **quarter grain** in `08-periods.csv`, for
 the one quarter the reader asked about.
 
-Two fields are the stated exceptions and both describe the **whole plan**, not
-the quarter. They are marked below, and the page labels them on the card so a
-reader cannot take them for the period's.
+One field is the stated exception and it describes the **whole plan**, not the
+quarter. It is marked below.
 
 `08-periods.csv` carries the activity count and three shares at quarter grain.
 Anything else you need by quarter is not there, and the year-grain row beside
@@ -94,7 +93,6 @@ it is a different period wearing the same block name.
 
   "activities_total": 0,
   "activities_in_plan": 0,
-  "lead_time_median_days": 0,
   "short_notice_activities": 0,
   "leadership_activities": 0,
   "large_audience_activities": 0,
@@ -137,12 +135,6 @@ Source: 01-summary.txt · VOLUME · Activities in scope
 The page prints the quarter as a share of this. It is not an exclusion count:
 most of the difference is the other quarters, and calling it excluded would say
 a filter rejected rows it never saw.
-
-### lead_time_median_days — whole plan, not the quarter
-Source: 01-summary.txt · PLANNING DISCIPLINE · Median lead time (days)
-The only lead-time statistic the pack states, at no finer grain than the whole
-plan. A median in days: never convert it to an average or to weeks. The card
-says "across the whole plan" for this reason.
 
 ### short_notice_activities
 Source: 08-periods.csv · block=TOTAL · grain=quarter · measure=short_notice
@@ -199,8 +191,7 @@ Leave a string empty to drop that panel's insight line.
 ## Before you return the object
 
 1. Does every count come from the same quarter?
-2. Are `activities_in_plan` and `lead_time_median_days` the only whole-plan
-   figures?
+2. Is `activities_in_plan` the only whole-plan figure?
 3. Is `activities_in_plan` larger than `activities_total`? A period cannot be
    bigger than the plan holding it.
 4. Do `internal_activities` and `external_activities` sum to `activities_total`?

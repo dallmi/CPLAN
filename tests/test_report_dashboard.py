@@ -192,11 +192,18 @@ def test_a_period_larger_than_its_own_plan_is_reported(data):
     assert any("larger than the plan" in c for c in validate(impossible))
 
 
-def test_the_lead_time_card_says_it_is_not_this_period(data):
-    """The pack states a lead-time median for the whole plan and at no finer
-    grain. Every other figure on the page is the period's, so the one that is
-    not has to say so on the card rather than in a footnote nobody reads."""
-    assert "across the whole plan" in _render(data)
+def test_there_is_no_lead_time_card(data):
+    """It shipped, met real data and read -367 days.
+
+    The pack states a lead-time median over the whole plan; the plan is mostly
+    past, and a lead time measured backwards is not a lead time. A forward
+    version would need a figure the pack does not compute, so the card is gone
+    rather than relabelled -- three honest tiles beat four with one guess.
+    """
+    page = _render(data)
+    assert "Lead time" not in page
+    assert "lead_time" not in json.dumps(data)
+    assert "repeat(3, 1fr)" in page
 
 
 # ---------------------------------------------------------------------------

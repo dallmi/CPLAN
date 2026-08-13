@@ -44,12 +44,6 @@ __all__ = [
 # CONFIGURATION -- this is the block to edit.
 # ---------------------------------------------------------------------------
 THRESHOLDS = {
-    # Median days between the data date and an activity's start -- the statistic
-    # the pack states, in the unit it states it in ("Median lead time (days)").
-    # It reads as a band rather than a floor: being far above the target is not
-    # obviously good, so only a shortfall is a breach.
-    "lead_time_days": 28,
-    "lead_time_tolerance_days": 3,
     # The pack counts an activity as short notice when its lead time is under
     # this many days -- `metrics.lead_time_stats` against
     # `config.SHORT_NOTICE_DAYS` -- and states it as "Planned at under 7 days'
@@ -61,6 +55,12 @@ THRESHOLDS = {
     "leadership_share": 0.20,
 }
 
+# No lead-time threshold either, and that one was learned the expensive way.
+# The card shipped, drew against real data, and read -367 days: the pack states
+# a median over the whole plan, the plan is mostly past, and a lead time
+# measured backwards is not a lead time. A forward-looking median would need a
+# figure the pack does not compute, so the card is gone rather than labelled.
+#
 # No planning-horizon threshold, and no large-audience contact threshold.
 #
 # The pack states neither. Its HORIZON section splits the plan into "planned to
@@ -258,14 +258,6 @@ def _status(label, colour):
     return {"label": label, "colour": colour}
 
 
-def _lead_time_status(days, thresholds):
-    target = thresholds["lead_time_days"]
-    if abs(days - target) <= thresholds["lead_time_tolerance_days"]:
-        return _status("● On target", SUCCESS)
-    if days > target:
-        return _status("▲ Above target", SUCCESS)
-    return _status("▼ Below target", DANGER)
-
 
 def _short_notice_status(share, thresholds):
     if share > thresholds["short_notice_limit_share"]:
@@ -349,11 +341,9 @@ def build_view(data, thresholds=None):
     total = data["activities_total"]
 
     # --- KPI row --------------------------------------------------------
-    lead_time = data["lead_time_median_days"]
     short_notice_share = data["short_notice_activities"] / total
     leadership_share = data["leadership_activities"] / total
 
-    lead_time_status = _lead_time_status(lead_time, thresholds)
     short_notice_status = _short_notice_status(short_notice_share, thresholds)
     leadership_status = _leadership_status(leadership_share, thresholds)
 
@@ -448,17 +438,6 @@ def build_view(data, thresholds=None):
         "period_label": esc(data["period_label"]),
         "data_as_of": esc(data["data_as_of"]),
         "base_label": f"{swiss(total)} activities",
-
-        # The one figure on the page that is not this period's. The pack states
-        # a lead-time median for the whole plan and at no finer grain, so the
-        # card says so rather than letting a quarter be read into it.
-        "leadtime_definition": "Median days to activity start, across the whole plan",
-        "leadtime_value": swiss(lead_time),
-        "leadtime_unit": "days",
-        "leadtime_value_colour": BLACK,
-        "leadtime_status": lead_time_status["label"],
-        "leadtime_status_colour": lead_time_status["colour"],
-        "leadtime_target": f"target {thresholds['lead_time_days']} days",
 
         "shortnotice_definition":
             "Planned at under "
