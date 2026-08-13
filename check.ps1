@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-13.1"
+$manifestVersion = "2026-08-13.2"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-13.1"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-13.1"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-13.2"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -691,7 +691,6 @@ $manifest = @(
     # not write.
     @{ Path = "pipeline\report\agent_pack.py"; Marker = "Somebody asks now"; Why = "quarter grain carries the three shares a quarterly board reads, not the count alone - an older copy writes a pack whose quarter rows cannot fill the contract, and the agent either answers with a year figure or with nothing" },
     @{ Path = "pipeline\report\dashboard_skill.py"; Marker = "Still three boards"; Why = "the overview is routed to its contract and its drawn panel list is gone - an older copy offers both, so one board name has a drawn answer and a rendered one and nothing chooses between them" },
-    @{ Path = "pipeline\report\dashboard_contract.py"; Marker = "across the whole plan"; Why = "the two whole-plan figures are named as such and the page labels them on the card - an older copy lets a lead-time median spanning every year be read as the quarter's" },
     @{ Path = "pipeline\report\agent_builder.py"; Marker = "13-contract-head-of-communications-overview.txt"; Why = "the upload numbering follows the overview becoming a contract - an older copy delivers a drawn board file under a number the prompt no longer names, beside the contract that replaced it" },
 
     # The manifest covered what the pack run imports and nothing else, which
@@ -704,7 +703,6 @@ $manifest = @(
     # artefact people are handed in a chat, where nothing carries a version.
     @{ Path = "pipeline\report\dashboard_render.py"; Marker = "activities_in_plan"; Why = "the board's targets and its derivations, with the volume card set against the plan rather than against rows read - an older copy renders a page whose limits are last quarter's, with nothing on the page saying which run it came from" },
     @{ Path = "pipeline\report\template_engine.py"; Marker = "no value for"; Why = "the substitution refuses an unfilled placeholder - an older copy is the one that ships the literal text of a placeholder to a management audience" },
-    @{ Path = "pipeline\dashboard\campaign-activity.template.html"; Marker = "{{ leadtime_definition }}"; Why = "the frozen markup, row templates included, at the measure the pack can actually supply - an older copy still plots summed audience, a figure agent_pack refuses to state, and its own golden file agrees with it" },
     @{ Path = "pipeline\report\board_image.py"; Marker = "def collisions"; Why = "the drawn board measures its own text boxes rather than trusting its intentions - an older copy hands out a PNG with a sentence lying across a label, which is what twelve test renders produced before the check existed" },
     @{ Path = "pipeline\report\board_image.py"; Marker = "FONT_LADDER"; Why = "the face is resolved through an explicit ladder and reported - an older copy draws with whatever the machine happens to have and says nothing, so two people compare boards that never used the same font" },
     @{ Path = "pipeline\scripts\report_dashboard.py"; Marker = "--image is not available"; Why = "the launcher can draw as well as write, and refuses rather than falling back for a board with no raster renderer - an older copy has no --image at all" },
@@ -727,7 +725,22 @@ $manifest = @(
     @{ Path = "pipeline\report\board_bundle.py"; Marker = "does not write pages"; Why = "the HTML renderer's helpers are stubbed to refuse inside the bundle - an older copy lets a call that cannot work surface later as a NameError about a template nobody shipped" },
     @{ Path = "pipeline\report\board_image.py"; Marker = "_DEJAVU_FEDORA"; Why = "the font ladder leads with the faces the agent's sandbox actually has, per weight rather than per index - an older copy prefers a local face, so the board rendered here is not the board a reader receives" },
     @{ Path = "pipeline\report\agent_builder.py"; Marker = "BUNDLE_FILE_NAME"; Why = "the drawing code is delivered as a knowledge file beside the contract - an older copy uploads a contract telling the agent to run a file that was never sent" },
-    @{ Path = "pipeline\report\dashboard_contract.py"; Marker = "14-board-draw.txt"; Why = "the contract says to run the shipped renderer rather than to draw - an older copy asks for a JSON object and leaves the picture to whoever reads it" }
+    @{ Path = "pipeline\report\dashboard_contract.py"; Marker = "14-board-draw.txt"; Why = "the contract says to run the shipped renderer rather than to draw - an older copy asks for a JSON object and leaves the picture to whoever reads it" },
+
+    # Real data, first contact. The board drew, and three things the sample had
+    # never tested showed up at once: the lead-time tile read -367 days, the
+    # renderer refused rather than fitting, and the agent -- given a refusal
+    # and a reader waiting -- dropped four of seven teams to get an image out.
+    #
+    # The refusal was the worst of the three. Refusing does not stop a board
+    # being produced; it moves the cutting to whoever holds the data, and that
+    # cut leaves no mark on the finished picture. So the renderer fits now, and
+    # where it cannot fit honestly it names what it left out.
+    @{ Path = "pipeline\report\board_image.py"; Marker = "def fit_rows"; Why = "the panels fit whatever the period holds instead of refusing - an older copy hands a refusal to a caller who then trims the data silently, and the board says nothing about what left" },
+    @{ Path = "pipeline\report\board_image.py"; Marker = "def clip_text"; Why = "a name too long for its column is clipped rather than run under the bars - the collision check compares text with text and a bar track is not text, so an older copy passes the check and covers the chart" },
+    @{ Path = "pipeline\report\dashboard_render.py"; Marker = "measured backwards is not a lead time"; Why = "the lead-time tile is gone; the pack states a median over the whole plan and the plan is mostly past - an older copy prints a large negative number as a planning KPI" },
+    @{ Path = "pipeline\dashboard\campaign-activity.template.html"; Marker = "repeat(3, 1fr)"; Why = "three tiles, the lead-time one having been removed rather than relabelled - an older copy leaves a fourth column whose figure nothing supplies" },
+    @{ Path = "pipeline\report\dashboard_contract.py"; Marker = "the only whole-plan figure"; Why = "one stated exception rather than two - an older copy still asks the agent for a lead-time median the board no longer has a tile for" }
 )
 
 Write-Host ""

@@ -82,7 +82,7 @@ def test_every_figure_in_the_view_reaches_the_canvas(view):
     canvas = _canvas(view)
     drawn = " ".join(item.text for item in canvas.drawn)
 
-    for key in ("leadtime_value", "shortnotice_value", "leadership_value",
+    for key in ("shortnotice_value", "leadership_value",
                 "volume_value", "priority_total", "reach_executive_value",
                 "reach_large_value", "period_label", "data_as_of",
                 "leadership_average_label", "timing_peak_detail"):
@@ -197,7 +197,7 @@ def test_the_drawn_board_and_the_page_share_one_view(view):
     page = dashboard_render.render(view)
     canvas = _canvas(view)
     drawn = " ".join(item.text for item in canvas.drawn)
-    for key in ("leadtime_value", "leadership_value", "volume_value"):
+    for key in ("shortnotice_value", "leadership_value", "volume_value"):
         value = board_image.plain(view["scalars"][key])
         assert value in drawn and value in board_image.plain(page)
 
@@ -222,3 +222,83 @@ def _canvas(view):
     finally:
         board_image.Canvas = original
     return captured["canvas"]
+
+
+# ---------------------------------------------------------------------------
+# Real data is not the sample
+# ---------------------------------------------------------------------------
+_TEAMS = ("Group Communications", "Wealth Management",
+          "Personal & Corporate Banking", "Asset Management", "Investment Bank",
+          "Group Functions", "Other / Central Teams", "Technology & Operations",
+          "Risk and Compliance Communications", "Human Resources Communications",
+          "Sustainability & Impact", "Regional Communications EMEA",
+          "Regional Communications APAC", "Investor Relations")
+_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
+           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+
+def _sized(base, weeks, teams):
+    data = json.loads(json.dumps(base))
+    data["weeks"] = [{"commencing": f"{(i * 7) % 28 + 1} {_MONTHS[(i // 4) % 12]}",
+                      "activities": 120 + (i * 37) % 260} for i in range(weeks)]
+    total = data["activities_total"]
+    data["teams"] = [{"name": _TEAMS[i % len(_TEAMS)],
+                      "activities": max(1, total // (i + 2))} for i in range(teams)]
+    data["leadership_by_team"] = [{"name": _TEAMS[i % len(_TEAMS)],
+                                   "share": max(0.01, 0.30 - i * 0.013)}
+                                  for i in range(teams)]
+    return data
+
+
+@pytest.mark.parametrize("weeks, teams", [
+    (3, 2), (13, 7), (26, 10), (52, 14), (70, 20),
+])
+def test_the_board_fits_whatever_the_period_turns_out_to_hold(view, weeks, teams):
+    """The sample is thirteen weeks and seven teams; the plan is not.
+
+    The first version refused when the labels would not fit, which sounds
+    careful and was not: refusing does not stop a board being produced, it
+    moves the cutting to whoever holds the data. A real run dropped four of
+    seven teams to get an image, and the board it produced said nothing about
+    the four.
+    """
+    raw = SAMPLE.read_text(encoding="utf-8")
+    base = json.loads(re.sub(r'"_comment":\s*\[[^\]]*\],', "", raw))
+    _, _, overlaps = board_image.render(
+        build_view(_sized(base, weeks, teams), THRESHOLDS))
+    assert overlaps == []
+
+
+def test_what_will_not_fit_is_named_on_the_page(view):
+    """Capping is honest; capping quietly is not. The distribution panel sums
+    its remainder, the rate panel says how many of how many it drew -- shares
+    add up and rates do not, so an "others" bar there would be invented."""
+    raw = SAMPLE.read_text(encoding="utf-8")
+    base = json.loads(re.sub(r'"_comment":\s*\[[^\]]*\],', "", raw))
+    canvas = _canvas(build_view(_sized(base, 52, 14), THRESHOLDS))
+    drawn = " ".join(item.text for item in canvas.drawn)
+    assert "more team" in drawn
+    assert "showing the" in drawn and "of 14 teams" in drawn
+
+
+def test_one_left_over_team_is_singular(view):
+    raw = SAMPLE.read_text(encoding="utf-8")
+    base = json.loads(re.sub(r'"_comment":\s*\[[^\]]*\],', "", raw))
+    canvas = _canvas(build_view(_sized(base, 13, 14), THRESHOLDS))
+    drawn = " ".join(item.text for item in canvas.drawn)
+    assert "1 more teams" not in drawn
+
+
+def test_a_long_name_is_clipped_rather_than_run_under_the_bars(view):
+    """The collision check compares text with text, and a bar track is not
+    text -- so a name overflowing its column passes the check and covers the
+    chart anyway. Width is its own rule."""
+    raw = SAMPLE.read_text(encoding="utf-8")
+    base = json.loads(re.sub(r'"_comment":\s*\[[^\]]*\],', "", raw))
+    canvas = _canvas(build_view(_sized(base, 13, 10), THRESHOLDS))
+    ownership = [item.text for item in canvas.drawn if item.zone == "ownership"]
+
+    assert "Risk and Compliance Communications" not in ownership, (
+        "the longest team name reached the canvas whole and now runs under the bars")
+    assert any(t.startswith("Risk and Compliance") and t.endswith("\u2026")
+               for t in ownership), "the name was dropped rather than clipped"

@@ -310,6 +310,87 @@ class Canvas:
         return offset + self.text(x + offset, y, rest, size, MEDIUM, colour)
 
 
+# --------------------------------------------------------------------------
+# Fitting. A panel has a fixed rectangle and the data does not have a fixed
+# size, so something has to give -- and the first design let the renderer
+# refuse. That was wrong in a way that took real data to show: refusing does
+# not stop the board being drawn, it moves the cutting to whoever is holding
+# the data, who cuts silently. A caller that had to drop four of seven teams to
+# get an image is worse than a tight label, because the finished board says
+# nothing about what left.
+#
+# So the renderer fits, and where it cannot fit honestly it names what it left
+# out on the page.
+# --------------------------------------------------------------------------
+MIN_LABEL_SIZE = 8.0
+MIN_ROW_PITCH = 19.0
+
+
+# Labels are measured as the lines that get drawn, never as their words. A
+# two-part name splits across two lines; measuring "Compliance" and
+# "Communications" separately says it fits and then the line
+# "Compliance Communications" runs into its neighbour. Both call sites pass the
+# segments they will actually draw.
+LABEL_MARGIN = 1.15
+
+
+def fit_label_size(canvas, segments, column_width, size=11.0, weight=REGULAR,
+                   floor=MIN_LABEL_SIZE):
+    """Largest size at or below `size` that keeps every segment in a column."""
+    widest = max((canvas.measure(plain(seg), size, weight) for seg in segments),
+                 default=0.0)
+    if widest <= column_width or widest == 0:
+        return size
+    return max(floor, size * column_width / widest)
+
+
+def label_stride(canvas, segments, column_width, size, weight=REGULAR):
+    """Show every k-th label, k being the smallest that leaves them a margin.
+
+    Dropping a tick is a loss a reader can see and reason about -- the axis
+    still runs and the gaps stay even. Dropping a bar is not, which is why only
+    the axis is ever thinned.
+    """
+    widest = max((canvas.measure(plain(seg), size, weight) for seg in segments),
+                 default=0.0)
+    if column_width <= 0:
+        return 1
+    needed = widest * LABEL_MARGIN
+    if needed <= column_width:
+        return 1
+    return int(needed / column_width) + 1
+
+
+def clip_text(canvas, text, width, size, weight=REGULAR, ellipsis="\u2026"):
+    """Shorten a string to a width, with an ellipsis when it had to give.
+
+    The collision check compares text against text, so a name running under a
+    bar track passes it -- the track is not text. A column has a width and the
+    label has to respect it, which is a different rule from not overlapping.
+    """
+    text = plain(text)
+    if canvas.measure(text, size, weight) <= width:
+        return text
+    room = width - canvas.measure(ellipsis, size, weight)
+    cut = text
+    while cut and canvas.measure(cut, size, weight) > room:
+        cut = cut[:-1]
+    return (cut.rstrip() + ellipsis) if cut else ellipsis
+
+
+def fit_rows(count, available, pitch, min_pitch=MIN_ROW_PITCH):
+    """How many rows fit, at what pitch, and how many are left over."""
+    if count <= 0:
+        return 0, pitch, 0
+    if count * pitch <= available:
+        return count, pitch, 0
+    tighter = max(min_pitch, available / count)
+    if count * tighter <= available:
+        return count, tighter, 0
+    shown = max(1, int(available // min_pitch))
+    return shown, min_pitch, count - shown
+
+
 def collisions(canvas, tolerance=1.0):
     """Overlapping text boxes, measured off what was drawn.
 
@@ -422,11 +503,8 @@ def render(view, *, font=None, check=True):
 
     # -- KPI cards ---------------------------------------------------------
     y = PAD + 140
-    card_w = (WIDTH - 2 * PAD - 3 * GUTTER) / 4
+    card_w = (WIDTH - 2 * PAD - 2 * GUTTER) / 3
     cards = (
-        ("Lead time", V["leadtime_definition"], V["leadtime_value"], V["leadtime_unit"],
-         V["leadtime_value_colour"], V["leadtime_status"], V["leadtime_status_colour"],
-         V["leadtime_target"], "clock"),
         ("Short-notice activities", V["shortnotice_definition"], V["shortnotice_value"],
          V["shortnotice_unit"], V["shortnotice_value_colour"], V["shortnotice_status"],
          V["shortnotice_status_colour"], V["shortnotice_target"], "warning"),
@@ -480,9 +558,14 @@ def render(view, *, font=None, check=True):
     c.line(plot_x, top + TIMING_PLOT_H, plot_x + plot_w, top + TIMING_PLOT_H, BLACK, 1)
 
     bars = ROWS["timing_bars"]
-    bar_w = (plot_w - 10 * (len(bars) - 1)) / len(bars)
+    # Fifty-two weeks at a ten-pixel gap is 510 pixels of gap in a 400-pixel
+    # plot, and the bar width goes negative. The gap gives first, down to
+    # nothing: a chart of touching bars still reads, a chart of negative ones
+    # is a stack trace.
+    gap = min(10.0, max(0.0, plot_w / max(1, len(bars)) - 2))
+    bar_w = (plot_w - gap * (len(bars) - 1)) / len(bars)
     for i, bar in enumerate(bars):
-        bx = plot_x + i * (bar_w + 10)
+        bx = plot_x + i * (bar_w + gap)
         colour = ACCENT if "accent" in str(bar["colour"]) else bar["colour"]
         c.rect(bx, top + TIMING_PLOT_H - bar["height"], bar_w, bar["height"], fill=colour)
 
@@ -491,13 +574,27 @@ def render(view, *, font=None, check=True):
                  top + float(p.split(",")[1]))
                 for p in V["timing_average_points"].split()])
 
+    # A quarter is thirteen weeks; a year is fifty-two, and the sample never
+    # said which the board would be handed. Shrink first, then show every k-th
+    # -- and never thin away the peak, which is the one week the panel is
+    # about.
+    tick_texts = [part for l in ROWS["timing_labels"]
+                  for part in plain(l["label"]).split(" ")]
+    tick_size = fit_label_size(c, tick_texts, bar_w + gap)
+    stride = label_stride(c, tick_texts, bar_w + gap, tick_size)
+    peaks = {i for i, l in enumerate(ROWS["timing_labels"]) if "600" in l["emphasis"]}
     for i, label in enumerate(ROWS["timing_labels"]):
-        bx = plot_x + i * (bar_w + 10) + bar_w / 2
-        strong = "600" in label["emphasis"]
+        strong = i in peaks
+        # The peak is drawn whatever the stride says, so its neighbours stand
+        # down: a forced label beside a strided one is the collision the stride
+        # was calculated to avoid.
+        if not strong and (i % stride or any(abs(i - p) < stride for p in peaks)):
+            continue
+        bx = plot_x + i * (bar_w + gap) + bar_w / 2
         for j, part in enumerate(plain(label["label"]).split(" ")):
-            c.text(bx, top + TIMING_PLOT_H + 10 + j * 14, part, 11,
-                   MEDIUM if strong else REGULAR, BLACK if strong else GREY_5,
-                   anchor="ma")
+            c.text(bx, top + TIMING_PLOT_H + 10 + j * (tick_size + 3), part,
+                   tick_size, MEDIUM if strong else REGULAR,
+                   BLACK if strong else GREY_5, anchor="ma")
     c.text(x + 22, top + TIMING_PLOT_H + 48, V["timing_axis_caption"], 11, REGULAR, GREY_5)
     detail = plain(V["timing_peak_detail"])
     c.text(x + w1 - 22, top + TIMING_PLOT_H + 48, detail, 11, REGULAR, GREY_5, anchor="ra")
@@ -536,16 +633,32 @@ def render(view, *, font=None, check=True):
     ry = by + 22
     track_x = x3 + 22 + 186 + 12
     track_w = w3 - 44 - 186 - 42 - 24
-    for row in ROWS["ownership_rows"]:
+    rows = ROWS["ownership_rows"]
+    # Room between the header and the axis, insight and scale reserved.
+    room = (py + PANEL_ROW1_H - 96) - ry - 34
+    shown, pitch, dropped = fit_rows(len(rows), room, 28)
+    for row in rows[:shown]:
         strong = "600" in row["emphasis"]
-        c.text(x3 + 22, ry + 2, row["label"], 12.5, MEDIUM if strong else REGULAR,
-               BLACK if strong else GREY_6)
+        c.text(x3 + 22, ry + 2,
+               clip_text(c, row["label"], 186 - 8, 12.5,
+                         MEDIUM if strong else REGULAR),
+               12.5, MEDIUM if strong else REGULAR, BLACK if strong else GREY_6)
         c.rect(track_x, ry, track_w, 18, fill=ROW_ALT)
         c.rect(track_x, ry, track_w * float(row["width"].rstrip("%")) / 100, 18,
                fill=row["colour"])
         c.text(x3 + w3 - 22, ry + 2, row["share"], 12.5,
                MEDIUM if strong else REGULAR, BLACK if strong else GREY_6, anchor="ra")
-        ry += 28
+        ry += pitch
+    if dropped:
+        # Named, not dropped. A distribution that quietly stops short is the
+        # failure this panel already reports for its unnamed residual.
+        rest = sum(float(r["share"].rstrip("%")) for r in rows[shown:])
+        c.text(x3 + 22, ry + 2,
+               f"{dropped} more team{'' if dropped == 1 else 's'}",
+               12.5, REGULAR, GREY_5)
+        c.text(x3 + w3 - 22, ry + 2, f"{rest:.0f}%", 12.5, REGULAR, GREY_5,
+               anchor="ra")
+        ry += pitch
     c.line(track_x, ry + 2, track_x + track_w, ry + 2, BLACK, 1)
     scale = ROWS["ownership_scale"]
     for i, step in enumerate(scale):
@@ -567,24 +680,51 @@ def render(view, *, font=None, check=True):
     top, inner_x = by + 26, x + 22
     inner_w = w4 - 44
     lead = ROWS["leadership_bars"]
-    bar_w = (inner_w - 24 * (len(lead) - 1)) / len(lead)
+    names = ROWS["leadership_labels"]
+    # A rate per team cannot be summarised into an "others" bar -- averaging
+    # shares invents a figure. So this panel caps and says how many it is
+    # showing, where the distribution panel above sums its residual instead.
+    gap4 = 24 if len(lead) <= 8 else 12
+    # How many fit is decided by the names, not by the bars. A bar can be four
+    # pixels wide and still read; "Corporate Banking" at the smallest legible
+    # size cannot be squeezed, so the widest line a team name draws is what
+    # sets the column, and the column sets the count.
+    widest_name = max((c.measure(part, MIN_LABEL_SIZE)
+                       for l in names
+                       for part in plain(l["label"]).split("<br>")), default=1.0)
+    lead_capacity = max(1, int(inner_w // (widest_name * LABEL_MARGIN)))
+    lead_dropped = max(0, len(lead) - lead_capacity)
+    lead, names = lead[:lead_capacity], names[:lead_capacity]
+    bar_w = (inner_w - gap4 * (len(lead) - 1)) / len(lead)
     c.line(inner_x, top + LEADERSHIP_PLOT_H, inner_x + inner_w, top + LEADERSHIP_PLOT_H, BLACK, 1)
     avg_y = top + LEADERSHIP_PLOT_H - float(V["leadership_average_offset"])
     c.dashed(inner_x, avg_y, inner_x + inner_w)
-    c.text(inner_x + inner_w, avg_y - 16, V["leadership_average_label"], 11,
+    # Above the plot, not beside the line. Sitting by the line puts it exactly
+    # where a bar at the average has its own label, and a bar at the average is
+    # the ordinary case rather than the awkward one.
+    c.text(inner_x + inner_w, top - 18, V["leadership_average_label"], 11,
            REGULAR, GREY_5, anchor="ra")
     for i, bar in enumerate(lead):
-        bx = inner_x + i * (bar_w + 24)
+        bx = inner_x + i * (bar_w + gap4)
         c.rect(bx, top + LEADERSHIP_PLOT_H - bar["height"], bar_w, bar["height"],
                fill=bar["colour"])
         c.text(bx + bar_w / 2, top + LEADERSHIP_PLOT_H - bar["height"] - 18,
                bar["share"], 12.5, MEDIUM, bar["label_colour"], anchor="ma")
-    for i, label in enumerate(ROWS["leadership_labels"]):
-        bx = inner_x + i * (bar_w + 24) + bar_w / 2
+    name_size = fit_label_size(
+        c, [part for l in names for part in plain(l["label"]).split("<br>")],
+        bar_w + gap4 - 4)
+    for i, label in enumerate(names):
+        bx = inner_x + i * (bar_w + gap4) + bar_w / 2
         strong = "600" in label["emphasis"]
         for j, part in enumerate(plain(label["label"]).split("<br>")):
-            c.text(bx, top + LEADERSHIP_PLOT_H + 10 + j * 15, part, 11,
-                   MEDIUM if strong else REGULAR, BLACK if strong else GREY_5, anchor="ma")
+            c.text(bx, top + LEADERSHIP_PLOT_H + 10 + j * (name_size + 4), part,
+                   name_size, MEDIUM if strong else REGULAR,
+                   BLACK if strong else GREY_5, anchor="ma")
+    if lead_dropped:
+        c.text(inner_x + inner_w, top + LEADERSHIP_PLOT_H + 44,
+               f"showing the {len(lead)} highest of "
+               f"{len(lead) + lead_dropped} teams",
+               11, REGULAR, GREY_5, anchor="ra")
     _insight(c, x, py2 + PANEL_ROW2_H - 86, w4, INS["leadership_insight"])
 
     c.zone = "reach"
