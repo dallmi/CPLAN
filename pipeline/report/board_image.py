@@ -620,8 +620,15 @@ def render(view, *, font=None, check=True):
     ly = by + 26
     for row in ROWS["priority_legend"]:
         c.rect(x2 + 186, ly, 10, 10, fill=row["colour"])
-        c.text(x2 + 206, ly - 3, f"{plain(row['label'])} · {row['share']}", 12.5, MEDIUM, BLACK)
-        c.text(x2 + 206, ly + 14, row["detail"], 11, REGULAR, GREY_5)
+        # The source's own priority labels are long -- "3 - GEB-1 level |
+        # division" and longer. They ran off the panel because only the
+        # ownership column was ever clipped; a legend is a column too.
+        legend_w = w2 - (x2 + 206 - x2) - 22
+        c.text(x2 + 206, ly - 3,
+               clip_text(c, f"{plain(row['label'])} · {row['share']}", legend_w, 12.5, MEDIUM),
+               12.5, MEDIUM, BLACK)
+        c.text(x2 + 206, ly + 14,
+               clip_text(c, row["detail"], legend_w, 11), 11, REGULAR, GREY_5)
         ly += 38
     _insight(c, x2, py + PANEL_ROW1_H - 96, w2, INS["priority_insight"])
 

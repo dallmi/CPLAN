@@ -310,3 +310,37 @@ def test_every_row_template_is_used(data):
     view = build_view(data, THRESHOLDS)
     used = set(view["rows"]) | {"insight"}
     assert set(rows) == used, f"unused row templates: {sorted(set(rows) - used)}"
+
+
+def test_the_leadership_axis_ceiling_comes_from_the_data(data):
+    """It was fixed at 40%, which held for the sample and broke on the first
+    real quarter: a team at 100% drew a 400px bar in a 160px plot, climbed out
+    of its panel and over the one above. No collision check catches that -- a
+    bar is not text -- so the ceiling is derived, as the timing axis already
+    was.
+    """
+    tall = json.loads(json.dumps(data))
+    tall["leadership_by_team"] = [
+        {"name": "ALL", "share": 1.00},
+        {"name": "Group Legal", "share": 0.67},
+        {"name": "Group Risk Control", "share": 0.31},
+    ]
+    view = build_view(tall, THRESHOLDS)
+    heights = [row["height"] for row in view["rows"]["leadership_bars"]]
+    assert max(heights) == 160, "the tallest bar should exactly fill the plot"
+    assert all(0 <= h <= 160 for h in heights)
+
+    # And the sample, whose largest share is 28%, keeps a ceiling close to it
+    # rather than being squashed against a 100% axis it never reaches.
+    modest = [row["height"] for row in
+              build_view(data, THRESHOLDS)["rows"]["leadership_bars"]]
+    assert max(modest) > 100, "a 28% quarter should still use most of the plot"
+
+
+def test_the_average_line_cannot_leave_the_plot(data):
+    """A portfolio average above the tallest team would otherwise draw a dashed
+    line above the panel."""
+    odd = json.loads(json.dumps(data))
+    odd["leadership_by_team"] = [{"name": "One team", "share": 0.02}]
+    view = build_view(odd, THRESHOLDS)
+    assert 0 <= float(view["scalars"]["leadership_average_offset"]) <= 160
