@@ -17,7 +17,8 @@ chart; if the palette were in it, the agent would draw an off-brand one.
 import re
 import shutil
 
-from pipeline.report import agent_pack, dashboard_contract, dashboard_skill
+from pipeline.report import (agent_pack, board_bundle, dashboard_contract,
+                            dashboard_skill)
 
 # The surface's own numbers, from the Microsoft Learn documentation for Agent
 # Builder. Named rather than inlined because a test asserts against them and a
@@ -55,6 +56,13 @@ CONTRACT_FILE_NAMES = {
     dashboard_contract.CONTRACT_NAME:
         "13-contract-head-of-communications-overview.txt",
 }
+
+# The drawing code, shipped as a file because the sandbox can read one.
+# Measured rather than assumed -- see docs/agent-builder-sandbox-probe.md: the
+# knowledge files land in /mnt/data, which is also the working directory, and
+# Pillow 12 is present. So the agent reads this and runs it, instead of
+# reproducing twenty thousand characters into a code cell and hoping.
+BUNDLE_FILE_NAME = "14-board-draw.txt"
 
 
 # Repeated into all three files, and that is the design rather than a
@@ -675,8 +683,13 @@ def write_builder_pack(pack_dir, out_dir, scope=None, config=None):
     for key, name in CONTRACT_FILE_NAMES.items():
         (upload_dir / name).write_text(
             dashboard_contract.CONTRACTS[key], encoding="utf-8")
+    # Assembled from the modules on every run, so an edit to a threshold cannot
+    # reach the page and miss the picture.
+    (upload_dir / BUNDLE_FILE_NAME).write_text(board_bundle.build(),
+                                               encoding="utf-8")
     written.update({READING_GUIDE_NAME, CHART_STANDARDS_NAME,
-                    *BOARD_FILE_NAMES.values(), *CONTRACT_FILE_NAMES.values()})
+                    *BOARD_FILE_NAMES.values(), *CONTRACT_FILE_NAMES.values(),
+                    BUNDLE_FILE_NAME})
 
     # Sweep what this run did not write. `mirror_upload` has done this for the
     # mirror all along and its docstring names the reason; the folder the

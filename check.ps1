@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-12.8"
+$manifestVersion = "2026-08-13.1"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-12.8"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-12.8"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-13.1"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -707,7 +707,27 @@ $manifest = @(
     @{ Path = "pipeline\dashboard\campaign-activity.template.html"; Marker = "{{ leadtime_definition }}"; Why = "the frozen markup, row templates included, at the measure the pack can actually supply - an older copy still plots summed audience, a figure agent_pack refuses to state, and its own golden file agrees with it" },
     @{ Path = "pipeline\report\board_image.py"; Marker = "def collisions"; Why = "the drawn board measures its own text boxes rather than trusting its intentions - an older copy hands out a PNG with a sentence lying across a label, which is what twelve test renders produced before the check existed" },
     @{ Path = "pipeline\report\board_image.py"; Marker = "FONT_LADDER"; Why = "the face is resolved through an explicit ladder and reported - an older copy draws with whatever the machine happens to have and says nothing, so two people compare boards that never used the same font" },
-    @{ Path = "pipeline\scripts\report_dashboard.py"; Marker = "--image is not available"; Why = "the launcher can draw as well as write, and refuses rather than falling back for a board with no raster renderer - an older copy has no --image at all" }
+    @{ Path = "pipeline\scripts\report_dashboard.py"; Marker = "--image is not available"; Why = "the launcher can draw as well as write, and refuses rather than falling back for a board with no raster renderer - an older copy has no --image at all" },
+
+    # The drawing code ships to the agent. Measured first, then built on the
+    # measurement: the sandbox reads knowledge files from /mnt/data, which is
+    # its working directory, holds Pillow 12 and 23 DejaVu faces, and can put
+    # an image it wrote into the chat. So the code is a file the agent reads
+    # and runs, not twenty thousand characters it retypes.
+    #
+    # The bundle is assembled from the modules on every run rather than kept
+    # as a copy, and the font ladder now prefers what the sandbox has over what
+    # this machine has -- a ladder favouring the local face would give whoever
+    # renders here a prettier board than the readers get.
+    #
+    # An old copy of any file below is the dangerous state: it ships a bundle
+    # built from code that no longer matches the page, and nothing in a chat
+    # carries a version for a reader to check.
+    @{ Path = "pipeline\report\board_bundle.py"; Marker = "def build"; Why = "the drawing code assembled into one file the sandbox can exec - a NEW file; without it agent_builder.py fails to import and no delivery is written at all" },
+    @{ Path = "pipeline\report\board_bundle.py"; Marker = "does not write pages"; Why = "the HTML renderer's helpers are stubbed to refuse inside the bundle - an older copy lets a call that cannot work surface later as a NameError about a template nobody shipped" },
+    @{ Path = "pipeline\report\board_image.py"; Marker = "_DEJAVU_FEDORA"; Why = "the font ladder leads with the faces the agent's sandbox actually has, per weight rather than per index - an older copy prefers a local face, so the board rendered here is not the board a reader receives" },
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "BUNDLE_FILE_NAME"; Why = "the drawing code is delivered as a knowledge file beside the contract - an older copy uploads a contract telling the agent to run a file that was never sent" },
+    @{ Path = "pipeline\report\dashboard_contract.py"; Marker = "14-board-draw.txt"; Why = "the contract says to run the shipped renderer rather than to draw - an older copy asks for a JSON object and leaves the picture to whoever reads it" }
 )
 
 Write-Host ""

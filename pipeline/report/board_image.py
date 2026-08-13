@@ -37,20 +37,43 @@ from PIL import Image, ImageDraw, ImageFont
 # --------------------------------------------------------------------------
 # Fonts
 # --------------------------------------------------------------------------
-# The brand's own stack, in its own order, as files rather than names. A face
-# is only usable here if Pillow can open it, so the ladder is tried in order
-# and the first that opens wins. `bundled` comes first: a font shipped beside
-# the renderer is the only entry that makes two machines agree by construction.
+# A family is a weight -> (file, index) map, because the faces that matter here
+# are shipped as separate files. DejaVu is four files; Helvetica Neue is one
+# collection with four indices; the ladder has to express both.
+#
+# DejaVu leads, and not because it is the nicest. It is what the agent's sandbox
+# has -- measured, 23 files including ExtraLight and Bold -- and a board is
+# supposed to look the same for everyone who asks for it. A ladder that put a
+# local face first would give this machine a prettier board than the one the
+# readers get, which is the drift the whole exercise removes. `bundled` still
+# outranks it: a licensed face dropped into fonts/ is a deliberate act and wins.
+_DEJAVU_FEDORA = "/usr/share/fonts/dejavu-sans-fonts"
+_DEJAVU_DEBIAN = "/usr/share/fonts/truetype/dejavu"
+
+
+def _dejavu(root):
+    return {"light": (f"{root}/DejaVuSans-ExtraLight.ttf", 0),
+            "regular": (f"{root}/DejaVuSans.ttf", 0),
+            # DejaVu has no 500 or 600. Bold is the only face that reads as
+            # emphasis, so the brand's 600 tier lands on it -- heavier than the
+            # stylesheet asks for, and the only alternative is no hierarchy.
+            "medium": (f"{root}/DejaVuSans-Bold.ttf", 0),
+            "bold": (f"{root}/DejaVuSans-Bold.ttf", 0)}
+
+
 FONT_LADDER = (
-    ("bundled", "fonts/board.ttf", {"light": 0, "regular": 0, "medium": 0, "bold": 0}),
-    ("Helvetica Neue", "/System/Library/Fonts/HelveticaNeue.ttc",
-     {"light": 7, "regular": 0, "medium": 10, "bold": 1}),
-    ("Arial", "/System/Library/Fonts/Supplemental/Arial.ttf",
-     {"light": 0, "regular": 0, "medium": 0, "bold": 0}),
-    ("DejaVu Sans", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-     {"light": 0, "regular": 0, "medium": 0, "bold": 0}),
-    ("Arial (Windows)", "C:/Windows/Fonts/arial.ttf",
-     {"light": 0, "regular": 0, "medium": 0, "bold": 0}),
+    ("bundled", {w: ("fonts/board.ttf", 0)
+                 for w in ("light", "regular", "medium", "bold")}),
+    ("DejaVu Sans", _dejavu(_DEJAVU_FEDORA)),
+    ("DejaVu Sans", _dejavu(_DEJAVU_DEBIAN)),
+    ("Helvetica Neue", {"light": ("/System/Library/Fonts/HelveticaNeue.ttc", 7),
+                        "regular": ("/System/Library/Fonts/HelveticaNeue.ttc", 0),
+                        "medium": ("/System/Library/Fonts/HelveticaNeue.ttc", 10),
+                        "bold": ("/System/Library/Fonts/HelveticaNeue.ttc", 1)}),
+    ("Arial", {w: ("/System/Library/Fonts/Supplemental/Arial.ttf", 0)
+               for w in ("light", "regular", "medium", "bold")}),
+    ("Arial (Windows)", {w: ("C:/Windows/Fonts/arial.ttf", 0)
+                         for w in ("light", "regular", "medium", "bold")}),
 )
 
 LIGHT, REGULAR, MEDIUM, BOLD = "light", "regular", "medium", "bold"
@@ -58,37 +81,46 @@ LIGHT, REGULAR, MEDIUM, BOLD = "light", "regular", "medium", "bold"
 
 @dataclass(frozen=True)
 class FontChoice:
-    """Which face was drawn with, and whether it carries the brand's weights.
+    """Which family was drawn with, and how many distinct faces it gave.
 
-    `graded` is false when the ladder fell through to a face with one weight:
-    the page still draws, but its type hierarchy is carried by size alone. A
-    caller comparing two runs needs to know that, so it is reported rather
-    than absorbed.
+    `weights` is 1 when the ladder fell through to a family with a single face:
+    the board still draws, but its hierarchy is carried by size alone. Two runs
+    match only if they matched here, so it is reported rather than absorbed.
     """
     name: str
-    path: str
-    indices: dict
-    graded: bool
+    faces: dict          # weight -> (absolute path, index)
+    weights: int
+
+    @property
+    def graded(self):
+        return self.weights > 1
 
 
 def resolve_font(ladder=FONT_LADDER, root=None):
-    """First face in the ladder that Pillow can actually open."""
+    """First family in the ladder whose faces Pillow can all open.
+
+    All of them, not merely the regular: a family that opens for body text and
+    fails for the light face would draw a board whose hero figures silently
+    changed weight.
+    """
     root = Path(root) if root else Path(__file__).resolve().parent
-    for name, raw, indices in ladder:
-        path = Path(raw)
-        if not path.is_absolute():
-            path = root / raw
-        if not path.exists():
-            continue
-        try:
-            ImageFont.truetype(str(path), 12, index=indices[REGULAR])
-        except OSError:
-            continue
-        return FontChoice(name=name, path=str(path), indices=indices,
-                          graded=len(set(indices.values())) > 1)
+    for name, faces in ladder:
+        resolved = {}
+        for weight, (raw, index) in faces.items():
+            path = Path(raw)
+            if not path.is_absolute():
+                path = root / raw
+            try:
+                ImageFont.truetype(str(path), 12, index=index)
+            except (OSError, ValueError):
+                break
+            resolved[weight] = (str(path), index)
+        else:
+            return FontChoice(name=name, faces=resolved,
+                              weights=len(set(resolved.values())))
     raise RuntimeError(
         "no drawable font found. Ship one beside this module at fonts/board.ttf, "
-        "or extend FONT_LADDER with a path this machine has."
+        "or extend FONT_LADDER with a family this machine has."
     )
 
 
@@ -173,9 +205,9 @@ class Canvas:
     def face(self, size, weight=REGULAR):
         key = (round(size * 2), weight)
         if key not in self._fonts:
+            path, index = self.font.faces[weight]
             self._fonts[key] = ImageFont.truetype(
-                self.font.path, round(size * self.scale),
-                index=self.font.indices[weight])
+                path, round(size * self.scale), index=index)
         return self._fonts[key]
 
     def measure(self, text, size, weight=REGULAR):
