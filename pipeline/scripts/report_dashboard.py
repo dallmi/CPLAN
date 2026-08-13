@@ -12,6 +12,7 @@ Usage:
     python pipeline/scripts/report_dashboard.py --out /path/to/dashboard.html
     python pipeline/scripts/report_dashboard.py --check      # golden-file check
     python pipeline/scripts/report_dashboard.py --strict     # fail on data gaps
+    python pipeline/scripts/report_dashboard.py --image board.png   # drawn, not HTML
 
 `--check` renders and compares against the committed golden file without
 writing anything. It is the guard that makes "frozen" mean something: any edit
@@ -21,6 +22,12 @@ accompanied by a deliberate `--update-golden`.
 Boards are registered in BOARDS below rather than each getting a launcher of
 its own. A second script would be a second answer to what `--check` means, and
 the check is the one thing every board has to agree about.
+
+`--image` draws the board to PNG or PDF instead of writing HTML, through a
+second renderer over the same view -- so the two media cannot disagree about a
+figure. It needs Pillow, which the HTML path deliberately does not: a checkout
+without it renders every page and is told plainly that only `--image` is
+missing.
 """
 
 import argparse
@@ -115,7 +122,36 @@ def build_parser():
                         help="rewrite the golden file from the sample data")
     parser.add_argument("--strict", action="store_true",
                         help="exit non-zero when the data does not add up")
+    parser.add_argument("--image", type=Path, metavar="PATH",
+                        help="draw the board to a .png or .pdf instead of HTML")
     return parser
+
+
+def _draw(name, data, out, complaints, strict):
+    """Draw the board rather than writing it.
+
+    Only the campaign activity board has a raster renderer so far; the others
+    say so rather than falling back to a page the caller did not ask for.
+    """
+    if name != "campaign-activity":
+        print(f"--image is not available for {name} yet", file=sys.stderr)
+        return 1
+    try:
+        from pipeline.report import board_image
+    except ImportError:
+        print("--image needs Pillow: pip install -r requirements-dev.txt",
+              file=sys.stderr)
+        return 1
+
+    view = dashboard_render.build_view(data, dashboard_render.THRESHOLDS)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    chosen, _ = board_image.save(view, out)
+    print(f"Wrote {out}")
+    # The face decides whether two machines drew the same board, so the run
+    # says which one it used rather than leaving the reader to assume.
+    print(f"  drawn with {chosen.name}"
+          f"{'' if chosen.graded else ' (single weight: hierarchy is size only)'}")
+    return 1 if (complaints and strict) else 0
 
 
 def main(argv=None):
@@ -127,6 +163,9 @@ def main(argv=None):
     complaints = board["validate"](data)
     for complaint in complaints:
         print(f"  data: {complaint}", file=sys.stderr)
+
+    if args.image:
+        return _draw(args.board, data, args.image, complaints, args.strict)
 
     page = board["render"](data)
     golden = board["golden"]

@@ -1,3 +1,9 @@
 # Development only. The portal must never depend on a browser at runtime --
 # see pipeline/scripts/capture_manual_shots.py, the one thing that uses this.
 playwright==1.49.0
+
+# The drawn board (pipeline/report/board_image.py). Optional on purpose: the
+# HTML path is stdlib-only and stays that way, so a checkout without Pillow
+# still renders every page and only `--image` is unavailable. The tests for it
+# skip rather than fail.
+pillow>=10.0
