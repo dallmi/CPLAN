@@ -30,6 +30,10 @@ def _pack(tmp_path, *, quality=None, periods=None, breakdowns=None,
     pack.mkdir(exist_ok=True)
     (pack / "01-summary.txt").write_text(summary or (
         "CPLAN REPORT - EXECUTIVE SUMMARY\n\n"
+        "REPORT\n------\n"
+        "  Data as of: 2026-08-12\n"
+        "  Rows read: 100\n"
+        "\n"
         "VOLUME\n------\n"
         "  Activities in scope: 100\n"
         "  Unknown: 0  (0% of the 100 in scope)\n"
@@ -222,27 +226,57 @@ def test_the_remedy_for_an_old_pack_is_stated_once(tmp_path):
         "a complete pack is told it is old")
 
 
-def test_a_completed_build_names_the_pipeline_rather_than_hedging(tmp_path):
-    """Three runs arrived showing the same pack, because the advice was a
-    fork and the reader had no way to take either branch.
+def test_the_pack_states_its_own_date(tmp_path):
+    """The number that settles which copy is old, and the one this tool did
+    not print for three runs.
 
-    The pack itself settles it. `write_pack` writes the summary after the
-    breakdown and period files, so a pack holding the summary ran to the end
-    -- a crash that stopped partway could not have produced it. The code that
-    wrote it therefore never had those files to write, and rebuilding with it
-    produces the same pack again.
+    A folder with no breakdown file is either a build from code that had none,
+    or a folder no recent build wrote into at all. Only the date tells them
+    apart, and the pack has stated it since the first version -- the contract
+    cites this very line.
+    """
+    assert fill.pack_date(_pack(tmp_path)) == "2026-08-12"
+
+    undated = tmp_path / "undated"
+    undated.mkdir()
+    pack = _pack(undated)
+    (pack / "01-summary.txt").unlink()
+    assert fill.pack_date(pack) is None
+
+
+def test_the_header_carries_the_pack_date(tmp_path, capsys):
+    """Printed with the path, not buried in the remedy: a reader comparing it
+    against their last build needs it before the verdicts, not after.
+    """
+    fill.main(["--pack", str(_pack(tmp_path))])
+    header = capsys.readouterr().out.split("board-")[0]
+    assert "2026-08-12" in header, "the pack date is not in the header"
+
+
+def test_a_completed_build_sends_the_reader_to_the_date_not_to_check_ps1(tmp_path):
+    """The correction. Three runs arrived showing the same pack because this
+    named only one of two causes -- and named the one check.ps1 already
+    covers, so a reader who had run it green was told to do the thing they had
+    done three times.
+
+    `write_pack` writes the summary after the breakdown and period files, so a
+    pack holding the summary ran to the end and did not stop partway. That
+    rules out a crash and leaves two, which the pack date decides between: an
+    old date means no recent build wrote into this folder, today's means the
+    code that wrote it had no such files.
     """
     note = fill.stale_pack_note(_pack(tmp_path))
-    assert "the pipeline that wrote it is the old copy" in note
-    assert "only then rebuild" in note
+    assert "the build ran to the end" in note
+    assert "Check the pack date" in note
+    assert "no recent build wrote into this folder" in note
+    assert "check.ps1" in note, "the other cause still needs its tool named"
 
     partial = tmp_path / "partial"
     partial.mkdir()
     pack = _pack(partial)
     (pack / "01-summary.txt").unlink()
     hedged = fill.stale_pack_note(pack)
-    assert "old copy" in hedged
-    assert "the pipeline that wrote it is the old copy" not in hedged, (
+    assert "the build ran to the end" not in hedged, (
         "a build with no summary may have crashed; that one cannot be settled")
 
 
