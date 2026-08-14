@@ -20,6 +20,7 @@ pytest.importorskip("pandas")
 
 from pipeline.report import dashboard_skill
 from pipeline.report.metrics import REPORTED_FIELDS
+from pipeline.scripts import build_agent_pack
 from pipeline.scripts import check_board_fill as fill
 
 
@@ -224,6 +225,70 @@ def test_the_remedy_for_an_old_pack_is_stated_once(tmp_path):
                                               encoding="utf-8")
     assert fill.stale_pack_note(complete) is None, (
         "a complete pack is told it is old")
+
+
+def test_the_pack_is_looked_for_where_the_agent_reads_it(tmp_path, monkeypatch):
+    """What the three runs were actually about.
+
+    The pack is copied out of the checkout after every run -- the build writes
+    to a synced folder, and the upload set is mirrored again to the library the
+    agent reads from. The folder under the checkout is the fallback for a
+    machine with no sync, and it keeps whatever the last local build left in
+    it: a working pack, months old, that parses exactly like this morning's.
+    So the report looked entirely healthy while describing a folder nobody
+    writes to.
+
+    Both real folders are already resolved by `build_agent_pack`, and both are
+    asked here rather than restated -- including its variable, so this adds no
+    third name for a folder that already has two.
+    """
+    sources = [source for _, source in fill.pack_candidates()]
+    assert sources[-1] == "the local build folder", (
+        "the checkout folder must be looked at last, never first")
+    assert "where the build writes" in sources
+
+    monkeypatch.setenv(build_agent_pack.AGENT_DIR_ENV, str(tmp_path / "mirror"))
+    first_path, first_source = next(iter(fill.pack_candidates()))
+    assert first_path == tmp_path / "mirror"
+    assert first_source == build_agent_pack.AGENT_DIR_ENV
+
+
+def test_a_folder_without_a_pack_is_passed_over(tmp_path, monkeypatch):
+    """An empty or half-copied mirror is not the pack.
+
+    Picking a named folder without looking would report on nothing at all,
+    which is worse than the leftover it replaced: at least the leftover said
+    something, however old.
+    """
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    monkeypatch.setenv(build_agent_pack.AGENT_DIR_ENV, str(empty))
+    _, source = fill.default_pack()
+    assert source != build_agent_pack.AGENT_DIR_ENV, (
+        "a folder with no summary was accepted as the pack")
+
+
+def test_the_header_says_which_pack_it_read(tmp_path, capsys, monkeypatch):
+    """A path alone does not say whether anybody chose it."""
+    monkeypatch.setenv(build_agent_pack.AGENT_DIR_ENV, str(_pack(tmp_path)))
+    fill.main([])
+    assert f"(from {build_agent_pack.AGENT_DIR_ENV})" in capsys.readouterr().out
+
+
+def test_no_pack_location_is_baked_into_the_repository(tmp_path):
+    """The location is one machine's filing decision, and machines differ.
+
+    It is also the kind of path that carries a person's account name and an
+    internal host, neither of which belongs in a repository that could be
+    read by anyone.
+    """
+    from pathlib import Path as _Path
+
+    root = _Path(fill.__file__).resolve().parents[2]
+    for path in (_Path(fill.__file__), root / "boardfill.ps1"):
+        text = path.read_text(encoding="utf-8")
+        for leak in ("OneDrive", "C:\\Users\\", "\\\\"):
+            assert leak not in text, f"{path.name} names a machine-specific path"
 
 
 def test_the_pack_states_its_own_date(tmp_path):

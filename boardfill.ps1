@@ -21,6 +21,20 @@ the field-completeness table too and crosses them.
 
 Read-only. Touches nothing but the pack files it reads, and the -Csv if asked.
 
+Reads the pack the agent actually reads: the mirrored upload set first, then
+the folder the build writes to, and the folder inside the checkout last. That
+order matters -- the checkout folder still holds whatever the last local build
+left there, and a months-old pack parses exactly like today's, so a report
+against it looks entirely healthy while describing nothing anybody uses.
+
+The mirror is found the same way agentpack.ps1 finds it. Where it sits
+somewhere this cannot guess, name it once with the variable that command
+already uses:
+
+  setx CPLAN_AGENT_DIR "<the folder holding 01-summary.txt>"
+
+then open a NEW window. The header of every run says which folder was read.
+
 Usage (from the repo root, or just double-click boardfill.cmd):
   .\boardfill.ps1
   .\boardfill.ps1 -Pack "C:\path\to\pack"
@@ -76,7 +90,8 @@ try {
         Write-Host "Every board panel has a figure to draw." -ForegroundColor Green
     }
     elseif ($code -eq 2) {
-        Write-Host "No pack to read. Build one first (agentpack.cmd), or pass -Pack." -ForegroundColor Yellow
+        Write-Host "No pack to read. Build one first (agentpack.cmd), pass -Pack," -ForegroundColor Yellow
+        Write-Host "or set CPLAN_AGENT_DIR to the folder the refresh copies the pack into." -ForegroundColor Yellow
     }
     else {
         # Not thrown: the check did its job, and the report above is the

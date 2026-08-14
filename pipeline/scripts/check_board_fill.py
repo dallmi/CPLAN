@@ -32,6 +32,12 @@ them rather than in a runbook.
 
 Reads only. Writes nothing but the optional --csv.
 
+Reads the pack the agent actually reads: the mirrored upload set first, then
+the folder the build writes to, and the checkout folder last. That order
+matters -- the checkout folder still holds whatever the last local build left
+in it, and a months-old pack parses exactly like today's, so a report against
+it looks entirely healthy while describing nothing anybody uses.
+
 Usage (from the repo root, or just double-click boardfill.cmd):
     python -m pipeline.scripts.check_board_fill
     python -m pipeline.scripts.check_board_fill --pack <folder>
@@ -44,6 +50,7 @@ from __future__ import annotations
 
 import argparse
 import csv as csv_module
+import os
 import sys
 from pathlib import Path
 from typing import NamedTuple
@@ -53,9 +60,48 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from pipeline.report import agent_pack, dashboard_contract, dashboard_skill  # noqa: E402
+from pipeline.scripts import build_agent_pack  # noqa: E402
 from pipeline.report.metrics import REPORTED_FIELDS  # noqa: E402
 
-DEFAULT_PACK = _REPO_ROOT / "pipeline" / "output" / "agent-pack" / "pack"
+# Where a build writes is not where the pack is read from, and neither is the
+# folder under the checkout. `build_agent_pack` already resolves both -- the
+# synced folder the pack lands in, and the mirror the agent's knowledge is
+# uploaded from -- so they are asked rather than restated here. The checkout
+# folder is last, because it is only ever the fallback for a machine with no
+# sync, and it keeps whatever the last local build left in it: a working pack,
+# months old, that parses exactly like this morning's.
+BUILD_PACK = _REPO_ROOT / "pipeline" / "output" / "agent-pack" / "pack"
+
+
+def pack_candidates():
+    """`(path, where_it_came_from)` for every folder that could hold the pack.
+
+    Best first: what the agent actually reads, then what the build wrote, then
+    the checkout. Each is a folder somebody's setup already decided on, so
+    nothing here needs configuring on a machine where the pipeline runs.
+    """
+    named = os.environ.get(build_agent_pack.AGENT_DIR_ENV, "").strip()
+    if named:
+        yield Path(named), build_agent_pack.AGENT_DIR_ENV
+    for path in build_agent_pack.find_agent_dirs():
+        yield path, "the mirror the agent reads"
+    yield (build_agent_pack.resolve_output_dir() / agent_pack.PACK_DIRNAME,
+           "where the build writes")
+    yield BUILD_PACK, "the local build folder"
+
+
+def default_pack():
+    """The first candidate that actually holds a pack, or the checkout folder.
+
+    "Holds a pack" is decided by the summary, which every build writes last:
+    an empty or half-copied mirror falls through to the next candidate rather
+    than being reported on as though it were the real thing.
+    """
+    for path, source in pack_candidates():
+        if (path / agent_pack.SUMMARY_NAME).exists():
+            return path, source
+    return BUILD_PACK, "the local build folder"
+
 
 # Files every build writes, whatever the data says. A board citing one of these
 # cannot be wrong about it existing, so its absence dates the pack rather than
@@ -65,6 +111,7 @@ ALWAYS_WRITTEN = frozenset({
     agent_pack.SUMMARY_NAME, agent_pack.CALENDAR_NAME,
     agent_pack.BREAKDOWN_NAME, agent_pack.PERIODS_CSV_NAME,
 })
+
 
 # Which export column each measure counts. Only measures whose emptiness has a
 # single nameable cause are listed: `activities` is not here because a zero
@@ -464,15 +511,22 @@ def _write_csv(path, results):
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Say which board panels have a figure to draw.")
-    parser.add_argument("--pack", type=Path, default=DEFAULT_PACK,
-                        help="the built pack folder (default: the last build)")
+    parser.add_argument("--pack", type=Path, default=None,
+                        help=("the pack folder to read (default: the mirror "
+                              "the agent reads, else where the build wrote)"))
     parser.add_argument("--csv", type=Path, default=None,
                         help="also write the verdicts to this file")
     args = parser.parse_args(argv)
 
-    pack_dir = args.pack
+    if args.pack is not None:
+        pack_dir, source = args.pack, "--pack"
+    else:
+        pack_dir, source = default_pack()
     if not pack_dir.exists():
-        log(f"No pack at {pack_dir}. Build one first, or pass --pack.")
+        log(f"No pack at {pack_dir} (from {source}).")
+        wrapped("Build one first, pass --pack, or set "
+                f"{build_agent_pack.AGENT_DIR_ENV} to the folder the refresh "
+                "copies the pack into.")
         return 2
 
     results, fields, total = audit(pack_dir)
@@ -480,6 +534,7 @@ def main(argv=None):
     log()
     log("=== Board fill check ===")
     log(f"Pack: {pack_dir}")
+    log(f"  (from {source})")
     log(f"Activities in scope: {total if total is not None else 'unknown'}")
     stamped = pack_date(pack_dir)
     log(f"Pack built from data as of: {stamped or 'unknown'}")
