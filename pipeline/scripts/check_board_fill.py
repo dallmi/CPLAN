@@ -50,10 +50,19 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from pipeline.report import dashboard_contract, dashboard_skill  # noqa: E402
+from pipeline.report import agent_pack, dashboard_contract, dashboard_skill  # noqa: E402
 from pipeline.report.metrics import REPORTED_FIELDS  # noqa: E402
 
 DEFAULT_PACK = _REPO_ROOT / "pipeline" / "output" / "agent-pack" / "pack"
+
+# Files every build writes, whatever the data says. A board citing one of these
+# cannot be wrong about it existing, so its absence dates the pack rather than
+# faulting the board. `07-packs.csv` is deliberately not here: it appears only
+# where a pack list was synced, and a build without one is a real shape.
+ALWAYS_WRITTEN = frozenset({
+    agent_pack.SUMMARY_NAME, agent_pack.CALENDAR_NAME,
+    agent_pack.BREAKDOWN_NAME, agent_pack.PERIODS_CSV_NAME,
+})
 
 # Which export column each measure counts. Only measures whose emptiness has a
 # single nameable cause are listed: `activities` is not here because a zero
@@ -329,6 +338,24 @@ def audit(pack_dir):
     return results, fields, total
 
 
+def stale_pack_note(pack_dir):
+    """The one paragraph a pack older than the boards is owed, or None.
+
+    Two different old copies produce the same symptom -- an old pack, and an
+    old pipeline that cannot build a new one -- and only the second is fixed
+    by check.ps1. Naming both here is what stops a rebuild that changes
+    nothing from reading as the tool being wrong.
+    """
+    missing = sorted(name for name in ALWAYS_WRITTEN
+                     if not (pack_dir / name).exists())
+    if not missing:
+        return None
+    return (f"This pack is older than the boards: it has no {', '.join(missing)}. "
+            "Every build writes those. Rebuild the pack -- and if the rebuild "
+            "still does not produce them, the pipeline itself is the old copy, "
+            "which check.ps1 will say file by file.")
+
+
 def _unresolved(citation, error, pack_dir):
     """Separate a board that drifted from a pack that is simply older.
 
@@ -339,6 +366,15 @@ def _unresolved(citation, error, pack_dir):
     signature of a build from before the quarter grain carried it.
     """
     parts = [part.strip() for part in citation.split("·")]
+    name = parts[0]
+    if name in ALWAYS_WRITTEN and not (pack_dir / name).exists():
+        # Not a citation nobody updated: every build writes this file, so a
+        # pack without it was built by code older than the boards. Saying
+        # "GONE" here would send somebody to edit a board that is correct.
+        # What to do about it is said once, under the report -- one missing
+        # file can strike fourteen panels, and printing the remedy on each of
+        # them buries the panels that need reading individually.
+        return STALE, f"the pack has no {name}"
     if any(part.startswith("grain=") for part in parts):
         relaxed = " · ".join(part for part in parts
                              if not part.startswith("grain="))
@@ -420,6 +456,11 @@ def main(argv=None):
     if args.csv is not None:
         _write_csv(args.csv, results)
         log(f"Written: {args.csv}")
+        log()
+
+    stale = stale_pack_note(pack_dir)
+    if stale:
+        log(stale)
         log()
 
     broken = [row for row in results if row.verdict not in _HEALTHY]
