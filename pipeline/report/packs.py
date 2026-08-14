@@ -33,6 +33,23 @@ from typing import NamedTuple
 # if it names a different winner.
 PACK_LINK_COLUMN = "communication_pack_cpid"
 
+# The same pack, named a second time and by a different route: the first two
+# segments of the generated tracking ID, `<cluster>-<pack number>`, which the
+# ETL splits out as `tracking_pack_id`.
+#
+# Not a replacement for the column above, and deliberately not scored against
+# it here -- `check_pack_link.py` measured both on the export of 2026-08-14 and
+# they resolve almost the same total by different routes: 1,848 activities
+# through the pack field, 1,835 through the tracking ID, and only 1,733 rows
+# where both name a pack at all. So neither contains the other, and a pack's
+# two counts can differ in both directions.
+#
+# It exists because the pack field is filled by hand and often is not, while
+# the tracking ID is generated for every activity. One pack carrying 110
+# activities in its tracking IDs reported five, and nothing in the delivered
+# files could say why.
+TRACKING_LINK_COLUMN = "tracking_pack_id"
+
 # Below this the run says so rather than presenting a badly joined file as a
 # clean one. The same floor `check_pack_link.py` exits non-zero on.
 MIN_LINK_RATE = 0.8
@@ -114,18 +131,24 @@ def mark(frame, pack_frame):
     return frame
 
 
-def activity_counts(frame, pack_frame):
+def activity_counts(frame, pack_frame, column=PACK_LINK_COLUMN):
     """Activities per pack identifier, over the rows in `frame`.
 
     Keyed on the pack list's own identifiers so a count can be looked up
     while writing the pack rows. References that match no pack are not
     counted here -- `pack_known` is where those are reported.
+
+    `column` selects which of the two identifiers an activity is read
+    through. One function rather than two, because the counting rule is the
+    same rule and two copies of it would eventually disagree about a value
+    with a trailing space -- and then the pack file would carry two counts
+    that differ for a reason nobody could see.
     """
     known = _pack_keys(pack_frame)
-    if known is None or PACK_LINK_COLUMN not in frame.columns:
+    if known is None or column not in frame.columns:
         return {}
     by_key = {}
-    for value in frame[PACK_LINK_COLUMN]:
+    for value in frame[column]:
         identifier = key(value)
         if identifier and identifier in known:
             by_key[identifier] = by_key.get(identifier, 0) + 1

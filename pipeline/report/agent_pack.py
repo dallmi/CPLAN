@@ -117,13 +117,15 @@ PERIODS_CSV_NAME = "08-periods.csv"
 # not carry it, and a header over permanently empty cells asserts a
 # distinction the data never made -- the same reason the leadership split
 # columns arrive with a member list and not before.
-PACKS_HEADER = ("Pack ID", "Pack", "Cluster", "Lead", "Lead team",
-                "Partner team", "Divisions", "Regions", "Objective",
-                "Start", "End", "Launch", "Description",
-                "activities_in_scope", "activities_total", "in_report")
+PACKS_HEADER = ("Pack ID", "Cluster prefix", "Pack no.", "Pack", "Cluster",
+                "Lead", "Lead team", "Partner team", "Divisions", "Regions",
+                "Objective", "Start", "End", "Launch", "Description",
+                "activities_in_scope", "activities_total",
+                "activities_by_tracking_id", "in_report")
 
-# The pack frame's column behind each header above, in the same order. Two
-# are computed rather than read and are handled at the call site.
+# The pack frame's column behind each header above, in the same order. Five
+# are computed rather than read and are handled at the call site: the two
+# halves of the identifier, and the three counts.
 PACK_FIELDS = ("cpid", "pack_name", "tracking_cluster", "lead",
                "lead_team", "partner_team", "business_division", "region",
                "strategic_objective", "start_date", "end_date", "launch_date",
@@ -1180,6 +1182,13 @@ _SKILL_PACK_ROUTING = f"""\
   those with nothing planned against them (`activities_in_scope = 0`), which
   is the only place that fact appears. Join it to `{ACTIVITIES_CSV_NAME}` on
   `Pack ID`, which every activity row carries beside `pack_known`.
+- Quote `activities_in_scope` for a pack's size: it counts the activities
+  whose pack field names the pack, which is what someone decided.
+  `activities_by_tracking_id` counts those whose generated tracking ID
+  carries the pack's number instead — nobody has to fill that in, so where it
+  is much larger the pack field was left empty on those rows. Report that
+  with both numbers rather than answering with the larger one. Neither
+  contains the other; a pack can be larger under either.
 """
 
 _SKILL_BODY = f"""
@@ -1777,6 +1786,15 @@ def activity_rows(scope, report_config=None):
     return headers, rows
 
 
+def _pack_cell(pack, field):
+    """One pack field as the file writes it: ISO dates, blanks for nothing."""
+    value = pack.get(field)
+    if field in ("start_date", "end_date", "launch_date"):
+        return (value.date().isoformat()
+                if hasattr(value, "date") and value == value else "")
+    return "" if value is None or value != value else value
+
+
 def pack_rows(scope, report_config=None):
     """One row per pack in the list, including the ones with nothing planned.
 
@@ -1790,11 +1808,29 @@ def pack_rows(scope, report_config=None):
     read very differently and cannot share one column. `in_report` follows
     the activity rows: the pack is in the report when any of its activities
     survives the workbook's own filters.
+
+    `activities_by_tracking_id` counts the same in-scope rows through the
+    other identifier -- the pack number the generated tracking ID carries,
+    which nobody has to remember to fill in. It sits beside the first count
+    rather than replacing it because neither contains the other: measured
+    over the whole export, 1,848 activities name a pack in the field and
+    1,835 name one in their tracking ID, with 1,733 doing both. A pack can
+    therefore be larger under one count and smaller under the other, and one
+    of them was reading five where a hundred and ten activities carried the
+    pack's number.
+
+    The identifier is also written out in its two halves. The cluster prefix
+    and the pack number are what a tracking ID is built from, and comparing
+    the two files on a number that sits inside a longer identifier in one of
+    them is the manual step that produced "110 here, 5 there" with nothing in
+    either file able to explain it.
     """
     if scope.packs is None:
         return []
 
     in_scope = packs_module.activity_counts(scope.frame, scope.packs)
+    by_tracking = packs_module.activity_counts(
+        scope.frame, scope.packs, packs_module.TRACKING_LINK_COLUMN)
     overall = scope.pack_counts_all or {}
 
     reported = set()
@@ -1809,16 +1845,17 @@ def pack_rows(scope, report_config=None):
     rows = []
     for _, pack in scope.packs.iterrows():
         identifier = packs_module.key(pack.get("cpid"))
-        values = []
-        for field in PACK_FIELDS:
-            value = pack.get(field)
-            if field in ("start_date", "end_date", "launch_date"):
-                values.append(value.date().isoformat()
-                              if hasattr(value, "date") and value == value else "")
-            else:
-                values.append("" if value is None or value != value else value)
+        cpid = _pack_cell(pack, "cpid")
+        # Split off the raw value rather than the keyed one: the key is
+        # upper-cased for comparison, and these two columns are read, not
+        # matched. A value with no separator is all number and no prefix --
+        # described as it is rather than rejected.
+        prefix, _, number = str(cpid).rpartition("-")
+        values = [cpid, prefix, number or cpid]
+        values += [_pack_cell(pack, field) for field in PACK_FIELDS[1:]]
         values.append(in_scope.get(identifier, 0))
         values.append(overall.get(identifier, 0))
+        values.append(by_tracking.get(identifier, 0))
         if report_config is not None:
             values.append("Yes" if identifier in reported else "No")
         else:

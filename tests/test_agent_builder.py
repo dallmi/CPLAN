@@ -810,6 +810,21 @@ def test_the_reading_guide_says_how_the_two_files_join():
     assert "nothing planned" in text.lower()
 
 
+def test_the_reading_guide_says_which_of_the_two_pack_counts_to_quote():
+    """Two counts in one file is a question the agent answers on its own,
+    differently each time, unless it is told.
+
+    They can differ by a factor of twenty on a single pack: five activities
+    naming it in the pack field, a hundred and ten naming it in their
+    tracking IDs. Asked "how big is this pack", an agent picks whichever
+    column it read last -- and both answers look defensible.
+    """
+    text = agent_builder.reading_guide_text(True)
+
+    assert "activities_by_tracking_id" in text
+    assert "activities_in_scope" in text
+
+
 def test_the_mirror_puts_this_runs_upload_set_in_the_agents_own_folder(tmp_path):
     """The step that used to be a manual copy, and could be forgotten.
 

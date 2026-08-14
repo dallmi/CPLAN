@@ -358,6 +358,16 @@ showing `activities_in_scope = 0` is an answer — nothing planned against it,
 not a defect. Check `activities_total` before calling it dormant: zero in
 scope with a positive total means nothing *this period*.
 
+A pack is sized twice, and the two counts are not interchangeable. Quote
+`activities_in_scope`: it counts the activities whose pack field names this
+pack, which is what someone decided. `activities_by_tracking_id` counts the
+activities whose generated tracking ID carries this pack's number, which
+nobody had to remember to fill in. Where the second is much larger, the pack
+field was left empty on those activities — say so as a data-quality
+observation, with both numbers, and do not quietly answer with the larger
+one. Neither count contains the other, so a pack can also be larger under the
+first.
+
 ## Always cite the identifier
 
 Whenever you name an activity, a pack or a cluster, put its identifier beside
