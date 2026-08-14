@@ -1380,7 +1380,7 @@ def test_the_boards_ship_as_their_own_skill(tmp_path):
     # agent does not draw, and the assertions below about panels, highlights
     # and the red budget are about drawing, so they exclude it by name rather
     # than by "everything that is not the index".
-    assert contracts == {"contract-head-of-communications-overview.md"}
+    assert contracts == {"contract-campaign-activity-overview.md"}
     assert sorted(names) == sorted({"SKILL.md", *boards, *contracts})
 
     description = next(line for line in skill.splitlines()
@@ -1451,8 +1451,8 @@ def test_the_overview_board_is_the_one_designed_for_the_role(tmp_path):
     """One overview, not two. Two general boards give the agent no criterion
     by which to pick, which is the case where it grabs blindly.
     """
-    assert "contract-head-of-communications-overview.md" in dashboard_contract.CONTRACTS
-    assert "board-head-of-communications-overview.md" not in dashboard_skill.BOARDS, (
+    assert "contract-campaign-activity-overview.md" in dashboard_contract.CONTRACTS
+    assert "board-campaign-activity-overview.md" not in dashboard_skill.BOARDS, (
         "the overview is rendered from its contract; a drawn panel list beside "
         "it is a second answer to one board name")
     assert "board-portfolio-overview.md" not in dashboard_skill.BOARDS
@@ -1480,7 +1480,7 @@ def test_the_overview_names_teams_as_work_received(tmp_path):
     panel 4's business question and footnote, which a reader does.
     """
     contract = dashboard_contract.CONTRACTS[
-        "contract-head-of-communications-overview.md"]
+        "contract-campaign-activity-overview.md"]
     # The figure is a portfolio count, not a per-team one, which is the
     # data-supportable form of the same guard: nothing in the pack says who
     # caused a short lead time, so it is never cut by team.
@@ -1512,7 +1512,7 @@ def test_the_overview_spends_its_red_on_the_intervention(tmp_path):
     question: the panel that answers it is the one that gets the accent.
     """
     contract = dashboard_contract.CONTRACTS[
-        "contract-head-of-communications-overview.md"]
+        "contract-campaign-activity-overview.md"]
     # No highlight to declare, because the agent is not the one drawing. Where
     # this board spends its red is a property of the frozen template, and
     # `tests/test_report_dashboard.py` pins it against the golden file and the

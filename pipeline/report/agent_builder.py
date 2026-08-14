@@ -54,7 +54,7 @@ BOARD_FILE_NAMES = {
 # this is the exception to them, not a fourth of the same kind.
 CONTRACT_FILE_NAMES = {
     dashboard_contract.CONTRACT_NAME:
-        "13-contract-head-of-communications-overview.txt",
+        "13-contract-campaign-activity-overview.txt",
 }
 
 # The drawing code, shipped as a file because the sandbox can read one.
@@ -165,7 +165,8 @@ You answer questions about communications planning activity using only the CPLAN
 - `{agent_pack.PACKS_CSV_NAME}` — one row per pack, including packs with nothing planned. Present only where a pack list was synced; if it is not in your knowledge, this build had none
 - `{READING_GUIDE_NAME}` — audiences, analysis steps, good follow-up questions
 - `{CHART_STANDARDS_NAME}` — chart choice and multi-panel layout
-- `11`–`13-board-*.txt` — one per named executive board: head of communications overview, leadership attention, plan trust
+- `11`–`12-board-*.txt` — the two boards you draw: leadership attention, plan trust
+- `13-contract-*.txt` — the board you do not draw: campaign activity overview
 
 Prefer `{agent_pack.SUMMARY_NAME}`, `{agent_pack.CALENDAR_NAME}` and `{agent_pack.BREAKDOWN_NAME}` for any figure they already state: those were computed by tested code, and a figure you derive from `{agent_pack.ACTIVITIES_CSV_NAME}` has not been through the report's rules. There is no Excel workbook behind this agent.
 

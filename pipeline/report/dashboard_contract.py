@@ -1,9 +1,15 @@
 """What the agent returns for a board that is rendered rather than drawn.
 
-The head of communications overview is not drawn. Its markup is frozen in
-`pipeline/dashboard/campaign-activity.template.html` -- the page is titled
-"Campaign activity overview" -- and `pipeline/scripts/report_dashboard.py`
-renders it byte for byte from a data object. So the agent supplies the object,
+The campaign activity overview is not drawn. Its markup is frozen in
+`pipeline/dashboard/campaign-activity.template.html` and
+`pipeline/scripts/report_dashboard.py` renders it byte for byte from a data
+object.
+
+One name, and it is the one printed on the page. The board answered to two
+for a while -- one in the catalogue, another in the artefact -- and a reader
+asking for the board by the name they had been given could be routed to
+neither. The role it serves is unchanged; a board is named after what it
+shows, not after who reads it. So the agent supplies the object,
 not the picture, and this file says which pack line fills which field.
 
 The trade is deliberate. Drawing is where a rule gets dropped: it took four
@@ -25,15 +31,15 @@ periods side by side and print neither, which is the one failure a management
 page must not have.
 """
 
-CONTRACT_NAME = "contract-head-of-communications-overview.md"
+CONTRACT_NAME = "contract-campaign-activity-overview.md"
 
-CONTRACT_TEXT = """# Data contract — Head of communications overview
+CONTRACT_TEXT = """# Data contract — Campaign activity overview
 
 **The decision:** where do I intervene, and with whom?
 
 This board is **rendered, not drawn**. Produce the data object below; a tested
-renderer turns it into the page, which is titled "Campaign activity overview".
-Do not draw this board, and do not describe what it would look like.
+renderer turns it into the page. Do not draw this board, and do not describe
+what it would look like.
 
 ## What to do with it
 

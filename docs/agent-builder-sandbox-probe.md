@@ -25,8 +25,8 @@ On the machine that built the delivery, in the `upload\` folder — either
 CPLAN directory, depending on which one `agentpack` found:
 
 ```powershell
-Get-Item .\13-contract-head-of-communications-overview.txt | Select-Object Length
-Get-FileHash -Algorithm SHA256 .\13-contract-head-of-communications-overview.txt
+Get-Item .\13-contract-campaign-activity-overview.txt | Select-Object Length
+Get-FileHash -Algorithm SHA256 .\13-contract-campaign-activity-overview.txt
 ```
 
 Use what that prints. It is the file the agent actually has, and it is the only
@@ -58,7 +58,7 @@ Run:
 Report the output exactly as printed, including the errors.
 
 Step 3 — can you read one of them as a file?
-Pick 13-contract-head-of-communications-overview.txt from whichever
+Pick 13-contract-campaign-activity-overview.txt from whichever
 directory Step 2 found it in. If Step 2 found it nowhere, say so and
 stop — do not substitute anything you remember.
 Run:
