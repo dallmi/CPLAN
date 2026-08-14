@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-14.8"
+$manifestVersion = "2026-08-14.9"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-14.8"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-14.8"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-14.9"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -817,7 +817,15 @@ $manifest = @(
     @{ Path = "pipeline\scripts\check_pack_link.py"; Marker = "def classify"; Why = "a miss now says how it missed - cluster prefix, zero padding, a number two packs share, or nothing at all - and an older copy reports one flat total in which a repairable join and a dead identifier are the same number" },
     @{ Path = "pipeline\scripts\check_pack_link.py"; Marker = "def agreement"; Why = "where both columns name a pack they are compared - an older copy cannot see the one failure that matters, a fallback resolving to a pack the source system does not name, because every other figure it prints measures how much resolves and none whether it resolves correctly" },
     @{ Path = "pipeline\scripts\check_pack_link.py"; Marker = "CHAIN_COLUMN"; Why = "the fallback chain is scored beside the three real columns but kept out of select_winners - an older copy cannot say what a chain would buy, and one that scored it as a candidate would report a tie needing a human on every healthy export" },
-    @{ Path = "packlink.ps1"; Marker = "-Detail"; Why = "the launcher forwards the flag that writes the per-identifier report to a file - an older copy cannot pass it, so the whole measurement has to be read off a console window on the machine that has the export and typed out by hand" }
+    @{ Path = "packlink.ps1"; Marker = "-Detail"; Why = "the launcher forwards the flag that writes the per-identifier report to a file - an older copy cannot pass it, so the whole measurement has to be read off a console window on the machine that has the export and typed out by hand" },
+
+    # The tracking ID's pack number, without the cluster prefix in front of it.
+    # A candidate of its own: the live export carries the generic cluster over
+    # real pack numbers, and every one of those rows is a pack that
+    # cluster-and-number misses and the number alone finds. It costs the only
+    # thing that told two packs with the same number apart, so the report
+    # prints what it finds and what it can no longer distinguish together.
+    @{ Path = "pipeline\scripts\check_pack_link.py"; Marker = "def number_join"; Why = "the pack number alone is scored as its own candidate, with the packs that share a number counted beside it - an older copy reports it only as a side category, and only where the number happens to belong to exactly one pack, so nobody can see what the variant would gain or cost" }
 )
 
 Write-Host ""

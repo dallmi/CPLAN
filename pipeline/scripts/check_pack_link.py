@@ -357,6 +357,75 @@ def with_chain(frame, generic: dict):
     return frame
 
 
+# The pack number on its own, second segment of the tracking ID, as the ETL
+# already splits it out. A candidate in its own right and not a variant of
+# `tracking_pack_id`: where a pack's cluster prefix differs between the
+# tracking ID and the pack list -- the live export carries the generic cluster
+# `CCCCC` over real pack numbers -- cluster-and-number misses the pack and the
+# number alone finds it.
+NUMBER_COLUMN = "tracking_pack_number"
+
+
+class NumberJoin(NamedTuple):
+    """What a join on the pack number alone would do, and what it would cost.
+
+    The benefit and the risk in one result, because they are the same
+    decision. Dropping the cluster prefix is what lets this variant find a
+    pack whose prefix drifted; it is also what leaves nothing to tell two
+    packs with the same number apart.
+    """
+
+    score: Score
+    ambiguous_packs: int
+    ambiguous_refs: int
+
+
+def number_join(frame, packs, generic: dict) -> NumberJoin:
+    """Score `NUMBER_COLUMN` against the pack list's numbers, prefix ignored.
+
+    Ambiguous numbers are neither matched nor quietly dropped: a reference
+    landing on a number two packs carry is counted on its own, because
+    resolving it would pick one of them with no evidence and produce a row
+    indistinguishable from a clean match.
+
+    Numbers are compared with leading zeros stripped, so `58` and `0000058`
+    are one pack rather than two -- the padding difference this tool already
+    reports as its own category.
+    """
+    pack_ids = _keys(packs.get("cpid") if packs is not None else None)
+    by_number: dict = {}
+    for cpid in pack_ids:
+        by_number.setdefault(_unpadded(_number(cpid)), set()).add(cpid)
+    unique = {number: next(iter(hit)) for number, hit in by_number.items()
+              if len(hit) == 1}
+    ambiguous = {number for number, hit in by_number.items() if len(hit) > 1}
+
+    referenced = matched = ambiguous_refs = 0
+    reached: set = set()
+    seen: set = set()
+    for value in frame.get(NUMBER_COLUMN, []):
+        identifier = key(value)
+        if not identifier or identifier in generic:
+            continue
+        referenced += 1
+        number = _unpadded(identifier)
+        seen.add(number)
+        if number in ambiguous:
+            ambiguous_refs += 1
+        elif number in unique:
+            matched += 1
+            reached.add(unique[number])
+
+    return NumberJoin(
+        score=Score(column=NUMBER_COLUMN, referenced=referenced, matched=matched,
+                    packs_hit=len(reached), packs_total=len(pack_ids),
+                    orphan_activities=len(seen - set(unique) - ambiguous),
+                    orphan_packs=len(pack_ids - reached),
+                    samples=tuple(sorted(seen)[:SAMPLE_COUNT])),
+        ambiguous_packs=sum(len(by_number[number]) for number in ambiguous),
+        ambiguous_refs=ambiguous_refs)
+
+
 class Bucket(NamedTuple):
     """One category of one column: how many identifiers, on how many rows."""
 
@@ -651,16 +720,38 @@ def main(argv: list[str] | None = None) -> int:
     generic_secondary = generic_by_column[CHAIN_SECONDARY]
     chain_score = score(with_chain(load.frame, generic_secondary), packs,
                         CHAIN_COLUMN, ignore=generic_secondary)
+
+    # The pack number on its own, scored in the same table so it can be
+    # compared instead of argued about. Its placeholders are found the same
+    # way, but against the pack list's numbers rather than its full
+    # identifiers: keyed on the identifiers, every bare number would match
+    # nothing and the frequent ones would all read as generic.
+    pack_numbers = {_unpadded(_number(cpid)) for cpid in pack_ids}
+    generic_numbers = generic_values(load.frame.get(NUMBER_COLUMN), pack_numbers)
+    numbered = number_join(load.frame, packs, generic_numbers)
+
     print_table(
         "Without the generic identifiers, plus the fallback chain",
         ["Column", "Real refs", "Matched", "Rate", "Packs hit", "Reach"],
         [(s.column, s.referenced, s.matched, f"{s.rate:.0%}", s.packs_hit,
           f"{s.reach:.0%}")
-         for s in [real[name] for name in PACK_LINK_CANDIDATES] + [chain_score]],
+         for s in ([real[name] for name in PACK_LINK_CANDIDATES]
+                   + [numbered.score, chain_score])],
         # Wide enough for `CHAIN_COLUMN` whole: `print_table` truncates with
         # an ellipsis, and a chain named half-way is a row a reader cannot
         # tell from one of the three real columns.
         col_widths=[len(CHAIN_COLUMN) + 2, 11, 9, 7, 10, 7])
+    print()
+
+    # The price of that row, printed with it. The prefix is what let two packs
+    # with the same number be told apart, and a reader weighing what the
+    # variant finds without weighing what it can no longer distinguish is
+    # weighing half the decision.
+    log(f"{NUMBER_COLUMN} generic identifiers: "
+        f"{', '.join(sorted(generic_numbers)) or 'none'}")
+    log(f"{numbered.ambiguous_packs} packs share a number with another pack; "
+        f"{numbered.ambiguous_refs} references land on one of those numbers "
+        "and are left unresolved rather than assigned to one of them")
     print()
 
     index = build_index(pack_ids)

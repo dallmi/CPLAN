@@ -637,6 +637,74 @@ def test_the_detail_csv_carries_every_identifier_and_its_category(tmp_path):
     assert by_identifier["3KEYS-0000058"]["category"] == check_pack_link.RESOLVED
 
 
+def _numbers(*pack_ids):
+    import pandas as pd
+
+    return pd.DataFrame({"cpid": list(pack_ids)})
+
+
+def test_the_pack_number_alone_finds_a_pack_whose_cluster_prefix_differs():
+    """The join the cluster-and-number one cannot make.
+
+    On the live export the tracking ID carries the generic cluster `CCCCC`
+    over a real pack number while the pack itself sits under another prefix.
+    Cluster and number together miss every one of those; the number alone is
+    the whole point of measuring this separately.
+    """
+    import pandas as pd
+
+    frame = pd.DataFrame({"tracking_pack_number": ["0000184", "0000185"]})
+
+    joined = check_pack_link.number_join(frame, _numbers("SPONS-0000184"), {})
+
+    assert joined.score.referenced == 2
+    assert joined.score.matched == 1
+    assert joined.score.packs_hit == 1
+
+
+def test_a_number_two_packs_share_is_counted_apart_from_the_matches():
+    """The cost of dropping the prefix, in the same report as the benefit.
+
+    Without the cluster there is nothing left to tell two packs with the same
+    number apart. Counting such a reference as matched would assign one of
+    them at random and look exactly like a clean join, so it is counted on its
+    own line -- and a reader can weigh it against what the variant gains.
+    """
+    import pandas as pd
+
+    frame = pd.DataFrame({"tracking_pack_number": ["0000184", "0000184", "0000185"]})
+    packs = _numbers("SPONS-0000184", "3KEYS-0000184", "3KEYS-0000185")
+
+    joined = check_pack_link.number_join(frame, packs, {})
+
+    assert joined.score.matched == 1, "only the unambiguous number matched"
+    assert joined.ambiguous_refs == 2
+    assert joined.ambiguous_packs == 2
+
+
+def test_the_number_join_ignores_the_placeholder_number():
+    """`0000000` is 90% of the column and no pack at all."""
+    import pandas as pd
+
+    frame = pd.DataFrame({"tracking_pack_number": ["0000000"] * 30 + ["0000184"]})
+
+    joined = check_pack_link.number_join(frame, _numbers("SPONS-0000184"),
+                                         {"0000000": 30})
+
+    assert joined.score.referenced == 1
+    assert joined.score.rate == 1.0
+
+
+def test_main_scores_the_pack_number_beside_the_other_candidates(tmp_path, capsys):
+    """It belongs in the same table, or it cannot be compared with them."""
+    _standalone_export(tmp_path)
+    check_pack_link.main(["--input", str(tmp_path)])
+    out = capsys.readouterr().out
+
+    assert check_pack_link.NUMBER_COLUMN in out
+    assert "packs share a number" in out
+
+
 def test_the_launcher_passes_on_every_flag_the_check_accepts():
     """The machine that has the production export runs the launcher.
 
