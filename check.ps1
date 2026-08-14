@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-14.6"
+$manifestVersion = "2026-08-14.7"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-14.6"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-14.6"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-14.7"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -796,7 +796,15 @@ $manifest = @(
     # absence dates the pack instead of faulting the board.
     @{ Path = "pipeline\scripts\check_board_fill.py"; Marker = "ALWAYS_WRITTEN"; Why = "a pack missing a file every build writes is reported as old rather than as a board citing something that does not exist - an older copy sends a reader to edit boards that are right, and says it fourteen times" },
     @{ Path = "pipeline\scripts\check_board_fill.py"; Marker = "def wrapped"; Why = "the report is broken to a console width - an older copy wraps at whatever width the window has, and the remedy paragraph reached its second reader with the middle of it outside the frame" },
-    @{ Path = "pipeline\scripts\check_board_fill.py"; Marker = "def pack_date"; Why = "the report prints the pack generation date beside the path - without it a folder no build has written to since July is indistinguishable from this morning's, and the remedy names the wrong old copy" }
+    @{ Path = "pipeline\scripts\check_board_fill.py"; Marker = "def pack_date"; Why = "the report prints the pack generation date beside the path - without it a folder no build has written to since July is indistinguishable from this morning's, and the remedy names the wrong old copy" },
+
+    # The whole three-run detour, in one line: the pack is read from wherever
+    # the refresh copies it, and the folder a local build writes to keeps
+    # whatever that build last left there. A leftover pack parses like any
+    # other, so nothing in the report looks wrong while every verdict is about
+    # a folder nobody writes to.
+    @{ Path = "pipeline\scripts\check_board_fill.py"; Marker = "def pack_candidates"; Why = "the pack is looked for where the agent reads it, then where the build wrote, and only last in the checkout - an older copy always reads the checkout folder, which keeps whatever the last local build left there and parses exactly like this morning's" },
+    @{ Path = "boardfill.ps1"; Marker = "CPLAN_AGENT_DIR"; Why = "the launcher names the variable agentpack.ps1 already uses for the mirror - an older copy sends a reader to the checkout folder with no hint that the pack they mean is elsewhere" }
 )
 
 Write-Host ""
