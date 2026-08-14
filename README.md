@@ -442,6 +442,14 @@ which separates a repairable join from a dead identifier; `--detail` writes one
 row per identifier so the verdict can be checked against the export instead of
 believed.
 
+The tracking ID's pack number is scored as a candidate of its own, without the
+cluster prefix in front of it. The two are not the same question: the live
+export carries the generic cluster over real pack numbers, so a pack whose
+prefix drifted is a miss for `tracking_pack_id` and a hit for the number alone.
+What that costs is printed beside it — dropping the prefix leaves nothing to
+tell two packs with the same number apart, so those references are counted on
+their own line instead of being assigned to one of them.
+
 The fallback chain `communication_pack_cpid` then `tracking_pack_id` is scored
 beside the real columns and deliberately kept out of the winner selection: it
 needs code the ETL does not have, and it resolves at least as well as its first
