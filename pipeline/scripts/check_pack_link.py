@@ -9,17 +9,37 @@ where a wrong join does not look wrong: it looks like a pack file with
 plausible numbers in it.
 
 So it is measured. This reads the same exports a refresh reads, read-only, and
-reports two things: which columns of the pack export the ETL does not yet map,
-and how each candidate scores against the pack list. Three sample values are
-printed per side, because the outcome worth diagnosing is the one where every
-candidate reads 0%: an export that does not link and one whose identifiers are
-merely spelled differently produce the same zero, and only seeing both sides
-tells them apart.
+reports which columns of the pack export the ETL does not yet map, then scores
+each candidate against the pack list. Three sample values are printed per side,
+because the outcome worth diagnosing is the one where every candidate reads 0%:
+an export that does not link and one whose identifiers are merely spelled
+differently produce the same zero, and only seeing both sides tells them apart.
+
+Scoring a raw column is not enough on its own, because one of the candidates is
+derived from an identifier every activity carries. A tracking ID is
+`<cluster>-<pack number>-<date>-<activity>-<channel>`, and the knowledge base
+says that "for standalone activities, generic cluster and pack identifiers are
+used" -- so its pack segment is never empty, and an activity with no pack
+carries a placeholder rather than nothing. Counted as references, those
+placeholders turn the share of activities that have a pack into a number that
+reads like a broken join. A pack is attached only to the larger
+communications, so most activities have none, and that is the normal state
+rather than a defect.
+
+The rest of the report follows from that. The placeholders are measured and
+named, never assumed; the rate is reported again without them; each reference
+says what it turned out to be -- resolved, generic, a cluster prefix that
+differs, zero padding that differs, a number two packs share, or nothing at
+all; and the fallback chain `communication_pack_cpid` then `tracking_pack_id`
+is scored beside the real columns. The chain never wins here: it needs code the
+ETL does not have, and whether it may be built is decided by the last figure,
+which counts the activities where both columns name a pack and disagree.
 
 Usage (from the repo root, or just double-click packlink.cmd):
     python -m pipeline.scripts.check_pack_link
     python -m pipeline.scripts.check_pack_link --input <folder>
     python -m pipeline.scripts.check_pack_link --csv out.csv
+    python -m pipeline.scripts.check_pack_link --detail identifiers.csv
 
 Exit code 0 only when exactly one candidate matches at least 80% of the
 activities that carry any pack reference at all.
@@ -48,7 +68,7 @@ if str(_REPO_ROOT) not in sys.path:
 # `PACK_LINK_CANDIDATES` below deliberately does NOT follow it there: which
 # columns are worth scoring is this tool's own business, and `packs.py` holds
 # only the answer this tool produced.
-from pipeline.report.packs import MIN_LINK_RATE  # noqa: E402
+from pipeline.report.packs import MIN_LINK_RATE, key  # noqa: E402
 from pipeline.scripts.process_cplan import (  # noqa: E402
     _is_noise_col,
     decode_sp_column_name,
@@ -138,35 +158,313 @@ def select_winners(scores) -> list:
 
 
 def _keys(series) -> set[str]:
-    """Non-empty values, trimmed and upper-cased, as a set."""
+    """Non-empty values in their comparable form, as a set.
+
+    Keyed through `packs.key` rather than trimmed and upper-cased here, so
+    the tool that chooses the join and the join itself cannot disagree about
+    what counts as the same identifier -- a value this module reads as a
+    match and the report reads as two different packs would make every figure
+    in this output describe a join nobody runs.
+    """
     if series is None:
         return set()
-    values: set[str] = set()
-    for value in series:
-        if value is None or value != value:
+    return {identifier for identifier in (key(value) for value in series)
+            if identifier}
+
+
+# The share of an identifier column one value has to hold, while matching no
+# pack row, before it is read as a generic identifier rather than as a
+# reference to a pack.
+#
+# The knowledge base is what makes this measurable at all: a tracking ID is
+# `<cluster>-<pack number>-<date>-<activity>-<channel>`, and "for standalone
+# activities, generic cluster and pack identifiers are used". So the pack
+# segment is never empty -- an activity with no pack carries a placeholder --
+# and a diagnostic that counts every non-empty segment as a reference measures
+# the share of standalone activities and calls it a link rate.
+#
+# Derived rather than hard-coded, because the placeholder's value is a
+# property of the source system and not of this repository: writing
+# `0000000` here would be the same unverified assumption the module was built
+# to avoid. Five percent is deliberately far from both ends of what a real
+# export shows -- a placeholder sits on most rows, a dead pack id on a
+# handful -- so the rule survives the ratio moving. Every value it selects is
+# named in the output, because a stale pack export can put a genuine
+# identifier over the line and that is a finding, not a placeholder.
+GENERIC_SHARE = 0.05
+
+# And the floor under that share, in rows. A share is a ratio, and a ratio
+# inverts on small input: in an eight-row export every distinct unmatched
+# value holds a large share of its column, so share alone would wave all of
+# them through as "no pack" -- the one category this report presents as
+# expected and not worth acting on. The dead references it exists to surface
+# would vanish into it exactly when the export is small enough to check by
+# hand. Twenty-five rows is not a tuned number: it is the point below which
+# "many activities share this value" stops being a claim the data supports.
+GENERIC_MIN_ROWS = 25
+
+
+def value_counts(series) -> dict:
+    """How many activities carry each identifier, in comparable form.
+
+    The rows behind an identifier, not the identifier count: one placeholder
+    on sixteen thousand activities and one dead pack id on three are the same
+    single value, and only the row counts tell them apart.
+    """
+    counts: dict[str, int] = {}
+    for value in series if series is not None else []:
+        identifier = key(value)
+        if identifier:
+            counts[identifier] = counts.get(identifier, 0) + 1
+    return counts
+
+
+def generic_values(series, pack_ids, share: float = GENERIC_SHARE,
+                   min_rows: int = GENERIC_MIN_ROWS) -> dict:
+    """The identifiers in `series` that stand for "no pack", with their counts.
+
+    A value qualifies on two conditions together: no pack row answers to it,
+    and it sits on at least `share` of the rows that carry any value at all.
+    Either alone is wrong -- a real pack id is popular and matched, a dead
+    one is unmatched and rare, and only the pair separates the placeholder
+    from both.
+    """
+    counts = value_counts(series)
+    total = sum(counts.values())
+    if not total:
+        return {}
+    floor = max(total * share, min_rows)
+    return {value: count for value, count in counts.items()
+            if value not in pack_ids and count >= floor}
+
+
+# What a reference turned out to be. Two of these are not defects: a resolved
+# reference is the join working, and a generic one is an activity with no pack,
+# which the knowledge base describes as the normal case -- a pack is attached
+# only to the larger communications. The middle two are repairable joins, the
+# last two are findings.
+RESOLVED = "resolved"
+GENERIC = "generic"
+CLUSTER_DIFFERS = "cluster differs"
+PADDING_DIFFERS = "padding differs"
+AMBIGUOUS = "ambiguous number"
+NO_PACK = "no pack"
+
+# Report order: what worked, what is expected, what could be repaired, what is
+# left over.
+CATEGORIES = (RESOLVED, GENERIC, CLUSTER_DIFFERS, PADDING_DIFFERS,
+              AMBIGUOUS, NO_PACK)
+
+
+class PackIndex(NamedTuple):
+    """The pack list keyed three ways, so a miss can say how it missed.
+
+    `exact` answers "is this the pack". The other two answer "is this pack
+    here under a different spelling", which is the difference between a
+    missing pack and a mapping decision -- and both look identical to a set
+    membership test.
+    """
+
+    exact: frozenset
+    by_number: dict
+    by_unpadded: dict
+
+
+def _number(identifier: str) -> str:
+    """The pack number out of `<cluster>-<number>`, or the whole value.
+
+    Split from the right: the cluster segment is the prefix and the number is
+    what follows the last separator. A value with no separator is its own
+    number rather than an error -- the diagnostic's job is to describe what
+    the export carries, not to reject it.
+    """
+    _, _, number = identifier.rpartition("-")
+    return number or identifier
+
+
+def _unpadded(number: str) -> str:
+    return number.lstrip("0") or "0"
+
+
+def build_index(pack_ids) -> PackIndex:
+    by_number: dict = {}
+    by_unpadded: dict = {}
+    for cpid in pack_ids:
+        number = _number(cpid)
+        by_number.setdefault(number, set()).add(cpid)
+        by_unpadded.setdefault(_unpadded(number), set()).add(cpid)
+    return PackIndex(frozenset(pack_ids), by_number, by_unpadded)
+
+
+def classify(value: str, index: PackIndex, generic: dict) -> str:
+    """What one reference is, on the first rung of the ladder it answers to.
+
+    Ambiguity outranks both repairable categories. Where two packs in
+    different clusters carry the same number, matching on the number alone
+    would assign one of them with no evidence for either -- and the result is
+    indistinguishable from a clean match, which is the failure this whole
+    module exists to keep out of `07-packs.csv`.
+    """
+    identifier = key(value)
+    if identifier in index.exact:
+        return RESOLVED
+    if identifier in generic:
+        return GENERIC
+
+    number = _number(identifier)
+    for table, lookup, verdict in ((index.by_number, number, CLUSTER_DIFFERS),
+                                   (index.by_unpadded, _unpadded(number),
+                                    PADDING_DIFFERS)):
+        packs_hit = table.get(lookup)
+        if packs_hit:
+            return AMBIGUOUS if len(packs_hit) > 1 else verdict
+    return NO_PACK
+
+
+# The chain, in the order it consults its two columns. The first is the field
+# the source system fills deliberately; the second is derived from an
+# identifier that is generated for every activity, whether it has a pack or
+# not. That asymmetry is the whole reason for the order: the derived value
+# speaks only where the deliberate one is silent.
+CHAIN_PRIMARY = "communication_pack_cpid"
+CHAIN_SECONDARY = "tracking_pack_id"
+CHAIN_COLUMN = f"{CHAIN_PRIMARY} then {CHAIN_SECONDARY}"
+
+
+def _column(frame, name):
+    """The column's values, or empty strings where the frame has no such column."""
+    if name in getattr(frame, "columns", []):
+        return [key(value) for value in frame[name]]
+    return [""] * len(frame)
+
+
+def with_chain(frame, generic: dict):
+    """`frame` with the fallback chain added as one more scoreable column.
+
+    Added to a copy as a column rather than returned on its own, so the chain
+    is measured by the same `score()` the three real columns are measured by.
+    A candidate scored by its own private arithmetic is a candidate that
+    cannot be compared with the others, which is the only thing this run is
+    for.
+    """
+    primary = _column(frame, CHAIN_PRIMARY)
+    secondary = _column(frame, CHAIN_SECONDARY)
+    frame = frame.copy()
+    frame[CHAIN_COLUMN] = [
+        first or ("" if second in generic else second)
+        for first, second in zip(primary, secondary)
+    ]
+    return frame
+
+
+class Bucket(NamedTuple):
+    """One category of one column: how many identifiers, on how many rows."""
+
+    column: str
+    category: str
+    identifiers: int
+    activities: int
+    samples: tuple
+
+
+def buckets(frame, column: str, index: PackIndex, generic: dict) -> list:
+    """Every reference in `column`, grouped by what it turned out to be.
+
+    Both counts are carried because they answer different questions. A
+    category holding two identifiers on nine thousand rows is a placeholder
+    or a stale pack; one holding nine thousand identifiers on nine thousand
+    rows is a namespace that has nothing to do with the pack list. The
+    distinct count alone cannot tell those apart, and the row count alone
+    cannot either.
+    """
+    grouped: dict = {}
+    for identifier, count in value_counts(frame.get(column)).items():
+        found = grouped.setdefault(classify(identifier, index, generic),
+                                   {"ids": 0, "rows": 0, "samples": []})
+        found["ids"] += 1
+        found["rows"] += count
+        if len(found["samples"]) < SAMPLE_COUNT:
+            found["samples"].append(identifier)
+    return [Bucket(column=column, category=category,
+                   identifiers=found["ids"], activities=found["rows"],
+                   samples=tuple(found["samples"]))
+            for category, found in ((c, grouped[c]) for c in CATEGORIES
+                                    if c in grouped)]
+
+
+DETAIL_COLUMNS = ("column", "identifier", "activities", "category")
+
+
+def detail_rows(frame, index: PackIndex, generic_by_column: dict) -> list:
+    """One row per identifier per candidate column, with its category.
+
+    The whole measurement at row level, so the verdict can be checked
+    against the export instead of believed. It is also the only form of this
+    report that can leave the machine it ran on -- the console output has to
+    be read where it was produced.
+    """
+    rows = []
+    for column, generic in generic_by_column.items():
+        for identifier, count in sorted(value_counts(frame.get(column)).items()):
+            rows.append((column, identifier, count,
+                         classify(identifier, index, generic)))
+    return rows
+
+
+class Agreement(NamedTuple):
+    """Where both columns speak, how often they say the same thing."""
+
+    both: int
+    agree: int
+    disagree: int
+    samples: tuple
+
+
+def agreement(frame, generic: dict, sample_count: int = SAMPLE_COUNT) -> Agreement:
+    """Compare the two columns on the rows where both name a pack.
+
+    Placeholders are not a statement, so a row whose tracking ID carries one
+    is not a disagreement -- it is the ordinary case of an activity with no
+    pack, and counting it as a conflict would put the veto number in the
+    thousands on an export with nothing wrong with it.
+    """
+    both = agree = 0
+    samples: list = []
+    for first, second in zip(_column(frame, CHAIN_PRIMARY),
+                             _column(frame, CHAIN_SECONDARY)):
+        if not first or not second or second in generic:
             continue
-        text = str(value).strip().upper()
-        if text and text != "NAN":
-            values.add(text)
-    return values
+        both += 1
+        if first == second:
+            agree += 1
+        elif len(samples) < sample_count:
+            samples.append((first, second))
+    return Agreement(both=both, agree=agree, disagree=both - agree,
+                     samples=tuple(samples))
 
 
-def score(frame, packs, column: str) -> Score:
-    """Measure one candidate column against the pack list."""
+def score(frame, packs, column: str, ignore=()) -> Score:
+    """Measure one candidate column against the pack list.
+
+    `ignore` holds the identifiers that stand for "no pack" -- see
+    `generic_values`. They leave the measurement entirely rather than
+    counting as misses: a placeholder is not a reference that failed to
+    resolve, and in the denominator it turns the share of activities that
+    have a pack into something that reads like a broken join.
+    """
     pack_ids = _keys(packs.get("cpid") if packs is not None else None)
-    activity_ids = _keys(frame.get(column))
+    activity_ids = {identifier for identifier in _keys(frame.get(column))
+                    if identifier not in ignore}
 
     referenced = 0
     matched = 0
     if column in frame.columns:
         for value in frame[column]:
-            if value is None or value != value:
-                continue
-            text = str(value).strip().upper()
-            if not text or text == "NAN":
+            identifier = key(value)
+            if not identifier or identifier in ignore:
                 continue
             referenced += 1
-            if text in pack_ids:
+            if identifier in pack_ids:
                 matched += 1
 
     hit = activity_ids & pack_ids
@@ -192,6 +490,14 @@ def _write_scores(path: Path, scores: list[Score]) -> None:
     log(f"Scores written to {path}")
 
 
+def _write_detail(path: Path, rows: list) -> None:
+    with Path(path).open("w", newline="", encoding="utf-8") as handle:
+        writer = csv_module.writer(handle)
+        writer.writerow(DETAIL_COLUMNS)
+        writer.writerows(rows)
+    log(f"Detail written to {path}")
+
+
 def unmapped_columns(raw_columns: list[str]) -> list[tuple[str, str, str]]:
     """One row per export column: raw name, decoded name, mapped or not.
 
@@ -215,14 +521,28 @@ def unmapped_columns(raw_columns: list[str]) -> list[tuple[str, str, str]]:
     return rows
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
+    """The flags this check accepts.
+
+    A function rather than a block inside `main()` so the launcher's
+    parameters can be checked against it. The machine holding the production
+    export runs `packlink.cmd`, and a flag only the Python entry point knows
+    about is a flag nobody there can reach.
+    """
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--input", type=Path, default=None,
                         help="read the CSVs from this folder instead of the "
                              "usual OneDrive/local discovery")
     parser.add_argument("--csv", type=Path, default=None,
                         help="also write the candidate scores to this CSV")
-    args = parser.parse_args(argv)
+    parser.add_argument("--detail", type=Path, default=None,
+                        help="write one row per identifier, with the category "
+                             "it fell into, to this CSV")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
 
     print_banner("CPLAN pack-link check")
 
@@ -295,6 +615,83 @@ def main(argv: list[str] | None = None) -> int:
     log(f"pack list sample values: "
         f"{', '.join(pack_samples) if pack_samples else '(none)'}")
     print()
+
+    # Everything below reads the same three columns a second time, through
+    # the one fact the table above cannot know: a tracking ID always carries
+    # a pack segment, and a standalone activity's is generic. Without that,
+    # every activity without a pack is counted as a reference that failed to
+    # resolve, and the resulting rate describes how many activities have a
+    # pack while reading like a broken join.
+    generic_by_column = {name: generic_values(load.frame.get(name), pack_ids)
+                         for name in PACK_LINK_CANDIDATES}
+    for name in PACK_LINK_CANDIDATES:
+        found = generic_by_column[name]
+        filled = sum(value_counts(load.frame.get(name)).values())
+        named = ", ".join(
+            f"{value} ({count} activities, {count / filled:.0%})"
+            for value, count in sorted(found.items(), key=lambda item: -item[1]))
+        log(f"{name} generic identifiers: {named or 'none'}")
+    print()
+
+    real = {name: score(load.frame, packs, name, ignore=generic_by_column[name])
+            for name in PACK_LINK_CANDIDATES}
+    for scored in scores:
+        honest = real[scored.column]
+        log(f"{scored.column}: {scored.rate:.0%} of {scored.referenced} "
+            f"references, {honest.rate:.0%} of the {honest.referenced} that "
+            "are not placeholders")
+    print()
+
+    # The chain is measured here and nowhere near `select_winners`. It is a
+    # proposal that needs code the ETL does not have, not a column
+    # `PACK_LINK_COLUMN` could be pointed at -- and it resolves at least as
+    # well as its first column by construction, so scored as a candidate it
+    # would tie with it on every healthy export and make this tool report
+    # "pick by hand" on a run where nothing is wrong.
+    generic_secondary = generic_by_column[CHAIN_SECONDARY]
+    chain_score = score(with_chain(load.frame, generic_secondary), packs,
+                        CHAIN_COLUMN, ignore=generic_secondary)
+    print_table(
+        "Without the generic identifiers, plus the fallback chain",
+        ["Column", "Real refs", "Matched", "Rate", "Packs hit", "Reach"],
+        [(s.column, s.referenced, s.matched, f"{s.rate:.0%}", s.packs_hit,
+          f"{s.reach:.0%}")
+         for s in [real[name] for name in PACK_LINK_CANDIDATES] + [chain_score]],
+        # Wide enough for `CHAIN_COLUMN` whole: `print_table` truncates with
+        # an ellipsis, and a chain named half-way is a row a reader cannot
+        # tell from one of the three real columns.
+        col_widths=[len(CHAIN_COLUMN) + 2, 11, 9, 7, 10, 7])
+    print()
+
+    index = build_index(pack_ids)
+    print_table(
+        "What each reference turned out to be",
+        ["Column", "Category", "IDs", "Activities", "Examples"],
+        [(b.column, b.category, b.identifiers, b.activities,
+          ", ".join(b.samples))
+         for name in PACK_LINK_CANDIDATES
+         for b in buckets(load.frame, name, index, generic_by_column[name])],
+        col_widths=[26, 17, 6, 11, 34])
+    print()
+
+    # The veto. Every other figure here says how much a column resolves;
+    # only this one can say it resolves to the wrong pack, and a chain built
+    # over a column that disagrees with the deliberate one would look clean
+    # doing it.
+    verdict = agreement(load.frame, generic_secondary)
+    log(f"Both columns name a pack on {verdict.both} activities: "
+        f"{verdict.agree} agree, {verdict.disagree} disagree")
+    for first, second in verdict.samples:
+        log(f"  disagreement: {first} vs {second}")
+    if verdict.disagree:
+        log("  The chain is not safe while these disagree: on those rows it "
+            "would resolve to a pack the source system does not name.")
+    print()
+
+    if args.detail is not None:
+        _write_detail(args.detail, detail_rows(load.frame, index,
+                                               generic_by_column))
+        print()
 
     winners = select_winners(scores)
     if len(winners) == 1:
