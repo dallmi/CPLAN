@@ -7,6 +7,7 @@ figure, and against the frame where it does not.
 """
 
 import csv
+import dataclasses
 import re
 import zipfile
 from datetime import date
@@ -1718,6 +1719,86 @@ def test_the_pack_carries_nothing_written_only_for_an_index(tmp_path):
 def _packs_file(pack_dir):
     with (pack_dir / agent_pack.PACKS_CSV_NAME).open(encoding="utf-8") as handle:
         return list(csv.DictReader(handle))
+
+
+def test_the_skill_text_says_which_of_the_two_pack_counts_to_quote(tmp_path):
+    """The same instruction the reading guide carries, on the surface that
+    reads SKILL.md instead.
+
+    A file whose two count columns disagree by a factor of twenty needs the
+    same sentence on both surfaces, or the two agents answer the same
+    question differently and neither is wrong about what it read.
+    """
+    assert "activities_by_tracking_id" in agent_pack.skill_text(True)
+
+
+def test_the_activities_file_carries_the_pack_the_tracking_id_names(tmp_path):
+    """Two statements about one activity, both delivered.
+
+    `Pack ID` is the field someone fills in; the tracking ID's first two
+    segments are generated and say the same thing without anyone typing it.
+    Where the field is empty and the tracking ID is not, only the second
+    knows which pack the activity belongs to -- and until now the pack file
+    counted the first and the activity file exported neither segment, so the
+    difference could be seen in Excel by reading identifiers apart by hand
+    and nowhere else.
+    """
+    pack_dir, _, _, _ = _pack(tmp_path)
+    with (pack_dir / agent_pack.ACTIVITIES_CSV_NAME).open(encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+
+    assert "Pack ID (tracking)" in rows[0]
+    assert "Pack no. (tracking)" in rows[0]
+    # The fixture's tracking IDs read `IC-0001`: cluster `IC`, pack number
+    # `0001`. Asserted against the row's own tracking ID rather than a
+    # literal, so the fixture can grow without this pinning its first row.
+    for row in rows:
+        cluster, _, number = row["Tracking ID"].partition("-")
+        if number:
+            assert row["Pack ID (tracking)"] == f"{cluster}-{number.split('-')[0]}"
+            assert row["Pack no. (tracking)"] == number.split("-")[0]
+
+
+def test_a_pack_counts_the_activities_its_tracking_ids_name(tmp_path):
+    """The count that was missing, beside the one that was wrong on its own.
+
+    On the live export a pack carrying 110 activities in their tracking IDs
+    reported five, because five was all that had the pack field filled. Here
+    every fixture activity's tracking ID names CP-100 while only some carry
+    the field, so the two counts have to differ -- and both have to be in the
+    file, because neither is the truth on its own: measured against the whole
+    export the two routes resolve 1,848 and 1,835 activities, so a pack can
+    gain under one and lose under the other.
+    """
+    scope, config = _scope(tmp_path, with_packs=True)
+    frame = scope.frame.copy()
+    frame["tracking_pack_id"] = "CP-100"
+    scope = dataclasses.replace(scope, frame=frame)
+
+    pack_dir = agent_pack.write_pack(scope, agent_pack.pack_config(config),
+                                     tmp_path / "out")
+    row = {r["Pack ID"]: r for r in _packs_file(pack_dir)}["CP-100"]
+
+    assert int(row["activities_by_tracking_id"]) == len(frame)
+    assert int(row["activities_in_scope"]) < len(frame), (
+        "the fixture no longer has activities without the pack field")
+
+
+def test_the_pack_file_splits_its_own_identifier(tmp_path):
+    """`CCCCC-0000389` is a cluster prefix and a pack number, and the number
+    is what a tracking ID carries.
+
+    Written out rather than left to the reader: filtering two files on a
+    number that sits inside a longer identifier in one of them is exactly the
+    manual step that produced "110 here, 5 there" with no way to see why.
+    """
+    scope, config = _scope(tmp_path, with_packs=True)
+    pack_dir = agent_pack.write_pack(scope, agent_pack.pack_config(config),
+                                     tmp_path / "out")
+    row = {r["Pack ID"]: r for r in _packs_file(pack_dir)}["CP-100"]
+
+    assert row["Cluster prefix"] == "CP"
+    assert row["Pack no."] == "100"
 
 
 def test_the_pack_file_holds_the_pack_nobody_planned_against(tmp_path):

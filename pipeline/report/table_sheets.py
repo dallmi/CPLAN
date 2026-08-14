@@ -643,6 +643,19 @@ ACTIVITY_COLUMNS = (
     # name is not unique the way a key is.
     ("communication_pack", "Pack"),
     ("communication_pack_cpid", "Pack ID"),
+    # The same pack, named again by the route nobody has to remember to fill
+    # in. `Pack ID` is a field on the form; these two are cut out of the
+    # generated tracking ID, and where the field is empty they are all the
+    # activity knows about its pack. They sit next to it rather than beside
+    # `Tracking ID` because the question they answer is "is this the same pack
+    # the field names", and that is a comparison a reader makes across
+    # adjacent columns.
+    #
+    # Both, not just the combined one: the number is what the pack list's own
+    # identifier ends in, so filtering two files on the same pack is one
+    # column against one column instead of a substring hunt.
+    ("tracking_pack_id", "Pack ID (tracking)"),
+    ("tracking_pack_number", "Pack no. (tracking)"),
     ("campaign", "Campaign"),
     ("strategic_objectives", "Communications pillars"),
     ("completeness", "Completeness %"),

@@ -58,3 +58,26 @@ def test_no_pack_list_leaves_the_frame_alone():
 def test_activity_counts_are_per_pack_identifier():
     counts = packs.activity_counts(_frame("CP-1", "CP-1", "CP-2", ""), _packs("CP-1", "CP-2"))
     assert counts == {"CP-1": 2, "CP-2": 1}
+
+
+def test_activities_can_be_counted_through_the_tracking_id_instead():
+    """The second count, over the identifier the tracking ID spells out.
+
+    A pack is named twice on an activity: in the pack field, which is filled
+    by hand and often is not, and in the first two segments of the generated
+    tracking ID. Counting only the first is why a pack with 110 activities
+    carrying its number reported five -- the five that also had the field
+    filled. The same counting rule reads the other column rather than a
+    second rule that could drift from it.
+    """
+    frame = pd.DataFrame({
+        packs.PACK_LINK_COLUMN: ["CP-1", "", "", ""],
+        packs.TRACKING_LINK_COLUMN: ["CP-1", "CP-1", "CP-1", "CP-2"],
+    })
+
+    by_field = packs.activity_counts(frame, _packs("CP-1", "CP-2"))
+    by_tracking = packs.activity_counts(frame, _packs("CP-1", "CP-2"),
+                                        packs.TRACKING_LINK_COLUMN)
+
+    assert by_field == {"CP-1": 1, "CP-2": 0}
+    assert by_tracking == {"CP-1": 3, "CP-2": 1}

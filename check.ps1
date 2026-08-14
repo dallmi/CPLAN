@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-14.9"
+$manifestVersion = "2026-08-14.10"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-14.9"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-14.9"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-14.10"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -825,7 +825,17 @@ $manifest = @(
     # cluster-and-number misses and the number alone finds. It costs the only
     # thing that told two packs with the same number apart, so the report
     # prints what it finds and what it can no longer distinguish together.
-    @{ Path = "pipeline\scripts\check_pack_link.py"; Marker = "def number_join"; Why = "the pack number alone is scored as its own candidate, with the packs that share a number counted beside it - an older copy reports it only as a side category, and only where the number happens to belong to exactly one pack, so nobody can see what the variant would gain or cost" }
+    @{ Path = "pipeline\scripts\check_pack_link.py"; Marker = "def number_join"; Why = "the pack number alone is scored as its own candidate, with the packs that share a number counted beside it - an older copy reports it only as a side category, and only where the number happens to belong to exactly one pack, so nobody can see what the variant would gain or cost" },
+
+    # A pack is named twice on an activity: in the pack field, which someone
+    # fills in and often does not, and in the first two segments of the
+    # generated tracking ID. Only the first was ever counted, so a pack with a
+    # hundred and ten activities carrying its number reported five - and no
+    # delivered file held the columns that would have shown why.
+    @{ Path = "pipeline\report\packs.py"; Marker = "TRACKING_LINK_COLUMN"; Why = "activities can be counted through the tracking ID's pack segment as well as the pack field - an older copy has one counting route, so a pack whose activities never had the field filled reports a size that is off by a factor of twenty" },
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "activities_by_tracking_id"; Why = "the pack file carries both counts and its identifier split into cluster prefix and pack number - an older copy states one count with nothing to compare it against, and the number a tracking ID carries sits inside a longer identifier that has to be taken apart by hand" },
+    @{ Path = "pipeline\report\table_sheets.py"; Marker = "Pack ID (tracking)"; Why = "the activity rows carry the pack the tracking ID names, beside the one the field names - an older copy exports only the field, so an activity whose pack is knowable from its tracking ID reads as belonging to no pack" },
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "sized twice"; Why = "the reading guide says which of the two pack counts to quote and what a gap between them means - an older copy leaves an agent to pick one of two columns that can differ by a factor of twenty, and both answers look defensible" }
 )
 
 Write-Host ""
