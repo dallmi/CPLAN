@@ -211,7 +211,6 @@ def test_the_remedy_for_an_old_pack_is_stated_once(tmp_path):
     note = fill.stale_pack_note(_pack(tmp_path))  # writes no 08-periods.csv
     assert note is not None
     assert "08-periods.csv" in note
-    assert "Rebuild the pack" in note
     assert "check.ps1" in note, "a stale pipeline needs the other tool named"
 
     full = tmp_path / "full"
@@ -221,6 +220,49 @@ def test_the_remedy_for_an_old_pack_is_stated_once(tmp_path):
                                               encoding="utf-8")
     assert fill.stale_pack_note(complete) is None, (
         "a complete pack is told it is old")
+
+
+def test_a_completed_build_names_the_pipeline_rather_than_hedging(tmp_path):
+    """Three runs arrived showing the same pack, because the advice was a
+    fork and the reader had no way to take either branch.
+
+    The pack itself settles it. `write_pack` writes the summary after the
+    breakdown and period files, so a pack holding the summary ran to the end
+    -- a crash that stopped partway could not have produced it. The code that
+    wrote it therefore never had those files to write, and rebuilding with it
+    produces the same pack again.
+    """
+    note = fill.stale_pack_note(_pack(tmp_path))
+    assert "the pipeline that wrote it is the old copy" in note
+    assert "only then rebuild" in note
+
+    partial = tmp_path / "partial"
+    partial.mkdir()
+    pack = _pack(partial)
+    (pack / "01-summary.txt").unlink()
+    hedged = fill.stale_pack_note(pack)
+    assert "old copy" in hedged
+    assert "the pipeline that wrote it is the old copy" not in hedged, (
+        "a build with no summary may have crashed; that one cannot be settled")
+
+
+def test_the_summary_is_written_after_the_files_it_diagnoses():
+    """The claim the verdict above rests on, pinned to the code that makes it.
+
+    Reorder `write_pack` so the summary lands first and the reasoning inverts
+    silently: a crashed build would then look exactly like an old pipeline,
+    and the tool would send somebody to refresh files that are current.
+    """
+    import inspect
+
+    from pipeline.report import agent_pack
+
+    source = inspect.getsource(agent_pack.write_pack)
+    summary_at = source.index("SUMMARY_NAME")
+    for name in ("BREAKDOWN_NAME", "PERIODS_CSV_NAME"):
+        assert source.index(name) < summary_at, (
+            f"{name} is now written after the summary; check_board_fill reads "
+            "a present summary as proof the build did not stop partway")
 
 
 def test_the_report_fits_a_console(tmp_path, capsys):

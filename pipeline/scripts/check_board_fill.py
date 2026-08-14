@@ -370,10 +370,23 @@ def stale_pack_note(pack_dir):
                      if not (pack_dir / name).exists())
     if not missing:
         return None
-    return (f"This pack is older than the boards: it has no {', '.join(missing)}. "
-            "Every build writes those. Rebuild the pack -- and if the rebuild "
-            "still does not produce them, the pipeline itself is the old copy, "
-            "which check.ps1 will say file by file.")
+    note = (f"This pack is older than the boards: it has no "
+            f"{', '.join(missing)}. Every build writes those. ")
+    if (pack_dir / agent_pack.SUMMARY_NAME).exists():
+        # `write_pack` writes the summary last, after the files reported
+        # missing above. A pack holding the summary is therefore a build that
+        # ran to the end -- it cannot be a crash that stopped partway -- so
+        # the code that wrote it never had these files to write. Rebuilding
+        # with it produces the same pack again, which is a slow way to learn
+        # nothing.
+        return note + (
+            f"This one has {agent_pack.SUMMARY_NAME}, which a build writes "
+            "after them, so it did not stop partway: the pipeline that wrote "
+            "it is the old copy. Refresh the pipeline first -- check.ps1 says "
+            "which files -- and only then rebuild.")
+    return note + ("Rebuild the pack -- and if the rebuild still does not "
+                   "produce them, the pipeline itself is the old copy, which "
+                   "check.ps1 will say file by file.")
 
 
 def _unresolved(citation, error, pack_dir):
