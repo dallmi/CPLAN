@@ -243,7 +243,7 @@ def test_the_prompt_names_the_board_that_exists(tmp_path):
     catalogue no longer ships sends the agent looking for a missing file.
     """
     text = agent_builder.INSTRUCTIONS_TEXT
-    assert "head of communications overview" in text.lower()
+    assert "campaign activity overview" in text.lower()
     assert "portfolio overview" not in text.lower()
     for board in ("leadership attention", "plan trust"):
         assert board in text.lower()
@@ -356,7 +356,7 @@ def test_the_prompt_is_what_tells_the_agent_boards_exist(tmp_path):
     bought with prompt characters.
     """
     text = agent_builder.INSTRUCTIONS_TEXT
-    for board in ("head of communications overview", "leadership attention", "plan trust"):
+    for board in ("campaign activity overview", "leadership attention", "plan trust"):
         assert board in text, f"the prompt does not name {board!r}"
     # Up to the next section, not a fixed count: the board names sit in the
     # file list, and the "ask" instruction closes the same section one
@@ -364,7 +364,7 @@ def test_the_prompt_is_what_tells_the_agent_boards_exist(tmp_path):
     # already stated" aside that still sits between the two. Ending the slice
     # at `## Non-negotiable rules` clears that aside without ever being able
     # to wander into the next section looking for a stray "ask".
-    assert "ask" in text[text.index("head of communications overview"):
+    assert "ask" in text[text.index("campaign activity overview"):
                          text.index("## Non-negotiable rules")].lower(), (
         "the prompt names the boards without saying to ask which one")
 

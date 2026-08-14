@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-13.5"
+$manifestVersion = "2026-08-14.1"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-13.5"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-13.5"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-14.1"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -376,7 +376,7 @@ $manifest = @(
     # and an old copy still called reading it a computation -- a checklist
     # result that passed for a reason it did not claim.
     @{ Path = "pipeline\report\agent_pack.py"; Marker = "def _csv_text"; Why = "the checklist's haystack now includes 06-breakdowns.csv - an older copy grades a question a control's own answer as a counting question because it only ever searched the two prose files" },
-    # A final review pass over the head-of-communications board. The priority
+    # A final review pass over the campaign activity overview. The priority
     # donut used to group by raw source text -- two vocabularies live in that
     # one column at once, so it plausibly drew six to ten alphabetised slices
     # against the chart rules' own five-segment cap. An old copy of any file
@@ -691,7 +691,7 @@ $manifest = @(
     # not write.
     @{ Path = "pipeline\report\agent_pack.py"; Marker = "Somebody asks now"; Why = "quarter grain carries the three shares a quarterly board reads, not the count alone - an older copy writes a pack whose quarter rows cannot fill the contract, and the agent either answers with a year figure or with nothing" },
     @{ Path = "pipeline\report\dashboard_skill.py"; Marker = "Still three boards"; Why = "the overview is routed to its contract and its drawn panel list is gone - an older copy offers both, so one board name has a drawn answer and a rendered one and nothing chooses between them" },
-    @{ Path = "pipeline\report\agent_builder.py"; Marker = "13-contract-head-of-communications-overview.txt"; Why = "the upload numbering follows the overview becoming a contract - an older copy delivers a drawn board file under a number the prompt no longer names, beside the contract that replaced it" },
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "13-contract-campaign-activity-overview.txt"; Why = "the upload numbering follows the overview becoming a contract - an older copy delivers a drawn board file under a number the prompt no longer names, beside the contract that replaced it" },
 
     # The manifest covered what the pack run imports and nothing else, which
     # left the whole render path outside it. That was survivable while the
@@ -770,7 +770,17 @@ $manifest = @(
     # run already printed beats a stack trace where a board should be.
     @{ Path = "pipeline\report\board_image.py"; Marker = "def reference_line"; Why = "the average line is drawn over the bars on a white knockout - an older copy hides it behind them whenever the average is lower than the teams, which is most of the time" },
     @{ Path = "pipeline\report\dashboard_render.py"; Marker = "reach_internal_width"; Why = "the drawn width and the printed share are separate, so an inconsistent split renders instead of raising - an older copy turns a reported data fault into a crash" },
-    @{ Path = "pipeline\dashboard\campaign-activity.template.html"; Marker = "reach_internal_width"; Why = "the page draws the split from the clamped width and prints the true share beside it - an older copy lays out a flex row from a percentage above 100 and reads as if the halves were reversed" }
+    @{ Path = "pipeline\dashboard\campaign-activity.template.html"; Marker = "reach_internal_width"; Why = "the page draws the split from the clamped width and prints the true share beside it - an older copy lays out a flex row from a percentage above 100 and reads as if the halves were reversed" },
+
+    # The board carried two names -- one in the catalogue, another printed on
+    # the page -- and the second one won every time, because it is the one a
+    # reader sees. Renaming the contract renames the knowledge file that goes
+    # into the agent, and that is the part this manifest cannot reach: the old
+    # upload sits in the agent until somebody deletes it there, and until then
+    # two contracts answer to one board and retrieval picks.
+    @{ Path = "pipeline\report\dashboard_contract.py"; Marker = "contract-campaign-activity-overview.md"; Why = "one board, one name, and it is the one on the page - an older copy names the contract after the role, so the catalogue routes to a file the archive does not contain" },
+    @{ Path = "pipeline\report\dashboard_skill.py"; Marker = "Campaign activity overview |"; Why = "the routing table names the board as the page titles it - an older copy sends a reader who asked for the name they were given to no row at all" },
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "13-contract-campaign-activity-overview.txt"; Why = "the upload is named after the board - an older copy writes the previous filename, and uploading it beside the one already in the agent leaves two contracts under one board name" }
 )
 
 Write-Host ""

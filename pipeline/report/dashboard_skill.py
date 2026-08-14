@@ -40,7 +40,7 @@ becomes.
 
 | Board | The decision it serves | File |
 |---|---|---|
-| Head of communications overview | Where do I intervene, and with whom? | `contract-head-of-communications-overview.md` |
+| Campaign activity overview | Where do I intervene, and with whom? | `contract-campaign-activity-overview.md` |
 | Leadership attention | Where is executive time going, and where is it missing? | `board-leadership-attention.md` |
 | Plan trust | What can I not yet rely on? | `board-plan-trust.md` |
 
@@ -50,7 +50,7 @@ three exist and what each decides, and ask which one — do not blend them.
 
 ## The one board you do not draw
 
-The head of communications overview is **rendered, not drawn**. Its markup is
+The campaign activity overview is **rendered, not drawn**. Its markup is
 frozen and a tested renderer produces the page byte for byte, so its file is a
 contract: it asks you for a JSON object and a renderer turns that into the
 page. Open it when that board is named, return the object it specifies, and
@@ -267,7 +267,7 @@ at the other. Do not merge them.
 """
 
 
-# The head of communications overview is not here. It is rendered from
+# The campaign activity overview is not here. It is rendered from
 # `dashboard_contract`, not drawn from a panel list, and carrying both would
 # hand an agent two different answers to one board name.
 BOARDS = {
