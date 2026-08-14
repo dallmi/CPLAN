@@ -178,6 +178,51 @@ def test_a_stale_pack_is_told_apart_from_a_drifted_board(tmp_path):
     assert gone == fill.MISSING
 
 
+def test_a_pack_missing_a_file_every_build_writes_is_dated_not_faulted(tmp_path):
+    """From the first run on real data: fourteen of twenty-three panels read
+    `GONE - the pack has no 06-breakdowns.csv`, which invites somebody to go
+    and fix boards that were correct. The pack simply had no such file.
+
+    `agent_pack` writes the breakdown and period files on every build, so a
+    board citing them cannot be wrong about them existing. Absence dates the
+    pack. `07-packs.csv` is excluded on purpose -- it appears only where a
+    pack list was synced, so a build without one is a real shape, not an old
+    one.
+    """
+    pack = _pack(tmp_path)  # writes no 08-periods.csv
+    assert not (pack / "08-periods.csv").exists()
+    verdict, detail = fill._unresolved(
+        "08-periods.csv · block=TOTAL · grain=quarter · measure=with_executives",
+        "the pack has no 08-periods.csv", pack)
+    assert verdict == fill.STALE, detail
+
+    assert "07-packs.csv" not in fill.ALWAYS_WRITTEN, (
+        "a build with no pack list would be reported as an old pack")
+
+
+def test_the_remedy_for_an_old_pack_is_stated_once(tmp_path):
+    """One missing file struck fourteen panels on the first real run, and the
+    fix printed on every one of them buried the panels worth reading alone.
+
+    It also has to name both old copies. A rebuild fixes an old pack; it
+    cannot fix a pipeline too old to write the file, and somebody whose
+    rebuild changes nothing needs to be told which tool answers that.
+    """
+    note = fill.stale_pack_note(_pack(tmp_path))  # writes no 08-periods.csv
+    assert note is not None
+    assert "08-periods.csv" in note
+    assert "Rebuild the pack" in note
+    assert "check.ps1" in note, "a stale pipeline needs the other tool named"
+
+    full = tmp_path / "full"
+    full.mkdir()
+    complete = _pack(full, periods="block,value\nTOTAL,x\n")
+    (complete / "04-calendar.csv").write_text("block,value\nTOTAL,x\n",
+                                              encoding="utf-8")
+    assert fill.stale_pack_note(complete) is None, (
+        "a complete pack is told it is old")
+
+
 def test_it_reads_a_value_that_carries_its_own_gloss():
     """`01-summary.txt` writes the count and then explains it on the same line.
     Taking the whole line as a number yields nothing; taking the head yields
