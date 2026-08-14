@@ -7,14 +7,16 @@ from seed data: does it resolve to a figure worth a chart. A panel citing a
 line that reads 0 for every division passes that test and still reaches the
 reader as four empty bars.
 
-The distinction this exists for is the one nobody can make by eye. A measure
-that is zero everywhere has three different causes, and they need three
-different answers:
+The distinction this exists for is the one nobody can make by eye. A panel
+with nothing to plot has four causes, and they are owed four answers by four
+different people:
 
-  carried, and genuinely zero  -- a finding. Say it on the board.
-  carried, never filled        -- a source-data problem. Chase the owners.
-  not carried by the export    -- not a finding at all. The board must not
-                                  imply the plan is empty when the column is.
+  a measure counting a problem, at zero -- good news. Say it in words.
+  carried, never filled                 -- a source-data gap. Chase the owners.
+  not carried by the export             -- not a finding at all. The board must
+                                           not imply the plan is empty when
+                                           only the column is.
+  a pack older than the board asking    -- rebuild the pack, not the board.
 
 Only the third is invisible in the breakdown file, because a column the export
 never had and a column nobody ever fills produce the same zero there. So this
@@ -109,8 +111,26 @@ class Panel(NamedTuple):
     detail: str
 
 
+# One column short of the 80 a console window opens at. Nothing is lost without
+# this -- the console wraps rather than truncates -- but it wraps at whatever
+# width the window happens to have, which put the middle of the remedy
+# paragraph outside the frame the first time somebody photographed a run to
+# send it on. A report is read where it is read, and often second-hand.
+WIDTH = 79
+
+
 def log(message=""):
     print(message, flush=True)
+
+
+def wrapped(message, indent=0):
+    """`message` broken to the console, every line after the first indented."""
+    import textwrap
+
+    pad = " " * indent
+    for line in textwrap.wrap(message, width=WIDTH, initial_indent=pad,
+                              subsequent_indent=pad) or [""]:
+        log(line)
 
 
 def prose_sections(text):
@@ -437,7 +457,7 @@ def main(argv=None):
             log(f"  {board}")
         log(f"    [{_MARK[row.verdict]:5s}] {row.heading}")
         if row.detail and row.verdict != FILLS:
-            log(f"              {row.detail}")
+            wrapped(row.detail, indent=14)
     log()
 
     log("Source columns behind the measures:")
@@ -445,12 +465,14 @@ def main(argv=None):
         if column in fields:
             filled, missing = fields[column]
             share = filled / (filled + missing) if filled + missing else 0
-            note = (f"{filled} filled, {missing} missing ({share:.0%})")
+            note = f"{filled} filled, {missing} missing ({share:.0%})"
         elif column in REPORTED_FIELDS:
             note = "not carried by the export"
         else:
             note = "fill rate not reported by the pack"
-        log(f"  {column:24s} {note:38s} <- {measure}")
+        # Column and measure on one side, the count on the other. Padding them
+        # into aligned columns is what pushed this block past the console.
+        wrapped(f"{column} ({measure}): {note}", indent=2)
     log()
 
     if args.csv is not None:
@@ -460,20 +482,20 @@ def main(argv=None):
 
     stale = stale_pack_note(pack_dir)
     if stale:
-        log(stale)
+        wrapped(stale)
         log()
 
     broken = [row for row in results if row.verdict not in _HEALTHY]
     clean = [row for row in results if row.verdict == CLEAN]
     if clean:
-        log(f"{len(clean)} panel(s) marked clean: nothing to plot because "
-            "nothing is wrong. Say that in words rather than drawing zeros.")
+        wrapped(f"{len(clean)} panel(s) marked clean: nothing to plot because "
+                "nothing is wrong. Say that in words rather than drawing zeros.")
     if not broken:
         log("Every panel of every board has a figure to draw.")
         return 0
-    log(f"{len(broken)} of {len(results)} panels cannot be drawn as specified. "
-        "Each line above says which of the four causes it is, and they need "
-        "four different answers.")
+    wrapped(f"{len(broken)} of {len(results)} panels cannot be drawn as "
+            f"specified. Each line above says which of the four causes it is, "
+            f"and they need four different answers.")
     return 1
 
 

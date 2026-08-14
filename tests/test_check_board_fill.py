@@ -223,6 +223,25 @@ def test_the_remedy_for_an_old_pack_is_stated_once(tmp_path):
         "a complete pack is told it is old")
 
 
+def test_the_report_fits_a_console(tmp_path, capsys):
+    """Where this report is read, and how it travels.
+
+    It is run in cmd.exe and then photographed and sent on, which is how the
+    remedy paragraph first arrived with its middle outside the frame. Nothing
+    was lost -- the console wraps rather than truncates -- but it wraps at
+    whatever width the window happens to have, and a paragraph that only reads
+    correctly in the window it was run in is not a report anybody can forward.
+
+    The pack path is exempt: a path broken across two lines cannot be pasted
+    back, which is the one thing a reader is most likely to want to do with it.
+    """
+    fill.main(["--pack", str(_pack(tmp_path))])
+    for line in capsys.readouterr().out.splitlines():
+        if line.startswith("Pack: "):
+            continue
+        assert len(line) <= fill.WIDTH, f"{len(line)} chars: {line}"
+
+
 def test_it_reads_a_value_that_carries_its_own_gloss():
     """`01-summary.txt` writes the count and then explains it on the same line.
     Taking the whole line as a number yields nothing; taking the head yields
