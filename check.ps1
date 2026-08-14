@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-14.1"
+$manifestVersion = "2026-08-14.2"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-14.1"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-14.1"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-14.2"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -780,7 +780,15 @@ $manifest = @(
     # two contracts answer to one board and retrieval picks.
     @{ Path = "pipeline\report\dashboard_contract.py"; Marker = "contract-campaign-activity-overview.md"; Why = "one board, one name, and it is the one on the page - an older copy names the contract after the role, so the catalogue routes to a file the archive does not contain" },
     @{ Path = "pipeline\report\dashboard_skill.py"; Marker = "Campaign activity overview |"; Why = "the routing table names the board as the page titles it - an older copy sends a reader who asked for the name they were given to no row at all" },
-    @{ Path = "pipeline\report\agent_builder.py"; Marker = "13-contract-campaign-activity-overview.txt"; Why = "the upload is named after the board - an older copy writes the previous filename, and uploading it beside the one already in the agent leaves two contracts under one board name" }
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "13-contract-campaign-activity-overview.txt"; Why = "the upload is named after the board - an older copy writes the previous filename, and uploading it beside the one already in the agent leaves two contracts under one board name" },
+
+    # The suite proves every board citation resolves; seed data can never say
+    # whether it resolves to a figure worth a chart, because the seed has no
+    # notion of executive involvement at all. Four of the leadership board's
+    # five panels plot one column, so the difference between "nobody is
+    # involved" and "nobody fills the field" is most of that board.
+    @{ Path = "pipeline\scripts\check_board_fill.py"; Marker = "COUNTS_ABSENCE"; Why = "the fill check that separates the four causes of a zero - a NEW file; without it a board panel plotting an unfilled column is indistinguishable from one plotting a real finding" },
+    @{ Path = "boardfill.ps1"; Marker = "check_board_fill"; Why = "the launcher for that check - double-clickable via boardfill.cmd" }
 )
 
 Write-Host ""
