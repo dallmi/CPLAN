@@ -12,19 +12,32 @@ So it is measured. This reads the same exports a refresh reads, read-only, and
 reports which columns of the pack export the ETL does not map, and how each
 candidate column scores against the pack list.
 
-Read-only. Touches nothing but the CSVs it reads, and the -Csv file if asked.
+One candidate needs a second reading. A tracking ID is
+<cluster>-<pack number>-<date>-<activity>-<channel> and is generated for every
+activity, with generic cluster and pack identifiers where the activity has no
+pack -- which is most of them, because a pack is attached only to the larger
+communications. Counted as references to a pack, those placeholders make a
+column that resolves every real reference it carries read like a broken join.
+So they are measured, named, and taken out of the rate, every reference is put
+in a category saying how it missed, and the fallback chain is scored beside the
+real columns.
+
+Read-only. Touches nothing but the CSVs it reads, and the -Csv and -Detail
+files if asked.
 
 Usage (from the repo root, or just double-click packlink.cmd):
   .\packlink.ps1
   .\packlink.ps1 -InputDir "C:\path\to\Input"
   .\packlink.ps1 -Csv ".\result.csv"
+  .\packlink.ps1 -Detail ".\identifiers.csv"
 
 Exit code 0 only when exactly one candidate matches at least 80% of the
 activities that carry any pack reference at all.
 #>
 param(
     [string]$InputDir,
-    [string]$Csv
+    [string]$Csv,
+    [string]$Detail
 )
 
 $ErrorActionPreference = "Stop"
@@ -56,6 +69,7 @@ Write-Host "Using Python: $python" -ForegroundColor DarkGray
 # this, ".\result.csv" is written beside the launcher instead of the folder
 # the caller typed it from, with no error to say so.
 if ($Csv) { $csvPath = [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $Csv)) }
+if ($Detail) { $detailPath = [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $Detail)) }
 
 Push-Location $root
 $env:PYTHONPATH = "."
@@ -63,6 +77,7 @@ try {
     $args = @("-m", "pipeline.scripts.check_pack_link")
     if ($InputDir) { $args += @("--input", $InputDir) }
     if ($csvPath) { $args += @("--csv", $csvPath) }
+    if ($detailPath) { $args += @("--detail", $detailPath) }
 
     & $python @args
     $code = $LASTEXITCODE

@@ -406,6 +406,9 @@ PYTHONPATH=. .venv/bin/python -m pipeline.scripts.check_pack_link
 
 # ...against a folder that is not the usual input, keeping the scores
 PYTHONPATH=. .venv/bin/python -m pipeline.scripts.check_pack_link --input <folder> --csv scores.csv
+
+# ...keeping one row per identifier, with the category it fell into
+PYTHONPATH=. .venv/bin/python -m pipeline.scripts.check_pack_link --detail identifiers.csv
 ```
 
 Three activity columns could carry the pack's identifier —
@@ -416,12 +419,37 @@ to. Choosing by reasoning would put an unverified assumption under
 file with plausible numbers in it.
 
 So it is measured. This reads the same exports a refresh reads, read-only, and
-reports two things: which columns of the pack export the ETL does not map, and
-how each candidate column scores against the pack list. Three sample values are
-printed **per side**, because a candidate at 0% is otherwise unreadable — an
-export that does not link at all and one whose identifiers are merely spelled
+reports which columns of the pack export the ETL does not map, and how each
+candidate column scores against the pack list. Three sample values are printed
+**per side**, because a candidate at 0% is otherwise unreadable — an export
+that does not link at all and one whose identifiers are merely spelled
 differently (`CP-100` against `100`) produce the same zero, and only the two
 sample lines tell them apart. On Windows, `packlink.cmd`.
+
+One candidate is scored twice, and the second reading is the one to act on. A
+tracking ID is `<cluster>-<pack number>-<date>-<activity>-<channel>` and is
+generated for **every** activity, with generic cluster and pack identifiers
+where there is no pack — which is the normal case, since a pack is attached
+only to the larger communications and a cluster only where several packs belong
+together. Counted as references, those placeholders turn "how many activities
+have a pack" into a number sitting where a reader looks for "how many
+references resolve": on the export of 2026-08-11 that was `tracking_pack_id` at
+10%, which said nothing about the join at all. So the placeholders are measured
+by frequency rather than assumed, named in the output, and taken out of the
+rate. Every reference then falls into a category — resolved, generic, cluster
+prefix differs, zero padding differs, a number two packs share, or no pack —
+which separates a repairable join from a dead identifier; `--detail` writes one
+row per identifier so the verdict can be checked against the export instead of
+believed.
+
+The fallback chain `communication_pack_cpid` then `tracking_pack_id` is scored
+beside the real columns and deliberately kept out of the winner selection: it
+needs code the ETL does not have, and it resolves at least as well as its first
+column by construction, so scoring it as a candidate would report a tie needing
+a human on every healthy export. Whether it may be built is decided by the last
+figure instead — the activities where **both** columns name a pack and name
+different ones. Every other number says how much resolves; only that one can
+say it resolves to the wrong pack.
 
 Exit code 0 only when exactly one candidate clears 80% of the activities that
 carry any pack reference at all. That floor is `packs.MIN_LINK_RATE` itself —

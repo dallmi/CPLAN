@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-14.7"
+$manifestVersion = "2026-08-14.8"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-14.7"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-14.7"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-14.8"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -804,7 +804,20 @@ $manifest = @(
     # other, so nothing in the report looks wrong while every verdict is about
     # a folder nobody writes to.
     @{ Path = "pipeline\scripts\check_board_fill.py"; Marker = "def pack_candidates"; Why = "the pack is looked for where the agent reads it, then where the build wrote, and only last in the checkout - an older copy always reads the checkout folder, which keeps whatever the last local build left there and parses exactly like this morning's" },
-    @{ Path = "boardfill.ps1"; Marker = "CPLAN_AGENT_DIR"; Why = "the launcher names the variable agentpack.ps1 already uses for the mirror - an older copy sends a reader to the checkout folder with no hint that the pack they mean is elsewhere" }
+    @{ Path = "boardfill.ps1"; Marker = "CPLAN_AGENT_DIR"; Why = "the launcher names the variable agentpack.ps1 already uses for the mirror - an older copy sends a reader to the checkout folder with no hint that the pack they mean is elsewhere" },
+
+    # A tracking ID always carries a pack segment, and a standalone activity's
+    # is generic - the knowledge base says so, and the diagnostic did not. So
+    # every activity without a pack was counted as a reference that failed to
+    # resolve, and tracking_pack_id read 10%: the share of activities that have
+    # a pack, printed where a reader looks for the share of references that
+    # resolve. An older copy shows that 10% with nothing beside it, and the
+    # column it belongs to is the one being considered as a replacement.
+    @{ Path = "pipeline\scripts\check_pack_link.py"; Marker = "def generic_values"; Why = "the placeholder identifiers are measured and named, and the rate is reported again without them - an older copy counts every standalone activity as a failed reference, so a column that resolves every real reference it carries reads as a broken join" },
+    @{ Path = "pipeline\scripts\check_pack_link.py"; Marker = "def classify"; Why = "a miss now says how it missed - cluster prefix, zero padding, a number two packs share, or nothing at all - and an older copy reports one flat total in which a repairable join and a dead identifier are the same number" },
+    @{ Path = "pipeline\scripts\check_pack_link.py"; Marker = "def agreement"; Why = "where both columns name a pack they are compared - an older copy cannot see the one failure that matters, a fallback resolving to a pack the source system does not name, because every other figure it prints measures how much resolves and none whether it resolves correctly" },
+    @{ Path = "pipeline\scripts\check_pack_link.py"; Marker = "CHAIN_COLUMN"; Why = "the fallback chain is scored beside the three real columns but kept out of select_winners - an older copy cannot say what a chain would buy, and one that scored it as a candidate would report a tie needing a human on every healthy export" },
+    @{ Path = "packlink.ps1"; Marker = "-Detail"; Why = "the launcher forwards the flag that writes the per-identifier report to a file - an older copy cannot pass it, so the whole measurement has to be read off a console window on the machine that has the export and typed out by hand" }
 )
 
 Write-Host ""
