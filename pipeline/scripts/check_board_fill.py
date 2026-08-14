@@ -358,6 +358,23 @@ def audit(pack_dir):
     return results, fields, total
 
 
+def pack_date(pack_dir):
+    """The pack's own generation date, or None.
+
+    The number that decides whether a folder is this morning's build or a
+    leftover nobody has written to since. It was readable from the first
+    version -- the contract cites this very line -- and not printing it cost
+    three runs of diagnosing the wrong old copy.
+    """
+    parts = prose_sections(
+        (pack_dir / agent_pack.SUMMARY_NAME).read_text(encoding="utf-8")
+    ).get("REPORT", []) if (pack_dir / agent_pack.SUMMARY_NAME).exists() else []
+    for line in parts:
+        if line.strip().startswith("Data as of:"):
+            return line.split(":", 1)[1].strip()
+    return None
+
+
 def stale_pack_note(pack_dir):
     """The one paragraph a pack older than the boards is owed, or None.
 
@@ -370,20 +387,23 @@ def stale_pack_note(pack_dir):
                      if not (pack_dir / name).exists())
     if not missing:
         return None
-    note = (f"This pack is older than the boards: it has no "
-            f"{', '.join(missing)}. Every build writes those. ")
+    note = (f"This pack is missing {', '.join(missing)}, which every build "
+            "writes. ")
     if (pack_dir / agent_pack.SUMMARY_NAME).exists():
         # `write_pack` writes the summary last, after the files reported
-        # missing above. A pack holding the summary is therefore a build that
-        # ran to the end -- it cannot be a crash that stopped partway -- so
-        # the code that wrote it never had these files to write. Rebuilding
-        # with it produces the same pack again, which is a slow way to learn
-        # nothing.
+        # missing above, so a pack holding the summary ran to the end and did
+        # not stop partway. That leaves two, and the date decides between
+        # them -- which is why it is printed in the header. Naming only the
+        # old-pipeline half was wrong: check.ps1 covers the pipeline, so a
+        # reader who has already run it green is told to do the one thing they
+        # have done three times.
         return note + (
-            f"This one has {agent_pack.SUMMARY_NAME}, which a build writes "
-            "after them, so it did not stop partway: the pipeline that wrote "
-            "it is the old copy. Refresh the pipeline first -- check.ps1 says "
-            "which files -- and only then rebuild.")
+            f"It has {agent_pack.SUMMARY_NAME}, which a build writes after "
+            "them, so the build ran to the end. Check the pack date above "
+            "against your last build: an older date means no recent build "
+            "wrote into this folder -- it failed, or --agent-dir sent it "
+            "somewhere else. Today's date means the pipeline that wrote it "
+            "lacks these files, and check.ps1 names which to refresh.")
     return note + ("Rebuild the pack -- and if the rebuild still does not "
                    "produce them, the pipeline itself is the old copy, which "
                    "check.ps1 will say file by file.")
@@ -461,6 +481,8 @@ def main(argv=None):
     log("=== Board fill check ===")
     log(f"Pack: {pack_dir}")
     log(f"Activities in scope: {total if total is not None else 'unknown'}")
+    stamped = pack_date(pack_dir)
+    log(f"Pack built from data as of: {stamped or 'unknown'}")
     log()
 
     board = None

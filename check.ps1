@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-14.5"
+$manifestVersion = "2026-08-14.6"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-14.5"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-14.5"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-14.6"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -796,7 +796,7 @@ $manifest = @(
     # absence dates the pack instead of faulting the board.
     @{ Path = "pipeline\scripts\check_board_fill.py"; Marker = "ALWAYS_WRITTEN"; Why = "a pack missing a file every build writes is reported as old rather than as a board citing something that does not exist - an older copy sends a reader to edit boards that are right, and says it fourteen times" },
     @{ Path = "pipeline\scripts\check_board_fill.py"; Marker = "def wrapped"; Why = "the report is broken to a console width - an older copy wraps at whatever width the window has, and the remedy paragraph reached its second reader with the middle of it outside the frame" },
-    @{ Path = "pipeline\scripts\check_board_fill.py"; Marker = "it did not stop partway"; Why = "a pack holding the summary but not the breakdown is called an old pipeline outright, because write_pack writes the summary last - an older copy offers a fork instead, and the reader rebuilds the same pack a third time" }
+    @{ Path = "pipeline\scripts\check_board_fill.py"; Marker = "def pack_date"; Why = "the report prints the pack generation date beside the path - without it a folder no build has written to since July is indistinguishable from this morning's, and the remedy names the wrong old copy" }
 )
 
 Write-Host ""
