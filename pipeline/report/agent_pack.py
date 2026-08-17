@@ -671,6 +671,31 @@ def _summary_sections(scope, config, generated):
     ]
 
 
+def _held_back(scope):
+    """What the pack cannot show, stated where the agent reads the totals.
+
+    Nothing at all when nothing was held back: a standing warning that applies
+    to every pack is a warning that stops being read, and this one has to still
+    work on the pack where it matters.
+
+    Worded as a rule rather than a figure because the failure it prevents is a
+    claim, not a miscount. An agent that answers "12 activities in March" over
+    a pack missing three is not wrong about the twelve -- it is wrong about
+    what the twelve are, and only this paragraph can tell it so.
+    """
+    if not scope.hidden_excluded:
+        return []
+    count = scope.hidden_excluded
+    return _rule(
+        f"This pack is not the whole plan. {count} activity row(s) were "
+        f"excluded before it was built, because the source marks them as not "
+        f"for general circulation. They are absent from every count, every "
+        f"calendar and every list here, and you cannot retrieve them -- their "
+        f"titles, dates and owners are in no file you have. Never describe "
+        f"this data as complete or exhaustive, and when a total carries the "
+        f"answer, say that {count} more exist that this pack cannot see.")
+
+
 def _wider_than_the_report(scope, report_config):
     """The lines that own up to the pack and the workbook disagreeing.
 
@@ -724,6 +749,7 @@ def summary_text(scope, config, generated=None, report_config=None):
         "Scope is a hard filter. An activity that fails any criterion in REPORT "
         "below is absent from every figure in this pack, so a question about a "
         "date outside the period is OUT OF SCOPE -- not zero.")
+    lines += _held_back(scope)
     lines += _wider_than_the_report(scope, report_config)
     for title, rows in _summary_sections(scope, config, generated):
         lines += ["", title, "-" * len(title)]
@@ -849,7 +875,8 @@ def data_quality_text(scope, config):
         lines.append(f"  Activities whose pack is not in the list | {unmatched}")
 
     lines += ["", "RECORD ANOMALIES", "-" * 16, "  anomaly | count"]
-    for label, count in metrics.anomalies(scope.frame, scope.duplicates_removed):
+    for label, count in metrics.anomalies(scope.frame, scope.duplicates_removed,
+                                          scope.hidden_excluded):
         lines.append(f"  {label} | {count}")
 
     # Its own section, as on the Data Quality sheet, and only on a membership
@@ -2166,7 +2193,12 @@ def checklist_text(scope, config):
     lines = [
         f"# Does the agent really compute over all {total} rows?",
         "",
-        f"Data: {config.period_label()}, {total} activities in scope.",
+        # The grader has to know the same thing the agent does, or a correct
+        # "12" gets marked against a source of record that says 15.
+        f"Data: {config.period_label()}, {total} activities in scope"
+        + (f" ({scope.hidden_excluded} excluded as not for general circulation)"
+           if scope.hidden_excluded else "")
+        + ".",
         "",
         "This file is deliberately NOT part of the pack. An answer key inside "
         "the pack would be retrieved like any other file, and the agent would "

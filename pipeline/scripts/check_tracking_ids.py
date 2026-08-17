@@ -54,6 +54,7 @@ REPORTS_DIR = _REPO_ROOT / "pipeline" / "output" / "reports"
 LIST_DIR = _REPO_ROOT
 
 from pipeline.scripts.process_cplan import (  # noqa: E402
+    HIDE_COLUMN,
     find_input_dir,
     find_input_files,
     log,
@@ -295,6 +296,10 @@ class Entry:
     source: str
     sp_id: str
     activity_name: str
+    # Marked by the source as not for general circulation. Kept in the index
+    # rather than dropped, because the question here is whether the ID exists
+    # -- and it does. Everything except that fact is blanked below.
+    hidden: bool = False
 
 
 def _cell(row, column: str) -> str:
@@ -331,11 +336,15 @@ def build_index(files: dict[str, Path]) -> dict[str, Entry]:
             tracking_id = normalise(_cell(row, "tracking_id"))
             if not tracking_id or tracking_id in index:
                 continue
+            hidden = bool(row.get(HIDE_COLUMN, False))
             index[tracking_id] = Entry(
                 tracking_id=tracking_id,
                 source=key,
-                sp_id=_cell(row, "sp_id"),
-                activity_name=_cell(row, "activity_name"),
+                # Nothing but the ID for a held-back row. Existence is the
+                # whole of what may be said about one, and this result travels.
+                sp_id="" if hidden else _cell(row, "sp_id"),
+                activity_name="" if hidden else _cell(row, "activity_name"),
+                hidden=hidden,
             )
             added += 1
         log(f"  {key}: {added} tracking ID(s)")
@@ -443,7 +452,9 @@ class Result:
 
     @property
     def status(self) -> str:
-        return "found" if self.entry else "missing"
+        if self.entry is None:
+            return "missing"
+        return "excluded" if self.entry.hidden else "found"
 
 
 def check(id_list: IdList, index: dict[str, Entry]) -> list[Result]:
@@ -471,19 +482,35 @@ def report(results: list[Result], show_all: bool) -> None:
     printing it back sorted into two piles makes them read forty rows to find
     the three that matter.
     """
-    missing = [r for r in results if r.entry is None]
-    found = [r for r in results if r.entry is not None]
+    missing = [r for r in results if r.status == "missing"]
+    excluded = [r for r in results if r.status == "excluded"]
+    found = [r for r in results if r.status == "found"]
 
-    print_kv([
-        ("Searched", len(results)),
-        ("Found", len(found)),
-        ("Missing", len(missing)),
-    ])
+    rows = [("Searched", len(results)), ("Found", len(found))]
+    # Only when there are any: a permanent "Excluded: 0" on every run turns
+    # the line into furniture, and it has to still be read on the run where it
+    # is not zero.
+    if excluded:
+        rows.append(("Excluded", len(excluded)))
+    rows.append(("Missing", len(missing)))
+    print_kv(rows)
     print()
 
     repeated = [r for r in results if r.times_listed > 1]
     if repeated:
         log(f"{len(repeated)} ID(s) listed more than once; each was searched once")
+
+    if excluded:
+        # Its own table, above Missing, and carrying nothing but the ID: these
+        # activities exist, which is the opposite of what Missing means, and
+        # sorting them into that pile is the one wrong answer this check must
+        # never give -- someone acts on it by creating the activity again.
+        print_table(
+            "Excluded (they exist; the source marks them as not for general circulation)",
+            ["Tracking ID", "Source"],
+            [(r.listed, r.entry.source) for r in excluded],
+            col_widths=[36, 20],
+        )
 
     if missing:
         print_table(
@@ -510,6 +537,10 @@ def report(results: list[Result], show_all: bool) -> None:
 
     if missing:
         log(f"{len(missing)} of {len(results)} ID(s) are not in the export.")
+    elif excluded:
+        # Not "OK". Every ID was accounted for, but a listed activity nobody
+        # may act on is not a listed activity that is ready to go.
+        log(f"All {len(results)} ID(s) accounted for, {len(excluded)} of them excluded.")
     else:
         log(f"OK: all {len(results)} ID(s) are in the export.")
     print()
@@ -703,9 +734,19 @@ def main(argv: list[str] | None = None) -> int:
 
     write_result(out_path, results, id_list.extra_columns)
     log(f"Result written to {out_path}")
+    excluded = sum(1 for r in results if r.status == "excluded")
+    if excluded:
+        # In the terminal, not in the file. A workbook that explains its own
+        # sensitivity is a workbook that has already been forwarded; the person
+        # who can still decide is the one watching this run.
+        log(f"{excluded} of {len(results)} row(s) are excluded activities "
+            f"-- check before forwarding this file.")
     print()
 
-    return 0 if all(r.entry for r in results) else 1
+    # An excluded ID is not a pass. It was listed because someone intends to
+    # act on it, and "it exists but you may not have it" is an answer they have
+    # to see rather than a zero exit they scroll past.
+    return 0 if all(r.status == "found" for r in results) else 1
 
 
 if __name__ == "__main__":

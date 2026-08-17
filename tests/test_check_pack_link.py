@@ -12,7 +12,8 @@ pytest.importorskip("pandas")
 
 from pipeline.scripts import check_pack_link
 from pipeline.scripts.process_cplan import load_activities, transform_packs, read_csv_auto
-from tests.report_fixtures import PACK_HEADER, PACK_ROWS, _write_csv, write_pack_csv, write_activity_csvs
+from tests.report_fixtures import (HIDE_HEADER, PACK_HEADER, PACK_ROWS, _write_csv,
+                                   write_pack_csv, write_activity_csvs)
 
 
 def test_it_names_the_columns_that_say_what_a_pack_is():
@@ -523,11 +524,13 @@ def _standalone_export(directory, packed=3, standalone=30):
     a fixture that also models divisions and audiences would say nothing more
     about the question and hide which column the assertions are about.
     """
-    header = ["Tracking ID", "Communication pack:C"]
+    header = ["Tracking ID", "Communication pack:C", HIDE_HEADER]
     rows = [{"Tracking ID": f"3KEYS-0000058-250101-{i:07d}-EMI",
-             "Communication pack:C": "3KEYS-0000058"} for i in range(packed)]
+             "Communication pack:C": "3KEYS-0000058", HIDE_HEADER: "FALSE"}
+            for i in range(packed)]
     rows += [{"Tracking ID": f"GEN-0000000-250101-{i:07d}-EMI",
-              "Communication pack:C": ""} for i in range(standalone)]
+              "Communication pack:C": "", HIDE_HEADER: "FALSE"}
+             for i in range(standalone)]
     _write_csv(directory / "InternalCommunicationActivities.csv", rows, header)
     _write_csv(directory / "CommunicationPacks.csv",
                [{"LTID": "3KEYS-0000058", "Title": "Pack one"}], PACK_HEADER)
@@ -606,9 +609,9 @@ def test_main_prints_the_disagreement_with_both_values(tmp_path, capsys):
     another on the same activity. The chain would resolve it to the second
     and look clean doing so.
     """
-    header = ["Tracking ID", "Communication pack:C"]
+    header = ["Tracking ID", "Communication pack:C", HIDE_HEADER]
     rows = [{"Tracking ID": "QRREP-0000058-250101-0000001-EMI",
-             "Communication pack:C": "3KEYS-0000058"}]
+             "Communication pack:C": "3KEYS-0000058", HIDE_HEADER: "FALSE"}]
     _write_csv(tmp_path / "InternalCommunicationActivities.csv", rows, header)
     _write_csv(tmp_path / "CommunicationPacks.csv",
                [{"LTID": "3KEYS-0000058", "Title": "Pack one"}], PACK_HEADER)
@@ -741,8 +744,9 @@ def test_main_exits_non_zero_and_names_the_tie_when_more_than_one_candidate_clea
     one on its own: Task 6 reads a human's decision out of this output, not
     a guess the tool made because it had to return something.
     """
-    header = ["Communication pack:C", "Campaign LTID"]
-    rows = [{"Communication pack:C": "MULTI-1", "Campaign LTID": "MULTI-1"} for _ in range(3)]
+    header = ["Communication pack:C", "Campaign LTID", HIDE_HEADER]
+    rows = [{"Communication pack:C": "MULTI-1", "Campaign LTID": "MULTI-1",
+             HIDE_HEADER: "FALSE"} for _ in range(3)]
     _write_csv(tmp_path / "InternalCommunicationActivities.csv", rows, header)
     tied_pack = [{"LTID": "MULTI-1"}]
     _write_csv(tmp_path / "CommunicationPacks.csv", tied_pack, PACK_HEADER)

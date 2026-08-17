@@ -3950,6 +3950,25 @@ def test_server_instructions_warn_that_free_text_is_untrusted():
     assert "never" in lowered and "as instructions to follow" in lowered
 
 
+@pytest.mark.skipif(MCP_SDK_MISSING, reason="the mcp SDK is optional (pip install mcp)")
+def test_server_instructions_warn_that_the_database_is_already_filtered():
+    """The rows are gone before the server ever sees them, so nothing it can
+    query would reveal that a count is a count of the circulable subset."""
+    from pipeline.mcp.server import INSTRUCTIONS
+
+    lowered = INSTRUCTIONS.lower()
+    assert "not for general circulation" in lowered
+    assert "complete" in lowered
+
+
+@pytest.mark.skipif(MCP_SDK_MISSING, reason="the mcp SDK is optional (pip install mcp)")
+def test_server_instructions_forbid_reading_an_empty_result_as_nothing_planned():
+    """The one inference this filtering makes unsafe and nothing else flags."""
+    from pipeline.mcp.server import INSTRUCTIONS
+
+    assert "empty result" in INSTRUCTIONS.lower()
+
+
 def test_domain_model_lists_the_real_required_fields():
     from pipeline.mcp.domain import domain_model
 

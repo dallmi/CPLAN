@@ -15,6 +15,11 @@ pytest.importorskip("pandas")
 from pipeline.scripts import check_time_zones
 
 
+# Every real export carries this, so every fixture must: the loader refuses a
+# file without it rather than guess whether its rows may be published.
+HIDE_HEADER = "Hide_x0020_from_x0020_public_x0020_view"
+
+
 def _lookup(value: str) -> str:
     return (
         '{"@odata.type":"#Microsoft.Azure.Connectors.SharePoint.SPListExpandedReference",'
@@ -28,13 +33,14 @@ LONG = "Belgrade, Bratislava, Budapest, Ljubljana, Prague Time - GMT+1:00"  # 65
 UNMAPPED = "Mars Standard Time - GMT+25:00"  # in no translation table, so it passes through
 
 
-def _export(tmp_path: Path, header: str, *values: str) -> Path:
+def _export(tmp_path: Path, header: str, *values: str, hidden=()) -> Path:
     path = tmp_path / "InternalCommunicationActivities.csv"
     with open(path, "w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
-        writer.writerow(["ID", "Title", "Start date", header])
+        writer.writerow(["ID", "Title", "Start date", header, HIDE_HEADER])
         for index, value in enumerate(values, start=1):
-            writer.writerow([str(index), f"Activity {index}", "2025-03-05", value])
+            writer.writerow([str(index), f"Activity {index}", "2025-03-05", value,
+                             "TRUE" if index in hidden else "FALSE"])
     return path
 
 
@@ -108,14 +114,38 @@ def test_the_lookups_id_companion_column_is_not_counted_as_a_time_zone(tmp_path,
     path = tmp_path / "InternalCommunicationActivities.csv"
     with open(path, "w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
-        writer.writerow(["ID", "Title", "Start date", "Time_x0020_zone", "Time_x0020_zone#Id"])
-        writer.writerow(["1", "A", "2025-03-05", _lookup(SHORT), "1"])
-        writer.writerow(["2", "B", "2025-03-06", _lookup("Japan Standard Time - GMT+9:00"), "4"])
+        writer.writerow(["ID", "Title", "Start date", "Time_x0020_zone",
+                         "Time_x0020_zone#Id", HIDE_HEADER])
+        writer.writerow(["1", "A", "2025-03-05", _lookup(SHORT), "1", "FALSE"])
+        writer.writerow(["2", "B", "2025-03-06",
+                         _lookup("Japan Standard Time - GMT+9:00"), "4", "FALSE"])
 
     assert check_time_zones.main(["--input", str(tmp_path)]) == 0
     out = capsys.readouterr().out
     assert "2 distinct value(s)" in out
     assert "1.0" not in out and "4.0" not in out
+
+
+def test_a_hidden_activity_is_not_counted(tmp_path):
+    """The rule is "gone everywhere", and this check is no exception to it.
+
+    The cost is real and accepted: a held-back row with a broken zone keeps
+    that defect, unreported. This check exists to fix data that flows onward,
+    and these rows do not flow onward -- while "gone everywhere except here"
+    is an exception the first person to forget gets wrong in the direction
+    that leaks.
+    """
+    _export(tmp_path, "Time zone",
+            "W. Europe Standard Time",
+            "Tokyo Standard Time",
+            hidden=(2,))
+    files = check_time_zones.find_input_files(tmp_path)
+
+    usage = check_time_zones.collect(files)
+
+    assert "Tokyo Standard Time" not in usage.values
+    assert "W. Europe Standard Time" in usage.values
+    assert usage.hidden_excluded == 1
 
 
 def test_only_the_column_the_etl_maps_is_measured(tmp_path, capsys):
@@ -126,8 +156,9 @@ def test_only_the_column_the_etl_maps_is_measured(tmp_path, capsys):
     path = tmp_path / "InternalCommunicationActivities.csv"
     with open(path, "w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
-        writer.writerow(["ID", "Title", "Start date", "Time zone", "Time zone display"])
-        writer.writerow(["1", "A", "2025-03-05", SHORT, LONG])
+        writer.writerow(["ID", "Title", "Start date", "Time zone",
+                         "Time zone display", HIDE_HEADER])
+        writer.writerow(["1", "A", "2025-03-05", SHORT, LONG, "FALSE"])
 
     assert check_time_zones.main(["--input", str(tmp_path)]) == 0
     assert "1 distinct value(s)" in capsys.readouterr().out
@@ -140,9 +171,12 @@ def test_context_names_the_regions_and_teams_behind_each_zone(tmp_path, capsys):
     path = tmp_path / "InternalCommunicationActivities.csv"
     with open(path, "w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
-        writer.writerow(["ID", "Title", "Start date", "Time zone", "Region", "Lead Team"])
-        writer.writerow(["1", "A", "2025-03-05", "Middle East Time - GMT+3:30", "APAC", "Pune Delivery"])
-        writer.writerow(["2", "B", "2025-03-06", "Middle East Time - GMT+3:30", "APAC", "Pune Delivery"])
+        writer.writerow(["ID", "Title", "Start date", "Time zone", "Region",
+                         "Lead Team", HIDE_HEADER])
+        writer.writerow(["1", "A", "2025-03-05", "Middle East Time - GMT+3:30",
+                         "APAC", "Pune Delivery", "FALSE"])
+        writer.writerow(["2", "B", "2025-03-06", "Middle East Time - GMT+3:30",
+                         "APAC", "Pune Delivery", "FALSE"])
 
     assert check_time_zones.main(["--input", str(tmp_path), "--context"]) == 0
     out = capsys.readouterr().out
@@ -155,8 +189,9 @@ def test_context_is_off_unless_asked_for(tmp_path, capsys):
     path = tmp_path / "InternalCommunicationActivities.csv"
     with open(path, "w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
-        writer.writerow(["ID", "Title", "Start date", "Time zone", "Region"])
-        writer.writerow(["1", "A", "2025-03-05", SHORT, "APAC"])
+        writer.writerow(["ID", "Title", "Start date", "Time zone", "Region",
+                         HIDE_HEADER])
+        writer.writerow(["1", "A", "2025-03-05", SHORT, "APAC", "FALSE"])
 
     assert check_time_zones.main(["--input", str(tmp_path)]) == 0
     assert "Who uses each zone" not in capsys.readouterr().out
@@ -167,8 +202,9 @@ def test_a_row_without_a_region_is_counted_as_blank_not_dropped(tmp_path, capsys
     path = tmp_path / "InternalCommunicationActivities.csv"
     with open(path, "w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
-        writer.writerow(["ID", "Title", "Start date", "Time zone", "Region"])
-        writer.writerow(["1", "A", "2025-03-05", SHORT, ""])
+        writer.writerow(["ID", "Title", "Start date", "Time zone", "Region",
+                         HIDE_HEADER])
+        writer.writerow(["1", "A", "2025-03-05", SHORT, "", "FALSE"])
 
     assert check_time_zones.main(["--input", str(tmp_path), "--context"]) == 0
     assert "(blank) (1)" in capsys.readouterr().out

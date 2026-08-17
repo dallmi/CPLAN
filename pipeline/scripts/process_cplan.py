@@ -276,6 +276,38 @@ def decode_sp_column_name(name):
 ILLEGAL_XLSX_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 
 
+HIDE_COLUMN = "hide_from_public"
+
+# What the export writes when the box was never ticked. Both forms occur in the
+# real exports -- some rows carry FALSE, others are left empty -- and a parser
+# handling only one of them would work on most rows and pass the rest straight
+# through, which is the failure mode this whole field exists to prevent.
+_NOT_HIDDEN = {"", "false", "0", "no", "n", "nan", "none", "nat"}
+
+
+def is_hidden_value(val):
+    """True when this cell means "hide from public".
+
+    Anything unrecognised counts as hidden. The alternative fails open: a value
+    nobody anticipated -- a renamed choice, a localised Yes, a note somebody
+    typed into the column -- would publish the row it was meant to hold back,
+    and that is the one error here that cannot be taken back once an export has
+    left the machine.
+    """
+    if val is None:
+        return False
+    if isinstance(val, bool):
+        return val
+    # pd.isna raises on anything array-like, and a cell can be one after a
+    # malformed row: a NaN check must not be the thing that kills the run.
+    try:
+        if pd.isna(val):
+            return False
+    except (TypeError, ValueError):
+        pass
+    return str(val).strip().lower() not in _NOT_HIDDEN
+
+
 def strip_control_chars(val):
     """Remove control characters a spreadsheet cannot hold.
 
@@ -502,6 +534,13 @@ COLUMN_MAP = {
     "Campaign":                 "campaign",
     "Campaign*LTID":            "campaign_ltid",
     "Communication pack:C":     "communication_pack_cpid",
+    # The source's own "do not circulate" flag, and the only thing in the
+    # export that says an activity is not for general circulation. Matched on
+    # the prefix rather than in full: the encoded header reads
+    # `Hide_x0020_from_x0020_public_x00...` and decodes to "Hide from public"
+    # followed by a SharePoint suffix, so the exact internal name is neither
+    # known here nor needed -- rule 4 of the matcher is `decoded.startswith`.
+    "Hide from public":         "hide_from_public",
     # Despite the label, this column carries GEB *and* GEB-1 level people with
     # no marker saying which. Everything downstream must say "GEB/GEB-1".
     "BOD*GEB":                  "bod_geb",
@@ -707,6 +746,12 @@ def transform(df, source_type):
     for col in df.columns:
         if pd.api.types.is_object_dtype(df[col]) or pd.api.types.is_string_dtype(df[col]):
             df[col] = df[col].map(strip_control_chars)
+
+    # To a real boolean before anything reads it, so no consumer has to know
+    # what the export writes for "no" -- and so `exclude_hidden` can be a plain
+    # mask rather than a second parser that might disagree with this one.
+    if HIDE_COLUMN in df.columns:
+        df[HIDE_COLUMN] = df[HIDE_COLUMN].map(is_hidden_value)
 
     # Strip HTML from rich text fields
     for col in ("activity_description", "bod_geb", "other_executives"):
@@ -1310,17 +1355,60 @@ ACTIVITY_KEYS = {
 }
 
 
+class HiddenColumnMissing(ValueError):
+    """An activity export arrived without the hide-from-public column.
+
+    Neither silent answer is acceptable. Treating every row as public leaks
+    exactly what this exists to prevent; treating every row as hidden produces
+    an empty result that reads like a real one. All four exports carry the
+    column today, so this fires only when an export changes shape -- which is
+    precisely the moment someone needs to be told rather than guessed at.
+    """
+
+
+def exclude_hidden(frame, source_name):
+    """The frame without its hidden rows, and how many there were.
+
+    The marker column leaves with the rows it marked: a `hide_from_public`
+    column in any artefact would be a map of the interesting rows, which is
+    worse than never having filtered at all.
+
+    Separate from `transform()` on purpose. `transform()` has three callers,
+    and the tracking-ID check is one of them -- it has to keep hidden rows in
+    order to answer "does this ID exist" with something other than "never
+    created". Excluding here rather than there means every caller states its
+    own choice, and the callers that do not exclude are found by looking
+    rather than by remembering.
+    """
+    if HIDE_COLUMN not in frame.columns:
+        raise HiddenColumnMissing(
+            f"{source_name}: no '{HIDE_COLUMN}' column -- the export changed shape. "
+            f"Refusing to guess whether these rows may be published."
+        )
+    hidden = frame[HIDE_COLUMN].fillna(False).astype(bool)
+    kept = frame.loc[~hidden].drop(columns=[HIDE_COLUMN]).reset_index(drop=True)
+    return kept, int(hidden.sum())
+
+
 class ActivityLoad(NamedTuple):
     """The merged activity dataset plus what it took to build it.
 
     `raw_columns` and `files` exist for the ETL's --preview column comparison;
     the calendar report uses `frame` and `duplicates_removed`.
+
+    `hidden_excluded` is not bookkeeping. Excluding rows makes every count in
+    every consumer smaller than reality, and the only thing separating that
+    from a wrong answer is a number saying how much smaller and why. It travels
+    with the frame because no consumer can recompute it from data that no
+    longer contains the rows.
     """
 
     frame: "pd.DataFrame"
     raw_columns: dict
     files: dict
     duplicates_removed: int = 0
+    hidden_excluded: int = 0
+    hidden_by_file: tuple = ()
 
 
 def load_activities(files):
@@ -1332,6 +1420,7 @@ def load_activities(files):
     activity_files = {k: v for k, v in files.items() if k in ACTIVITY_KEYS}
     frames = []
     raw_columns = {}
+    hidden_by_file = []
     for key, path in activity_files.items():
         source_type, is_archived = ACTIVITY_KEYS[key]
         log(f"Reading {path.name}...")
@@ -1339,11 +1428,20 @@ def load_activities(files):
         log(f"  {key}: {len(df)} rows, {len(df.columns)} columns")
         raw_columns[key] = [c.strip() for c in df.columns]
         df = transform(df, source_type=source_type)
+        # Here rather than in transform(): this is the function the ETL and the
+        # calendar report share so the two can never disagree about how many
+        # activities exist, which makes it the one place that guarantee also
+        # holds for the rows deliberately left out.
+        df, excluded = exclude_hidden(df, path.name)
+        if excluded:
+            log(f"  {key}: {excluded} row(s) excluded (hide from public)")
+            hidden_by_file.append((key, excluded))
         df["is_archived"] = is_archived
         frames.append(df)
 
     if not frames:
-        return ActivityLoad(pd.DataFrame(), raw_columns, activity_files, 0)
+        return ActivityLoad(pd.DataFrame(), raw_columns, activity_files, 0,
+                            hidden_excluded=0, hidden_by_file=())
 
     combined = pd.concat(frames, ignore_index=True)
     log(f"Combined activities: {len(combined)} rows")
@@ -1362,7 +1460,14 @@ def load_activities(files):
         if dupes:
             log(f"  Removed {dupes} duplicate rows (by tracking_id)")
 
-    return ActivityLoad(combined, raw_columns, activity_files, dupes)
+    hidden_total = sum(count for _key, count in hidden_by_file)
+    if hidden_total:
+        log(f"Excluded {hidden_total} hidden activity row(s) "
+            f"across {len(hidden_by_file)} file(s) (hide from public)")
+
+    return ActivityLoad(combined, raw_columns, activity_files, dupes,
+                        hidden_excluded=hidden_total,
+                        hidden_by_file=tuple(hidden_by_file))
 
 
 PACK_KEY = "packs"
@@ -1417,6 +1522,27 @@ def load_packs(files):
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+
+def build_meta(load, now, full_refresh, row_counts):
+    """The contents of meta.json.
+
+    A function rather than a dict literal buried in the summary block, because
+    `index.html` parses this file and the exclusion count is now part of what
+    it has to be able to say. The zero is written explicitly: a consumer that
+    finds no key cannot tell "nothing was hidden" from "written by a pipeline
+    that did not yet know about hiding", and those are different facts.
+    """
+    return {
+        "generated_at": now.strftime("%Y-%m-%d %H:%M"),
+        "generated_at_iso": now.isoformat(timespec="seconds"),
+        "mode": "full" if full_refresh else "incremental",
+        "row_counts": row_counts,
+        # Beside row_counts on purpose: a consumer reading one without the
+        # other reports a total it has no way to explain.
+        "excluded_total": int(load.hidden_excluded),
+        "excluded_counts": dict(load.hidden_by_file),
+    }
+
 
 def main():
     preview = "--preview" in sys.argv
@@ -1523,12 +1649,7 @@ def main():
         # (HTTP Last-Modified is unreliable due to browser cache and OneDrive sync)
         meta_path = OUTPUT_DIR / "meta.json"
         now = datetime.now()
-        meta = {
-            "generated_at": now.strftime("%Y-%m-%d %H:%M"),
-            "generated_at_iso": now.isoformat(timespec="seconds"),
-            "mode": "full" if full_refresh else "incremental",
-            "row_counts": row_counts,
-        }
+        meta = build_meta(load, now, full_refresh, row_counts)
         with open(meta_path, "w", encoding="utf-8") as f:
             json.dump(meta, f, ensure_ascii=False, indent=2)
 
@@ -1537,6 +1658,12 @@ def main():
                     ["Output", "Size"],
                     outputs + [("cplan.db", f"{db_kb:.0f} KB")],
                     col_widths=[24, 14])
+        # Last thing before "Done", where a reader is looking, because every
+        # size and count above is a count of what may circulate rather than of
+        # what is planned.
+        if load.hidden_excluded:
+            log(f"{load.hidden_excluded} activity row(s) excluded (hide from public) "
+                f"and absent from every output above.")
         log("Done.")
 
 

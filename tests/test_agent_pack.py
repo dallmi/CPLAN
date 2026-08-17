@@ -50,6 +50,50 @@ def _pack(tmp_path, **overrides):
     return pack_dir, out_dir, scope, config
 
 
+def _pack_text(pack_dir):
+    """Every text file the pack ships, as one string.
+
+    Asserted across the whole pack rather than one named file: which document
+    carries a rule may move, and what matters is that the agent reads it
+    somewhere it will actually look.
+    """
+    return "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted(pack_dir.rglob("*"))
+        if path.is_file() and path.suffix in (".txt", ".md")
+    )
+
+
+def test_the_pack_tells_the_agent_some_activities_are_absent(tmp_path):
+    """An agent answering "12 activities in March" while 3 are held back is
+    confidently wrong, and nothing in the data it has can tell it so."""
+    scope, config = _scope(tmp_path)
+    scope = dataclasses.replace(scope, hidden_excluded=3)
+
+    pack_dir = agent_pack.write_pack(scope, agent_pack.pack_config(config),
+                                     tmp_path / "out")
+    text = _pack_text(pack_dir)
+
+    # The exact phrase, not a loose keyword: "excluded" and "complete" both
+    # already appear in the pack for unrelated reasons -- the deprioritised
+    # bucket, the completeness score -- so a keyword assertion here passes
+    # against a pack that says nothing about hidden rows at all.
+    stated = [line for line in text.splitlines()
+              if "not for general circulation" in line]
+    assert stated, "the pack never mentions the held-back rows"
+    assert any("3" in line for line in stated)
+
+
+def test_a_pack_with_nothing_hidden_says_nothing_about_exclusions(tmp_path):
+    """A standing warning nobody needs is a warning that stops being read."""
+    scope, config = _scope(tmp_path)
+
+    pack_dir = agent_pack.write_pack(scope, agent_pack.pack_config(config),
+                                     tmp_path / "out")
+
+    assert "not for general circulation" not in _pack_text(pack_dir)
+
+
 def _calendar(pack_dir):
     with (pack_dir / agent_pack.CALENDAR_NAME).open(encoding="utf-8") as handle:
         return list(csv.DictReader(handle))

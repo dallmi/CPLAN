@@ -1559,6 +1559,10 @@
     }
 
     let dataRefreshDate = null;
+    // How many activities the pipeline held back before this page was built.
+    // Every figure here is a figure over the remainder, and nothing in the
+    // data itself can say so -- the rows are gone.
+    let excludedCount = 0;
 
     async function loadMeta(paths) {
         // Authoritative refresh timestamp from the pipeline.
@@ -1569,6 +1573,10 @@
                 const resp = await fetch(`${p}meta.json${bust}`, { cache: 'no-store' });
                 if (!resp.ok) continue;
                 const meta = await resp.json();
+                // Read before the timestamp branches below, both of which
+                // return: written after either one, it would be skipped on
+                // every real refresh and only run on the fallback path.
+                if (meta && meta.excluded_total) excludedCount = meta.excluded_total;
                 if (meta && meta.generated_at_iso) {
                     dataRefreshDate = new Date(meta.generated_at_iso);
                     return;
@@ -3887,6 +3895,13 @@
                 label.textContent = `Refreshed: ${dataRefreshDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} ${dataRefreshDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;
             } else {
                 label.textContent = `${fmtNum(data.row_count)} activities`;
+            }
+            // Beside the refresh stamp, and only as a whole. It never reaches
+            // a filter, a facet or a chart: the same figure narrowed to one
+            // region in one week stops being a caveat and starts being a
+            // statement about what is happening there.
+            if (excludedCount) {
+                label.textContent += ` — ${fmtNum(excludedCount)} not for general circulation, excluded`;
             }
 
             renderPlanningBoard(data);

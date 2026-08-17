@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-17.3"
+$manifestVersion = "2026-08-17.13"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-17.3"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-17.3"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-17.13"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -143,8 +143,13 @@ $manifest = @(
     # offer, so a synced activity's drawer reads "Not set" for a field that is
     # filled, and the next save on that drawer clears it.
     @{ Path = "pipeline\scripts\process_cplan.py"; Marker = "TIME_ZONE_MAP";                 Why = "the source's display names are translated to IANA zones; without it the studio stores 'Japan Standard Time - GMT+9:00' where a zone belongs" },
+    @{ Path = "pipeline\scripts\process_cplan.py"; Marker = "def is_hidden_value";           Why = "reads the source's hide-from-public flag; an older copy drops the column at the first step and every activity marked as not for general circulation flows into every output, including the uploaded agent pack" },
+    @{ Path = "pipeline\scripts\process_cplan.py"; Marker = "def exclude_hidden";             Why = "removes those rows and the marker with them, and counts what it removed; an older copy carries the flag but acts on none of it" },
+    @{ Path = "pipeline\scripts\process_cplan.py"; Marker = "excluded_total";                Why = "meta.json states how many rows were held back; the dashboard reads that file, and without the key it prints totals it cannot explain" },
+    @{ Path = "pipeline\scripts\process_cplan.py"; Marker = "hidden_by_file";                 Why = "the exclusion is applied where the ETL and the calendar report share a loader, and the per-file count travels with it; an older copy excludes nothing and every output carries the hidden activities" },
     @{ Path = "pipeline\studio\index.html";    Marker = "Asia/Ho_Chi_Minh";                  Why = "the time-zone select offers every zone the ETL now maps to - an older copy shows 'Not set' on a synced activity that has one" },
     @{ Path = "timezones.ps1";                 Marker = "check_time_zones";                  Why = "the launcher for that check - double-clickable via timezones.cmd" },
+    @{ Path = "pipeline\scripts\check_time_zones.py"; Marker = "exclude_hidden";           Why = "the zone check leaves out the rows the source holds back, like every other consumer; an older copy measures and prints values that belong to activities not for general circulation" },
     @{ Path = "timezones.ps1";                 Marker = "Context";                           Why = "-Context reaches the per-zone region and lead-team breakdown; without it the switch is silently ignored" },
     @{ Path = "pipeline\scripts\check_tracking_ids.py"; Marker = "def find_hint";            Why = "says why a listed ID is missing - without it a wrong channel suffix and a never-created activity read identically" },
     @{ Path = "pipeline\scripts\check_tracking_ids.py"; Marker = "ACTIVITY_SOURCES";         Why = "searches the four activity exports and only those - an older copy can report a pack ID as a found activity" },
@@ -153,11 +158,19 @@ $manifest = @(
     @{ Path = "pipeline\scripts\check_tracking_ids.py"; Marker = "def write_xlsx";           Why = "the result workbook every run writes; an older copy names a path in the report and leaves no file there" },
     @{ Path = "pipeline\scripts\check_tracking_ids.py"; Marker = "DEFAULT_LIST_NAMES";       Why = "finds the ids.xlsx beside the launcher; without it a run with no -Ids fails on a missing argument instead of reading the list lying there" },
     @{ Path = ".gitignore";                    Marker = "ids.xlsx";                          Why = "keeps the tracking-ID list out of git - it names campaigns and carries notes, and an older copy leaves it sitting in git status waiting to be added" },
+    @{ Path = "pipeline\scripts\check_tracking_ids.py"; Marker = "excluded";                Why = "a held-back activity answers 'excluded', not 'missing'; an older copy calls an activity that exists never-created, and somebody acts on that by creating it twice" },
     @{ Path = "trackids.ps1";                  Marker = "check_tracking_ids";                Why = "the launcher for that check - double-clickable via trackids.cmd" },
     @{ Path = "trackids.ps1";                  Marker = "GetFullPath";                       Why = "-Ids is resolved against the caller's folder; without it a relative list path is looked for in the repository root and reads as a missing file" },
     @{ Path = "trackids.ps1";                  Marker = '$Sheet';                            Why = "-Sheet and -Out reach the check; without them both switches are silently dropped and the run answers from the first sheet into the default file" },
     @{ Path = "trackids.ps1";                  Marker = 'if ($idsPath)';                     Why = "-Ids is optional, so a bare run reads the ids.xlsx beside the launcher; an older copy demands the switch and a double-click stops at a prompt" },
     @{ Path = "pipeline\report\membership.py"; Marker = "DEFAULT_FILENAME";                  Why = "GEB membership loader -- report_calendar.py imports it at module scope, so a missing copy turns every report run into ModuleNotFoundError" },
+    @{ Path = "pipeline\dashboard\index.html";  Marker = "not for general circulation";     Why = "the dashboard says how many activities were held back; an older copy shows totals of a filtered set with nothing on the page admitting it" },
+    @{ Path = "pipeline\mcp\server.py";        Marker = "not for general circulation";     Why = "tells the MCP client its database is already filtered; nothing the client can query reveals the gap, so an older copy answers counts as if they were exhaustive" },
+    @{ Path = "pipeline\report\metrics.py";    Marker = "Hidden activities excluded";     Why = "the anomalies block states how many rows were held back; without it the Executive Summary and the agent pack report totals that are quietly smaller than the plan" },
+    @{ Path = "pipeline\report\data.py";       Marker = "hidden_excluded";                  Why = "carries that count from the loader to every sheet; an older copy drops it and the figure reads zero on a run that excluded rows" },
+    @{ Path = "pipeline\report\table_sheets.py"; Marker = "scope.hidden_excluded";          Why = "passes it into the Executive Summary's anomalies block" },
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "scope.hidden_excluded";            Why = "passes it into the pack's anomalies block, which is the only place the agent can learn the data is incomplete" },
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "def _held_back";                    Why = "the paragraph telling the agent the pack is not the whole plan; without it the agent answers totals as if they were exhaustive and has no way to know otherwise" },
     @{ Path = "pipeline\report\config.py";     Marker = "EXECUTIVES_SPLIT";                  Why = "report criteria, audience bands, the reader-facing field titles, and the split column pair every other module reads" },
     @{ Path = "pipeline\report\data.py";       Marker = "_people_with_emails";               Why = "scope building and the GEB/GEB-1 split -- pairs each person with their own email, or drops all of them when the counts disagree" },
     @{ Path = "pipeline\report\derive.py";     Marker = "def split_people_aligned";          Why = "per-row derivations; the aligned splitter keeps empty email slots so person N keeps their own address" },

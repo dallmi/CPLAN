@@ -274,14 +274,20 @@ def test_a_csv_renamed_to_xlsx_says_so_rather_than_traceback(tmp_path):
     assert "ids.xlsx" in str(error.value)
 
 
-def _export(tmp_path: Path, name: str, *rows: tuple[str, str, str]) -> Path:
+# Every real export carries this. Unlike every other consumer, this check does
+# not drop the rows it marks -- it answers a different question about them.
+HIDE_HEADER = "Hide_x0020_from_x0020_public_x0020_view"
+
+
+def _export(tmp_path: Path, name: str, *rows: tuple[str, str, str], hide=False) -> Path:
     """One activity export. Each row is (tracking_id, sp_id, title)."""
     path = tmp_path / name
     with open(path, "w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
-        writer.writerow(["ID", "Tracking ID", "Title", "Start date"])
+        writer.writerow(["ID", "Tracking ID", "Title", "Start date", HIDE_HEADER])
         for tracking_id, sp_id, title in rows:
-            writer.writerow([sp_id, tracking_id, title, "2026-03-05"])
+            writer.writerow([sp_id, tracking_id, title, "2026-03-05",
+                             "TRUE" if hide else "FALSE"])
     return path
 
 
@@ -619,6 +625,66 @@ def test_the_csv_path_is_named_in_the_report(tmp_path, capsys):
     check_tracking_ids.main(["--ids", str(ids), "--input", str(tmp_path), "--csv", str(out_csv)])
 
     assert "result.csv" in capsys.readouterr().out
+
+
+def test_a_hidden_activity_reads_as_excluded_not_missing(tmp_path, capsys):
+    """"Missing" means never created. Answering that gets it created twice.
+
+    This is the one consumer that keeps the held-back rows, and this status is
+    why: the question here is whether an ID exists, and it does.
+    """
+    _export(tmp_path, "InternalCommunicationActivities.csv",
+            (LIVE, "1", "Board briefing"), hide=True)
+    ids = _ids(tmp_path, LIVE)
+
+    exit_code = check_tracking_ids.main(["--ids", str(ids), "--input", str(tmp_path)])
+
+    out = capsys.readouterr().out
+    assert "excluded" in out.lower()
+    assert "missing" not in out.lower().split("excluded")[0][-200:]
+    assert exit_code == 1
+
+
+def test_an_excluded_row_carries_nothing_but_its_id(tmp_path):
+    """Existence is the whole of what may be said about a held-back activity."""
+    _export(tmp_path, "InternalCommunicationActivities.csv",
+            (LIVE, "1", "Board briefing"), hide=True)
+    ids = _ids(tmp_path, LIVE)
+    out_csv = tmp_path / "result.csv"
+
+    check_tracking_ids.main(["--ids", str(ids), "--input", str(tmp_path),
+                             "--out", str(out_csv)])
+
+    text = out_csv.read_text(encoding="utf-8-sig")
+    with open(out_csv, newline="", encoding="utf-8-sig") as handle:
+        row = next(csv.DictReader(handle))
+
+    assert row["status"] == "excluded"
+    assert row["activity_name"] == ""
+    assert row["sp_id"] == ""
+    assert "Board briefing" not in text
+
+
+def test_a_result_holding_excluded_rows_warns_before_it_is_forwarded(tmp_path, capsys):
+    """A workbook that explains its own sensitivity is one already forwarded."""
+    _export(tmp_path, "InternalCommunicationActivities.csv",
+            (LIVE, "1", "Board briefing"), hide=True)
+    ids = _ids(tmp_path, LIVE)
+    out = tmp_path / "result.xlsx"
+
+    check_tracking_ids.main(["--ids", str(ids), "--input", str(tmp_path), "--out", str(out)])
+
+    assert "before forwarding" in capsys.readouterr().out
+
+
+def test_a_run_without_excluded_rows_does_not_warn(tmp_path, capsys):
+    """A warning on every run is a warning nobody reads on the run that counts."""
+    _export(tmp_path, "InternalCommunicationActivities.csv", (LIVE, "1", "A"))
+    ids = _ids(tmp_path, LIVE)
+
+    check_tracking_ids.main(["--ids", str(ids), "--input", str(tmp_path)])
+
+    assert "before forwarding" not in capsys.readouterr().out
 
 
 def test_the_columns_from_an_excel_list_stand_beside_the_answer(tmp_path):

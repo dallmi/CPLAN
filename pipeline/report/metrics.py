@@ -127,7 +127,7 @@ def field_completeness(scope):
     return rows
 
 
-def anomalies(frame, duplicates_removed=0):
+def anomalies(frame, duplicates_removed=0, hidden_excluded=0):
     """Data-quality counts for the frame as it stands after `load_activities`.
 
     `load_activities` already de-duplicates by `tracking_id` (keeping the most
@@ -164,5 +164,11 @@ def anomalies(frame, duplicates_removed=0):
         ("Blank tracking ID (after de-duplication)",
          int(_is_blank(tracking).sum()) if tracking is not None else 0),
         ("Duplicate tracking IDs removed on load", int(duplicates_removed)),
+        # Counted at load like the duplicates above, and for the same reason:
+        # these rows are not in `frame`, so counting them against it would be a
+        # tautological zero. Unlike the duplicates, their absence changes every
+        # other number on this sheet -- which is why it is stated here rather
+        # than left for a reader to notice a total that does not add up.
+        ("Hidden activities excluded on load", int(hidden_excluded)),
         ("Archived", int(archived.fillna(False).astype(bool).sum()) if archived is not None else 0),
     ]

@@ -6,17 +6,165 @@ import pytest
 
 pytest.importorskip("pandas")
 
+import pandas as pd  # noqa: E402
+
 import pipeline.scripts.process_cplan as process_cplan
 
 
+# The header as the export writes it. The suffix past "public" is a SharePoint
+# internal-name detail; the matcher goes by prefix, so the exact tail is
+# irrelevant -- and using a plausible one here is what proves that.
+HIDE_HEADER = "Hide_x0020_from_x0020_public_x0020_view"
+
+
+def _activity_frame(**overrides):
+    """One activity row as the export hands it over, encoded headers and all."""
+    row = {
+        "ID": "101",
+        "Tracking ID": "QRREP-0000058-240709-0000060-EMI",
+        "Title": "Quarterly report mail",
+        HIDE_HEADER: "FALSE",
+    }
+    row.update(overrides)
+    return pd.DataFrame([row])
+
+
+def test_the_encoded_hide_header_becomes_the_hide_column():
+    frame = process_cplan.transform(_activity_frame(), source_type="internal")
+
+    assert process_cplan.HIDE_COLUMN in frame.columns
+
+
+def test_a_ticked_box_reads_as_hidden():
+    frame = process_cplan.transform(
+        _activity_frame(**{HIDE_HEADER: "TRUE"}), source_type="internal"
+    )
+
+    assert frame[process_cplan.HIDE_COLUMN].tolist() == [True]
+
+
+@pytest.mark.parametrize("unset", ["FALSE", "False", "false", "0", "", "   ", None])
+def test_every_form_of_not_ticked_reads_as_not_hidden(unset):
+    """The export writes FALSE on some rows and leaves others empty. Both occur."""
+    frame = process_cplan.transform(
+        _activity_frame(**{HIDE_HEADER: unset}), source_type="internal"
+    )
+
+    assert frame[process_cplan.HIDE_COLUMN].tolist() == [False]
+
+
+def test_a_value_nobody_anticipated_counts_as_hidden():
+    """Fail closed. An unrecognised value is not a licence to publish."""
+    assert process_cplan.is_hidden_value("Restricted") is True
+    assert process_cplan.is_hidden_value("?") is True
+
+
+def _flagged(*hidden_flags):
+    return pd.DataFrame({
+        "tracking_id": [f"QRREP-0000058-240709-000006{i}-EMI"
+                        for i in range(len(hidden_flags))],
+        process_cplan.HIDE_COLUMN: list(hidden_flags),
+    })
+
+
+def test_hidden_rows_are_dropped_and_counted():
+    frame, excluded = process_cplan.exclude_hidden(_flagged(False, True, False, True),
+                                                   "internal")
+
+    assert len(frame) == 2
+    assert excluded == 2
+
+
+def test_the_marker_leaves_with_the_rows_it_marked():
+    """A hide_from_public column in an output would be a map of the interesting rows."""
+    frame, _ = process_cplan.exclude_hidden(_flagged(False, True), "internal")
+
+    assert process_cplan.HIDE_COLUMN not in frame.columns
+
+
+def test_a_frame_with_nothing_hidden_keeps_every_row():
+    frame, excluded = process_cplan.exclude_hidden(_flagged(False, False), "internal")
+
+    assert len(frame) == 2
+    assert excluded == 0
+
+
+def test_the_index_is_reset_so_later_positional_work_is_safe():
+    frame, _ = process_cplan.exclude_hidden(_flagged(True, False), "internal")
+
+    assert frame.index.tolist() == [0]
+
+
+def test_an_export_without_the_column_stops_the_run_and_names_the_file():
+    """Both silent answers are wrong: publish everything, or report nothing."""
+    bare = pd.DataFrame({"tracking_id": ["QRREP-0000058-240709-0000060-EMI"]})
+
+    with pytest.raises(process_cplan.HiddenColumnMissing) as error:
+        process_cplan.exclude_hidden(bare, "InternalCommunicationActivities.csv")
+
+    assert "InternalCommunicationActivities.csv" in str(error.value)
+
+
+def _export_csv(tmp_path: Path, name: str, *rows) -> Path:
+    """One activity export. Each row is (tracking_id, title, hide_value)."""
+    import csv
+
+    path = tmp_path / name
+    with open(path, "w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["ID", "Tracking ID", "Title", "Start date", HIDE_HEADER])
+        for index, (tracking_id, title, hide) in enumerate(rows, start=1):
+            writer.writerow([str(index), tracking_id, title, "2025-03-05", hide])
+    return path
+
+
+def test_hidden_activities_never_reach_the_combined_frame(tmp_path):
+    _export_csv(
+        tmp_path, "InternalCommunicationActivities.csv",
+        ("QRREP-0000058-240709-0000060-EMI", "Quarterly report mail", "FALSE"),
+        ("QRREP-0000058-240709-0000061-EMI", "Board briefing", "TRUE"),
+    )
+
+    load = process_cplan.load_activities(process_cplan.find_input_files(tmp_path))
+
+    assert load.frame["tracking_id"].tolist() == ["QRREP-0000058-240709-0000060-EMI"]
+    assert "Board briefing" not in load.frame["activity_name"].tolist()
+
+
+def test_the_load_says_how_many_it_excluded_and_from_where(tmp_path):
+    _export_csv(
+        tmp_path, "InternalCommunicationActivities.csv",
+        ("QRREP-0000058-240709-0000060-EMI", "A", "FALSE"),
+        ("QRREP-0000058-240709-0000061-EMI", "B", "TRUE"),
+    )
+    _export_csv(
+        tmp_path, "ExternalCommunicationActivities.csv",
+        ("PRESS-0000012-240301-0000004-EXT", "C", "TRUE"),
+    )
+
+    load = process_cplan.load_activities(process_cplan.find_input_files(tmp_path))
+
+    assert load.hidden_excluded == 2
+    assert dict(load.hidden_by_file) == {"internal": 1, "external": 1}
+
+
+def test_the_marker_column_is_not_in_the_loaded_frame(tmp_path):
+    _export_csv(tmp_path, "InternalCommunicationActivities.csv",
+                ("QRREP-0000058-240709-0000060-EMI", "A", "FALSE"))
+
+    load = process_cplan.load_activities(process_cplan.find_input_files(tmp_path))
+
+    assert process_cplan.HIDE_COLUMN not in load.frame.columns
+
+
 INTERNAL_CSV = (
-    "ID,Tracking ID,Title,Start date,Region,Modified\n"
-    "1,IC-0001,Active row,2025-03-05,EMEA,2025-03-01\n"
+    f"ID,Tracking ID,Title,Start date,Region,Modified,{HIDE_HEADER}\n"
+    "1,IC-0001,Active row,2025-03-05,EMEA,2025-03-01,FALSE\n"
 )
 ARCHIVE_CSV = (
-    "ID,Tracking ID,Title,Start date,Region,Modified\n"
-    "1,IC-0001,Stale duplicate,2025-03-05,EMEA,2025-01-01\n"
-    "2,IC-0002,Archived row,2025-04-09,APAC,2025-04-01\n"
+    f"ID,Tracking ID,Title,Start date,Region,Modified,{HIDE_HEADER}\n"
+    "1,IC-0001,Stale duplicate,2025-03-05,EMEA,2025-01-01,FALSE\n"
+    "2,IC-0002,Archived row,2025-04-09,APAC,2025-04-01,FALSE\n"
 )
 
 
@@ -71,14 +219,84 @@ def test_load_activities_with_a_header_only_csv_returns_an_empty_frame(tmp_path)
     # ETL — it should behave like "no activities from this file", not blow up.
     header_only = tmp_path / "InternalCommunicationActivities.csv"
     header_only.write_text(
-        "ID,Tracking ID,Title,Start date,Region,Modified\n", encoding="utf-8"
+        f"ID,Tracking ID,Title,Start date,Region,Modified,{HIDE_HEADER}\n",
+        encoding="utf-8",
     )
 
     load = process_cplan.load_activities({"internal": header_only})
 
     assert load.frame.empty
     assert "Tracking ID" in load.raw_columns["internal"]
+    assert load.hidden_excluded == 0
     assert set(load.files) == {"internal"}
+
+
+def _load(hidden_by_file=(), hidden_excluded=0):
+    return process_cplan.ActivityLoad(
+        frame=pd.DataFrame(), raw_columns={}, files={},
+        duplicates_removed=0,
+        hidden_excluded=hidden_excluded,
+        hidden_by_file=hidden_by_file,
+    )
+
+
+def test_meta_states_what_was_excluded_and_from_where():
+    """The dashboard already reads meta.json for its refresh stamp."""
+    from datetime import datetime
+
+    meta = process_cplan.build_meta(
+        load=_load(hidden_by_file=(("internal", 1), ("external", 1)), hidden_excluded=2),
+        now=datetime(2026, 8, 17, 9, 30),
+        full_refresh=True,
+        row_counts={"communications": 410},
+    )
+
+    assert meta["excluded_total"] == 2
+    assert meta["excluded_counts"] == {"internal": 1, "external": 1}
+
+
+def test_meta_keeps_the_keys_the_dashboard_already_reads():
+    """Extraction must not change the contract -- index.html parses this file."""
+    from datetime import datetime
+
+    meta = process_cplan.build_meta(
+        load=_load(), now=datetime(2026, 8, 17, 9, 30),
+        full_refresh=False, row_counts={"communications": 410},
+    )
+
+    assert meta["generated_at"] == "2026-08-17 09:30"
+    assert meta["generated_at_iso"] == "2026-08-17T09:30:00"
+    assert meta["mode"] == "incremental"
+    assert meta["row_counts"] == {"communications": 410}
+
+
+def test_a_run_that_excluded_nothing_still_states_the_zero():
+    """An absent key reads as "written before hiding existed"; a zero does not."""
+    from datetime import datetime
+
+    meta = process_cplan.build_meta(
+        load=_load(), now=datetime(2026, 8, 17, 9, 30),
+        full_refresh=True, row_counts={},
+    )
+
+    assert meta["excluded_total"] == 0
+    assert meta["excluded_counts"] == {}
+
+
+def test_an_export_that_lost_the_hide_column_stops_the_whole_load(tmp_path):
+    """The guard has to hold on the real path, not only on the helper.
+
+    An export changing shape is the one case where guessing is unacceptable in
+    both directions, so the loud failure is the feature.
+    """
+    bare = tmp_path / "InternalCommunicationActivities.csv"
+    bare.write_text("ID,Tracking ID,Title,Start date\n1,IC-0001,A,2025-03-05\n",
+                    encoding="utf-8")
+
+    with pytest.raises(process_cplan.HiddenColumnMissing) as error:
+        process_cplan.load_activities({"internal": bare})
+
+    assert "InternalCommunicationActivities.csv" in str(error.value)
 
 
 def test_loading_packs_without_an_export_is_not_an_error(tmp_path):

@@ -9,6 +9,10 @@ names, no production identifiers.
 import json
 from pathlib import Path
 
+# The header as SharePoint encodes it. The suffix past "public" is an internal
+# -name detail the matcher never looks at -- it goes by prefix.
+HIDE_HEADER = "Hide_x0020_from_x0020_public_x0020_view"
+
 HEADER = [
     "ID", "Tracking ID", "Title", "Activity", "Target audience", "Business Division",
     "Region", "Channel", "Priority", "Strategic Objectives", "Lead", "Lead Team",
@@ -16,6 +20,11 @@ HEADER = [
     "Communication pack", "Campaign", "BOD*GEB", "Audience", "Time zone",
     # The source misspells "senior", and the two lists name it differently.
     "Other seinor executives",
+    # Every real export carries this, so every fixture must: `load_activities`
+    # refuses a file without it rather than guess whether its rows may be
+    # published. The rows here are all visible; the hiding is exercised where
+    # it is the subject of the test.
+    HIDE_HEADER,
 ]
 
 # The size column exists in the internal exports only -- the external form has
@@ -41,7 +50,7 @@ def _row(sp_id, tracking_id, name, start, **overrides):
         "Created": "2025-01-05", "Modified": "2025-06-01",
         "Communication pack:C": "CP-100", "Communication pack": "Pack one",
         "Campaign": "Campaign one", "BOD*GEB": "", "Time zone": "Europe/Zurich",
-        "Other seinor executives": "",
+        "Other seinor executives": "", HIDE_HEADER: "FALSE",
         # Two different source fields, as the real export has them: "Audience"
         # is not a size (it reads "external" on every external row), the band
         # lives in its own column.
