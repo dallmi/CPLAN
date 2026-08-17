@@ -30,18 +30,14 @@ A boolean. `TRUE` means "hide from public". The name is the source's own
 statement of intent, which is what makes it usable: nothing here has to infer
 sensitivity from free text or from a title someone worded carefully.
 
-Two things about it are **not yet verified against real data**, because no
-export is present on the machine this was designed on (`pipeline/input` and
-`data/` are empty; the exports live on the work machine and in OneDrive):
+Two properties confirmed against the real exports:
 
-- Whether the unset state arrives as `FALSE`, as an empty cell, or as both.
-  The screenshot that identified the field had the column filtered to `TRUE`,
-  so only that side of it was visible.
-- Whether all four activity exports carry the column, including the two
-  archives.
-
-Both are settled by the rules below rather than by assumption, and both should
-be confirmed on first run.
+- The unset state arrives **both** as `FALSE` and as an empty cell. Neither is
+  a signal; both mean not hidden. A parser that handles only one of them would
+  work on most rows and silently pass the others straight through.
+- **All four** activity exports carry the column, the two archives included.
+  So the hard error below is a guard against a future export changing shape,
+  not a case expected on any run today.
 
 ## The rule
 
@@ -113,11 +109,18 @@ Applied — everything downstream of the ETL inherits it:
   portal and studio, the calendar report, the dashboards, the board bundle, the
   agent pack, the agent builder, and the MCP server.
 
+- `check_time_zones.py`, immediately after its own `transform()` call. A hidden
+  row with a broken time zone is still a broken time zone, so excluding it does
+  mean that particular defect will never be reported and never be fixed. That
+  cost is accepted on purpose. "Hidden rows are gone everywhere" is a rule that
+  fits in one sentence and can be held in mind while working anywhere in this
+  repository; "gone everywhere except the time-zone check" is an exception that
+  has to be remembered, and the first person to forget it will be surprised in
+  the direction that leaks. The check also exists to fix data that flows on —
+  and these rows do not flow on.
+
 Not applied, deliberately:
 
-- `check_time_zones.py`. It is a data-quality check over the export, run
-  locally, and a hidden row with a broken time zone is still a broken time
-  zone. It prints zone names and counts, not activity content.
 - `check_tracking_ids.py`. Its own case, below.
 
 ## The count travels with the numbers
@@ -199,6 +202,8 @@ Test-first, in the suites that already cover each surface.
   column is gone from the frame it returns.
 - The ETL's per-file log and `meta.json` carry the count.
 - A hidden activity does not appear in the Parquet output.
+- The time-zone check excludes hidden rows and names how many, so a zone total
+  that shrank is explained rather than merely different.
 - The tracking-ID check reports a hidden ID as `excluded`, never as `missing`,
   and warns when writing a result that contains one.
 - The agent pack's prose names the exclusion count.
@@ -206,6 +211,5 @@ Test-first, in the suites that already cover each surface.
 ## Follow-ups, not part of this work
 
 1. Purging the rows already in `communications.parquet`, in the Postgres
-   snapshot, and in previously built artefacts.
-2. Confirming on the work machine whether the unset state is `FALSE`, empty, or
-   both, and whether both archive exports carry the column.
+   snapshot, and in previously built artefacts. They were produced before this
+   rule and still carry the hidden activities in full.
