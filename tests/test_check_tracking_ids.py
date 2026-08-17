@@ -6,13 +6,22 @@ activity was never created or because a suffix is wrong.
 """
 
 import csv
+import sys
+from datetime import datetime
 from pathlib import Path
+from unittest import mock
 
 import pytest
 
 pytest.importorskip("pandas")
 
 from pipeline.scripts import check_tracking_ids
+
+
+@pytest.fixture(autouse=True)
+def _default_output_goes_to_a_scratch_dir(tmp_path, monkeypatch):
+    """Every run writes a workbook now, and none of them belongs in the repo."""
+    monkeypatch.setattr(check_tracking_ids, "REPORTS_DIR", tmp_path / "reports")
 
 
 def _ids(tmp_path: Path, *lines: str, name: str = "ids.txt") -> Path:
@@ -32,13 +41,13 @@ def test_the_list_keeps_its_order_and_drops_blanks_and_comments(tmp_path):
         "   # indented comment",
     )
 
-    listed, counts = check_tracking_ids.read_id_list(path)
+    id_list = check_tracking_ids.read_id_list(path)
 
-    assert listed == [
+    assert id_list.listed == [
         "QRREP-0000058-240709-0000060-EMI",
         "QRREP-0000058-240709-0000061-INT",
     ]
-    assert all(count == 1 for count in counts.values())
+    assert all(count == 1 for count in id_list.counts.values())
 
 
 def test_a_repeated_id_is_listed_once_and_counted_twice(tmp_path):
@@ -48,10 +57,221 @@ def test_a_repeated_id_is_listed_once_and_counted_twice(tmp_path):
         "qrrep-0000058-240709-0000060-emi",
     )
 
-    listed, counts = check_tracking_ids.read_id_list(path)
+    id_list = check_tracking_ids.read_id_list(path)
 
-    assert listed == ["QRREP-0000058-240709-0000060-EMI"]
-    assert counts["QRREP-0000058-240709-0000060-EMI"] == 2
+    assert id_list.listed == ["QRREP-0000058-240709-0000060-EMI"]
+    assert id_list.counts["QRREP-0000058-240709-0000060-EMI"] == 2
+
+
+def test_a_text_list_carries_no_extra_columns(tmp_path):
+    """The .txt format has one column by construction; nothing to carry."""
+    id_list = check_tracking_ids.read_id_list(_ids(tmp_path, "QRREP-0000058-240709-0000060-EMI"))
+
+    assert id_list.extra_columns == ()
+    assert id_list.extras == {}
+
+
+def _xlsx(tmp_path: Path, *rows, name: str = "ids.xlsx", title: str = "Liste", more=()) -> Path:
+    """A workbook whose first sheet holds `rows`, first row being the header.
+
+    `more` adds further sheets as (title, rows) pairs, so the sheet-choice
+    tests have something to choose between.
+    """
+    openpyxl = pytest.importorskip("openpyxl")
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = title
+    for row in rows:
+        sheet.append(list(row))
+    for other_title, other_rows in more:
+        other = workbook.create_sheet(other_title)
+        for row in other_rows:
+            other.append(list(row))
+    path = tmp_path / name
+    workbook.save(path)
+    return path
+
+
+def test_an_excel_list_is_read_from_the_tracking_id_column(tmp_path):
+    path = _xlsx(
+        tmp_path,
+        ("Kampagne", "Tracking ID", "Notiz"),
+        ("Q3", "QRREP-0000058-240709-0000060-EMI", "aus der Mail"),
+        ("Q3", "QRREP-0000058-240709-0000061-INT", ""),
+    )
+
+    id_list = check_tracking_ids.read_id_list(path)
+
+    assert id_list.listed == [
+        "QRREP-0000058-240709-0000060-EMI",
+        "QRREP-0000058-240709-0000061-INT",
+    ]
+
+
+def test_the_columns_beside_the_ids_are_carried_along(tmp_path):
+    path = _xlsx(
+        tmp_path,
+        ("Kampagne", "Tracking ID", "Notiz"),
+        ("Q3", "QRREP-0000058-240709-0000060-EMI", "aus der Mail"),
+    )
+
+    id_list = check_tracking_ids.read_id_list(path)
+
+    assert id_list.extra_columns == ("Kampagne", "Notiz")
+    assert id_list.extras["QRREP-0000058-240709-0000060-EMI"] == {
+        "Kampagne": "Q3",
+        "Notiz": "aus der Mail",
+    }
+
+
+def test_the_id_column_is_found_whatever_its_spelling(tmp_path):
+    """Including `Tacking ID` -- the export's own long-standing typo.
+
+    A header pasted out of the export carries it, and refusing that header
+    would make the export's mistake the operator's problem.
+    """
+    for header in ("  tracking id  ", "TRACKING ID", "Tacking ID"):
+        path = _xlsx(
+            tmp_path,
+            (header, "Notiz"),
+            ("QRREP-0000058-240709-0000060-EMI", "x"),
+            name=f"ids-{header.strip().replace(' ', '_')}.xlsx",
+        )
+
+        id_list = check_tracking_ids.read_id_list(path)
+
+        assert id_list.listed == ["QRREP-0000058-240709-0000060-EMI"], header
+        assert id_list.extra_columns == ("Notiz",), header
+
+
+def test_an_excel_list_without_an_id_column_names_the_columns_it_found(tmp_path):
+    path = _xlsx(tmp_path, ("Kampagne", "Notiz"), ("Q3", "x"))
+
+    with pytest.raises(check_tracking_ids.IdListError) as error:
+        check_tracking_ids.read_id_list(path)
+
+    message = str(error.value)
+    assert "Tracking ID" in message
+    assert "Kampagne" in message and "Notiz" in message
+
+
+def test_the_rows_excel_leaves_behind_are_dropped(tmp_path):
+    """A list edited down from a longer one arrives with blank rows below it."""
+    path = _xlsx(
+        tmp_path,
+        ("Tracking ID", "Notiz"),
+        ("QRREP-0000058-240709-0000060-EMI", "x"),
+        (None, None),
+        (None, None),
+    )
+
+    id_list = check_tracking_ids.read_id_list(path)
+
+    assert id_list.listed == ["QRREP-0000058-240709-0000060-EMI"]
+
+
+def test_a_row_that_says_something_but_names_no_id_is_an_error(tmp_path):
+    """Not a blank row: a note with no ID beside it is an ID someone forgot."""
+    path = _xlsx(
+        tmp_path,
+        ("Tracking ID", "Notiz"),
+        ("QRREP-0000058-240709-0000060-EMI", "x"),
+        ("", "noch nachtragen"),
+    )
+
+    with pytest.raises(check_tracking_ids.IdListError) as error:
+        check_tracking_ids.read_id_list(path)
+
+    assert "row 3" in str(error.value)
+
+
+def test_a_commented_row_in_an_excel_list_is_dropped(tmp_path):
+    path = _xlsx(
+        tmp_path,
+        ("Tracking ID",),
+        ("# aus der Mail vom Freitag",),
+        ("QRREP-0000058-240709-0000060-EMI",),
+    )
+
+    id_list = check_tracking_ids.read_id_list(path)
+
+    assert id_list.listed == ["QRREP-0000058-240709-0000060-EMI"]
+
+
+def test_a_repeat_in_an_excel_list_keeps_the_first_row_it_came_from(tmp_path):
+    """Same rule as the order: first seen wins, so the two cannot disagree."""
+    path = _xlsx(
+        tmp_path,
+        ("Tracking ID", "Notiz"),
+        ("QRREP-0000058-240709-0000060-EMI", "erste"),
+        ("qrrep-0000058-240709-0000060-emi", "zweite"),
+    )
+
+    id_list = check_tracking_ids.read_id_list(path)
+
+    assert id_list.counts["QRREP-0000058-240709-0000060-EMI"] == 2
+    assert id_list.extras["QRREP-0000058-240709-0000060-EMI"]["Notiz"] == "erste"
+
+
+def test_an_excel_list_reads_the_first_sheet_unless_told_otherwise(tmp_path):
+    path = _xlsx(
+        tmp_path,
+        ("Tracking ID",),
+        ("QRREP-0000058-240709-0000060-EMI",),
+        more=[("Q4", [("Tracking ID",), ("TOWNH-0000012-240301-0000004-TMS",)])],
+    )
+
+    assert check_tracking_ids.read_id_list(path).listed == ["QRREP-0000058-240709-0000060-EMI"]
+    assert check_tracking_ids.read_id_list(path, sheet="Q4").listed == [
+        "TOWNH-0000012-240301-0000004-TMS"
+    ]
+
+
+def test_an_unknown_sheet_name_lists_the_sheets_there_are(tmp_path):
+    path = _xlsx(
+        tmp_path,
+        ("Tracking ID",),
+        ("QRREP-0000058-240709-0000060-EMI",),
+        more=[("Q4", [("Tracking ID",)])],
+    )
+
+    with pytest.raises(check_tracking_ids.IdListError) as error:
+        check_tracking_ids.read_id_list(path, sheet="Q5")
+
+    message = str(error.value)
+    assert "Q5" in message
+    assert "Liste" in message and "Q4" in message
+
+
+def test_asking_a_text_list_for_a_sheet_is_an_error(tmp_path):
+    """Silently ignoring it would answer from the wrong list without saying so."""
+    path = _ids(tmp_path, "QRREP-0000058-240709-0000060-EMI")
+
+    with pytest.raises(check_tracking_ids.IdListError) as error:
+        check_tracking_ids.read_id_list(path, sheet="Q4")
+
+    assert "sheet" in str(error.value).lower()
+
+
+def test_a_workbook_without_openpyxl_names_the_install(tmp_path):
+    """The .txt path must keep working on a machine that has no openpyxl."""
+    path = _xlsx(tmp_path, ("Tracking ID",), ("QRREP-0000058-240709-0000060-EMI",))
+
+    with mock.patch.dict(sys.modules, {"openpyxl": None}):
+        with pytest.raises(check_tracking_ids.IdListError) as error:
+            check_tracking_ids.read_id_list(path)
+
+    assert "openpyxl" in str(error.value)
+
+
+def test_a_csv_renamed_to_xlsx_says_so_rather_than_traceback(tmp_path):
+    path = tmp_path / "ids.xlsx"
+    path.write_text("Tracking ID\nQRREP-0000058-240709-0000060-EMI\n", encoding="utf-8")
+
+    with pytest.raises(check_tracking_ids.IdListError) as error:
+        check_tracking_ids.read_id_list(path)
+
+    assert "ids.xlsx" in str(error.value)
 
 
 def _export(tmp_path: Path, name: str, *rows: tuple[str, str, str]) -> Path:
@@ -269,6 +489,19 @@ def test_an_empty_list_is_an_error_not_a_pass(tmp_path, capsys):
     assert "no tracking IDs" in capsys.readouterr().out
 
 
+def test_a_sheet_with_nothing_under_its_header_names_the_sheet(tmp_path, capsys):
+    """Which sheet was read is the whole question when a workbook has several."""
+    _export(tmp_path, "InternalCommunicationActivities.csv", (LIVE, "1", "A"))
+    ids = _xlsx(tmp_path, ("Tracking ID",), (LIVE,), more=[("Q4", [("Tracking ID",)])])
+
+    exit_code = check_tracking_ids.main(
+        ["--ids", str(ids), "--input", str(tmp_path), "--sheet", "Q4"]
+    )
+
+    assert exit_code == 1
+    assert "Q4" in capsys.readouterr().out
+
+
 def test_a_missing_id_file_says_which_one(tmp_path, capsys):
     _export(tmp_path, "InternalCommunicationActivities.csv", (LIVE, "1", "A"))
     absent = tmp_path / "nope.txt"
@@ -331,3 +564,125 @@ def test_the_csv_path_is_named_in_the_report(tmp_path, capsys):
     check_tracking_ids.main(["--ids", str(ids), "--input", str(tmp_path), "--csv", str(out_csv)])
 
     assert "result.csv" in capsys.readouterr().out
+
+
+def test_the_columns_from_an_excel_list_stand_beside_the_answer(tmp_path):
+    """The result goes back to whoever sent the list -- with their own columns."""
+    _export(tmp_path, "InternalCommunicationActivities.csv", (LIVE, "1", "Quarterly report"))
+    ids = _xlsx(
+        tmp_path,
+        ("Kampagne", "Tracking ID", "Notiz"),
+        ("Q3", LIVE, "aus der Mail"),
+        ("Q3", ARCHIVED, ""),
+    )
+    out_csv = tmp_path / "result.csv"
+
+    check_tracking_ids.main(["--ids", str(ids), "--input", str(tmp_path), "--out", str(out_csv)])
+
+    with open(out_csv, newline="", encoding="utf-8-sig") as handle:
+        rows = list(csv.DictReader(handle))
+
+    assert list(rows[0]) == list(check_tracking_ids.CSV_COLUMNS) + ["Kampagne", "Notiz"]
+    assert rows[0]["Kampagne"] == "Q3"
+    assert rows[0]["Notiz"] == "aus der Mail"
+    assert rows[1]["Notiz"] == ""
+
+
+def test_a_text_list_leaves_the_result_columns_exactly_as_they_were(tmp_path):
+    _export(tmp_path, "InternalCommunicationActivities.csv", (LIVE, "1", "A"))
+    ids = _ids(tmp_path, LIVE)
+    out_csv = tmp_path / "result.csv"
+
+    check_tracking_ids.main(["--ids", str(ids), "--input", str(tmp_path), "--out", str(out_csv)])
+
+    with open(out_csv, newline="", encoding="utf-8-sig") as handle:
+        assert next(csv.reader(handle)) == list(check_tracking_ids.CSV_COLUMNS)
+
+
+def test_the_default_result_is_a_workbook_named_for_the_day(tmp_path):
+    path = check_tracking_ids.default_output_path()
+
+    assert path.suffix == ".xlsx"
+    assert path.parent == check_tracking_ids.REPORTS_DIR
+    assert datetime.now().strftime("%Y_%m_%d") in path.name
+
+
+def test_a_run_that_names_no_file_still_writes_the_workbook(tmp_path, capsys):
+    """Excel in, Excel out: the file is the point, not a flag to remember."""
+    _export(tmp_path, "InternalCommunicationActivities.csv", (LIVE, "1", "Quarterly report"))
+    ids = _ids(tmp_path, LIVE)
+
+    check_tracking_ids.main(["--ids", str(ids), "--input", str(tmp_path)])
+
+    written = check_tracking_ids.default_output_path()
+    assert written.is_file()
+    assert written.name in capsys.readouterr().out
+
+
+def test_the_workbook_carries_every_id_with_its_own_columns(tmp_path):
+    _export(tmp_path, "InternalCommunicationActivities.csv", (LIVE, "1", "Quarterly report"))
+    ids = _xlsx(tmp_path, ("Tracking ID", "Kampagne"), (LIVE, "Q3"), (ARCHIVED, "Q4"))
+    out = tmp_path / "result.xlsx"
+
+    check_tracking_ids.main(["--ids", str(ids), "--input", str(tmp_path), "--out", str(out)])
+
+    openpyxl = pytest.importorskip("openpyxl")
+    sheet = openpyxl.load_workbook(out).worksheets[0]
+    rows = [[cell.value for cell in row] for row in sheet.iter_rows()]
+
+    assert rows[0] == list(check_tracking_ids.CSV_COLUMNS) + ["Kampagne"]
+    assert rows[1][:2] == [LIVE, "found"]
+    assert rows[1][-1] == "Q3"
+    assert rows[2][:2] == [ARCHIVED, "missing"]
+
+
+def test_the_workbook_header_stays_put_and_filters(tmp_path):
+    """Filtering to the missing rows is the one thing this file is opened for."""
+    _export(tmp_path, "InternalCommunicationActivities.csv", (LIVE, "1", "A"))
+    ids = _ids(tmp_path, LIVE, ARCHIVED)
+    out = tmp_path / "result.xlsx"
+
+    check_tracking_ids.main(["--ids", str(ids), "--input", str(tmp_path), "--out", str(out)])
+
+    openpyxl = pytest.importorskip("openpyxl")
+    sheet = openpyxl.load_workbook(out).worksheets[0]
+
+    assert sheet.freeze_panes == "A2"
+    assert sheet.auto_filter.ref == "A1:F3"
+
+
+def test_an_out_path_ending_in_csv_still_writes_a_csv(tmp_path):
+    _export(tmp_path, "InternalCommunicationActivities.csv", (LIVE, "1", "A"))
+    ids = _ids(tmp_path, LIVE)
+    out = tmp_path / "result.csv"
+
+    check_tracking_ids.main(["--ids", str(ids), "--input", str(tmp_path), "--out", str(out)])
+
+    with open(out, newline="", encoding="utf-8-sig") as handle:
+        assert [r["id"] for r in csv.DictReader(handle)] == [LIVE]
+
+
+def test_an_unknown_out_extension_names_the_two_it_knows(tmp_path, capsys):
+    """Guessing a format would write the file the caller did not ask for."""
+    _export(tmp_path, "InternalCommunicationActivities.csv", (LIVE, "1", "A"))
+    ids = _ids(tmp_path, LIVE)
+
+    exit_code = check_tracking_ids.main(
+        ["--ids", str(ids), "--input", str(tmp_path), "--out", str(tmp_path / "result.txt")]
+    )
+
+    assert exit_code == 1
+    out = capsys.readouterr().out
+    assert ".xlsx" in out and ".csv" in out
+
+
+def test_the_csv_flag_still_names_the_file_it_always_did(tmp_path):
+    """The older flag stays: notes and scripts already carry it."""
+    _export(tmp_path, "InternalCommunicationActivities.csv", (LIVE, "1", "A"))
+    ids = _ids(tmp_path, LIVE)
+    out = tmp_path / "old-way.csv"
+
+    check_tracking_ids.main(["--ids", str(ids), "--input", str(tmp_path), "--csv", str(out)])
+
+    assert out.is_file()
+    assert not check_tracking_ids.default_output_path().exists()

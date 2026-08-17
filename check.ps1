@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-17.1"
+$manifestVersion = "2026-08-17.2"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-17.1"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-17.1"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-17.2"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -149,8 +149,11 @@ $manifest = @(
     @{ Path = "pipeline\scripts\check_tracking_ids.py"; Marker = "def find_hint";            Why = "says why a listed ID is missing - without it a wrong channel suffix and a never-created activity read identically" },
     @{ Path = "pipeline\scripts\check_tracking_ids.py"; Marker = "ACTIVITY_SOURCES";         Why = "searches the four activity exports and only those - an older copy can report a pack ID as a found activity" },
     @{ Path = "pipeline\scripts\check_tracking_ids.py"; Marker = "CSV_COLUMNS";              Why = "-Csv writes the result for a spreadsheet; an older copy accepts the switch and produces no file" },
+    @{ Path = "pipeline\scripts\check_tracking_ids.py"; Marker = "def _read_xlsx_list";      Why = "reads the ID list from a workbook; without it an .xlsx list is read as text and every ID reports as missing" },
+    @{ Path = "pipeline\scripts\check_tracking_ids.py"; Marker = "def write_xlsx";           Why = "the result workbook every run writes; an older copy names a path in the report and leaves no file there" },
     @{ Path = "trackids.ps1";                  Marker = "check_tracking_ids";                Why = "the launcher for that check - double-clickable via trackids.cmd" },
     @{ Path = "trackids.ps1";                  Marker = "GetFullPath";                       Why = "-Ids is resolved against the caller's folder; without it a relative list path is looked for in the repository root and reads as a missing file" },
+    @{ Path = "trackids.ps1";                  Marker = '$Sheet';                            Why = "-Sheet and -Out reach the check; without them both switches are silently dropped and the run answers from the first sheet into the default file" },
     @{ Path = "pipeline\report\membership.py"; Marker = "DEFAULT_FILENAME";                  Why = "GEB membership loader -- report_calendar.py imports it at module scope, so a missing copy turns every report run into ModuleNotFoundError" },
     @{ Path = "pipeline\report\config.py";     Marker = "EXECUTIVES_SPLIT";                  Why = "report criteria, audience bands, the reader-facing field titles, and the split column pair every other module reads" },
     @{ Path = "pipeline\report\data.py";       Marker = "_people_with_emails";               Why = "scope building and the GEB/GEB-1 split -- pairs each person with their own email, or drops all of them when the counts disagree" },

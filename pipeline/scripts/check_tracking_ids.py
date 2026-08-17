@@ -13,9 +13,17 @@ Nothing else counts as found. Every ID that does not match is then put through
 a ladder of near-miss searches, and the first hit is reported as a hint beside
 it -- never as a verdict.
 
+The list is read as a workbook or as one ID per line, chosen by the extension.
+The workbook is the easier file to keep by hand, and it can carry columns of
+its own -- a campaign, a note, whoever asked -- which travel through to the
+result file untouched. Every run writes that result: the answer is a file
+someone sends on, not a flag to remember.
+
 Usage (from the repo root, or just double-click trackids.cmd):
-    python -m pipeline.scripts.check_tracking_ids --ids ids.txt
-    python -m pipeline.scripts.check_tracking_ids --ids ids.txt --all --csv out.csv
+    python -m pipeline.scripts.check_tracking_ids --ids ids.xlsx
+    python -m pipeline.scripts.check_tracking_ids --ids ids.txt --all
+    python -m pipeline.scripts.check_tracking_ids --ids ids.xlsx --sheet "Q4"
+    python -m pipeline.scripts.check_tracking_ids --ids ids.xlsx --out result.csv
     python -m pipeline.scripts.check_tracking_ids --ids ids.txt --input "C:\\path\\to\\Input"
 
 Exit code 0 only when every listed ID was found.
@@ -28,11 +36,16 @@ import csv as csv_module
 import sys
 from collections import Counter
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
+
+# Where a run puts its workbook when the caller names no file. Same folder and
+# same naming as the calendar report, which is already in .gitignore.
+REPORTS_DIR = _REPO_ROOT / "pipeline" / "output" / "reports"
 
 from pipeline.scripts.process_cplan import (  # noqa: E402
     find_input_dir,
@@ -46,17 +59,61 @@ from pipeline.scripts.process_cplan import (  # noqa: E402
 )
 
 
+class IdListError(ValueError):
+    """The list exists but cannot be read as one.
+
+    Raised rather than falling back to an empty list: a run that searches
+    nothing reports every ID as missing, which reads exactly like a real answer.
+    """
+
+
+@dataclass(frozen=True)
+class IdList:
+    """The IDs a list names, and whatever else its rows carried.
+
+    `extras` is empty for a text list and holds the workbook's other columns
+    otherwise, keyed on the normalised ID. They are carried rather than
+    dropped so the result file can go back to whoever sent the list with their
+    own columns still beside the answer.
+    """
+
+    listed: list[str]
+    counts: Counter
+    extras: dict[str, dict[str, str]]
+    extra_columns: tuple[str, ...]
+
+
 def normalise(value: str) -> str:
     """The one definition of "the same ID": trimmed, upper-cased."""
     return str(value).strip().upper()
 
 
-def read_id_list(path: Path) -> tuple[list[str], Counter]:
+# What the ID column may be called. `tacking id` is the export's own
+# long-standing typo, which `transform()` already folds into `tracking_id` --
+# a header pasted out of the export carries it, and refusing that header would
+# make the export's mistake the operator's problem.
+ID_HEADERS = ("tracking id", "tacking id")
+
+
+def read_id_list(path: Path, sheet: str | None = None) -> IdList:
     """The IDs the file lists, in first-seen order, once each -- and how often.
 
+    The extension picks the reader: `.xlsx` is read as a workbook, anything
+    else as one ID per line. A repeat is not an error and not a second row: it
+    is counted, and the count is what the report names.
+    """
+    if path.suffix.lower() == ".xlsx":
+        return _read_xlsx_list(path, sheet)
+    if sheet is not None:
+        raise IdListError(f"{path.name}: a sheet can only be chosen in an .xlsx list")
+    return _read_text_list(path)
+
+
+def _read_text_list(path: Path) -> IdList:
+    """One ID per line.
+
     Blank lines and lines whose first non-space character is `#` are dropped,
-    so a list can carry its own headings. A repeat is not an error and not a
-    second row: it is counted, and the count is what the report names.
+    so a list can carry its own headings.
     """
     listed: list[str] = []
     counts: Counter = Counter()
@@ -68,7 +125,122 @@ def read_id_list(path: Path) -> tuple[list[str], Counter]:
         if key not in counts:
             listed.append(line)
         counts[key] += 1
-    return listed, counts
+    return IdList(listed=listed, counts=counts, extras={}, extra_columns=())
+
+
+def _require_openpyxl():
+    """openpyxl, or a message naming the one command that fixes its absence.
+
+    Imported here rather than at module scope so the text path -- and every
+    machine that only ever uses it -- keeps working without the package.
+    """
+    try:
+        import openpyxl
+    except ImportError as error:
+        raise IdListError(
+            "reading an .xlsx list needs openpyxl: python -m pip install openpyxl"
+        ) from error
+    return openpyxl
+
+
+def _text(value) -> str:
+    """A cell as the string a person would have typed into it.
+
+    Excel decides on its own that some cells are numbers or dates; whatever it
+    hands back has to compare against the source data as text.
+    """
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def _read_xlsx_list(path: Path, sheet: str | None) -> IdList:
+    """The same, from one sheet of a workbook.
+
+    The ID column is found by its header, so the operator may reorder columns
+    and add their own. Everything else on the row is carried along.
+    """
+    import zipfile
+
+    openpyxl = _require_openpyxl()
+    from openpyxl.utils.exceptions import InvalidFileException
+
+    workbook = None
+    try:
+        # data_only: a formula cell must yield what Excel last displayed, not
+        # its source text. read_only also keeps openpyxl from materialising the
+        # blank rows Excel leaves behind below an edited-down list.
+        workbook = openpyxl.load_workbook(path, read_only=True, data_only=True)
+        if sheet is None:
+            worksheet = workbook.worksheets[0]
+        elif sheet in workbook.sheetnames:
+            worksheet = workbook[sheet]
+        else:
+            raise IdListError(
+                f"{path.name}: no sheet named {sheet!r} "
+                f"(it has: {', '.join(workbook.sheetnames)})"
+            )
+
+        rows = worksheet.iter_rows(values_only=True)
+        headers = [_text(value) for value in (next(rows, None) or ())]
+        id_column = next(
+            (index for index, name in enumerate(headers) if name.lower() in ID_HEADERS),
+            None,
+        )
+        if id_column is None:
+            raise IdListError(
+                f"{path.name}: no 'Tracking ID' column "
+                f"(found: {', '.join(name for name in headers if name) or 'nothing'})"
+            )
+        extra_columns = tuple(
+            name for index, name in enumerate(headers) if index != id_column and name
+        )
+
+        listed: list[str] = []
+        counts: Counter = Counter()
+        extras: dict[str, dict[str, str]] = {}
+        for offset, raw in enumerate(rows, start=2):
+            cells = [_text(value) for value in raw]
+            # Excel hands back every row the sheet has ever held, so a list
+            # edited down from a longer one arrives with blank rows below the
+            # data. Skipping them is what makes the format usable by hand --
+            # but only when the whole row is blank. A note with no ID beside it
+            # is an ID someone meant to fill in, and reporting nothing about it
+            # is the one outcome that helps no one.
+            if not any(cells):
+                continue
+            value = cells[id_column] if id_column < len(cells) else ""
+            if not value:
+                raise IdListError(f"{path.name}: row {offset} carries no tracking ID")
+            if value.startswith("#"):
+                continue
+            key = normalise(value)
+            if key not in counts:
+                listed.append(value)
+                # First row wins, the same rule the order follows, so the two
+                # cannot disagree about which row an ID came from.
+                extras[key] = {
+                    name: cells[index] if index < len(cells) else ""
+                    for index, name in enumerate(headers)
+                    if index != id_column and name
+                }
+            counts[key] += 1
+        return IdList(
+            listed=listed, counts=counts, extras=extras, extra_columns=extra_columns
+        )
+    except IdListError:
+        raise
+    except (OSError, zipfile.BadZipFile, InvalidFileException,
+            ValueError, KeyError, TypeError) as error:
+        # A CSV saved and renamed to .xlsx is the obvious wrong move; an .xls
+        # renamed likewise is the other one. They surface as BadZipFile (which
+        # descends straight from Exception, so it needs naming) and as
+        # InvalidFileException respectively. Name the file either way -- a
+        # traceback here says nothing about which file to go fix.
+        raise IdListError(f"{path.name}: {error}") from error
+    finally:
+        if workbook is not None:
+            workbook.close()
 
 
 # The exports that carry a `tracking_id`, paired with the source type
@@ -238,16 +410,17 @@ class Result:
     entry: Entry | None
     hint: Hint
     times_listed: int
+    extras: dict[str, str]
 
     @property
     def status(self) -> str:
         return "found" if self.entry else "missing"
 
 
-def check(listed: list[str], counts: Counter, index: dict[str, Entry]) -> list[Result]:
+def check(id_list: IdList, index: dict[str, Entry]) -> list[Result]:
     """Each listed ID against the index, in the order the list gave them."""
     results = []
-    for value in listed:
+    for value in id_list.listed:
         key = normalise(value)
         entry = index.get(key)
         results.append(
@@ -255,7 +428,8 @@ def check(listed: list[str], counts: Counter, index: dict[str, Entry]) -> list[R
                 listed=value,
                 entry=entry,
                 hint=Hint() if entry else find_hint(key, index),
-                times_listed=counts[key],
+                times_listed=id_list.counts[key],
+                extras=id_list.extras.get(key, {}),
             )
         )
     return results
@@ -314,23 +488,79 @@ def report(results: list[Result], show_all: bool) -> None:
 
 CSV_COLUMNS = ("id", "status", "source_file", "sp_id", "activity_name", "hint")
 
+# What --out understands. The extension picks the writer, so a caller gets the
+# format they named rather than the one this script would have preferred.
+WRITERS = (".xlsx", ".csv")
 
-def write_csv(path: Path, results: list[Result]) -> None:
-    """Every row, found and missing alike -- a file is read by a spreadsheet."""
+
+def default_output_path() -> Path:
+    """Where a run puts its workbook when the caller names no file."""
+    stamp = datetime.now().strftime("%Y_%m_%d")
+    return REPORTS_DIR / f"CPLAN_trackids_{stamp}.xlsx"
+
+
+def _rows(results: list[Result], extra_columns: tuple[str, ...]) -> list[list[str]]:
+    """Every row, found and missing alike -- a file is read by a spreadsheet.
+
+    The list's own columns follow the fixed ones, in the order the list had
+    them, so the file can go back to whoever sent it and still be recognisable.
+    """
+    rows = []
+    for result in results:
+        entry = result.entry
+        rows.append([
+            result.listed,
+            result.status,
+            entry.source if entry else "",
+            entry.sp_id if entry else "",
+            entry.activity_name if entry else "",
+            result.hint.text,
+            *(result.extras.get(column, "") for column in extra_columns),
+        ])
+    return rows
+
+
+def write_result(path: Path, results: list[Result], extra_columns: tuple[str, ...]) -> None:
+    """The result file, in the format its extension names."""
     path.parent.mkdir(parents=True, exist_ok=True)
+    if path.suffix.lower() == ".csv":
+        write_csv(path, results, extra_columns)
+    else:
+        write_xlsx(path, results, extra_columns)
+
+
+def write_csv(path: Path, results: list[Result], extra_columns: tuple[str, ...] = ()) -> None:
     with open(path, "w", newline="", encoding="utf-8-sig") as handle:
         writer = csv_module.writer(handle)
-        writer.writerow(CSV_COLUMNS)
-        for result in results:
-            entry = result.entry
-            writer.writerow([
-                result.listed,
-                result.status,
-                entry.source if entry else "",
-                entry.sp_id if entry else "",
-                entry.activity_name if entry else "",
-                result.hint.text,
-            ])
+        writer.writerow([*CSV_COLUMNS, *extra_columns])
+        writer.writerows(_rows(results, extra_columns))
+
+
+def write_xlsx(path: Path, results: list[Result], extra_columns: tuple[str, ...] = ()) -> None:
+    """The same rows as one sheet, frozen and filtered.
+
+    Imported here rather than at module scope because `pipeline.report.style`
+    imports openpyxl on sight: at the top of this file it would make openpyxl
+    a hard requirement of the text-list path, which is the one path that has
+    always run without it.
+    """
+    import openpyxl
+    from openpyxl.utils import get_column_letter
+
+    from pipeline.report import style
+
+    headers = [*CSV_COLUMNS, *extra_columns]
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "Result"
+    row = style.write_header_row(sheet, 1, headers)
+    style.write_data_rows(sheet, row, _rows(results, extra_columns))
+    # Filtering down to the missing rows is the one thing this file is opened
+    # for, and it has to cover the header row for Excel to name the columns.
+    last = get_column_letter(len(headers))
+    sheet.auto_filter.ref = f"A1:{last}{len(results) + 1}"
+    style.finalize_sheet(sheet)
+    workbook.save(path)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -339,7 +569,8 @@ def main(argv: list[str] | None = None) -> int:
         "--ids",
         type=Path,
         required=True,
-        help="text file listing the tracking IDs, one per line",
+        help="the tracking IDs: an .xlsx with a 'Tracking ID' column, or a text "
+             "file with one per line",
     )
     parser.add_argument(
         "--input",
@@ -348,28 +579,58 @@ def main(argv: list[str] | None = None) -> int:
         help="read the CSVs from this folder instead of the usual OneDrive/local discovery",
     )
     parser.add_argument(
+        "--sheet",
+        default=None,
+        help="read this sheet of an .xlsx list instead of the first one",
+    )
+    parser.add_argument(
         "--all",
         action="store_true",
         help="also list the IDs that were found, not only the count",
     )
     parser.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help=f"write the full result here; the extension picks the format "
+             f"({', '.join(WRITERS)}). Default: {REPORTS_DIR.name}/CPLAN_trackids_<date>.xlsx",
+    )
+    parser.add_argument(
         "--csv",
         type=Path,
         default=None,
-        help="also write the full result to this CSV",
+        help="the older spelling of --out, kept because notes and scripts carry it",
     )
     args = parser.parse_args(argv)
 
     print_banner("CPLAN tracking-ID check")
+
+    out_path = args.out or args.csv or default_output_path()
+    # Checked before anything is read: a mistyped extension is worth a second,
+    # not the twenty this spends indexing four exports first.
+    if out_path.suffix.lower() not in WRITERS:
+        log(f"ERROR: cannot write {out_path.suffix or 'a file with no extension'} "
+            f"-- name a file ending in {' or '.join(WRITERS)}")
+        print()
+        return 1
 
     if not args.ids.is_file():
         log(f"ERROR: no such ID list: {args.ids}")
         print()
         return 1
 
-    listed, counts = read_id_list(args.ids)
+    try:
+        id_list = read_id_list(args.ids, args.sheet)
+    except IdListError as error:
+        log(f"ERROR: {error}")
+        print()
+        return 1
+    listed = id_list.listed
     if not listed:
-        log(f"ERROR: no tracking IDs in {args.ids.name} -- only blank or commented lines.")
+        # The sheet is named when one was chosen: with several to pick from,
+        # which one was read is the whole question behind an empty answer.
+        where = args.ids.name + (f" sheet {args.sheet!r}" if args.sheet else "")
+        log(f"ERROR: no tracking IDs in {where} -- every row was blank, commented or a header.")
         print()
         return 1
     print_kv([("ID list", str(args.ids)), ("IDs to search", len(listed))])
@@ -394,13 +655,12 @@ def main(argv: list[str] | None = None) -> int:
 
     index = build_index(files)
     print()
-    results = check(listed, counts, index)
+    results = check(id_list, index)
     report(results, args.all)
 
-    if args.csv is not None:
-        write_csv(args.csv, results)
-        log(f"Result written to {args.csv}")
-        print()
+    write_result(out_path, results, id_list.extra_columns)
+    log(f"Result written to {out_path}")
+    print()
 
     return 0 if all(r.entry for r in results) else 1
 

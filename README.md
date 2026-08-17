@@ -373,17 +373,38 @@ name would carry that mistake into the database.
 
 ```bash
 # Which of the IDs in this list are actually in the export
-python -m pipeline.scripts.check_tracking_ids --ids ids.txt
+python -m pipeline.scripts.check_tracking_ids --ids ids.xlsx
 
-# ...and list the ones that were found too, and keep the result as a CSV
-python -m pipeline.scripts.check_tracking_ids --ids ids.txt --all --csv result.csv
+# ...a sheet other than the first, and the ones that were found too
+python -m pipeline.scripts.check_tracking_ids --ids ids.xlsx --sheet "Q4" --all
+
+# ...the result somewhere else, as a workbook or a CSV
+python -m pipeline.scripts.check_tracking_ids --ids ids.txt --out result.csv
 ```
 
 Tracking IDs travel by hand — in a mail, on a slide, pasted out of a planning
 sheet — and the question asked of them is whether the activities behind them
-exist at all. This takes the list (one ID per line; blank lines and `#` lines
-are ignored), reads the four activity exports the pipeline itself reads, and
-reports the ones it could not find. On Windows, `trackids.cmd`.
+exist at all. This takes the list, reads the four activity exports the pipeline
+itself reads, and reports the ones it could not find. On Windows,
+`trackids.cmd`.
+
+The list is a workbook or a text file, chosen by the extension. A workbook needs
+a `Tracking ID` column — found by name, so the columns may sit in any order, and
+the export's own `Tacking ID` typo is accepted because a header pasted out of the
+export carries it. Its other columns are the point of the format: a campaign, a
+note, whoever asked. They are carried through to the result file, so it goes back
+to whoever sent the list with their own columns still beside the answer. Blank
+rows below the data are dropped — Excel leaves them behind — but a row that says
+something and names no ID is an error, because that one is an ID someone meant to
+fill in. A text file is one ID per line; blank lines and `#` lines are ignored.
+
+Every run writes a result file: found and missing rows alike, one sheet, header
+frozen and filtered, since narrowing to the missing rows is the one thing the
+file is opened for. Without `--out` it lands in `pipeline/output/reports/` named
+for the day, the same place and pattern as the calendar report. `--out` picks
+somewhere else and its extension picks the format — `.xlsx` or `.csv`, checked
+before anything is read so a mistyped extension costs a second rather than a full
+indexing run. `--csv` still works; it is the older spelling of `--out`.
 
 A match is exact. The work is in the misses: an unfound ID is reported with the
 nearest thing in the export — the same activity on another channel, the pack it
