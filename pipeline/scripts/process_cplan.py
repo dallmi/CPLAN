@@ -276,6 +276,38 @@ def decode_sp_column_name(name):
 ILLEGAL_XLSX_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 
 
+HIDE_COLUMN = "hide_from_public"
+
+# What the export writes when the box was never ticked. Both forms occur in the
+# real exports -- some rows carry FALSE, others are left empty -- and a parser
+# handling only one of them would work on most rows and pass the rest straight
+# through, which is the failure mode this whole field exists to prevent.
+_NOT_HIDDEN = {"", "false", "0", "no", "n", "nan", "none", "nat"}
+
+
+def is_hidden_value(val):
+    """True when this cell means "hide from public".
+
+    Anything unrecognised counts as hidden. The alternative fails open: a value
+    nobody anticipated -- a renamed choice, a localised Yes, a note somebody
+    typed into the column -- would publish the row it was meant to hold back,
+    and that is the one error here that cannot be taken back once an export has
+    left the machine.
+    """
+    if val is None:
+        return False
+    if isinstance(val, bool):
+        return val
+    # pd.isna raises on anything array-like, and a cell can be one after a
+    # malformed row: a NaN check must not be the thing that kills the run.
+    try:
+        if pd.isna(val):
+            return False
+    except (TypeError, ValueError):
+        pass
+    return str(val).strip().lower() not in _NOT_HIDDEN
+
+
 def strip_control_chars(val):
     """Remove control characters a spreadsheet cannot hold.
 
@@ -502,6 +534,13 @@ COLUMN_MAP = {
     "Campaign":                 "campaign",
     "Campaign*LTID":            "campaign_ltid",
     "Communication pack:C":     "communication_pack_cpid",
+    # The source's own "do not circulate" flag, and the only thing in the
+    # export that says an activity is not for general circulation. Matched on
+    # the prefix rather than in full: the encoded header reads
+    # `Hide_x0020_from_x0020_public_x00...` and decodes to "Hide from public"
+    # followed by a SharePoint suffix, so the exact internal name is neither
+    # known here nor needed -- rule 4 of the matcher is `decoded.startswith`.
+    "Hide from public":         "hide_from_public",
     # Despite the label, this column carries GEB *and* GEB-1 level people with
     # no marker saying which. Everything downstream must say "GEB/GEB-1".
     "BOD*GEB":                  "bod_geb",
@@ -707,6 +746,12 @@ def transform(df, source_type):
     for col in df.columns:
         if pd.api.types.is_object_dtype(df[col]) or pd.api.types.is_string_dtype(df[col]):
             df[col] = df[col].map(strip_control_chars)
+
+    # To a real boolean before anything reads it, so no consumer has to know
+    # what the export writes for "no" -- and so `exclude_hidden` can be a plain
+    # mask rather than a second parser that might disagree with this one.
+    if HIDE_COLUMN in df.columns:
+        df[HIDE_COLUMN] = df[HIDE_COLUMN].map(is_hidden_value)
 
     # Strip HTML from rich text fields
     for col in ("activity_description", "bod_geb", "other_executives"):

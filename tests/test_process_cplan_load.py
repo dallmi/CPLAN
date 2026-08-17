@@ -6,7 +6,57 @@ import pytest
 
 pytest.importorskip("pandas")
 
+import pandas as pd  # noqa: E402
+
 import pipeline.scripts.process_cplan as process_cplan
+
+
+# The header as the export writes it. The suffix past "public" is a SharePoint
+# internal-name detail; the matcher goes by prefix, so the exact tail is
+# irrelevant -- and using a plausible one here is what proves that.
+HIDE_HEADER = "Hide_x0020_from_x0020_public_x0020_view"
+
+
+def _activity_frame(**overrides):
+    """One activity row as the export hands it over, encoded headers and all."""
+    row = {
+        "ID": "101",
+        "Tracking ID": "QRREP-0000058-240709-0000060-EMI",
+        "Title": "Quarterly report mail",
+        HIDE_HEADER: "FALSE",
+    }
+    row.update(overrides)
+    return pd.DataFrame([row])
+
+
+def test_the_encoded_hide_header_becomes_the_hide_column():
+    frame = process_cplan.transform(_activity_frame(), source_type="internal")
+
+    assert process_cplan.HIDE_COLUMN in frame.columns
+
+
+def test_a_ticked_box_reads_as_hidden():
+    frame = process_cplan.transform(
+        _activity_frame(**{HIDE_HEADER: "TRUE"}), source_type="internal"
+    )
+
+    assert frame[process_cplan.HIDE_COLUMN].tolist() == [True]
+
+
+@pytest.mark.parametrize("unset", ["FALSE", "False", "false", "0", "", "   ", None])
+def test_every_form_of_not_ticked_reads_as_not_hidden(unset):
+    """The export writes FALSE on some rows and leaves others empty. Both occur."""
+    frame = process_cplan.transform(
+        _activity_frame(**{HIDE_HEADER: unset}), source_type="internal"
+    )
+
+    assert frame[process_cplan.HIDE_COLUMN].tolist() == [False]
+
+
+def test_a_value_nobody_anticipated_counts_as_hidden():
+    """Fail closed. An unrecognised value is not a licence to publish."""
+    assert process_cplan.is_hidden_value("Restricted") is True
+    assert process_cplan.is_hidden_value("?") is True
 
 
 INTERNAL_CSV = (
