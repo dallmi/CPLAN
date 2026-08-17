@@ -358,15 +358,26 @@ showing `activities_in_scope = 0` is an answer — nothing planned against it,
 not a defect. Check `activities_total` before calling it dormant: zero in
 scope with a positive total means nothing *this period*.
 
-A pack is sized twice, and the two counts are not interchangeable. Quote
-`activities_in_scope`: it counts the activities whose pack field names this
-pack, which is what someone decided. `activities_by_tracking_id` counts the
-activities whose generated tracking ID carries this pack's number, which
-nobody had to remember to fill in. Where the second is much larger, the pack
-field was left empty on those activities — say so as a data-quality
-observation, with both numbers, and do not quietly answer with the larger
-one. Neither count contains the other, so a pack can also be larger under the
-first.
+### How an activity gets its pack
+
+`Pack ID` on an activity row is chosen by a rule, not read from one field:
+
+1. the pack field, wherever it names a pack that exists, and
+2. otherwise the pack number carried in the generated tracking ID, again only
+   where that names a pack that exists.
+
+`Pack source` says which of the two applied — `pack field` or `tracking ID` —
+and `Pack ID (field)` is what the field said on its own. Use `Pack ID` to
+group and to join; use `Pack source` before you describe what a number means.
+"This pack has 40 activities" is safe. "Someone planned 40 activities into
+this pack" is only true of the rows whose source is `pack field`; the rest
+were derived from an identifier the system generates.
+
+Quote `activities_in_scope` for a pack's size — it follows the same rule.
+`activities_by_pack_field` and `activities_by_tracking_id` are its two halves,
+and where they differ sharply the pack field was left empty on those
+activities. That is worth reporting as a data-quality observation, with both
+numbers. Neither half contains the other: a pack can be larger under either.
 
 ## Always cite the identifier
 

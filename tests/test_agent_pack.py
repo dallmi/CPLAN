@@ -1759,6 +1759,67 @@ def test_the_activities_file_carries_the_pack_the_tracking_id_names(tmp_path):
             assert row["Pack no. (tracking)"] == number.split("-")[0]
 
 
+def _chained_scope(tmp_path):
+    """A scope where every activity's tracking ID names CP-100.
+
+    The fixture fills the pack field on most rows and leaves it empty on one,
+    so the chain has something to fall back on and the two counts have to
+    differ -- the shape of the live export's `CCCCC-0000389`, in miniature.
+    """
+    scope, config = _scope(tmp_path, with_packs=True)
+    frame = scope.frame.copy()
+    frame["tracking_pack_id"] = "CP-100"
+    from pipeline.report import packs as packs_module
+    frame = packs_module.resolve(frame, scope.packs)
+    return dataclasses.replace(scope, frame=frame), config
+
+
+def test_the_pack_counts_the_activity_whose_field_was_never_filled(tmp_path):
+    """The chain, in the column the agent quotes.
+
+    `activities_in_scope` follows the rule: the pack field where it names a
+    pack, the tracking ID where it does not. `activities_by_pack_field` keeps
+    the old figure beside it, so the change is visible in the file rather
+    than only in a commit message.
+    """
+    scope, config = _chained_scope(tmp_path)
+    pack_dir = agent_pack.write_pack(scope, agent_pack.pack_config(config),
+                                     tmp_path / "out")
+    row = {r["Pack ID"]: r for r in _packs_file(pack_dir)}["CP-100"]
+
+    assert int(row["activities_in_scope"]) == len(scope.frame), (
+        "every fixture activity's tracking ID names CP-100")
+    assert int(row["activities_by_pack_field"]) < int(row["activities_in_scope"]), (
+        "the fixture no longer has an activity with an empty pack field")
+
+
+def test_the_activity_row_says_where_its_pack_came_from(tmp_path):
+    """A merged column that cannot be unmerged is a figure nobody can audit.
+
+    Every activity now carries one pack identifier, chosen by a rule. Without
+    the source beside it, "this pack has 110 activities" and "someone planned
+    110 activities into this pack" become the same sentence, and only the
+    first is true.
+    """
+    scope, config = _chained_scope(tmp_path)
+    pack_dir = agent_pack.write_pack(scope, agent_pack.pack_config(config),
+                                     tmp_path / "out")
+    with (pack_dir / agent_pack.ACTIVITIES_CSV_NAME).open(encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+
+    derived = [row for row in rows if row["Pack source"] == "tracking ID"]
+    assert derived, "the fixture's unpacked activity did not fall back"
+    assert all(row["Pack ID"] == "CP-100" for row in derived)
+    assert all(row["Pack ID (field)"] == "" for row in derived), (
+        "a row resolved through the tracking ID had a pack field after all")
+    assert all(row["Pack"] == "Pack one" for row in derived), (
+        "the derived rows carry no pack name, so a reader cannot group by pack")
+
+    from_field = [row for row in rows if row["Pack source"] == "pack field"]
+    assert from_field, "every row fell back, so the field is not winning anywhere"
+    assert all(row["Pack ID (field)"] == row["Pack ID"] for row in from_field)
+
+
 def test_a_pack_counts_the_activities_its_tracking_ids_name(tmp_path):
     """The count that was missing, beside the one that was wrong on its own.
 

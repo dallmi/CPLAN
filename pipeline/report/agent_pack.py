@@ -121,7 +121,8 @@ PACKS_HEADER = ("Pack ID", "Cluster prefix", "Pack no.", "Pack", "Cluster",
                 "Lead", "Lead team", "Partner team", "Divisions", "Regions",
                 "Objective", "Start", "End", "Launch", "Description",
                 "activities_in_scope", "activities_total",
-                "activities_by_tracking_id", "in_report")
+                "activities_by_pack_field", "activities_by_tracking_id",
+                "in_report")
 
 # The pack frame's column behind each header above, in the same order. Five
 # are computed rather than read and are handled at the call site: the two
@@ -1182,13 +1183,18 @@ _SKILL_PACK_ROUTING = f"""\
   those with nothing planned against them (`activities_in_scope = 0`), which
   is the only place that fact appears. Join it to `{ACTIVITIES_CSV_NAME}` on
   `Pack ID`, which every activity row carries beside `pack_known`.
-- Quote `activities_in_scope` for a pack's size: it counts the activities
-  whose pack field names the pack, which is what someone decided.
-  `activities_by_tracking_id` counts those whose generated tracking ID
-  carries the pack's number instead — nobody has to fill that in, so where it
-  is much larger the pack field was left empty on those rows. Report that
-  with both numbers rather than answering with the larger one. Neither
-  contains the other; a pack can be larger under either.
+- An activity's `Pack ID` is chosen by a rule: the pack field where it names
+  a pack that exists, otherwise the pack number in the generated tracking ID
+  where *that* names one. `Pack source` says which applied (`pack field` or
+  `tracking ID`) and `Pack ID (field)` is what the field said alone. Group and
+  join on `Pack ID`; check `Pack source` before saying someone *planned* a
+  number of activities into a pack, because only the `pack field` rows carry
+  a decision anyone made.
+- Quote `activities_in_scope` for a pack's size — it follows the same rule.
+  `activities_by_pack_field` and `activities_by_tracking_id` are its two
+  halves; where they differ sharply the pack field was left empty on those
+  rows, which is worth reporting with both numbers. Neither half contains the
+  other, so a pack can be larger under either.
 """
 
 _SKILL_BODY = f"""
@@ -1828,7 +1834,9 @@ def pack_rows(scope, report_config=None):
     if scope.packs is None:
         return []
 
-    in_scope = packs_module.activity_counts(scope.frame, scope.packs)
+    in_scope = packs_module.activity_counts(
+        scope.frame, scope.packs, packs_module.RESOLVED_COLUMN)
+    by_field = packs_module.activity_counts(scope.frame, scope.packs)
     by_tracking = packs_module.activity_counts(
         scope.frame, scope.packs, packs_module.TRACKING_LINK_COLUMN)
     overall = scope.pack_counts_all or {}
@@ -1855,6 +1863,7 @@ def pack_rows(scope, report_config=None):
         values += [_pack_cell(pack, field) for field in PACK_FIELDS[1:]]
         values.append(in_scope.get(identifier, 0))
         values.append(overall.get(identifier, 0))
+        values.append(by_field.get(identifier, 0))
         values.append(by_tracking.get(identifier, 0))
         if report_config is not None:
             values.append("Yes" if identifier in reported else "No")

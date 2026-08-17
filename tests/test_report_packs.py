@@ -55,6 +55,89 @@ def test_no_pack_list_leaves_the_frame_alone():
     assert "pack_known" not in marked.columns
 
 
+def _chain_frame(field, tracking):
+    return pd.DataFrame({packs.PACK_LINK_COLUMN: list(field),
+                         packs.TRACKING_LINK_COLUMN: list(tracking)})
+
+
+def test_the_field_wins_wherever_it_names_a_pack():
+    """The deliberate answer outranks the generated one.
+
+    Someone chose the value in the pack field. The tracking ID's pack segment
+    is stamped in at creation and cannot be corrected afterwards, so where
+    the two disagree -- 15 activities on the live export -- the field is the
+    one to believe.
+    """
+    resolved = packs.resolve(_chain_frame(["CP-1"], ["CP-2"]), _packs("CP-1", "CP-2"))
+
+    assert list(resolved["pack_cpid_used"]) == ["CP-1"]
+    assert list(resolved["pack_source"]) == [packs.SOURCE_FIELD]
+
+
+def test_an_empty_field_falls_back_to_the_tracking_id():
+    resolved = packs.resolve(_chain_frame([""], ["CP-2"]), _packs("CP-1", "CP-2"))
+
+    assert list(resolved["pack_cpid_used"]) == ["CP-2"]
+    assert list(resolved["pack_source"]) == [packs.SOURCE_TRACKING]
+
+
+def test_the_fallback_only_takes_a_value_the_pack_list_answers_to():
+    """The rule that keeps 16,604 activities out of a pack they never had.
+
+    Every tracking ID carries a pack segment, and a standalone activity's is
+    a placeholder. Falling back to whatever the segment says would hand nine
+    out of ten activities a pack named `CCCCC-0000000`, which is not a pack
+    and is in no list. Matching against the pack list first is what makes the
+    placeholder fail to resolve and stay unassigned.
+    """
+    resolved = packs.resolve(_chain_frame(["", ""], ["CCCCC-0000000", "CP-1"]),
+                             _packs("CP-1"))
+
+    assert list(resolved["pack_cpid_used"]) == ["", "CP-1"]
+    assert list(resolved["pack_source"]) == ["", packs.SOURCE_TRACKING]
+
+
+def test_a_field_naming_no_pack_still_yields_to_a_tracking_id_that_does():
+    """`NONE` is the opposite of a pack reference, not a pack reference.
+
+    Three activities on the live export carry the literal text `NONE` in the
+    pack field. Read as "the field is filled, so use it", that text would
+    block the fallback on exactly the rows where the tracking ID names a real
+    pack -- and leave the pack file counting a pack called NONE.
+    """
+    resolved = packs.resolve(_chain_frame(["NONE"], ["CP-1"]), _packs("CP-1"))
+
+    assert list(resolved["pack_cpid_used"]) == ["CP-1"]
+    assert list(resolved["pack_source"]) == [packs.SOURCE_TRACKING]
+
+
+def test_a_dead_reference_stays_visible_when_nothing_else_answers():
+    """A value that resolves nowhere is a finding, and deleting it hides one.
+
+    The chain is about filling gaps, not about tidying away references the
+    pack list cannot match. Kept as it is, `pack_known` still reports it as
+    a reference to a pack that is not in the list.
+    """
+    resolved = packs.resolve(_chain_frame(["CP-9"], ["CCCCC-0000000"]), _packs("CP-1"))
+
+    assert list(resolved["pack_cpid_used"]) == ["CP-9"]
+    assert list(resolved["pack_source"]) == [packs.SOURCE_FIELD]
+
+
+def test_without_a_pack_list_nothing_is_derived():
+    """No list, no way to tell a pack from a placeholder.
+
+    Deriving here would assign the tracking ID's segment to every activity
+    that has one -- nine in ten of them -- and call the placeholder a pack.
+    The column still appears, carrying the field alone, so everything
+    downstream can read one column on every machine.
+    """
+    resolved = packs.resolve(_chain_frame(["CP-1", ""], ["CP-2", "CP-2"]), None)
+
+    assert list(resolved["pack_cpid_used"]) == ["CP-1", ""]
+    assert list(resolved["pack_source"]) == [packs.SOURCE_FIELD, ""]
+
+
 def test_activity_counts_are_per_pack_identifier():
     counts = packs.activity_counts(_frame("CP-1", "CP-1", "CP-2", ""), _packs("CP-1", "CP-2"))
     assert counts == {"CP-1": 2, "CP-2": 1}
