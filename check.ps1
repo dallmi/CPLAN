@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-17.12"
+$manifestVersion = "2026-08-17.13"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-17.12"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-17.12"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-17.13"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -164,6 +164,7 @@ $manifest = @(
     @{ Path = "trackids.ps1";                  Marker = '$Sheet';                            Why = "-Sheet and -Out reach the check; without them both switches are silently dropped and the run answers from the first sheet into the default file" },
     @{ Path = "trackids.ps1";                  Marker = 'if ($idsPath)';                     Why = "-Ids is optional, so a bare run reads the ids.xlsx beside the launcher; an older copy demands the switch and a double-click stops at a prompt" },
     @{ Path = "pipeline\report\membership.py"; Marker = "DEFAULT_FILENAME";                  Why = "GEB membership loader -- report_calendar.py imports it at module scope, so a missing copy turns every report run into ModuleNotFoundError" },
+    @{ Path = "pipeline\dashboard\index.html";  Marker = "not for general circulation";     Why = "the dashboard says how many activities were held back; an older copy shows totals of a filtered set with nothing on the page admitting it" },
     @{ Path = "pipeline\mcp\server.py";        Marker = "not for general circulation";     Why = "tells the MCP client its database is already filtered; nothing the client can query reveals the gap, so an older copy answers counts as if they were exhaustive" },
     @{ Path = "pipeline\report\metrics.py";    Marker = "Hidden activities excluded";     Why = "the anomalies block states how many rows were held back; without it the Executive Summary and the agent pack report totals that are quietly smaller than the plan" },
     @{ Path = "pipeline\report\data.py";       Marker = "hidden_excluded";                  Why = "carries that count from the loader to every sheet; an older copy drops it and the figure reads zero on a run that excluded rows" },

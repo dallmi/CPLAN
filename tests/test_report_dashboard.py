@@ -63,6 +63,29 @@ def _render(data):
 # ---------------------------------------------------------------------------
 # The freeze itself
 # ---------------------------------------------------------------------------
+def test_the_dashboard_reads_the_exclusion_count_out_of_meta():
+    """The page shows totals of a filtered set and cannot tell from the data
+    that it is filtered -- meta.json is the only thing that carries the gap."""
+    html = (REPO_ROOT / "pipeline" / "dashboard" / "index.html").read_text(encoding="utf-8")
+
+    assert "excluded_total" in html
+    assert "not for general circulation" in html
+
+
+def test_the_dashboard_states_the_exclusion_only_as_a_whole():
+    """Total level only. "3 excluded" across a quarter says almost nothing;
+    the same figure scoped to one region in one week is close to a statement
+    about what is happening there, which turns the safeguard into a signal.
+    """
+    html = (REPO_ROOT / "pipeline" / "dashboard" / "index.html").read_text(encoding="utf-8")
+
+    # One rendering site. A second one would mean the figure had been given a
+    # scope -- a chart, a facet, a filtered panel -- and a scoped count is the
+    # thing this must not become. If this ever needs relaxing, it is the design
+    # decision being relaxed, not the test.
+    assert html.count("not for general circulation") == 1
+
+
 def test_the_sample_data_reproduces_the_golden_file(data):
     assert _render(data) == GOLDEN.read_text(encoding="utf-8"), (
         "The rendered page no longer matches the golden file. If the change was "
