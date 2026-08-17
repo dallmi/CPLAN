@@ -810,6 +810,20 @@ def test_the_reading_guide_says_how_the_two_files_join():
     assert "nothing planned" in text.lower()
 
 
+def test_the_reading_guide_states_the_rule_that_picked_the_pack():
+    """The agent reads a column whose values came from two places.
+
+    `Pack ID` is filled in by hand on some rows and derived from the tracking
+    ID on others. An agent told only "group by Pack ID" will report "someone
+    planned 110 activities into this pack" about a pack where five people
+    did, and it will be reading the file correctly.
+    """
+    text = agent_builder.reading_guide_text(True)
+
+    assert "Pack source" in text
+    assert "tracking ID" in text
+
+
 def test_the_reading_guide_says_which_of_the_two_pack_counts_to_quote():
     """Two counts in one file is a question the agent answers on its own,
     differently each time, unless it is told.

@@ -150,9 +150,15 @@ def build_scope(load, config, membership=None, pack_load=None):
     rows_read = len(frame)
     excluded = {key: 0 for key in EXCLUSION_ORDER}
     pack_frame = pack_load.frame if pack_load is not None else None
+    # Resolved first, before anything counts or filters: the pack an activity
+    # belongs to is the pack field where it names one and the tracking ID's
+    # segment where it does not, and every figure below has to be about the
+    # same column or the file disagrees with itself.
+    frame = packs_module.resolve(frame, pack_frame)
     # Counted on the unfiltered frame, before any filter has run.
-    pack_counts_all = (packs_module.activity_counts(frame, pack_frame)
-                       if pack_frame is not None else None)
+    pack_counts_all = (packs_module.activity_counts(
+        frame, pack_frame, packs_module.RESOLVED_COLUMN)
+        if pack_frame is not None else None)
     # Measured on the unfiltered frame too, and for the same reason the floor
     # it is compared against was: `check_pack_link.py` scores every row the
     # export carries, and `MIN_LINK_RATE` is that measurement's floor. A rate
@@ -326,7 +332,11 @@ def build_scope(load, config, membership=None, pack_load=None):
         unmatched = membership.unmatched(seen)
 
     frame = frame.reset_index(drop=True)
-    frame = packs_module.mark(frame, pack_frame)
+    # Marked on the resolved column, not on the field: `pack_known` answers
+    # "does the pack this activity belongs to exist", and after the chain that
+    # is the resolved value. Left on the field it would report No for a row
+    # the chain resolved cleanly through its tracking ID.
+    frame = packs_module.mark(frame, pack_frame, packs_module.RESOLVED_COLUMN)
     return Scope(
         frame=frame, grid=grid, rows_read=rows_read, excluded=excluded,
         source_files=source_files,

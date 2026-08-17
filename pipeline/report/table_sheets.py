@@ -641,8 +641,19 @@ ACTIVITY_COLUMNS = (
     # reader asks about "Pack one", never about "CP-100". The identifier
     # stays because it is what `07-packs.csv` joins on, and because a pack
     # name is not unique the way a key is.
-    ("communication_pack", "Pack"),
-    ("communication_pack_cpid", "Pack ID"),
+    # The pack the activity belongs to, after the chain: the pack field where
+    # it names a pack, the tracking ID's segment where it does not. These two
+    # are the ones to group and join by, and they are what `07-packs.csv`
+    # counts -- a reader who counts rows here has to land on the same number
+    # the pack file states, or the two files answer one question twice.
+    ("pack_name_used", "Pack"),
+    ("pack_cpid_used", "Pack ID"),
+    # Where that came from, and what the field said on its own. A merged
+    # column that cannot be taken apart again turns "this pack has 110
+    # activities" and "someone planned 110 activities into this pack" into the
+    # same sentence, and only the first is true.
+    ("pack_source", "Pack source"),
+    ("communication_pack_cpid", "Pack ID (field)"),
     # The same pack, named again by the route nobody has to remember to fill
     # in. `Pack ID` is a field on the form; these two are cut out of the
     # generated tracking ID, and where the field is empty they are all the

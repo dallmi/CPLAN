@@ -8,6 +8,7 @@ sheet stays a formula, written by the sheet builder.
 
 import statistics
 
+from pipeline.report import packs
 from pipeline.report.config import SHORT_NOTICE_DAYS
 from pipeline.report.data import _is_blank
 
@@ -72,8 +73,18 @@ def lead_time_stats(frame):
 
 
 def pack_stats(frame):
-    """Size the pack buckets. An oversized pack is the data problem, quantified."""
-    ids = frame.get("communication_pack_cpid")
+    """Size the pack buckets. An oversized pack is the data problem, quantified.
+
+    Read from the resolved column where the scope has one: the summary states
+    how many activities have no pack and the pack file counts the ones that
+    do, so the two have to be about the same population. Counted from the
+    pack field alone while `07-packs.csv` counts the chain, they describe
+    different sets of activities and an agent reading both is handed a
+    contradiction it will settle by picking one.
+    """
+    ids = frame.get(packs.RESOLVED_COLUMN)
+    if ids is None:
+        ids = frame.get("communication_pack_cpid")
     if ids is None:
         return {"with_pack": 0, "without_pack": len(frame), "packs": 0,
                 "singleton_packs": 0, "small_packs": 0, "medium_packs": 0,

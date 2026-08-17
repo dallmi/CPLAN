@@ -7,7 +7,7 @@ import pytest
 
 pytest.importorskip("pandas")
 
-from pipeline.report import metrics
+from pipeline.report import metrics, packs
 from pipeline.report.config import ReportConfig
 from pipeline.report.data import build_scope
 from pipeline.scripts.process_cplan import ActivityLoad
@@ -104,6 +104,26 @@ def test_pack_stats_size_the_buckets(tmp_path):
     assert stats["with_pack"] + stats["without_pack"] == len(scope.frame)
     assert stats["packs"] >= 1
     assert stats["largest_pack"] >= 1
+
+
+def test_pack_stats_count_the_pack_an_activity_was_resolved_to(tmp_path):
+    """The summary and the pack file have to be about the same activities.
+
+    `01-summary.txt` states how many activities have no pack; `07-packs.csv`
+    counts the ones that do. Read from the pack field while the pack file
+    counts the resolved column, the two describe different populations and an
+    agent reading both is handed a contradiction it will resolve by picking
+    one.
+    """
+    scope = _scope(tmp_path)
+    frame = scope.frame.copy()
+    frame[packs.RESOLVED_COLUMN] = "CP-100"
+    frame[packs.PACK_LINK_COLUMN] = ""
+
+    stats = metrics.pack_stats(frame)
+
+    assert stats["without_pack"] == 0
+    assert stats["with_pack"] == len(frame)
 
 
 def test_field_completeness_lists_filled_and_missing_per_field(tmp_path):

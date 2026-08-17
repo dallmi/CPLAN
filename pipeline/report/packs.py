@@ -109,7 +109,7 @@ def link(frame, pack_frame):
     return LinkResult(referenced, matched)
 
 
-def mark(frame, pack_frame):
+def mark(frame, pack_frame, column=PACK_LINK_COLUMN):
     """Add `pack_known` -- "Yes", "No", or "" where no pack is named.
 
     Three states rather than two. An empty reference and a reference to a
@@ -119,16 +119,117 @@ def mark(frame, pack_frame):
 
     Without a pack list the column is absent entirely, because an empty
     `pack_known` on every row would assert a check nobody ran.
+
+    `column` selects which identifier is being judged, for the reason
+    `activity_counts` takes one: after the chain the question is about the
+    pack the activity was resolved to, not about the field alone.
     """
     known = _pack_keys(pack_frame)
-    if known is None or PACK_LINK_COLUMN not in frame.columns:
+    if known is None or column not in frame.columns:
         return frame
     frame = frame.copy()
     frame["pack_known"] = [
         "" if not key(value) else ("Yes" if key(value) in known else "No")
-        for value in frame[PACK_LINK_COLUMN]
+        for value in frame[column]
     ]
     return frame
+
+
+# Where a resolved pack came from. Written beside the value, never inferred
+# from it: once the two routes are merged into one column, a figure computed
+# from it cannot be traced back without this, and "the pack field said so" and
+# "the tracking ID implied it" are not the same claim about an activity.
+SOURCE_FIELD = "pack field"
+SOURCE_TRACKING = "tracking ID"
+
+RESOLVED_COLUMN = "pack_cpid_used"
+RESOLVED_NAME_COLUMN = "pack_name_used"
+SOURCE_COLUMN = "pack_source"
+
+
+def resolve(frame, pack_frame):
+    """Add the pack each activity belongs to, and where that came from.
+
+    The field first, the tracking ID second, in three steps:
+
+    1. The pack field, wherever it names a pack the list answers to. Someone
+       chose that value; the tracking ID's segment is stamped in at creation
+       and cannot be corrected afterwards, so where the two disagree the
+       field wins.
+    2. Otherwise the tracking ID's pack segment, and only when the pack list
+       answers to it. That condition is what keeps the placeholder out: every
+       tracking ID carries a pack segment, a standalone activity's is generic,
+       and a fallback that took the segment as written would hand nine out of
+       ten activities a pack that does not exist.
+    3. Otherwise the field's own value, unchanged. A reference nothing
+       answers to is a finding, and `pack_known` is where it is reported --
+       dropping it here would tidy the finding away.
+
+    Without a pack list nothing is derived at all: with nothing to match
+    against, step 2 cannot tell a pack from a placeholder. The columns are
+    still written, carrying the field alone, so every reader downstream can
+    read one column on every machine.
+    """
+    # A frame with no rows is left exactly as it is. Every filter can empty a
+    # scope, and the empty one the report builds carries no columns at all --
+    # three empty columns bolted onto it would be a shape no reader of an
+    # empty frame expects, describing rows that do not exist.
+    if not len(frame):
+        return frame
+
+    # An empty set, not None: no pack list and an empty one lead to the same
+    # place here -- there is nothing to recognise a pack by, so step 2 cannot
+    # run and every membership test below is simply false.
+    known = _pack_keys(pack_frame) or set()
+    names = {}
+    if pack_frame is not None and "pack_name" in getattr(pack_frame, "columns", []):
+        names = {key(cpid): name
+                 for cpid, name in zip(pack_frame["cpid"], pack_frame["pack_name"])
+                 if key(cpid)}
+
+    field = frame[PACK_LINK_COLUMN] if PACK_LINK_COLUMN in frame.columns else None
+    tracking = (frame[TRACKING_LINK_COLUMN]
+                if known and TRACKING_LINK_COLUMN in frame.columns else None)
+
+    used, sources, used_names = [], [], []
+    for index in range(len(frame)):
+        raw = field.iloc[index] if field is not None else None
+        from_field = key(raw)
+        from_tracking = key(tracking.iloc[index]) if tracking is not None else ""
+
+        if from_field and from_field in known:
+            value, source = from_field, SOURCE_FIELD
+        elif from_tracking and from_tracking in known:
+            value, source = from_tracking, SOURCE_TRACKING
+        elif from_field:
+            value, source = from_field, SOURCE_FIELD
+        else:
+            value, source = "", ""
+
+        used.append(value)
+        sources.append(source)
+        used_names.append(names.get(value, ""))
+
+    frame = frame.copy()
+    frame[RESOLVED_COLUMN] = used
+    frame[SOURCE_COLUMN] = sources
+    # The name the pack list gives it, not the one the activity carries: for a
+    # row resolved through the tracking ID the activity has no pack name at
+    # all, and a column that is empty on exactly those rows cannot be grouped
+    # by -- which is how a reader asks about packs.
+    frame[RESOLVED_NAME_COLUMN] = [
+        name or ("" if not value else _activity_pack_name(frame, index))
+        for index, (value, name) in enumerate(zip(used, used_names))
+    ]
+    return frame
+
+
+def _activity_pack_name(frame, index):
+    """The pack name the activity itself carries, where the list has none."""
+    if "communication_pack" not in frame.columns:
+        return ""
+    value = frame["communication_pack"].iloc[index]
+    return "" if value is None or value != value else str(value)
 
 
 def activity_counts(frame, pack_frame, column=PACK_LINK_COLUMN):
