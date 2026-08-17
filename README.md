@@ -414,6 +414,13 @@ somewhere else and its extension picks the format — `.xlsx` or `.csv`, checked
 before anything is read so a mistyped extension costs a second rather than a full
 indexing run. `--csv` still works; it is the older spelling of `--out`.
 
+An ID whose activity the source marks as not for general circulation reads
+`excluded`, never `missing` — it exists, and `missing` means "never created",
+which is the one answer here somebody acts on by creating the activity a second
+time. Such a row carries its ID and nothing else: no title, no owner, no dates.
+Because the result file travels, a run that wrote one says so on the way out, so
+the decision to forward it is made by someone who knows what is in it.
+
 A match is exact. The work is in the misses: an unfound ID is reported with the
 nearest thing in the export — the same activity on another channel, the pack it
 should have belonged to, or an ID one character away — because "never created"
