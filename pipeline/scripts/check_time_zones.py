@@ -34,6 +34,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from pipeline.scripts.process_cplan import (  # noqa: E402
+    exclude_hidden,
     find_input_dir,
     find_input_files,
     log,
@@ -74,6 +75,10 @@ class Usage:
 
     values: Counter = field(default_factory=Counter)
     context: dict = field(default_factory=dict)  # value -> field name -> Counter
+    # Rows the source holds back, counted rather than merely gone: a distinct
+    # count that dropped between two runs has to be explainable by something
+    # other than "the export changed".
+    hidden_excluded: int = 0
 
 
 def _text(value) -> str:
@@ -98,6 +103,14 @@ def collect(files: dict) -> Usage:
         if path is None:
             continue
         frame = transform(read_csv_auto(path), source_type=SOURCE_TYPES[key])
+        # Excluded here too, and the cost is real: a held-back row with a
+        # broken zone keeps its defect, unreported. Accepted, because this
+        # check exists to fix data that flows onward and these rows do not --
+        # and because "hidden rows are gone everywhere" is a rule that fits in
+        # one sentence, while "gone everywhere except here" is an exception
+        # the first person to forget gets wrong in the direction that leaks.
+        frame, excluded = exclude_hidden(frame, path.name)
+        usage.hidden_excluded += excluded
         if "time_zone" not in frame.columns:
             log(f"  {path.name}: no time-zone column")
             continue
@@ -263,6 +276,12 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     usage = collect(files)
+    # Before the verdict: a distinct count that dropped since the last run has
+    # to be explainable by something other than "the export changed", or the
+    # next reader goes looking for a zone that was never the problem.
+    if usage.hidden_excluded:
+        log(f"{usage.hidden_excluded} row(s) excluded (hide from public) "
+            f"and not measured here.")
     fits = report(usage.values, column_limit())
     # After the verdict, not before it: the width answer is what the command is
     # for, and it must not scroll off behind twenty-odd rows of context.

@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-17.10"
+$manifestVersion = "2026-08-17.11"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-17.10"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-17.10"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-17.11"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -149,6 +149,7 @@ $manifest = @(
     @{ Path = "pipeline\scripts\process_cplan.py"; Marker = "hidden_by_file";                 Why = "the exclusion is applied where the ETL and the calendar report share a loader, and the per-file count travels with it; an older copy excludes nothing and every output carries the hidden activities" },
     @{ Path = "pipeline\studio\index.html";    Marker = "Asia/Ho_Chi_Minh";                  Why = "the time-zone select offers every zone the ETL now maps to - an older copy shows 'Not set' on a synced activity that has one" },
     @{ Path = "timezones.ps1";                 Marker = "check_time_zones";                  Why = "the launcher for that check - double-clickable via timezones.cmd" },
+    @{ Path = "pipeline\scripts\check_time_zones.py"; Marker = "exclude_hidden";           Why = "the zone check leaves out the rows the source holds back, like every other consumer; an older copy measures and prints values that belong to activities not for general circulation" },
     @{ Path = "timezones.ps1";                 Marker = "Context";                           Why = "-Context reaches the per-zone region and lead-team breakdown; without it the switch is silently ignored" },
     @{ Path = "pipeline\scripts\check_tracking_ids.py"; Marker = "def find_hint";            Why = "says why a listed ID is missing - without it a wrong channel suffix and a never-created activity read identically" },
     @{ Path = "pipeline\scripts\check_tracking_ids.py"; Marker = "ACTIVITY_SOURCES";         Why = "searches the four activity exports and only those - an older copy can report a pack ID as a found activity" },
