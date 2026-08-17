@@ -489,6 +489,61 @@ def test_an_empty_list_is_an_error_not_a_pass(tmp_path, capsys):
     assert "no tracking IDs" in capsys.readouterr().out
 
 
+def test_the_list_beside_the_launcher_is_found_without_being_named(tmp_path):
+    _xlsx(tmp_path, ("Tracking ID",), (LIVE,))
+
+    assert check_tracking_ids.default_id_list(tmp_path).name == "ids.xlsx"
+
+
+def test_a_text_list_is_found_when_there_is_no_workbook(tmp_path):
+    _ids(tmp_path, LIVE)
+
+    assert check_tracking_ids.default_id_list(tmp_path).name == "ids.txt"
+
+
+def test_a_folder_holding_both_lists_is_an_error_not_a_precedence_rule(tmp_path):
+    """They only both exist because one was converted from the other.
+
+    The moment they disagree, quietly reading the one the operator is not
+    editing answers from a list nobody checked.
+    """
+    _xlsx(tmp_path, ("Tracking ID",), (LIVE,))
+    _ids(tmp_path, ARCHIVED)
+
+    with pytest.raises(check_tracking_ids.IdListError) as error:
+        check_tracking_ids.default_id_list(tmp_path)
+
+    message = str(error.value)
+    assert "ids.xlsx" in message and "ids.txt" in message
+
+
+def test_a_folder_holding_no_list_at_all_finds_nothing(tmp_path):
+    assert check_tracking_ids.default_id_list(tmp_path) is None
+
+
+def test_a_run_without_ids_reads_the_list_that_is_lying_there(tmp_path, capsys, monkeypatch):
+    """Put the file down, double-click the launcher -- that is the whole flow."""
+    monkeypatch.setattr(check_tracking_ids, "LIST_DIR", tmp_path)
+    _export(tmp_path, "InternalCommunicationActivities.csv", (LIVE, "1", "Quarterly report"))
+    _xlsx(tmp_path, ("Tracking ID",), (LIVE,))
+
+    exit_code = check_tracking_ids.main(["--input", str(tmp_path)])
+
+    assert exit_code == 0
+    assert "ids.xlsx" in capsys.readouterr().out
+
+
+def test_a_run_without_ids_and_without_a_list_says_what_to_put_where(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(check_tracking_ids, "LIST_DIR", tmp_path)
+    _export(tmp_path, "InternalCommunicationActivities.csv", (LIVE, "1", "A"))
+
+    exit_code = check_tracking_ids.main(["--input", str(tmp_path)])
+
+    assert exit_code == 1
+    out = capsys.readouterr().out
+    assert "ids.xlsx" in out and "--ids" in out
+
+
 def test_a_sheet_with_nothing_under_its_header_names_the_sheet(tmp_path, capsys):
     """Which sheet was read is the whole question when a workbook has several."""
     _export(tmp_path, "InternalCommunicationActivities.csv", (LIVE, "1", "A"))

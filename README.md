@@ -372,14 +372,14 @@ name would carry that mistake into the database.
 ### Tracking-ID check (are these IDs real?)
 
 ```bash
-# Which of the IDs in this list are actually in the export
-python -m pipeline.scripts.check_tracking_ids --ids ids.xlsx
+# Which of the IDs in the ids.xlsx lying beside the launcher are in the export
+python -m pipeline.scripts.check_tracking_ids
 
-# ...a sheet other than the first, and the ones that were found too
-python -m pipeline.scripts.check_tracking_ids --ids ids.xlsx --sheet "Q4" --all
+# ...a list somewhere else, a sheet other than the first, the found ones too
+python -m pipeline.scripts.check_tracking_ids --ids Q3.xlsx --sheet "Q4" --all
 
 # ...the result somewhere else, as a workbook or a CSV
-python -m pipeline.scripts.check_tracking_ids --ids ids.txt --out result.csv
+python -m pipeline.scripts.check_tracking_ids --out result.csv
 ```
 
 Tracking IDs travel by hand — in a mail, on a slide, pasted out of a planning
@@ -387,6 +387,14 @@ sheet — and the question asked of them is whether the activities behind them
 exist at all. This takes the list, reads the four activity exports the pipeline
 itself reads, and reports the ones it could not find. On Windows,
 `trackids.cmd`.
+
+`--ids` is optional. Without it, an `ids.xlsx` — or an `ids.txt` — beside the
+launcher is read, the way `geb-members.xlsx` is already found. Both names and an
+`ids/` folder are in `.gitignore`: a list names campaigns and carries notes, and
+is a working file rather than repository content. A folder holding *both*
+defaults is an error rather than a precedence rule — they would only both exist
+because one was converted from the other, and reading the one nobody is editing
+answers from a list nobody checked.
 
 The list is a workbook or a text file, chosen by the extension. A workbook needs
 a `Tracking ID` column — found by name, so the columns may sit in any order, and

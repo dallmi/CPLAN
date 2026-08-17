@@ -12,21 +12,26 @@ per line. The workbook may carry columns of its own - a campaign, a note,
 whoever asked - and they travel through to the result file, so it can go
 straight back to whoever sent the list.
 
+-Ids is optional: without it, an ids.xlsx (or ids.txt) beside this launcher is
+read, the same way geb-members.xlsx is found. Both names are in .gitignore. So
+the whole flow is: put the file down, double-click trackids.cmd.
+
 Every run writes a result file. Without -Out that is a workbook under
 pipeline\output\reports, named for the day.
 
 Usage (from the repo root, or just double-click trackids.cmd):
-  .\trackids.ps1 -Ids ".\ids.xlsx"
-  .\trackids.ps1 -Ids ".\ids.xlsx" -Sheet "Q4"     # a sheet other than the first
-  .\trackids.ps1 -Ids ".\ids.xlsx" -Open           # open the result when it is done
-  .\trackids.ps1 -Ids ".\ids.txt" -All             # also list the ones that were found
-  .\trackids.ps1 -Ids ".\ids.txt" -Out ".\result.csv"   # .xlsx or .csv, you pick
-  .\trackids.ps1 -Ids ".\ids.txt" -InputDir "C:\path\to\Input"
+  .\trackids.ps1                                   # reads .\ids.xlsx
+  .\trackids.ps1 -Ids "C:\tmp\Q3.xlsx"             # a list somewhere else
+  .\trackids.ps1 -Sheet "Q4"                       # a sheet other than the first
+  .\trackids.ps1 -Open                             # open the result when it is done
+  .\trackids.ps1 -All                              # also list the ones that were found
+  .\trackids.ps1 -Out ".\result.csv"               # .xlsx or .csv, you pick
+  .\trackids.ps1 -InputDir "C:\path\to\Input"
 
 Exit code 0 only when every listed ID was found.
 #>
 param(
-    [Parameter(Mandatory = $true)][string]$Ids,
+    [string]$Ids,
     [string]$InputDir,
     [string]$Sheet,
     [string]$Out,
@@ -63,14 +68,17 @@ Write-Host "Using Python: $python" -ForegroundColor DarkGray
 # meant by it - the folder they typed it in, not the repository root. Without
 # this, ".\ids.txt" is looked for beside the launcher and reads as a missing
 # file, which is the one error message that sends you looking in the wrong place.
-$idsPath = [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $Ids))
+if ($Ids) { $idsPath = [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $Ids)) }
 if ($Out) { $outPath = [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $Out)) }
 if ($Csv) { $csvPath = [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $Csv)) }
 
 Push-Location $root
 $env:PYTHONPATH = "."
 try {
-    $args = @("-m", "pipeline.scripts.check_tracking_ids", "--ids", $idsPath)
+    $args = @("-m", "pipeline.scripts.check_tracking_ids")
+    # Left off entirely when the caller named none, so the check falls back to
+    # the list beside the launcher rather than to an empty path.
+    if ($idsPath) { $args += @("--ids", $idsPath) }
     if ($InputDir) { $args += @("--input", $InputDir) }
     if ($Sheet) { $args += @("--sheet", $Sheet) }
     if ($outPath) { $args += @("--out", $outPath) }

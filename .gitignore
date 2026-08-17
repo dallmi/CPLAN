@@ -47,6 +47,14 @@ cplan.config
 # accept would leave the other sitting in `git status` waiting to be added.
 geb-members.csv
 geb-members.xlsx
+# Tracking-ID lists to check. They name campaigns and carry notes, and they are
+# working files rather than repository content -- a list is something someone
+# mailed you this morning. The two default names are ignored because the check
+# reads either, and the folder alongside them so a list can be named for what
+# it is a list of.
+ids.txt
+ids.xlsx
+ids/
 # The list of terms the pre-commit guard refuses. Ignored for the reason the
 # terms exist: a committed list of words that must not appear in the repository
 # would put every one of them in the repository. The .example beside it carries

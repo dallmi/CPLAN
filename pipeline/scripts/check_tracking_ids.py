@@ -47,6 +47,12 @@ if str(_REPO_ROOT) not in sys.path:
 # same naming as the calendar report, which is already in .gitignore.
 REPORTS_DIR = _REPO_ROOT / "pipeline" / "output" / "reports"
 
+# Where a run looks for a list when the caller names no file: beside the
+# launcher, which is where geb-members.xlsx already lives. Both names are in
+# .gitignore -- a list carries campaign names and notes and is a working file,
+# not repository content.
+LIST_DIR = _REPO_ROOT
+
 from pipeline.scripts.process_cplan import (  # noqa: E402
     find_input_dir,
     find_input_files,
@@ -93,6 +99,29 @@ def normalise(value: str) -> str:
 # a header pasted out of the export carries it, and refusing that header would
 # make the export's mistake the operator's problem.
 ID_HEADERS = ("tracking id", "tacking id")
+
+# Searched in this order, so a folder holding one of them needs no flag. The
+# workbook comes first only to make the search deterministic; holding both is
+# an error rather than a precedence question -- see default_id_list.
+DEFAULT_LIST_NAMES = ("ids.xlsx", "ids.txt")
+
+
+def default_id_list(directory: Path) -> Path | None:
+    """Which default list a directory holds, or None when it holds neither.
+
+    Holding both is an error rather than a precedence rule. The two files would
+    only both exist because one was converted from the other, and the moment
+    they disagree, quietly reading the one the operator is not editing answers
+    from a list nobody checked -- which is the silent-wrong-answer failure this
+    whole check exists to prevent.
+    """
+    found = [directory / name for name in DEFAULT_LIST_NAMES if (directory / name).is_file()]
+    if len(found) > 1:
+        raise IdListError(
+            f"{directory} holds both {DEFAULT_LIST_NAMES[0]} and {DEFAULT_LIST_NAMES[1]}; "
+            f"keep one, or name the one to use with --ids"
+        )
+    return found[0] if found else None
 
 
 def read_id_list(path: Path, sheet: str | None = None) -> IdList:
@@ -568,9 +597,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--ids",
         type=Path,
-        required=True,
+        default=None,
         help="the tracking IDs: an .xlsx with a 'Tracking ID' column, or a text "
-             "file with one per line",
+             f"file with one per line. Default: {' or '.join(DEFAULT_LIST_NAMES)} "
+             "beside the launcher",
     )
     parser.add_argument(
         "--input",
@@ -614,13 +644,26 @@ def main(argv: list[str] | None = None) -> int:
         print()
         return 1
 
-    if not args.ids.is_file():
-        log(f"ERROR: no such ID list: {args.ids}")
+    try:
+        ids_path = args.ids if args.ids is not None else default_id_list(LIST_DIR)
+    except IdListError as error:
+        log(f"ERROR: {error}")
+        print()
+        return 1
+
+    if ids_path is None:
+        log(f"ERROR: no ID list. Put an {DEFAULT_LIST_NAMES[0]} beside the launcher "
+            f"(or an {DEFAULT_LIST_NAMES[1]}), or name one with --ids.")
+        print()
+        return 1
+
+    if not ids_path.is_file():
+        log(f"ERROR: no such ID list: {ids_path}")
         print()
         return 1
 
     try:
-        id_list = read_id_list(args.ids, args.sheet)
+        id_list = read_id_list(ids_path, args.sheet)
     except IdListError as error:
         log(f"ERROR: {error}")
         print()
@@ -629,11 +672,11 @@ def main(argv: list[str] | None = None) -> int:
     if not listed:
         # The sheet is named when one was chosen: with several to pick from,
         # which one was read is the whole question behind an empty answer.
-        where = args.ids.name + (f" sheet {args.sheet!r}" if args.sheet else "")
+        where = ids_path.name + (f" sheet {args.sheet!r}" if args.sheet else "")
         log(f"ERROR: no tracking IDs in {where} -- every row was blank, commented or a header.")
         print()
         return 1
-    print_kv([("ID list", str(args.ids)), ("IDs to search", len(listed))])
+    print_kv([("ID list", str(ids_path)), ("IDs to search", len(listed))])
     print()
 
     if args.input is not None:
