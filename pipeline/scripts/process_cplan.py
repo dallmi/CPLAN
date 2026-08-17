@@ -1355,6 +1355,41 @@ ACTIVITY_KEYS = {
 }
 
 
+class HiddenColumnMissing(ValueError):
+    """An activity export arrived without the hide-from-public column.
+
+    Neither silent answer is acceptable. Treating every row as public leaks
+    exactly what this exists to prevent; treating every row as hidden produces
+    an empty result that reads like a real one. All four exports carry the
+    column today, so this fires only when an export changes shape -- which is
+    precisely the moment someone needs to be told rather than guessed at.
+    """
+
+
+def exclude_hidden(frame, source_name):
+    """The frame without its hidden rows, and how many there were.
+
+    The marker column leaves with the rows it marked: a `hide_from_public`
+    column in any artefact would be a map of the interesting rows, which is
+    worse than never having filtered at all.
+
+    Separate from `transform()` on purpose. `transform()` has three callers,
+    and the tracking-ID check is one of them -- it has to keep hidden rows in
+    order to answer "does this ID exist" with something other than "never
+    created". Excluding here rather than there means every caller states its
+    own choice, and the callers that do not exclude are found by looking
+    rather than by remembering.
+    """
+    if HIDE_COLUMN not in frame.columns:
+        raise HiddenColumnMissing(
+            f"{source_name}: no '{HIDE_COLUMN}' column -- the export changed shape. "
+            f"Refusing to guess whether these rows may be published."
+        )
+    hidden = frame[HIDE_COLUMN].fillna(False).astype(bool)
+    kept = frame.loc[~hidden].drop(columns=[HIDE_COLUMN]).reset_index(drop=True)
+    return kept, int(hidden.sum())
+
+
 class ActivityLoad(NamedTuple):
     """The merged activity dataset plus what it took to build it.
 

@@ -59,6 +59,52 @@ def test_a_value_nobody_anticipated_counts_as_hidden():
     assert process_cplan.is_hidden_value("?") is True
 
 
+def _flagged(*hidden_flags):
+    return pd.DataFrame({
+        "tracking_id": [f"QRREP-0000058-240709-000006{i}-EMI"
+                        for i in range(len(hidden_flags))],
+        process_cplan.HIDE_COLUMN: list(hidden_flags),
+    })
+
+
+def test_hidden_rows_are_dropped_and_counted():
+    frame, excluded = process_cplan.exclude_hidden(_flagged(False, True, False, True),
+                                                   "internal")
+
+    assert len(frame) == 2
+    assert excluded == 2
+
+
+def test_the_marker_leaves_with_the_rows_it_marked():
+    """A hide_from_public column in an output would be a map of the interesting rows."""
+    frame, _ = process_cplan.exclude_hidden(_flagged(False, True), "internal")
+
+    assert process_cplan.HIDE_COLUMN not in frame.columns
+
+
+def test_a_frame_with_nothing_hidden_keeps_every_row():
+    frame, excluded = process_cplan.exclude_hidden(_flagged(False, False), "internal")
+
+    assert len(frame) == 2
+    assert excluded == 0
+
+
+def test_the_index_is_reset_so_later_positional_work_is_safe():
+    frame, _ = process_cplan.exclude_hidden(_flagged(True, False), "internal")
+
+    assert frame.index.tolist() == [0]
+
+
+def test_an_export_without_the_column_stops_the_run_and_names_the_file():
+    """Both silent answers are wrong: publish everything, or report nothing."""
+    bare = pd.DataFrame({"tracking_id": ["QRREP-0000058-240709-0000060-EMI"]})
+
+    with pytest.raises(process_cplan.HiddenColumnMissing) as error:
+        process_cplan.exclude_hidden(bare, "InternalCommunicationActivities.csv")
+
+    assert "InternalCommunicationActivities.csv" in str(error.value)
+
+
 INTERNAL_CSV = (
     "ID,Tracking ID,Title,Start date,Region,Modified\n"
     "1,IC-0001,Active row,2025-03-05,EMEA,2025-03-01\n"
