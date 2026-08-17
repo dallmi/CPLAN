@@ -105,14 +105,66 @@ def test_an_export_without_the_column_stops_the_run_and_names_the_file():
     assert "InternalCommunicationActivities.csv" in str(error.value)
 
 
+def _export_csv(tmp_path: Path, name: str, *rows) -> Path:
+    """One activity export. Each row is (tracking_id, title, hide_value)."""
+    import csv
+
+    path = tmp_path / name
+    with open(path, "w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["ID", "Tracking ID", "Title", "Start date", HIDE_HEADER])
+        for index, (tracking_id, title, hide) in enumerate(rows, start=1):
+            writer.writerow([str(index), tracking_id, title, "2025-03-05", hide])
+    return path
+
+
+def test_hidden_activities_never_reach_the_combined_frame(tmp_path):
+    _export_csv(
+        tmp_path, "InternalCommunicationActivities.csv",
+        ("QRREP-0000058-240709-0000060-EMI", "Quarterly report mail", "FALSE"),
+        ("QRREP-0000058-240709-0000061-EMI", "Board briefing", "TRUE"),
+    )
+
+    load = process_cplan.load_activities(process_cplan.find_input_files(tmp_path))
+
+    assert load.frame["tracking_id"].tolist() == ["QRREP-0000058-240709-0000060-EMI"]
+    assert "Board briefing" not in load.frame["activity_name"].tolist()
+
+
+def test_the_load_says_how_many_it_excluded_and_from_where(tmp_path):
+    _export_csv(
+        tmp_path, "InternalCommunicationActivities.csv",
+        ("QRREP-0000058-240709-0000060-EMI", "A", "FALSE"),
+        ("QRREP-0000058-240709-0000061-EMI", "B", "TRUE"),
+    )
+    _export_csv(
+        tmp_path, "ExternalCommunicationActivities.csv",
+        ("PRESS-0000012-240301-0000004-EXT", "C", "TRUE"),
+    )
+
+    load = process_cplan.load_activities(process_cplan.find_input_files(tmp_path))
+
+    assert load.hidden_excluded == 2
+    assert dict(load.hidden_by_file) == {"internal": 1, "external": 1}
+
+
+def test_the_marker_column_is_not_in_the_loaded_frame(tmp_path):
+    _export_csv(tmp_path, "InternalCommunicationActivities.csv",
+                ("QRREP-0000058-240709-0000060-EMI", "A", "FALSE"))
+
+    load = process_cplan.load_activities(process_cplan.find_input_files(tmp_path))
+
+    assert process_cplan.HIDE_COLUMN not in load.frame.columns
+
+
 INTERNAL_CSV = (
-    "ID,Tracking ID,Title,Start date,Region,Modified\n"
-    "1,IC-0001,Active row,2025-03-05,EMEA,2025-03-01\n"
+    f"ID,Tracking ID,Title,Start date,Region,Modified,{HIDE_HEADER}\n"
+    "1,IC-0001,Active row,2025-03-05,EMEA,2025-03-01,FALSE\n"
 )
 ARCHIVE_CSV = (
-    "ID,Tracking ID,Title,Start date,Region,Modified\n"
-    "1,IC-0001,Stale duplicate,2025-03-05,EMEA,2025-01-01\n"
-    "2,IC-0002,Archived row,2025-04-09,APAC,2025-04-01\n"
+    f"ID,Tracking ID,Title,Start date,Region,Modified,{HIDE_HEADER}\n"
+    "1,IC-0001,Stale duplicate,2025-03-05,EMEA,2025-01-01,FALSE\n"
+    "2,IC-0002,Archived row,2025-04-09,APAC,2025-04-01,FALSE\n"
 )
 
 
@@ -167,14 +219,32 @@ def test_load_activities_with_a_header_only_csv_returns_an_empty_frame(tmp_path)
     # ETL — it should behave like "no activities from this file", not blow up.
     header_only = tmp_path / "InternalCommunicationActivities.csv"
     header_only.write_text(
-        "ID,Tracking ID,Title,Start date,Region,Modified\n", encoding="utf-8"
+        f"ID,Tracking ID,Title,Start date,Region,Modified,{HIDE_HEADER}\n",
+        encoding="utf-8",
     )
 
     load = process_cplan.load_activities({"internal": header_only})
 
     assert load.frame.empty
     assert "Tracking ID" in load.raw_columns["internal"]
+    assert load.hidden_excluded == 0
     assert set(load.files) == {"internal"}
+
+
+def test_an_export_that_lost_the_hide_column_stops_the_whole_load(tmp_path):
+    """The guard has to hold on the real path, not only on the helper.
+
+    An export changing shape is the one case where guessing is unacceptable in
+    both directions, so the loud failure is the feature.
+    """
+    bare = tmp_path / "InternalCommunicationActivities.csv"
+    bare.write_text("ID,Tracking ID,Title,Start date\n1,IC-0001,A,2025-03-05\n",
+                    encoding="utf-8")
+
+    with pytest.raises(process_cplan.HiddenColumnMissing) as error:
+        process_cplan.load_activities({"internal": bare})
+
+    assert "InternalCommunicationActivities.csv" in str(error.value)
 
 
 def test_loading_packs_without_an_export_is_not_an_error(tmp_path):

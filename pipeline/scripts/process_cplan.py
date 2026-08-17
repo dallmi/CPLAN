@@ -1395,12 +1395,20 @@ class ActivityLoad(NamedTuple):
 
     `raw_columns` and `files` exist for the ETL's --preview column comparison;
     the calendar report uses `frame` and `duplicates_removed`.
+
+    `hidden_excluded` is not bookkeeping. Excluding rows makes every count in
+    every consumer smaller than reality, and the only thing separating that
+    from a wrong answer is a number saying how much smaller and why. It travels
+    with the frame because no consumer can recompute it from data that no
+    longer contains the rows.
     """
 
     frame: "pd.DataFrame"
     raw_columns: dict
     files: dict
     duplicates_removed: int = 0
+    hidden_excluded: int = 0
+    hidden_by_file: tuple = ()
 
 
 def load_activities(files):
@@ -1412,6 +1420,7 @@ def load_activities(files):
     activity_files = {k: v for k, v in files.items() if k in ACTIVITY_KEYS}
     frames = []
     raw_columns = {}
+    hidden_by_file = []
     for key, path in activity_files.items():
         source_type, is_archived = ACTIVITY_KEYS[key]
         log(f"Reading {path.name}...")
@@ -1419,11 +1428,20 @@ def load_activities(files):
         log(f"  {key}: {len(df)} rows, {len(df.columns)} columns")
         raw_columns[key] = [c.strip() for c in df.columns]
         df = transform(df, source_type=source_type)
+        # Here rather than in transform(): this is the function the ETL and the
+        # calendar report share so the two can never disagree about how many
+        # activities exist, which makes it the one place that guarantee also
+        # holds for the rows deliberately left out.
+        df, excluded = exclude_hidden(df, path.name)
+        if excluded:
+            log(f"  {key}: {excluded} row(s) excluded (hide from public)")
+            hidden_by_file.append((key, excluded))
         df["is_archived"] = is_archived
         frames.append(df)
 
     if not frames:
-        return ActivityLoad(pd.DataFrame(), raw_columns, activity_files, 0)
+        return ActivityLoad(pd.DataFrame(), raw_columns, activity_files, 0,
+                            hidden_excluded=0, hidden_by_file=())
 
     combined = pd.concat(frames, ignore_index=True)
     log(f"Combined activities: {len(combined)} rows")
@@ -1442,7 +1460,14 @@ def load_activities(files):
         if dupes:
             log(f"  Removed {dupes} duplicate rows (by tracking_id)")
 
-    return ActivityLoad(combined, raw_columns, activity_files, dupes)
+    hidden_total = sum(count for _key, count in hidden_by_file)
+    if hidden_total:
+        log(f"Excluded {hidden_total} hidden activity row(s) "
+            f"across {len(hidden_by_file)} file(s) (hide from public)")
+
+    return ActivityLoad(combined, raw_columns, activity_files, dupes,
+                        hidden_excluded=hidden_total,
+                        hidden_by_file=tuple(hidden_by_file))
 
 
 PACK_KEY = "packs"

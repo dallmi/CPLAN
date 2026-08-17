@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-17.4"
+$manifestVersion = "2026-08-17.6"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-17.4"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-17.4"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-17.6"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -144,6 +144,8 @@ $manifest = @(
     # filled, and the next save on that drawer clears it.
     @{ Path = "pipeline\scripts\process_cplan.py"; Marker = "TIME_ZONE_MAP";                 Why = "the source's display names are translated to IANA zones; without it the studio stores 'Japan Standard Time - GMT+9:00' where a zone belongs" },
     @{ Path = "pipeline\scripts\process_cplan.py"; Marker = "def is_hidden_value";           Why = "reads the source's hide-from-public flag; an older copy drops the column at the first step and every activity marked as not for general circulation flows into every output, including the uploaded agent pack" },
+    @{ Path = "pipeline\scripts\process_cplan.py"; Marker = "def exclude_hidden";             Why = "removes those rows and the marker with them, and counts what it removed; an older copy carries the flag but acts on none of it" },
+    @{ Path = "pipeline\scripts\process_cplan.py"; Marker = "hidden_by_file";                 Why = "the exclusion is applied where the ETL and the calendar report share a loader, and the per-file count travels with it; an older copy excludes nothing and every output carries the hidden activities" },
     @{ Path = "pipeline\studio\index.html";    Marker = "Asia/Ho_Chi_Minh";                  Why = "the time-zone select offers every zone the ETL now maps to - an older copy shows 'Not set' on a synced activity that has one" },
     @{ Path = "timezones.ps1";                 Marker = "check_time_zones";                  Why = "the launcher for that check - double-clickable via timezones.cmd" },
     @{ Path = "timezones.ps1";                 Marker = "Context";                           Why = "-Context reaches the per-zone region and lead-team breakdown; without it the switch is silently ignored" },
