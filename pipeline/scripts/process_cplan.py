@@ -1523,6 +1523,27 @@ def load_packs(files):
 # Main
 # ---------------------------------------------------------------------------
 
+def build_meta(load, now, full_refresh, row_counts):
+    """The contents of meta.json.
+
+    A function rather than a dict literal buried in the summary block, because
+    `index.html` parses this file and the exclusion count is now part of what
+    it has to be able to say. The zero is written explicitly: a consumer that
+    finds no key cannot tell "nothing was hidden" from "written by a pipeline
+    that did not yet know about hiding", and those are different facts.
+    """
+    return {
+        "generated_at": now.strftime("%Y-%m-%d %H:%M"),
+        "generated_at_iso": now.isoformat(timespec="seconds"),
+        "mode": "full" if full_refresh else "incremental",
+        "row_counts": row_counts,
+        # Beside row_counts on purpose: a consumer reading one without the
+        # other reports a total it has no way to explain.
+        "excluded_total": int(load.hidden_excluded),
+        "excluded_counts": dict(load.hidden_by_file),
+    }
+
+
 def main():
     preview = "--preview" in sys.argv
     full_refresh = "--full-refresh" in sys.argv
@@ -1628,12 +1649,7 @@ def main():
         # (HTTP Last-Modified is unreliable due to browser cache and OneDrive sync)
         meta_path = OUTPUT_DIR / "meta.json"
         now = datetime.now()
-        meta = {
-            "generated_at": now.strftime("%Y-%m-%d %H:%M"),
-            "generated_at_iso": now.isoformat(timespec="seconds"),
-            "mode": "full" if full_refresh else "incremental",
-            "row_counts": row_counts,
-        }
+        meta = build_meta(load, now, full_refresh, row_counts)
         with open(meta_path, "w", encoding="utf-8") as f:
             json.dump(meta, f, ensure_ascii=False, indent=2)
 
@@ -1642,6 +1658,12 @@ def main():
                     ["Output", "Size"],
                     outputs + [("cplan.db", f"{db_kb:.0f} KB")],
                     col_widths=[24, 14])
+        # Last thing before "Done", where a reader is looking, because every
+        # size and count above is a count of what may circulate rather than of
+        # what is planned.
+        if load.hidden_excluded:
+            log(f"{load.hidden_excluded} activity row(s) excluded (hide from public) "
+                f"and absent from every output above.")
         log("Done.")
 
 

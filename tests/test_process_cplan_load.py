@@ -231,6 +231,58 @@ def test_load_activities_with_a_header_only_csv_returns_an_empty_frame(tmp_path)
     assert set(load.files) == {"internal"}
 
 
+def _load(hidden_by_file=(), hidden_excluded=0):
+    return process_cplan.ActivityLoad(
+        frame=pd.DataFrame(), raw_columns={}, files={},
+        duplicates_removed=0,
+        hidden_excluded=hidden_excluded,
+        hidden_by_file=hidden_by_file,
+    )
+
+
+def test_meta_states_what_was_excluded_and_from_where():
+    """The dashboard already reads meta.json for its refresh stamp."""
+    from datetime import datetime
+
+    meta = process_cplan.build_meta(
+        load=_load(hidden_by_file=(("internal", 1), ("external", 1)), hidden_excluded=2),
+        now=datetime(2026, 8, 17, 9, 30),
+        full_refresh=True,
+        row_counts={"communications": 410},
+    )
+
+    assert meta["excluded_total"] == 2
+    assert meta["excluded_counts"] == {"internal": 1, "external": 1}
+
+
+def test_meta_keeps_the_keys_the_dashboard_already_reads():
+    """Extraction must not change the contract -- index.html parses this file."""
+    from datetime import datetime
+
+    meta = process_cplan.build_meta(
+        load=_load(), now=datetime(2026, 8, 17, 9, 30),
+        full_refresh=False, row_counts={"communications": 410},
+    )
+
+    assert meta["generated_at"] == "2026-08-17 09:30"
+    assert meta["generated_at_iso"] == "2026-08-17T09:30:00"
+    assert meta["mode"] == "incremental"
+    assert meta["row_counts"] == {"communications": 410}
+
+
+def test_a_run_that_excluded_nothing_still_states_the_zero():
+    """An absent key reads as "written before hiding existed"; a zero does not."""
+    from datetime import datetime
+
+    meta = process_cplan.build_meta(
+        load=_load(), now=datetime(2026, 8, 17, 9, 30),
+        full_refresh=True, row_counts={},
+    )
+
+    assert meta["excluded_total"] == 0
+    assert meta["excluded_counts"] == {}
+
+
 def test_an_export_that_lost_the_hide_column_stops_the_whole_load(tmp_path):
     """The guard has to hold on the real path, not only on the helper.
 
