@@ -195,7 +195,8 @@ def build_data_quality(wb, scope, config):
     row = style.write_section_header(ws, row, "RECORD ANOMALIES", 4)
     row = style.write_header_row(ws, row, ["Anomaly", "Count", "", ""])
     row = style.write_data_rows(ws, row, [[label, count] for label, count in
-                                          metrics.anomalies(frame, scope.duplicates_removed)])
+                                          metrics.anomalies(frame, scope.duplicates_removed,
+                                                            scope.hidden_excluded)])
     row += 1
 
     row = _write_unmapped_regions(ws, row, frame) + 1

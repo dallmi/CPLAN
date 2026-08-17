@@ -48,6 +48,11 @@ class Scope:
     completeness_fields: list = field(default_factory=list)
     skipped_completeness_fields: list = field(default_factory=list)
     duplicates_removed: int = 0
+    # Rows the source marked as not for general circulation, removed at load.
+    # Distinct from `excluded` above, which is this report's own period and
+    # region filtering: that one is a question the reader asked, this one is
+    # an answer the reader is not entitled to.
+    hidden_excluded: int = 0
     # None when no membership list was supplied -- the state every machine
     # without the file is in, and the one that must render today's workbook.
     membership: object = None
@@ -179,6 +184,7 @@ def build_scope(load, config, membership=None, pack_load=None):
                      rows_read=0, excluded=excluded,
                      source_files=source_files,
                      duplicates_removed=load.duplicates_removed,
+                     hidden_excluded=load.hidden_excluded,
                      membership=membership,
                      packs=pack_frame,
                      pack_link=pack_link,
@@ -343,6 +349,7 @@ def build_scope(load, config, membership=None, pack_load=None):
         completeness_fields=sorted(set(internal_fields) | set(external_fields)),
         skipped_completeness_fields=skipped,
         duplicates_removed=load.duplicates_removed,
+        hidden_excluded=load.hidden_excluded,
         membership=membership,
         unmatched_members=unmatched,
         packs=pack_frame,

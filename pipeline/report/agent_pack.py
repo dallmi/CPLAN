@@ -849,7 +849,8 @@ def data_quality_text(scope, config):
         lines.append(f"  Activities whose pack is not in the list | {unmatched}")
 
     lines += ["", "RECORD ANOMALIES", "-" * 16, "  anomaly | count"]
-    for label, count in metrics.anomalies(scope.frame, scope.duplicates_removed):
+    for label, count in metrics.anomalies(scope.frame, scope.duplicates_removed,
+                                          scope.hidden_excluded):
         lines.append(f"  {label} | {count}")
 
     # Its own section, as on the Data Quality sheet, and only on a membership

@@ -151,6 +151,27 @@ def test_anomalies_report_the_undated_and_the_blank_tracking_ids(tmp_path):
     assert names["Duplicate tracking IDs removed on load"] == 1
 
 
+def test_the_anomalies_block_names_the_excluded_activities():
+    """A total the reader cannot explain is worse than no total.
+
+    These rows are not in `frame` -- counting them against it would be a
+    tautological zero -- so the figure is computed at load and passed in,
+    exactly as the duplicate count above it is.
+    """
+    names = dict(metrics.anomalies(_small_frame(), duplicates_removed=0,
+                                   hidden_excluded=3))
+
+    assert names["Hidden activities excluded on load"] == 3
+
+
+def test_the_anomalies_block_states_a_zero_when_nothing_was_hidden():
+    """The row is unconditional. A figure that appears only when non-zero
+    teaches a reader nothing about the runs where it is absent."""
+    names = dict(metrics.anomalies(_small_frame()))
+
+    assert names["Hidden activities excluded on load"] == 0
+
+
 def test_anomalies_counts_end_before_start_pairs():
     names = dict(metrics.anomalies(_small_frame()))
 
