@@ -3201,3 +3201,81 @@ def test_the_checklist_asks_a_question_start_week_logic_gets_wrong(tmp_path):
     assert active > starting, (
         f"the question names a week where both logics answer {active}, so it "
         "does not separate them")
+
+
+def _scope_from_rows(directory, rows):
+    """A scope built from these activity rows and nothing else.
+
+    Through the real loader rather than by patching `scope.frame`: the time
+    axis is settled inside `build_scope`, so a frame edited afterwards keeps
+    the grid the original rows produced -- which is exactly the thing under
+    test here.
+    """
+    from pipeline.report.data import build_scope
+    from pipeline.scripts.process_cplan import find_input_files, load_activities
+    from tests.report_fixtures import HEADER, INTERNAL_HEADER, _write_csv
+
+    directory.mkdir(parents=True, exist_ok=True)
+    _write_csv(directory / "InternalCommunicationActivities.csv", rows, INTERNAL_HEADER)
+    _write_csv(directory / "InternalCommunicationActivitiesArchive.csv", [], INTERNAL_HEADER)
+    _write_csv(directory / "ExternalCommunicationActivities.csv", [], HEADER)
+    config = agent_pack.pack_config(_config(date_from=None, date_to=None))
+    return build_scope(load_activities(find_input_files(directory)), config), config
+
+
+def test_an_activity_running_past_the_last_start_keeps_its_later_weeks(tmp_path):
+    """The time axis is built from start dates, and clamping the overlap to it
+    silently drops the tail of every long run.
+
+    Reproduced from the four eScreens activities of a real week: the one
+    starting last, on 2026-08-18, runs to 2026-09-01 and so is on in three
+    weeks. Being the last to START, it ended the grid in its own first week --
+    so `Active weeks` named one week of three, `04-calendar.csv` had no row
+    for the other two, and the roster could not list them either. Nothing was
+    wrong with the overlap test; the axis it was clamped to was too short.
+    """
+    from tests.report_fixtures import _lookup, _row
+
+    def screen(number, name, start, end):
+        return _row(number, f"CCCCC-000000{number}-260810-001{number}-ESC", name,
+                    start, **{"End date": end, "Channel": _lookup("eScreens")})
+
+    scope, config = _scope_from_rows(tmp_path / "csv", [
+        screen(1, "Runs into the following week", "2026-08-10", "2026-08-21"),
+        screen(2, "Starts last and runs longest", "2026-08-18", "2026-09-01"),
+    ])
+    pack_dir = agent_pack.write_pack(scope, config, tmp_path / "out",
+                                     generated=date(2026, 8, 18))
+
+    row = next(r for r in _activities(pack_dir) if r["Tracking ID"].endswith("0012-ESC"))
+    assert row["End week"] == "2026-W36"
+    assert row["Active weeks"] == "2026-W34 2026-W35 2026-W36"
+
+    weeks = {r["iso_week"] for r in _calendar(pack_dir)}
+    assert {"W35", "W36"} <= weeks, (
+        f"the calendar has no row for a week the plan is running in: {sorted(weeks)}")
+    rostered = {r["iso_week"] for r in _roster(pack_dir)
+                if r["Tracking ID"].endswith("0012-ESC")}
+    assert rostered == {"W34", "W35", "W36"}
+
+
+def test_the_pack_gives_a_week_answer_something_to_check_itself_against(tmp_path):
+    """A partial read of the roster looks exactly like a complete one.
+
+    The agent named `09-week-roster.csv` as its source and answered from a
+    fragment of `05-activities.csv` -- one of four, with the right file cited
+    beside it. No rule forbidding the wrong file can catch that, because the
+    agent believed it had followed the rule. What catches it is a number it
+    can hold its own list against: `04-calendar.csv` states how many
+    activities are active in each week, per block, computed over every row.
+    """
+    pack_dir, _, _, _ = _pack(tmp_path)
+    text = _pack_text(pack_dir)
+
+    assert "count it against" in text.lower(), (
+        "nothing tells the agent to check its list against the counted total")
+    # And the count it is sent to has to exist per week for a filtered
+    # question, not only for the portfolio -- the question that failed named a
+    # channel.
+    blocks = {row["block"] for row in _calendar(pack_dir)}
+    assert "channel" in blocks

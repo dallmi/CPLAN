@@ -1076,6 +1076,16 @@ def glossary_text(scope, config):
         "Archived activities are included. Archiving is a list-size workaround "
         "in the source system, not a relevance signal, so an archived activity "
         "is not an obsolete one.",
+        f"When you list the activities for a week, count it against "
+        f"{CALENDAR_NAME}: the active figure for that week, block={TOTAL_BLOCK} "
+        "for an unfiltered question or the block matching your filter, is "
+        "computed over every row. State both, and if your list is shorter than "
+        "the count, say you are looking at part of the week rather than "
+        "presenting it as the whole. This is the one check that catches a "
+        f"partial read, because a partial read of {ROSTER_CSV_NAME} looks "
+        "exactly like a complete one -- naming the right file is not evidence "
+        "of having read it. On channel and target_audience the blocks group by "
+        "the whole string, so read the value your own rows carry.",
         f"In {CALENDAR_NAME}, starting places each activity once, in the week "
         "it begins -- so it is a partition of the portfolio and adds up. "
         "active counts every activity whose run touches the week, so a "
@@ -1539,7 +1549,13 @@ for a week inside its window, the `active` column of `{CALENDAR_NAME}` for a
 count, `Active weeks` in `{ACTIVITIES_CSV_NAME}` for a week outside it. Never
 filter `{ACTIVITIES_CSV_NAME}` on the two date columns to answer it: it is the
 largest file here, you see it in fragments, and a filter over fragments returns
-a short list that looks complete."""
+a short list that looks complete.
+
+**Count a week's list against `{CALENDAR_NAME}`.** Its `active` figure for that
+week -- `block={TOTAL_BLOCK}` unfiltered, or the block matching your filter --
+was computed over every row. State it beside your list, and where your list is
+shorter, say you are seeing part of the week. A partial read looks exactly like
+a complete one, and naming the right file is not evidence of having read it."""
 
 _SKILL_PERIOD_RULE_WITHOUT_ROSTER = f"""\
 **Every period question is that same overlap test.** "This week", "the next
@@ -1793,7 +1809,14 @@ These come from the data rather than from good reporting practice, and they over
 - **GEB/GEB-1 is one field holding both levels**, and the source data never says which. Look at the blocks the pack actually carries before you answer. Where it carries `executives_geb` and `executives_geb1`, a GEB member list was supplied when the pack was built: that list is the only thing separating the two, so name it as the source, and never add the two blocks together — one activity naming people at both levels counts in both. Where it carries only `executives`, nothing separates them: never name someone as a GEB member, and never answer "how many activities involve the GEB" — the honest answer is "GEB or GEB-1".
 - **`channel` and `target_audience` hold several values in one string.** A value like "Email, Intranet" is one combination, not one channel.
 - **Every question about a period is an overlap test: `Start <= <end of the period> AND End >= <start of the period>`.** "This week", "the next fortnight", "in August" — all the same filter, the same one the report's own scope uses. `Start week` and `Start quarter` in `05-activities.csv` label the START and are never a period filter; filtering them answers "what STARTS in this period", which is a different question and usually not the one asked.
-- **What is RUNNING is read, never derived.** `09-week-roster.csv` lists one row per week × activity for every activity running in that week, over a window around the data date stated in `01-summary.txt` — that is the file for "what is on this week" and for the next fortnight or month. For a count, `04-calendar.csv` carries `active` beside `starting`. For a week outside the roster's window, `Active weeks` in `05-activities.csv` names every week an activity runs through. Never answer "which activities are on in week X" by filtering `05-activities.csv` on `Start` and `End`: it is the largest file in the pack, you see it in fragments, and a filter over fragments returns a short list that looks complete. If none of the three can answer it, say so.
+- **What is RUNNING is read, never derived.** `09-week-roster.csv` lists one row per week × activity for every activity running in that week, over a window around the data date stated in `01-summary.txt` — that is the file for "what is on this week" and for the next fortnight or month. For a count, `04-calendar.csv` carries `active` beside `starting`. For a week outside the roster's window, `Active weeks` in `05-activities.csv` names every week an activity runs through. Never answer "which activities are on in week X" by filtering `05-activities.csv` on `Start` and `End`: it is the largest file in the pack, you see it in fragments, and a filter over fragments returns a short list that looks complete.
+
+**Count a week's list against `{CALENDAR_NAME}`.** Its `active` figure for that
+week -- `block={TOTAL_BLOCK}` unfiltered, or the block matching your filter --
+was computed over every row. State it beside your list, and where your list is
+shorter, say you are seeing part of the week. A partial read looks exactly like
+a complete one, and naming the right file is not evidence of having read it. If none of the three can answer it, say so.
+- **Count a week's list against `04-calendar.csv`.** Its `active` figure for that week — `block=TOTAL` for an unfiltered question, or the block matching your filter (`channel`, `lead_team`, `priority`, `business_division`, `region`, `source_type`) — was computed over every row by tested code. State it beside your list. Where your list is shorter than the count, say you are looking at part of the week rather than presenting it as the whole: a partial read looks exactly like a complete one, and citing the right file is not evidence of having read it. On `channel` and `target_audience` those blocks group by the whole string, so read the value your own rows carry.
 - **`starting` and `active` count different things.** In `04-calendar.csv`, `starting` places each activity once, in the week it begins — a partition of the portfolio, which adds up. `active` counts every activity whose run touches the week, so a six-week campaign appears in six weeks and the column does NOT add up across weeks. Use `starting` for a total, `active` for a week.
 - **"This week" means the week of the data date**, not the week you are reading in. `01-summary.txt` names that week and gives its Monday and Sunday. Say which week you answered for.
 - **This pack is wider than the distributed workbook.** It keeps activities the report leaves out — the deprioritised bucket, and rows tagged with nothing but the catch-all objective — so that a question about them has an answer. Every row in `05-activities.csv` carries `in_report` (Yes/No) and `report_exclusion`; counting only `in_report = Yes` reproduces the workbook exactly. `01-summary.txt` states how many rows the difference covers.

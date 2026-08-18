@@ -128,7 +128,7 @@ def _completeness(frame, fields):
     return (filled / len(fields) * 100).round().astype(int)
 
 
-def _resolve_window(days, config):
+def _resolve_window(days, config, ends=()):
     """The first and last day the time axis has to reach.
 
     A bound the run asked for is kept even when no activity reaches it: asking
@@ -136,6 +136,14 @@ def _resolve_window(days, config):
     named no bound does the axis take its edge from the data. With neither a
     bound nor a dated row there is nothing to span, so the axis falls back to
     the current week and the sheets come out empty rather than column-less.
+
+    `ends` widens the upper edge to the last day anything is still RUNNING, and
+    it is not an embellishment: the period is an overlap test, so an activity
+    outliving the last start date is running in weeks the axis would otherwise
+    not have. Every week-shaped answer is clamped to this axis, so those weeks
+    did not merely look empty -- they had no row at all, and the tail of every
+    long run was dropped without a trace. Starts alone cannot fix it: the last
+    activity to start is regularly not the last one to finish.
     """
     first, last = config.date_from, config.date_to
     if days:
@@ -145,6 +153,12 @@ def _resolve_window(days, config):
         # lists -- `build_calendar` asserts exactly that.
         first = min(days) if first is None else min(first, min(days))
         last = max(days) if last is None else max(last, max(days))
+    if ends:
+        # Only the upper edge. An end is never earlier than its own start
+        # except as bad data, which `covers` already resolves by taking the
+        # later of the two -- so a typo cannot drag the axis backwards here.
+        latest = max(ends)
+        last = latest if last is None else max(last, latest)
     if first is None and last is None:
         first = last = date.today()
     return first or last, last or first
@@ -227,7 +241,9 @@ def build_scope(load, config, membership=None, pack_load=None):
     # The axis is settled here, on the rows the period let through. The filters
     # below narrow *who* appears, not *when* the report is about; letting them
     # move the time axis would make it shift for surprising reasons.
-    grid = build_grid(*_resolve_window(list(frame["start_day"]), config))
+    grid = build_grid(*_resolve_window(
+        list(frame["start_day"]), config,
+        [day for day in frame["end_day"] if day is not None and day == day]))
 
     if not config.include_archived and "is_archived" in frame.columns:
         drop(frame["is_archived"].fillna(False).astype(bool), "archived")

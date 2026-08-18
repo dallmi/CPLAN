@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-18.1"
+$manifestVersion = "2026-08-18.2"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-18.1"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-18.1"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-18.2"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -888,7 +888,18 @@ $manifest = @(
     @{ Path = "pipeline\mcp\queries.py";     Marker = "active_from";                     Why = "the overlap window is one named pair of arguments - an older copy can only express it as start_before AND end_after in that crossed pairing, which is the shape that kept being got wrong" },
     @{ Path = "pipeline\mcp\queries.py";     Marker = "count_mode";                      Why = "calendar_load counts what runs in a week as well as what starts in it, and says which - an older copy answers 'how busy is that week' with start dates only" },
     @{ Path = "pipeline\mcp\server.py";      Marker = "active_from";                     Why = "the overlap window reaches the tools an agent actually calls - an older copy accepts only the four bounds, so the right filter is unreachable from the surface" },
-    @{ Path = "pipeline\mcp\domain.py";      Marker = "the obvious filter is not it";    Why = "the domain resource names the period trap before an agent answers - an older copy lists five traps and not the one that produced a confidently short list" }
+    @{ Path = "pipeline\mcp\domain.py";      Marker = "the obvious filter is not it";    Why = "the domain resource names the period trap before an agent answers - an older copy lists five traps and not the one that produced a confidently short list" },
+
+    # The week roster held all four activities and the agent still answered
+    # with one, naming the roster as its source: it had read a fragment, and a
+    # fragment of that file looks exactly like the whole of it. No rule
+    # forbidding the wrong file catches that, because the agent believes it
+    # followed the rule. What catches it is a counted figure to hold the list
+    # against. The same run also showed the time axis stopping at the last
+    # START date, which silently dropped the tail of every long run.
+    @{ Path = "pipeline\report\data.py";     Marker = "def _resolve_window(days, config, ends=())"; Why = "the time axis reaches the last day anything is still running - an older copy ends it at the last start date, so Active weeks, the calendar's active column and the roster all lose the tail of every long run without a trace" },
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "count it against";              Why = "a week's list is checked against the counted total in 04-calendar.csv - an older copy leaves a partial read indistinguishable from a complete one, which is how a one-of-four answer arrived citing the right file" },
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "Count a week's list against"; Why = "the second delivery carries the same self-check - without it the two agents answer one week two ways, and the compressed prompt is the copy nobody re-reads" }
 )
 
 Write-Host ""
