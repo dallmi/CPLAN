@@ -153,6 +153,8 @@ def build_server(database_url: str) -> MCPServer:
         start_before: str | None = None,
         end_after: str | None = None,
         end_before: str | None = None,
+        active_from: str | None = None,
+        active_to: str | None = None,
         max_lead_days: int | None = None,
         news_digest: bool | None = None,
         has_tracking_id: bool | None = None,
@@ -183,10 +185,15 @@ def build_server(database_url: str) -> MCPServer:
         a row storing "Email, Intranet" -- call field_values first and filter on
         the combination the data actually holds.
 
-        Windows: `start_after`/`start_before` filter start_date,
-        `end_after`/`end_before` filter end_date; both take 'YYYY-MM-DD' or a
-        full ISO timestamp. `max_lead_days` finds short-notice activities (days
-        between creation and start).
+        Windows: `active_from`/`active_to` is the one to reach for when the
+        question names a period -- "this week", "the next fortnight", "in
+        August". It returns every activity RUNNING in that window, including
+        those that started before it, which is what such a question asks.
+        `start_after`/`start_before` filter start_date and answer the
+        different question "what STARTS in this period"; `end_after`/
+        `end_before` filter end_date. All take 'YYYY-MM-DD' or a full ISO
+        timestamp. `max_lead_days` finds short-notice activities (days between
+        creation and start).
 
         Archived activities are excluded unless `include_archived`; archiving is a
         source-system view-size workaround, not a relevance signal, so a true
@@ -222,6 +229,8 @@ def build_server(database_url: str) -> MCPServer:
                 start_before=start_before,
                 end_after=end_after,
                 end_before=end_before,
+                active_from=active_from,
+                active_to=active_to,
                 max_lead_days=max_lead_days,
                 news_digest=news_digest,
                 has_tracking_id=has_tracking_id,
@@ -398,6 +407,7 @@ def build_server(database_url: str) -> MCPServer:
     def calendar_load(
         weeks: int = 8,
         start_date: str | date | datetime | None = None,
+        count_mode: str = "starting",
         query: str | None = None,
         channel: str | None = None,
         source_type: str | None = None,
@@ -420,6 +430,8 @@ def build_server(database_url: str) -> MCPServer:
         start_before: str | None = None,
         end_after: str | None = None,
         end_before: str | None = None,
+        active_from: str | None = None,
+        active_to: str | None = None,
         max_lead_days: int | None = None,
         min_priority_rank: int | None = None,
         news_digest: bool | None = None,
@@ -446,6 +458,15 @@ def build_server(database_url: str) -> MCPServer:
         on a `to` boundary belongs to the NEXT week. `busiest` / `quietest` and
         an explicit `empty_weeks` list save scanning the buckets by hand.
 
+        `count_mode` decides what "in a week" means, and the two are different
+        questions rather than one correcting the other. `"starting"` (the
+        default, and what the studio draws) counts activities whose START
+        falls in the week, so the buckets partition the filtered set and can
+        be summed. `"active"` counts every activity whose run TOUCHES the week
+        -- the overlap test, and what "how busy is that week" asks -- so a
+        six-week campaign counts in six buckets and the buckets do NOT sum.
+        The mode comes back as `count_mode`; say which one an answer quotes.
+
         Accepts every filter search_activities does, so a calendar can be scoped
         to one team, region or pack before asking which weeks are busy.
         """
@@ -454,6 +475,7 @@ def build_server(database_url: str) -> MCPServer:
                 session,
                 weeks=weeks,
                 start_date=start_date,
+                count_mode=count_mode,
                 query=query,
                 channel=channel,
                 source_type=source_type,
@@ -476,6 +498,8 @@ def build_server(database_url: str) -> MCPServer:
                 start_before=start_before,
                 end_after=end_after,
                 end_before=end_before,
+                active_from=active_from,
+                active_to=active_to,
                 max_lead_days=max_lead_days,
                 min_priority_rank=min_priority_rank,
                 news_digest=news_digest,
@@ -513,6 +537,8 @@ def build_server(database_url: str) -> MCPServer:
         start_before: str | None = None,
         end_after: str | None = None,
         end_before: str | None = None,
+        active_from: str | None = None,
+        active_to: str | None = None,
         max_lead_days: int | None = None,
         min_priority_rank: int | None = None,
         news_digest: bool | None = None,
@@ -568,6 +594,8 @@ def build_server(database_url: str) -> MCPServer:
                 start_before=start_before,
                 end_after=end_after,
                 end_before=end_before,
+                active_from=active_from,
+                active_to=active_to,
                 max_lead_days=max_lead_days,
                 min_priority_rank=min_priority_rank,
                 news_digest=news_digest,
@@ -605,6 +633,8 @@ def build_server(database_url: str) -> MCPServer:
         start_before: str | None = None,
         end_after: str | None = None,
         end_before: str | None = None,
+        active_from: str | None = None,
+        active_to: str | None = None,
         max_lead_days: int | None = None,
         min_priority_rank: int | None = None,
         news_digest: bool | None = None,
@@ -666,6 +696,8 @@ def build_server(database_url: str) -> MCPServer:
                 start_before=start_before,
                 end_after=end_after,
                 end_before=end_before,
+                active_from=active_from,
+                active_to=active_to,
                 max_lead_days=max_lead_days,
                 min_priority_rank=min_priority_rank,
                 news_digest=news_digest,
@@ -702,6 +734,8 @@ def build_server(database_url: str) -> MCPServer:
         start_before: str | None = None,
         end_after: str | None = None,
         end_before: str | None = None,
+        active_from: str | None = None,
+        active_to: str | None = None,
         max_lead_days: int | None = None,
         min_priority_rank: int | None = None,
         news_digest: bool | None = None,
@@ -765,6 +799,8 @@ def build_server(database_url: str) -> MCPServer:
                 start_before=start_before,
                 end_after=end_after,
                 end_before=end_before,
+                active_from=active_from,
+                active_to=active_to,
                 max_lead_days=max_lead_days,
                 min_priority_rank=min_priority_rank,
                 news_digest=news_digest,
@@ -801,6 +837,8 @@ def build_server(database_url: str) -> MCPServer:
         start_before: str | None = None,
         end_after: str | None = None,
         end_before: str | None = None,
+        active_from: str | None = None,
+        active_to: str | None = None,
         max_lead_days: int | None = None,
         min_priority_rank: int | None = None,
         news_digest: bool | None = None,
@@ -851,6 +889,8 @@ def build_server(database_url: str) -> MCPServer:
                 start_before=start_before,
                 end_after=end_after,
                 end_before=end_before,
+                active_from=active_from,
+                active_to=active_to,
                 max_lead_days=max_lead_days,
                 min_priority_rank=min_priority_rank,
                 news_digest=news_digest,
@@ -886,6 +926,8 @@ def build_server(database_url: str) -> MCPServer:
         start_before: str | None = None,
         end_after: str | None = None,
         end_before: str | None = None,
+        active_from: str | None = None,
+        active_to: str | None = None,
         max_lead_days: int | None = None,
         min_priority_rank: int | None = None,
         news_digest: bool | None = None,
@@ -936,6 +978,8 @@ def build_server(database_url: str) -> MCPServer:
                 start_before=start_before,
                 end_after=end_after,
                 end_before=end_before,
+                active_from=active_from,
+                active_to=active_to,
                 max_lead_days=max_lead_days,
                 min_priority_rank=min_priority_rank,
                 news_digest=news_digest,
@@ -993,6 +1037,8 @@ def build_server(database_url: str) -> MCPServer:
         start_before: str | None = None,
         end_after: str | None = None,
         end_before: str | None = None,
+        active_from: str | None = None,
+        active_to: str | None = None,
         max_lead_days: int | None = None,
         min_priority_rank: int | None = None,
         news_digest: bool | None = None,
@@ -1058,6 +1104,8 @@ def build_server(database_url: str) -> MCPServer:
                 start_before=start_before,
                 end_after=end_after,
                 end_before=end_before,
+                active_from=active_from,
+                active_to=active_to,
                 max_lead_days=max_lead_days,
                 min_priority_rank=min_priority_rank,
                 news_digest=news_digest,

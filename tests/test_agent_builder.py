@@ -14,7 +14,8 @@ import pytest
 pytest.importorskip("openpyxl")
 pytest.importorskip("pandas")
 
-from pipeline.report import agent_builder, agent_pack, dashboard_skill
+from pipeline.report import (agent_builder, agent_pack, dashboard_contract,
+                             dashboard_skill)
 from pipeline.report.config import ReportConfig
 from pipeline.scripts import build_agent_pack as build
 from tests.report_fixtures import load_fixture_scope
@@ -48,7 +49,7 @@ def test_the_upload_folder_carries_the_pack_file_in_reading_order(tmp_path):
 
     names = sorted(p.name for p in upload_dir.iterdir())
     assert agent_pack.PACKS_CSV_NAME in names
-    assert names.index("08-periods.csv") < names.index("09-reading-guide.txt")
+    assert names.index("08-periods.csv") < names.index("10-reading-guide.txt")
     assert len(names) <= agent_builder.KNOWLEDGE_SOURCE_LIMIT
 
 
@@ -59,17 +60,18 @@ def test_a_run_without_the_pack_export_still_delivers(tmp_path):
     _, upload_dir, _ = _builder(tmp_path)
     names = [p.name for p in upload_dir.iterdir()]
     assert agent_pack.PACKS_CSV_NAME not in names
-    assert "09-reading-guide.txt" in names
+    assert "10-reading-guide.txt" in names
 
 
 def test_a_rebuild_removes_the_previous_numbering_from_the_upload_folder(tmp_path):
     """The folder is the delivery, so a stale file in it is delivered.
 
     Every time a data file is added the rule documents shift up: the boards
-    went 09-11, then 10-12, then 11-13. Writing this run's names without
-    removing the last run's leaves both sets side by side -- the operator
-    uploads twelve files and fourteen arrive, two of them the same rules
-    under a number that no longer matches what the prompt names.
+    went 09-11, then 10-12, then 11-13, and the week roster has just pushed
+    them to 12-13. Writing this run's names without removing the last run's
+    leaves both sets side by side -- the operator uploads twelve files and
+    fourteen arrive, two of them the same rules under a number that no longer
+    matches what the prompt names.
 
     `mirror_upload` has removed superseded files all along, and its docstring
     names this exact failure. It was only ever applied to the mirror; the
@@ -80,16 +82,16 @@ def test_a_rebuild_removes_the_previous_numbering_from_the_upload_folder(tmp_pat
 
     # The shape a previous version left behind, plus something that is not
     # ours at all.
-    (upload_dir / "08-reading-guide.txt").write_text("stale", encoding="utf-8")
-    (upload_dir / "13-board-plan-trust.txt").write_text("stale", encoding="utf-8")
+    (upload_dir / "09-reading-guide.txt").write_text("stale", encoding="utf-8")
+    (upload_dir / "12-board-plan-trust.txt").write_text("stale", encoding="utf-8")
     (upload_dir / "notes.md").write_text("the operator's own", encoding="utf-8")
 
     pack_dir, _, _ = _builder_with_packs(tmp_path)
     agent_builder.write_builder_pack(pack_dir, tmp_path / "builder-out")
 
     after = sorted(p.name for p in upload_dir.iterdir())
-    assert "08-reading-guide.txt" not in after
-    assert "13-board-plan-trust.txt" not in after
+    assert "09-reading-guide.txt" not in after
+    assert "12-board-plan-trust.txt" not in after
     assert after == sorted(current + ["notes.md"]), (
         "a rebuild changed the upload set beyond removing the superseded files")
     assert len(after) - 1 <= agent_builder.KNOWLEDGE_SOURCE_LIMIT
@@ -682,10 +684,15 @@ def test_the_uploaded_data_is_the_pack_byte_for_byte(tmp_path):
 
     Built with a pack export so every name in `UPLOAD_DATA_FILES` -- including
     `07-packs.csv`, present only on this fixture -- has a source file to
-    compare against.
+    compare against. The optional names are compared where the pack produced
+    them and skipped where it did not: `09-week-roster.csv` is absent from a
+    pack whose data date falls outside its own weeks, which is what today's
+    date is against a 2025 fixture.
     """
     pack_dir, upload_dir, _ = _builder_with_packs(tmp_path)
     for name in agent_builder.UPLOAD_DATA_FILES:
+        if name in agent_builder.OPTIONAL_DATA_FILES and not (pack_dir / name).exists():
+            continue
         assert (upload_dir / name).read_bytes() == (pack_dir / name).read_bytes(), (
             f"{name} differs between the two deliveries")
 
@@ -1032,3 +1039,66 @@ def test_a_run_with_no_agent_folder_anywhere_is_still_a_clean_run(tmp_path, monk
     assert build.main(["--out", str(tmp_path / "pack"), "--year", "2025"]) == 0
     out = capsys.readouterr().out
     assert build.AGENT_DIR_ENV in out and "--agent-dir" in out
+
+
+def _builder_with_a_live_data_date(tmp_path):
+    """`_builder`, dated inside the plan it describes.
+
+    `_builder` takes today's date, which on a 2025 fixture is long past the
+    last week in it -- the state that legitimately has no roster. A delivery
+    that carries the roster has to be built from a pack that has one.
+    """
+    config = ReportConfig(date_from=date(2025, 1, 1), date_to=date(2025, 12, 31))
+    scope = load_fixture_scope(tmp_path / "csv", config)
+    pack_dir = agent_pack.write_pack(scope, config, tmp_path / "pack-out",
+                                     generated=date(2025, 4, 2))
+    out_dir = tmp_path / "builder-out"
+    return agent_builder.write_builder_pack(pack_dir, out_dir, scope, config)
+
+
+def test_the_second_delivery_carries_the_week_roster_too(tmp_path):
+    """Two deliveries answering the same question differently is the failure
+    this file exists to prevent. The roster is the file that makes "what is on
+    this week" answerable, so an upload folder without it hands the Agent
+    Builder agent the same gap the first delivery just closed."""
+    upload_dir = _builder_with_a_live_data_date(tmp_path)
+
+    assert (upload_dir / agent_pack.ROSTER_CSV_NAME).exists()
+    # And it sorts with the data files, ahead of the rule documents -- the
+    # numbering the prompt names, and the reason they shifted up by one.
+    names = sorted(p.name for p in upload_dir.iterdir())
+    assert names.index(agent_pack.ROSTER_CSV_NAME) < names.index("10-reading-guide.txt")
+
+
+def test_the_second_delivery_survives_a_pack_that_has_no_roster(tmp_path):
+    """The other half of the same rule, and the one a copy loop gets wrong:
+    the file is optional, so its absence is a delivery to be built, not a
+    crash."""
+    _, upload_dir, _ = _builder(tmp_path)
+
+    assert not (upload_dir / agent_pack.ROSTER_CSV_NAME).exists()
+
+
+def test_the_second_delivery_states_the_overlap_filter(tmp_path):
+    upload_dir = _builder_with_a_live_data_date(tmp_path)
+    text = (upload_dir.parent / agent_builder.INSTRUCTIONS_NAME).read_text(
+        encoding="utf-8")
+
+    assert "Start <= " in text and "End >= " in text
+    assert agent_pack.ROSTER_CSV_NAME in text
+    assert "never a period filter" in text.lower()
+
+
+def test_the_contract_names_the_drawing_file_the_delivery_writes():
+    """The contract tells the agent to open the renderer by name, and the
+    numbering shifts every time a data file is added. Two literals, in two
+    files, that must agree and never had to prove it: the roster pushed the
+    bundle from 14 to 15 and the contract went on naming 14, which reads to
+    the agent as a missing file and to nobody else as anything at all.
+    """
+    for key, text in dashboard_contract.CONTRACTS.items():
+        assert "14-board-draw.txt" not in text, (
+            f"{key} names a file number the delivery no longer writes")
+        if "board-draw" in text:
+            assert agent_builder.BUNDLE_FILE_NAME in text, (
+                f"{key} names the renderer by a name the delivery does not write")

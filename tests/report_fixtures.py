@@ -101,6 +101,14 @@ INTERNAL_ROWS = [
     _row(15, "IC-0015", "Lowest word priority", "2025-07-08", **{"Priority": "Low"}),
     _row(16, "IC-0016", "Low numbered priority", "2025-10-14",
          **{"Priority": "4 - deprioritised"}),
+    # Every other row here ends on the day it starts, which is what let the
+    # whole pack describe a week by the week an activity STARTS in and never
+    # be caught: with no run longer than a day, "starting" and "active" are
+    # the same number in every test. This one runs four weeks and crosses a
+    # quarter boundary, so a file that places it by its start alone reports a
+    # different figure from one that places it by where it is running.
+    _row(21, "IC-0021", "Runs four weeks from March into April", "2025-03-26",
+         **{"End date": "2025-04-16"}),
 ]
 
 # Same tracking ID as IC-0001 with an older Modified: must lose the de-dup.
@@ -119,8 +127,8 @@ EXTERNAL_ROWS = [
 
 EXTERNAL_ARCHIVE_ROWS = []
 
-# 19 internal + 1 surviving archive + 2 external, minus the losing duplicate.
-FIXTURE_ROW_COUNT = 22
+# 20 internal + 1 surviving archive + 2 external, minus the losing duplicate.
+FIXTURE_ROW_COUNT = 23
 
 # The pack export, in the source's own column names -- taken from a real
 # export rather than from the form's field labels. The first version of this

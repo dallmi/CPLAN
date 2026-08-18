@@ -32,7 +32,7 @@ $rawBase = "https://raw.githubusercontent.com/dallmi/CPLAN/main"
 # Bump it in the same commit as ANY change to this file: the date, or the
 # suffix when the date is already today's. `tests/test_check_manifest.py` fails
 # until it is bumped, and says so.
-$manifestVersion = "2026-08-17.13"
+$manifestVersion = "2026-08-18.1"
 
 # file (repo-relative) = marker string that only the CURRENT version contains.
 # Maintained together with the code: when a listed file changes upstream, its
@@ -40,7 +40,7 @@ $manifestVersion = "2026-08-17.13"
 $manifest = @(
     # First, because an outdated copy of this script answers every question
     # below with an outdated list, and does it in green.
-    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-17.13"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
+    @{ Path = "check.ps1";                     Marker = '$manifestVersion = "2026-08-18.1"'; Why = "this script itself - an old copy checks a new repository against an old manifest and reports it fine" },
     @{ Path = "pipeline\api\database.py";      Marker = "_CREATE_NO_WINDOW";                 Why = "detached DB start, cache eviction, readiness probe" },
     @{ Path = "pipeline\api\database.py";      Marker = "_evict_cached_server_instance";     Why = "retry-poisoning fix" },
     @{ Path = "fix-db.ps1";                    Marker = "Win32_Process";                     Why = "orphaned postgres.exe killer" },
@@ -196,7 +196,7 @@ $manifest = @(
     # rule is what stops an agent reporting the previous year's quarter on an
     # in-scope activity as a data error; the derived grading is what stops the
     # checklist calling a question a count while the summary states its answer.
-    @{ Path = "pipeline\report\agent_pack.py"; Marker = "overlap test, not a start-date test"; Why = "scope is an overlap test - without the sentence, an agent flags a Q4-2025 label inside a 2026 report as an anomaly worth reviewing" },
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "Every question about a period is an overlap test"; Why = "scope is an overlap test - without the sentence, an agent flags a Q4-2025 label inside a 2026 report as an anomaly worth reviewing" },
     @{ Path = "pipeline\report\agent_pack.py"; Marker = "You might also ask";             Why = "every answer offers its own follow-ups - Copilot Studio has no follow-up chips, only starter prompts on the welcome page, so an older copy leaves each answer a dead end" },
     @{ Path = "pipeline\report\agent_pack.py"; Marker = "TEAM_SIGNATURE";                 Why = "the agent is the fourth surface signed with the team name, and the footer carries it beside the data vintage on one line - an older copy omits the credit, and an operator adding it by hand makes it a second footer" },
     @{ Path = "pipeline\report\agent_pack.py"; Marker = "ORGANISATION_PLACEHOLDER";       Why = "the full agent instructions ship organisation-neutral through a public repository - an older copy carries only the addendum and leaves the stale Excel and audience-reach lines in place" },
@@ -230,7 +230,7 @@ $manifest = @(
     # got its own routing row -- a marker that still said "five" here would
     # be stale by construction, watching text nothing shipped since Task 9
     # still contains. The Why below records why the count moved this time.
-    @{ Path = "pipeline\report\agent_pack.py"; Marker = "six files shipped with"; Why = "the skill text counts the files in its own routing table, which gained a sixth row for 07-packs.csv - an older copy still says five, and a question the pack file uniquely answers routes to 03-data-quality.txt's counts instead" },
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "_FILE_COUNT_WORDS"; Why = "the skill text counts the files in its own routing table rather than stating a number beside it - an older copy carries one hand-written count per rendering, and with two optional files there are four renderings and nobody builds all four" },
     # A third skill, in a file of its own rather than folded into the other two
     # entries above: the named board catalogue. agent_pack.py imports it at
     # module scope, so a copy that has the new agent_pack.py but not this new
@@ -559,7 +559,7 @@ $manifest = @(
     # Builder's prompt now points at 07-packs.csv in its own file list, and
     # its reading guide says how to join an activity row to that file. An
     # older copy ships the pack file but never tells the agent it is there.
-    @{ Path = "pipeline\report\agent_builder.py"; Marker = "including packs with nothing planned"; Why = "the prompt's file list names 07-packs.csv - an older copy is silent about the pack file even though it already ships in the upload folder, so the agent never retrieves it" },
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "including those with nothing planned"; Why = "the prompt's file list names 07-packs.csv - an older copy is silent about the pack file even though it already ships in the upload folder, so the agent never retrieves it" },
     @{ Path = "pipeline\report\agent_builder.py"; Marker = "worth reporting when it is common"; Why = "the reading guide explains the Pack ID join and that activities_in_scope = 0 is an answer, not a defect - an older copy has no Packs section, so an agent asked a pack's lead or objective has no file it knows to open" },
 
     # Same pointer, mirrored into the Studio skill with the fuller wording
@@ -636,13 +636,13 @@ $manifest = @(
     @{ Path = "pipeline\report\agent_pack.py";  Marker = "The period goes too"; Why = "the pack drops the report period and report_exclusion picks it up - an older copy either answers only about the report year or, worse, claims out-of-year rows are in the workbook" },
     @{ Path = "pipeline\scripts\report_calendar.py"; Marker = "unbounded_by_design"; Why = "the wide-calendar warning is suppressed where the unbounded span is the product working - an older copy prints an alarm on every agent-pack run, which is how an alarm stops being read on the workbook run too" },
     @{ Path = "pipeline\scripts\build_agent_pack.py"; Marker = "unbounded_by_design=True"; Why = "the pack command declaring its widening deliberate - without it the run is indistinguishable from an operator who mistyped a year" },
-    @{ Path = "pipeline\report\agent_builder.py"; Marker = "it covers every year"; Why = "the prompt now says the pack is wider in time as well as in scope - an older copy names two of the three ways it is wider, and the agent reconciles against a workbook on the wrong basis" },
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "every year, plus the deprioritised bucket"; Why = "the prompt now says the pack is wider in time as well as in scope - an older copy names two of the three ways it is wider, and the agent reconciles against a workbook on the wrong basis" },
     # The grain between one week and the whole period was missing, and its
     # absence was measured on the real agent: over two minutes and repeated
     # timeouts for one year-over-year comparison, because it had to sum fifty
     # week rows per value per year out of the calendar.
     @{ Path = "pipeline\report\agent_pack.py";  Marker = "PERIODS_CSV_NAME"; Why = "the year, quarter and year-to-date rollups - an older copy makes the agent sum the week grain for every period comparison, which times out, and its year-to-date cut is whatever the model guesses" },
-    @{ Path = "pipeline\report\agent_builder.py"; Marker = "09-reading-guide.txt"; Why = "the rule documents moved up behind the new data file - an older copy uploads a folder whose numbering collides at 08 and whose prompt names files by the wrong number" },
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "10-reading-guide.txt"; Why = "the rule documents moved up behind the new data file - an older copy uploads a folder whose numbering collides at 09 and whose prompt names files by the wrong number" },
     @{ Path = "pipeline\report\agent_pack.py";  Marker = "PERIOD_BLOCKS"; Why = "which blocks are worth comparing over time - an older copy multiplies every country and every named person by every year and quarter, and the period file dwarfs the pack it belongs to" },
     @{ Path = "pipeline\report\agent_pack.py";  Marker = "the planner audience's own recurring question"; Why = "channel is broken down at last - an older copy answers which channels are overused from nowhere, because the field appeared in no block of any file" },
     # Which dimensions the aggregate files carry has been decided by estimate
@@ -710,7 +710,7 @@ $manifest = @(
     # not write.
     @{ Path = "pipeline\report\agent_pack.py"; Marker = "Somebody asks now"; Why = "quarter grain carries the three shares a quarterly board reads, not the count alone - an older copy writes a pack whose quarter rows cannot fill the contract, and the agent either answers with a year figure or with nothing" },
     @{ Path = "pipeline\report\dashboard_skill.py"; Marker = "Still three boards"; Why = "the overview is routed to its contract and its drawn panel list is gone - an older copy offers both, so one board name has a drawn answer and a rendered one and nothing chooses between them" },
-    @{ Path = "pipeline\report\agent_builder.py"; Marker = "13-contract-campaign-activity-overview.txt"; Why = "the upload numbering follows the overview becoming a contract - an older copy delivers a drawn board file under a number the prompt no longer names, beside the contract that replaced it" },
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "14-contract-campaign-activity-overview.txt"; Why = "the upload numbering follows the overview becoming a contract - an older copy delivers a drawn board file under a number the prompt no longer names, beside the contract that replaced it" },
 
     # The manifest covered what the pack run imports and nothing else, which
     # left the whole render path outside it. That was survivable while the
@@ -744,7 +744,7 @@ $manifest = @(
     @{ Path = "pipeline\report\board_bundle.py"; Marker = "does not write pages"; Why = "the HTML renderer's helpers are stubbed to refuse inside the bundle - an older copy lets a call that cannot work surface later as a NameError about a template nobody shipped" },
     @{ Path = "pipeline\report\board_image.py"; Marker = "_DEJAVU_FEDORA"; Why = "the font ladder leads with the faces the agent's sandbox actually has, per weight rather than per index - an older copy prefers a local face, so the board rendered here is not the board a reader receives" },
     @{ Path = "pipeline\report\agent_builder.py"; Marker = "BUNDLE_FILE_NAME"; Why = "the drawing code is delivered as a knowledge file beside the contract - an older copy uploads a contract telling the agent to run a file that was never sent" },
-    @{ Path = "pipeline\report\dashboard_contract.py"; Marker = "14-board-draw.txt"; Why = "the contract says to run the shipped renderer rather than to draw - an older copy asks for a JSON object and leaves the picture to whoever reads it" },
+    @{ Path = "pipeline\report\dashboard_contract.py"; Marker = "_CONTRACT_TEMPLATE"; Why = "the contract says to run the shipped renderer rather than to draw, and names it from one place - an older copy asks for a JSON object and leaves the picture to whoever reads it" },
 
     # Real data, first contact. The board drew, and three things the sample had
     # never tested showed up at once: the lead-time tile read -367 days, the
@@ -799,7 +799,7 @@ $manifest = @(
     # two contracts answer to one board and retrieval picks.
     @{ Path = "pipeline\report\dashboard_contract.py"; Marker = "contract-campaign-activity-overview.md"; Why = "one board, one name, and it is the one on the page - an older copy names the contract after the role, so the catalogue routes to a file the archive does not contain" },
     @{ Path = "pipeline\report\dashboard_skill.py"; Marker = "Campaign activity overview |"; Why = "the routing table names the board as the page titles it - an older copy sends a reader who asked for the name they were given to no row at all" },
-    @{ Path = "pipeline\report\agent_builder.py"; Marker = "13-contract-campaign-activity-overview.txt"; Why = "the upload is named after the board - an older copy writes the previous filename, and uploading it beside the one already in the agent leaves two contracts under one board name" },
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "14-contract-campaign-activity-overview.txt"; Why = "the upload is named after the board - an older copy writes the previous filename, and uploading it beside the one already in the agent leaves two contracts under one board name" },
 
     # The suite proves every board citation resolves; seed data can never say
     # whether it resolves to a figure worth a chart, because the seed has no
@@ -865,7 +865,30 @@ $manifest = @(
     @{ Path = "pipeline\report\data.py"; Marker = "Resolved first, before anything counts"; Why = "the resolved column is put on the frame before any count or filter runs - an older copy leaves the summary counting one population and the pack file another, and an agent reading both is handed a contradiction" },
     @{ Path = "pipeline\report\agent_pack.py"; Marker = "activities_by_pack_field"; Why = "the pack file states the chain's count with both halves beside it - an older copy states one number with nothing to check it against, and the change of rule is invisible in the file itself" },
     @{ Path = "pipeline\report\table_sheets.py"; Marker = "pack_cpid_used"; Why = "the activity rows carry the resolved pack, its source and the raw field - an older copy exports the field as `Pack ID`, so counting rows there lands on a different number than the pack file states" },
-    @{ Path = "pipeline\report\metrics.py"; Marker = "packs.RESOLVED_COLUMN"; Why = "the summary counts activities with and without a pack through the resolved column - an older copy counts the field, and 01-summary.txt then contradicts 07-packs.csv on the same run" }
+    @{ Path = "pipeline\report\metrics.py"; Marker = "packs.RESOLVED_COLUMN"; Why = "the summary counts activities with and without a pack through the resolved column - an older copy counts the field, and 01-summary.txt then contradicts 07-packs.csv on the same run" },
+
+    # "What is on this week" was answered with half the list, twice, and the
+    # pack is what made that the likely answer: every week-shaped column in it
+    # labelled an activity by the week it STARTS in, so no file could say what
+    # was RUNNING. An old copy of any file below still ships a pack whose only
+    # honest answer to a question about a week is a filter over the largest
+    # file in it -- which retrieval returns in fragments, so the list comes
+    # back short without looking short.
+    @{ Path = "pipeline\report\grid.py";     Marker = "def active_week_indices";        Why = "the grid can say which weeks a run touches, not only which week it starts in - without it the roster, the calendar's active column and Active weeks all fall back to the start week" },
+    @{ Path = "pipeline\report\table_sheets.py"; Marker = "_start_week";                 Why = "the column is called Start week, not ISO week - on a row that also carries End, the shorter name reads as 'the week this is on' and is what taught the filter that answered the question wrongly" },
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "def roster_rows";               Why = "09-week-roster.csv answers 'what is on this week' by being read - an older copy has no such file, and the routing table sends the question back to the activities file" },
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "def active_weeks_cell";         Why = "every week an activity runs through is a literal token on its row - while the week token sat only on rows starting that week, no rule written in prose could make a chunked read return an activity still running" },
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "'starting', 'active'"; Why = "the calendar counts what runs in a week beside what starts in it, and a week inside a long run finally has a row - an older copy calls one column `activities` and leaves the busy week looking empty" },
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "def anchor_lines";              Why = "the summary resolves the data date to an ISO week with its Monday and Sunday, and names the roster window - an older copy leaves 'this week' to calendar arithmetic the agent does in its head" },
+    @{ Path = "pipeline\report\agent_pack.py"; Marker = "Running on the data date";      Why = "the summary states how many activities are live on the data date - the three horizon buckets beside it all cut on the start date, and 'Planned to date' is the tile a reader takes for 'what is on'" },
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "OPTIONAL_DATA_FILES";        Why = "the second delivery copies the roster and tolerates its absence - an older copy either crashes on a pack without one or ships an upload folder missing the file its own prompt names" },
+    @{ Path = "pipeline\report\agent_builder.py"; Marker = "12-board-leadership-attention.txt"; Why = "the rule documents and the drawing code moved up behind 09-week-roster.csv - an older copy uploads a folder whose numbering collides at 09 and whose prompt names files by the wrong number" },
+    @{ Path = "pipeline\report\board_bundle.py"; Marker = "DELIVERED_BUNDLE_NAME";       Why = "the delivered renderer is numbered in one place, which the contract and the upload both read - an older copy leaves the two naming it separately, and the contract sent the agent after a number the delivery had stopped writing" },
+    @{ Path = "pipeline\report\dashboard_contract.py"; Marker = "board_bundle.DELIVERED_BUNDLE_NAME"; Why = "the contract names the renderer by the delivery's own constant - an older copy hardcodes a number that the next data file makes wrong, and a contract naming a missing file reads to the agent as a broken instruction" },
+    @{ Path = "pipeline\mcp\queries.py";     Marker = "active_from";                     Why = "the overlap window is one named pair of arguments - an older copy can only express it as start_before AND end_after in that crossed pairing, which is the shape that kept being got wrong" },
+    @{ Path = "pipeline\mcp\queries.py";     Marker = "count_mode";                      Why = "calendar_load counts what runs in a week as well as what starts in it, and says which - an older copy answers 'how busy is that week' with start dates only" },
+    @{ Path = "pipeline\mcp\server.py";      Marker = "active_from";                     Why = "the overlap window reaches the tools an agent actually calls - an older copy accepts only the four bounds, so the right filter is unreachable from the surface" },
+    @{ Path = "pipeline\mcp\domain.py";      Marker = "the obvious filter is not it";    Why = "the domain resource names the period trap before an agent answers - an older copy lists five traps and not the one that produced a confidently short list" }
 )
 
 Write-Host ""

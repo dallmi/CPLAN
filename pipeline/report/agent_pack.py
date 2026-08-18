@@ -56,6 +56,7 @@ from pipeline.report.config import (
     FIELD_TITLES,
     LARGE_AUDIENCE_BANDS,
     SHORT_NOTICE_DAYS,
+    ReportConfig,
 )
 from pipeline.report.data import EXCLUSION_ORDER
 from pipeline.report.table_sheets import ACTIVITY_COLUMNS, _glossary_sections
@@ -112,11 +113,90 @@ ACTIVITIES_CSV_NAME = "05-activities.csv"
 BREAKDOWN_NAME = "06-breakdowns.csv"
 PACKS_CSV_NAME = "07-packs.csv"
 PERIODS_CSV_NAME = "08-periods.csv"
+ROSTER_CSV_NAME = "09-week-roster.csv"
 
 # No `Category` column: the form is documented to have one, the export does
 # not carry it, and a header over permanently empty cells asserts a
 # distinction the data never made -- the same reason the leadership split
 # columns arrive with a member list and not before.
+# The two columns the workbook has no use for and the pack cannot work
+# without. A retrieval index matches literal tokens: while `2025-W15` appeared
+# only on rows STARTING that week, no rule written in prose could make a
+# chunked read return an activity that started in W13 and was still running --
+# the token was not on the row to match. `Active weeks` puts it there, so the
+# overlap test costs the agent nothing and happens whether it knows the rule
+# or not.
+#
+# Pack-only rather than added to `ACTIVITY_COLUMNS`: a human reading the
+# workbook has `Start` and `End` side by side on the row in front of them and
+# needs no third spelling of the same fact. This module renders the same
+# figures with the opposite priorities, and these two are the clearest case of
+# it in the file.
+ACTIVE_WEEK_COLUMNS = (("_end_week", "End week"), ("_active_weeks", "Active weeks"))
+
+# Past this many weeks the cell states its span instead of listing it. One
+# activity may not cost a retrieval chunk on its own: a multi-year run would
+# otherwise write a hundred-odd tokens into a single cell and crowd out the
+# rows around it, which is the same budget argument that keeps empty weeks out
+# of `04-calendar.csv`. `Start week` and `End week` still carry the span
+# exactly, so nothing is lost beyond the per-week tokens -- and an activity
+# running a quarter of a year is not found by asking which week it is in.
+MAX_LISTED_ACTIVE_WEEKS = 12
+
+
+def pack_activity_columns():
+    """`ACTIVITY_COLUMNS` with the overlap pair spliced in after the start week.
+
+    Derived rather than restated: a column added to the workbook's list has to
+    reach the pack too, and the two files answering the same question with
+    different columns is the drift this whole module exists to prevent.
+    """
+    columns = []
+    for entry in ACTIVITY_COLUMNS:
+        columns.append(entry)
+        if entry[0] == "_start_week":
+            columns.extend(ACTIVE_WEEK_COLUMNS)
+    return tuple(columns)
+
+
+def _day(activity, field):
+    """A `start_day` / `end_day` cell as a date, or None where there is none.
+
+    `end_day` is NaN on every activity the export gave no end date, and NaN is
+    not comparable with a date -- the `value == value` idiom the rest of this
+    file uses for the same reason.
+    """
+    value = activity.get(field)
+    return value if value is not None and value == value else None
+
+
+def _cell(activity, field):
+    """One field as a CSV cell: the value, or "" for anything missing."""
+    value = activity.get(field)
+    return "" if value is None or value != value else value
+
+
+def week_label(week):
+    """One ISO week as every file in the pack spells it: `2025-W15`."""
+    return f"{week.iso_year}-{week.label}"
+
+
+def active_weeks_cell(weeks):
+    """The `Active weeks` cell for a run covering `weeks`, longest-run capped.
+
+    Space-separated rather than comma-separated, and that is the whole point:
+    each label has to survive as its own token so a search for `2025-W15`
+    matches the cell. A comma-joined list reads as one value to half the
+    tooling here already -- see the channel trap in the glossary.
+    """
+    if not weeks:
+        return ""
+    labels = [week_label(week) for week in weeks]
+    if len(labels) <= MAX_LISTED_ACTIVE_WEEKS:
+        return " ".join(labels)
+    return f"{labels[0]} to {labels[-1]} ({len(labels)} weeks)"
+
+
 PACKS_HEADER = ("Pack ID", "Cluster prefix", "Pack no.", "Pack", "Cluster",
                 "Lead", "Lead team", "Partner team", "Divisions", "Regions",
                 "Objective", "Start", "End", "Launch", "Description",
@@ -139,8 +219,18 @@ PACK_FIELDS = ("cpid", "pack_name", "tracking_cluster", "lead",
 TOTAL_BLOCK = "TOTAL"
 TOTAL_VALUE = "all activities"
 
+# The calendar's two counts, 'starting', 'active', where there used to be one
+# column called `activities`. The rename is the point: a single count under that name was
+# read as "the activities in this week", it was never that, and no rule
+# written elsewhere survived a column header saying otherwise.
+#
+# `starting` places each activity once, in the week it begins -- a partition
+# of the portfolio, and what a board adds up. `active` counts every activity
+# whose run touches the week, which is what "what is on this week" asks and
+# what the report's own scope rule has always meant by "in the period". The
+# two differ for every activity that outlives its own start week.
 CALENDAR_HEADER = ("block", "value", "overlaps", "iso_year", "iso_week",
-                   "week_start", "activities")
+                   "week_start", "starting", "active")
 
 BREAKDOWN_HEADER = ("block", "value", "overlaps", "measure", "figure")
 
@@ -301,12 +391,20 @@ def iter_blocks(scope, config):
 
 
 def calendar_rows(scope, config):
-    """One row per block x value x week, weeks with no activity left out.
+    """One row per block x value x week, weeks with nothing at all left out.
 
     A zero row would be true but useless: it multiplies the file by the number
     of empty week/value pairs -- on a year and a few dozen values that is most
     of them -- and every one of them competes for the same retrieval budget as
     a row that says something.
+
+    What counts as empty is the part that changed. It used to mean "nothing
+    starts here", which made a week in the middle of a six-week campaign
+    indistinguishable from a week nobody planned anything in: the row was
+    absent from the file, and an agent reading the gap reported a quiet week
+    over a busy one. A week is empty now only when nothing starts in it AND
+    nothing is running through it, so `starting` can legitimately be 0 on a
+    row whose `active` is not.
     """
     weeks = {week.key: week for week in scope.grid.weeks}
     rows = []
@@ -315,16 +413,102 @@ def calendar_rows(scope, config):
             continue
         if subset.empty or "week_index" not in subset.columns:
             continue
-        counts = {}
-        for index in subset["week_index"]:
-            counts[scope.grid.weeks[int(index)].key] = (
-                counts.get(scope.grid.weeks[int(index)].key, 0) + 1)
-        for key in sorted(counts):
+        starting, active = {}, {}
+        for _, activity in subset.iterrows():
+            index = activity["week_index"]
+            if index is not None and index == index:
+                key = scope.grid.weeks[int(index)].key
+                starting[key] = starting.get(key, 0) + 1
+            for position in scope.grid.active_week_indices(
+                    _day(activity, "start_day"), _day(activity, "end_day")):
+                key = scope.grid.weeks[position].key
+                active[key] = active.get(key, 0) + 1
+        for key in sorted(set(starting) | set(active)):
             week = weeks[key]
             rows.append((block, value, "yes" if overlaps else "no",
                          week.iso_year, week.label, week.monday.isoformat(),
-                         counts[key]))
+                         starting.get(key, 0), active.get(key, 0)))
     return rows
+
+
+ROSTER_HEADER = ("iso_year", "iso_week", "week_start", "week_end",
+                 "starts_this_week", "Tracking ID", "Activity", "Channel",
+                 "Priority", "Start", "End", "Lead team", "Pack ID")
+
+# How far either side of the data date the roster reaches. Backwards because
+# "what did we run last month" is asked as often as "what is coming", and only
+# a little way backwards because the answer to that one is not urgent. Forwards
+# far enough to cover a quarter's planning conversation.
+#
+# A window at all, rather than every week of the plan: rostered over a
+# multi-year portfolio this file is the activities file again at several times
+# the size, and its whole value is being small enough that a retrieval index
+# returns a week WHOLE. Everything outside the window is still in
+# `05-activities.csv`, where `Active weeks` now carries the same tokens.
+ROSTER_WEEKS_BEFORE = 4
+ROSTER_WEEKS_AHEAD = 12
+
+
+def roster_weeks(scope, generated):
+    """The grid positions the roster covers: the data date, plus or minus.
+
+    Empty when the two do not meet -- a pack rebuilt long after the plan it
+    covers, which is a real state (`vintage` exists because this pack is built
+    by hand, by one person, who takes holidays). The caller writes no file at
+    all in that case rather than an empty one, because an empty roster reads
+    as "nothing is planned" and that is the one thing it must never say.
+    """
+    weeks = scope.grid.weeks
+    if not weeks:
+        return ()
+    monday = generated - timedelta(days=generated.weekday())
+    first = monday - timedelta(weeks=ROSTER_WEEKS_BEFORE)
+    last = monday + timedelta(weeks=ROSTER_WEEKS_AHEAD)
+    return tuple(index for index, week in enumerate(weeks)
+                 if first <= week.monday <= last)
+
+
+def roster_rows(scope, generated):
+    """One row per week x activity, for every activity running in that week.
+
+    The file the failure that prompted it could not have survived: asked which
+    activities were on in a given week, an agent had to filter the whole
+    activities file on two date columns, over a portfolio far larger than any
+    retrieval index returns whole -- so it answered from the fragments it
+    happened to get back, and the answer was short by half. Here the week is a
+    literal token on the row and the row IS the answer, so nothing is
+    calculated and nothing has to be seen in full.
+
+    Ordered by week, then by start date, then by tracking id: a week reads as
+    a running order, and the ordering is total, so two runs of the same pack
+    produce the same file.
+    """
+    frame = scope.frame
+    positions = roster_weeks(scope, generated)
+    if not positions or frame.empty:
+        return []
+    wanted = set(positions)
+    rows = []
+    for _, activity in frame.iterrows():
+        start = _day(activity, "start_day")
+        end = _day(activity, "end_day")
+        start_index = activity["week_index"]
+        start_index = int(start_index) if start_index is not None and start_index == start_index else None
+        for position in scope.grid.active_week_indices(start, end):
+            if position not in wanted:
+                continue
+            week = scope.grid.weeks[position]
+            rows.append((
+                week.iso_year, week.label, week.monday.isoformat(),
+                (week.monday + timedelta(days=6)).isoformat(),
+                "yes" if position == start_index else "no",
+                _cell(activity, "tracking_id"), _cell(activity, "activity_name"),
+                _cell(activity, "channel"), _cell(activity, "priority"),
+                start.isoformat() if start else "",
+                end.isoformat() if end else "",
+                _cell(activity, "lead_team"), _cell(activity, "pack_cpid_used"),
+            ))
+    return sorted(rows, key=lambda row: (row[0], row[1], row[9], row[5]))
 
 
 def _measures(subset):
@@ -555,6 +739,56 @@ def vintage(generated):
     return f"Data as of {generated.isoformat()} (CPLAN pack generation date)"
 
 
+def anchor_lines(scope, generated):
+    """What "this week" means, and where to look it up.
+
+    The pack stated a build date and stopped there, which left every
+    time-relative question -- this week, the next fortnight, next month --
+    resting on calendar arithmetic done in the agent's head. It got the
+    arithmetic right and the column wrong, which is the more expensive half:
+    an ISO week resolved correctly and then matched against the week an
+    activity STARTS in still answers the wrong question.
+
+    So the week is named, its Monday and Sunday are given as dates a reader can
+    match against `Start` and `End` without converting anything, and the file
+    that answers by the week is named beside it. Where there is no roster --
+    the data date lying outside the weeks this pack covers, which happens to a
+    pack rebuilt long after the plan it describes -- that is said outright,
+    because a named file that is not there sends the agent looking and an
+    unnamed absence lets it conclude nothing is planned.
+    """
+    monday = generated - timedelta(days=generated.weekday())
+    iso = monday.isocalendar()
+    lines = [
+        "", "THE DATA DATE AS A WEEK", "-" * 23,
+        f"  The data date {generated.isoformat()} falls in ISO week "
+        f"{iso[0]}-W{iso[1]:02d}, which runs {monday.isoformat()} to "
+        f"{(monday + timedelta(days=6)).isoformat()}.",
+        f"  The two weeks after it run {(monday + timedelta(days=7)).isoformat()} "
+        f"to {(monday + timedelta(days=13)).isoformat()} and "
+        f"{(monday + timedelta(days=14)).isoformat()} to "
+        f"{(monday + timedelta(days=20)).isoformat()}.",
+        "  \"This week\" means the week of the data date, never the week you "
+        "are reading this in. Say which week you answered for.",
+    ]
+    positions = roster_weeks(scope, generated)
+    if positions:
+        first = scope.grid.weeks[positions[0]]
+        last = scope.grid.weeks[positions[-1]]
+        lines.append(
+            f"  {ROSTER_CSV_NAME} lists what is RUNNING in each week from "
+            f"{week_label(first)} ({first.monday.isoformat()}) to "
+            f"{week_label(last)} ({(last.monday + timedelta(days=6)).isoformat()}). "
+            "Read a week off it; do not filter the activities file by hand.")
+    else:
+        lines.append(
+            f"  There is no week roster in this pack ({ROSTER_CSV_NAME}): the "
+            "data date falls outside the weeks this plan covers, which means "
+            "the pack is describing a period that has passed. Answer a "
+            "question about \"this week\" by saying so, not with a count.")
+    return lines
+
+
 def _summary_sections(scope, config, generated):
     """The Executive Summary's sections, as (title, [(label, value)]) pairs.
 
@@ -601,8 +835,19 @@ def _summary_sections(scope, config, generated):
         to_date = int((starts <= generated).sum())
         soon = int(((starts > generated)
                     & (starts <= generated + timedelta(days=30))).sum())
+        # The figure the three buckets below cannot produce between them. They
+        # partition the portfolio by START date, so an activity that began in
+        # March and runs until May counts as planned to date and appears
+        # nowhere as live -- and "planned to date" is exactly the tile a reader
+        # takes for "what is on". Overlap, using the same `covers` test the
+        # period filter uses, so the pack has one definition of "in a window"
+        # and not two.
+        running = sum(1 for start, end in zip(frame["start_day"], frame["end_day"])
+                      if start == start
+                      and ReportConfig(date_from=generated, date_to=generated)
+                      .covers(start, end if end == end else None))
     else:
-        to_date = soon = 0
+        to_date = soon = running = 0
     # "Next 30 days" alone is a claim about today, and a pack that is weeks
     # old by the time anyone reads it is not describing today: the label has
     # to carry its own anchor so a reader (or an agent quoting only this
@@ -613,6 +858,11 @@ def _summary_sections(scope, config, generated):
         ("Planned to date", to_date),
         ("Next 30 days from the data date", soon),
         ("Rest of the period", total - to_date - soon),
+        # Deliberately not part of the partition above, and placed after it so
+        # nobody subtracts it from anything: this one counts activities whose
+        # run covers the data date, and every one of them is already inside
+        # "Planned to date".
+        ("Running on the data date", running),
     ]
 
     stats = metrics.load_stats(scope)
@@ -751,6 +1001,7 @@ def summary_text(scope, config, generated=None, report_config=None):
         "date outside the period is OUT OF SCOPE -- not zero.")
     lines += _held_back(scope)
     lines += _wider_than_the_report(scope, report_config)
+    lines += anchor_lines(scope, generated)
     for title, rows in _summary_sections(scope, config, generated):
         lines += ["", title, "-" * len(title)]
         for label, value in rows:
@@ -788,12 +1039,23 @@ def glossary_text(scope, config):
     title = "RULES THE WORKBOOK STATES ONLY BY LAYOUT"
     lines += ["", title, "-" * len(title)]
     for rule in (
-        "Scope is an overlap test, not a start-date test. An activity whose run "
-        "touches the period is in scope even when it starts before it, so a "
-        "report for one year legitimately contains activities whose quarter or "
-        "ISO week names the year before: those columns label the START, and the "
-        "start may lie outside the period. That is not a data error, and it "
-        "does not need reviewing.",
+        "Every question about a period is an overlap test, and this is the "
+        "filter: Start <= <end of the period> AND End >= <start of the "
+        "period>. That holds for the report's own scope and for every question "
+        "anyone asks of it -- this week, the next fortnight, in August. An "
+        "activity whose run touches the period is in it even when it starts "
+        "before it, so a report for one year legitimately contains activities "
+        "whose start quarter or start week names the year before. That is not "
+        "a data error and does not need reviewing.",
+        f"Start week and Start quarter label the START, and are never a period "
+        f"filter. Filtering them answers \"what STARTS in this period\", "
+        f"which is a different question and usually not the one asked. To ask "
+        f"what is RUNNING: read {ROSTER_CSV_NAME} for a week inside its "
+        f"window, the active column of {CALENDAR_NAME} for a count, or Active "
+        f"weeks in {ACTIVITIES_CSV_NAME} for a week outside it. Never derive "
+        f"it by filtering {ACTIVITIES_CSV_NAME} on the two date columns: it is "
+        "the largest file here, you see it in fragments, and a filter over "
+        "fragments returns a short list that looks complete.",
         f"Overlapping rows do not sum. In {CALENDAR_NAME} a row with "
         "overlaps=yes belongs to a block where an activity naming two values "
         f"appears under both. block={TOTAL_BLOCK} is the portfolio, and an "
@@ -814,8 +1076,11 @@ def glossary_text(scope, config):
         "Archived activities are included. Archiving is a list-size workaround "
         "in the source system, not a relevance signal, so an archived activity "
         "is not an obsolete one.",
-        "A weekly count places each activity once, in the week it starts. A "
-        "six-week campaign is one activity in one week, not six.",
+        f"In {CALENDAR_NAME}, starting places each activity once, in the week "
+        "it begins -- so it is a partition of the portfolio and adds up. "
+        "active counts every activity whose run touches the week, so a "
+        "six-week campaign appears in six weeks and the column does NOT add "
+        "up across weeks. Use starting for a total, active for a week.",
         "channel and target_audience hold several values in one string. A value "
         'like "Email, Intranet" is one combination, not one channel.',
         geb_rule(scope),
@@ -1179,32 +1444,39 @@ description: Answers questions about the CPLAN communication plan - volumes, tim
 # CPLAN reporting
 """
 
-_SKILL_INTRO_WITH_PACKS = """
-You answer questions about a communication plan from seven files shipped with
-this skill. They come from one pipeline run: same figures, same scope.
+# The routing table as rows rather than as rendered text, and the file count
+# derived from them rather than written beside them. The count sentence and
+# the table have drifted apart twice already -- four files stated for a table
+# of five, then five for a table of six -- and each hand-written variant makes
+# the next drift likelier: with two conditional files there are four
+# renderings, and nobody builds all four while editing the words.
+_SKILL_ROUTING_ROWS = (
+    ("Totals, load, lead time, leadership involvement", SUMMARY_NAME),
+    ("Completeness, pack coverage, anomalies", QUALITY_NAME),
+    ("Volume over time by any dimension", CALENDAR_NAME),
+    ("Any figure crossing two dimensions", BREAKDOWN_NAME),
+    ("A single named activity", ACTIVITIES_CSV_NAME),
+    ("Any comparison of periods: year over year, quarters, year to date",
+     PERIODS_CSV_NAME),
+)
+
+_SKILL_ROSTER_ROW = ("Which activities are on in a given week, or over the "
+                     "next few", ROSTER_CSV_NAME)
+
+_SKILL_PACK_ROW = ("Per-pack detail, or which packs have nothing planned",
+                   PACKS_CSV_NAME)
+
+_SKILL_ROSTER_NOTES = f"""
+- `{ROSTER_CSV_NAME}` — one row per week × activity, for every activity
+  RUNNING in that week, over a window around the data date. This is the only
+  file that answers "what is on this week" by being read rather than
+  calculated, and it is what to reach for whenever a question names a week, a
+  fortnight or the next month. `starts_this_week` separates what is new from
+  what is still running. Its window is stated in `{SUMMARY_NAME}`; for a week
+  outside it, use `Active weeks` in `{ACTIVITIES_CSV_NAME}`.
 """
 
-_SKILL_INTRO_WITHOUT_PACKS = """
-You answer questions about a communication plan from six files shipped with
-this skill. They come from one pipeline run: same figures, same scope.
-"""
-
-_SKILL_ROUTING = f"""
-## Which file answers what
-
-| Question | File |
-|---|---|
-| Totals, load, lead time, leadership involvement | `{SUMMARY_NAME}` |
-| Completeness, pack coverage, anomalies | `{QUALITY_NAME}` |
-| Volume over time by any dimension | `{CALENDAR_NAME}` |
-| Any figure crossing two dimensions | `{BREAKDOWN_NAME}` |
-| A single named activity | `{ACTIVITIES_CSV_NAME}` |
-| Any comparison of periods: year over year, quarters, year to date | `{PERIODS_CSV_NAME}` |
-"""
-
-_SKILL_PACK_ROUTING = f"""\
-| Per-pack detail, or which packs have nothing planned | `{PACKS_CSV_NAME}` |
-
+_SKILL_PACK_NOTES = f"""
 - `{PACKS_CSV_NAME}` — one row per communication pack: name, lead, period,
   objective, and how many activities sit in it. Every pack is here, including
   those with nothing planned against them (`activities_in_scope = 0`), which
@@ -1224,7 +1496,64 @@ _SKILL_PACK_ROUTING = f"""\
   other, so a pack can be larger under either.
 """
 
-_SKILL_BODY = f"""
+# Small enough to spell out, which is how the sentence reads it.
+_FILE_COUNT_WORDS = ("no", "one", "two", "three", "four", "five", "six",
+                     "seven", "eight", "nine", "ten")
+
+
+def _routing_rows(with_packs, with_roster):
+    """The table's rows for this build, in the order they are written."""
+    rows = list(_SKILL_ROUTING_ROWS)
+    if with_roster:
+        rows.append(_SKILL_ROSTER_ROW)
+    if with_packs:
+        rows.append(_SKILL_PACK_ROW)
+    return rows
+
+
+def _skill_intro(rows):
+    count = _FILE_COUNT_WORDS[len(rows)] if len(rows) < len(_FILE_COUNT_WORDS) else str(len(rows))
+    return f"""
+You answer questions about a communication plan from {count} files shipped with
+this skill. They come from one pipeline run: same figures, same scope.
+"""
+
+
+def _skill_routing(rows):
+    lines = ["", "## Which file answers what", "", "| Question | File |", "|---|---|"]
+    lines += [f"| {question} | `{name}` |" for question, name in rows]
+    return "\n".join(lines) + "\n"
+
+
+# The period rule in the two shapes the archive can ship. Conditional for the
+# reason the routing table is: a rule pointing at a file the archive does not
+# carry sends the agent looking, and what it finds instead is the activities
+# file -- the one place this rule exists to keep it out of.
+_SKILL_PERIOD_RULE_WITH_ROSTER = f"""\
+**Every period question is that same overlap test.** "This week", "the next
+fortnight", "in August": `Start <= <end of the period> AND End >= <start of the
+period>`. `Start week` and `Start quarter` label the start and are never a
+period filter -- filtering them answers "what STARTS in this period", which is
+a different question. What is RUNNING is read, not derived: `{ROSTER_CSV_NAME}`
+for a week inside its window, the `active` column of `{CALENDAR_NAME}` for a
+count, `Active weeks` in `{ACTIVITIES_CSV_NAME}` for a week outside it. Never
+filter `{ACTIVITIES_CSV_NAME}` on the two date columns to answer it: it is the
+largest file here, you see it in fragments, and a filter over fragments returns
+a short list that looks complete."""
+
+_SKILL_PERIOD_RULE_WITHOUT_ROSTER = f"""\
+**Every period question is that same overlap test.** "This week", "the next
+fortnight", "in August": `Start <= <end of the period> AND End >= <start of the
+period>`. `Start week` and `Start quarter` label the start and are never a
+period filter -- filtering them answers "what STARTS in this period", which is
+a different question. What is RUNNING is read, not derived: the `active` column
+of `{CALENDAR_NAME}` for a count, `Active weeks` in `{ACTIVITIES_CSV_NAME}` for
+which weeks one activity runs through. Never filter `{ACTIVITIES_CSV_NAME}` on
+the two date columns to answer it: it is the largest file here, you see it in
+fragments, and a filter over fragments returns a short list that looks
+complete."""
+
+_SKILL_BODY_TEMPLATE = f"""
 Prefer `{SUMMARY_NAME}`, `{CALENDAR_NAME}` and `{BREAKDOWN_NAME}` for any
 counting question. Those figures were computed by tested code. A number you
 derive yourself from `{ACTIVITIES_CSV_NAME}` has not been through the report's
@@ -1238,9 +1567,11 @@ this data does not survive without, and the two that cost the most are:
 **Scope is a hard filter, and an overlap test.** The period is named at the top
 of `{SUMMARY_NAME}`. An activity outside it is absent from every file here, so a
 question about a date outside the period is OUT OF SCOPE -- never answer it with
-zero. An activity whose run merely touches the period IS in scope, so a quarter
-or ISO week naming the year before the period is normal, not an anomaly: those
-columns label the start, and the start may lie outside.
+zero. An activity whose run merely touches the period IS in scope, so a start
+quarter or start week naming the year before the period is normal, not an
+anomaly: those columns label the start, and the start may lie outside.
+
+{{period_rule}}
 
 **Overlapping rows do not sum.** In `{CALENDAR_NAME}`, a row with
 `overlaps=yes` belongs to a block where one activity can appear under two
@@ -1319,17 +1650,24 @@ Audience segmentation. Channel proxy metrics. Lead-time distribution.
 """
 
 
-def skill_text(with_packs):
+def skill_text(with_packs, with_roster=True):
     """SKILL.md for the archive that is about to be written, not for both.
 
-    `with_packs` is read off the pack directory by `_write_skill_zip`, from
-    the same `.exists()` call that decides whether the file goes in -- so the
+    Both flags are read off the pack directory by `_write_skill_zip`, from the
+    same `.exists()` calls that decide whether each file goes in -- so the
     routing table and the payload cannot disagree, whatever a future caller
-    does.
+    does. A routing table naming a file the archive does not carry is worse
+    than one naming fewer files: the agent goes looking, finds nothing, and
+    concludes the question has no answer.
     """
-    intro = _SKILL_INTRO_WITH_PACKS if with_packs else _SKILL_INTRO_WITHOUT_PACKS
-    routing = _SKILL_ROUTING + (_SKILL_PACK_ROUTING if with_packs else "")
-    return _SKILL_HEAD + intro + routing + _SKILL_BODY
+    rows = _routing_rows(with_packs, with_roster)
+    notes = (_SKILL_ROSTER_NOTES if with_roster else "")
+    notes += (_SKILL_PACK_NOTES if with_packs else "")
+    body = _SKILL_BODY_TEMPLATE.format(
+        period_rule=(_SKILL_PERIOD_RULE_WITH_ROSTER if with_roster
+                     else _SKILL_PERIOD_RULE_WITHOUT_ROSTER))
+    return (_SKILL_HEAD + _skill_intro(rows) + _skill_routing(rows) + notes
+            + body)
 
 
 # The packed rendering, for everything that wants the text without a run
@@ -1384,7 +1722,8 @@ The pack contains:
 - `03-data-quality.txt` — completeness, pack coverage, record anomalies
 - `04-calendar.csv` — one row per block × value × week
 - `06-breakdowns.csv` — one row per block × value × measure. The crosses `04-calendar.csv` cannot make: activities, leadership involvement, large audiences, missing pack links, unknown audience and median completeness, per division, region, country and audience band
-- `05-activities.csv` — one row per activity
+- `05-activities.csv` — one row per activity, carrying `Start week`, `End week` and `Active weeks`
+- `09-week-roster.csv` — one row per week × activity, for every activity running in that week, over a window around the data date. Absent only when the data date falls outside the weeks the plan covers, and `01-summary.txt` says so when it is
 
 There is no Excel workbook behind this agent. Prefer `01-summary.txt`, `04-calendar.csv` and `06-breakdowns.csv` for any figure they already state: those were computed by tested code. A figure you derive yourself from `05-activities.csv` has not been through the report's rules.
 
@@ -1440,7 +1779,8 @@ Before answering, check for:
 Always flag issues that may affect interpretation.
 
 Do NOT flag the following, which are the report working as designed:
-- A quarter or ISO week naming the year before the reporting period. Scope is an overlap test: an activity that starts earlier and runs into the period belongs in it, and those columns label the start.
+- A start quarter or start week naming the year before the reporting period. Scope is an overlap test: an activity that starts earlier and runs into the period belongs in it, and those columns label the start.
+- A week in `04-calendar.csv` whose `starting` is 0 while its `active` is not. That is a week in the middle of a run, not a data error.
 - Archived activities being included. Archiving is a list-size workaround in the source system, not a relevance signal.
 
 ### 5. CPLAN Data Rules
@@ -1452,7 +1792,10 @@ These come from the data rather than from good reporting practice, and they over
 - **Audience is a planning estimate, never measured reach.** CPLAN holds no measured reach at all. Summing audience counts contacts, not people — one person inside six activities counts six times. Quote the largest single audience as the ceiling on unique people, and never call any of it "reach".
 - **GEB/GEB-1 is one field holding both levels**, and the source data never says which. Look at the blocks the pack actually carries before you answer. Where it carries `executives_geb` and `executives_geb1`, a GEB member list was supplied when the pack was built: that list is the only thing separating the two, so name it as the source, and never add the two blocks together — one activity naming people at both levels counts in both. Where it carries only `executives`, nothing separates them: never name someone as a GEB member, and never answer "how many activities involve the GEB" — the honest answer is "GEB or GEB-1".
 - **`channel` and `target_audience` hold several values in one string.** A value like "Email, Intranet" is one combination, not one channel.
-- **Weekly counts place each activity once, in the week it starts.** A six-week campaign is one activity in one week, not six.
+- **Every question about a period is an overlap test: `Start <= <end of the period> AND End >= <start of the period>`.** "This week", "the next fortnight", "in August" — all the same filter, the same one the report's own scope uses. `Start week` and `Start quarter` in `05-activities.csv` label the START and are never a period filter; filtering them answers "what STARTS in this period", which is a different question and usually not the one asked.
+- **What is RUNNING is read, never derived.** `09-week-roster.csv` lists one row per week × activity for every activity running in that week, over a window around the data date stated in `01-summary.txt` — that is the file for "what is on this week" and for the next fortnight or month. For a count, `04-calendar.csv` carries `active` beside `starting`. For a week outside the roster's window, `Active weeks` in `05-activities.csv` names every week an activity runs through. Never answer "which activities are on in week X" by filtering `05-activities.csv` on `Start` and `End`: it is the largest file in the pack, you see it in fragments, and a filter over fragments returns a short list that looks complete. If none of the three can answer it, say so.
+- **`starting` and `active` count different things.** In `04-calendar.csv`, `starting` places each activity once, in the week it begins — a partition of the portfolio, which adds up. `active` counts every activity whose run touches the week, so a six-week campaign appears in six weeks and the column does NOT add up across weeks. Use `starting` for a total, `active` for a week.
+- **"This week" means the week of the data date**, not the week you are reading in. `01-summary.txt` names that week and gives its Monday and Sunday. Say which week you answered for.
 - **This pack is wider than the distributed workbook.** It keeps activities the report leaves out — the deprioritised bucket, and rows tagged with nothing but the catch-all objective — so that a question about them has an answer. Every row in `05-activities.csv` carries `in_report` (Yes/No) and `report_exclusion`; counting only `in_report = Yes` reproduces the workbook exactly. `01-summary.txt` states how many rows the difference covers.
 - **Quote the full count, and name which one you used** whenever someone might be holding the workbook — a total that silently disagrees with the document in the reader's hand costs more than the extra clause. If a figure is questioned, give both: "1,385 in the plan; 1,362 in the report, which leaves out 23 deprioritised."
 - **When the answer is not in the pack**, say so and point to the planning studio, which holds the full record and can filter it. Do not reason your way to a figure.
@@ -1767,7 +2110,8 @@ def activity_rows(scope, report_config=None):
     frame instructed the agent to filter on a column no delivered file had.
     """
     frame = scope.frame
-    headers = [header for _, header in ACTIVITY_COLUMNS]
+    columns = pack_activity_columns()
+    headers = [header for _, header in columns]
     # Without a list these would be two empty columns asserting a distinction
     # nothing made, which is the same lie the workbook refuses when it leaves
     # the GEB glossary term out.
@@ -1789,10 +2133,20 @@ def activity_rows(scope, report_config=None):
         index = activity["week_index"]
         week = scope.grid.weeks[int(index)] if index == index and index is not None else None
         quarter = activity["_quarter"]
+        # Where the activity is RUNNING, not where it starts. Clamped to the
+        # grid by `active_week_indices`, so these labels only ever name weeks
+        # `04-calendar.csv` also carries -- a token pointing at a week outside
+        # the report would be looked up and found missing.
+        active = [scope.grid.weeks[i] for i in scope.grid.active_week_indices(
+            _day(activity, "start_day"), _day(activity, "end_day"))]
         values = []
-        for field, _ in ACTIVITY_COLUMNS:
-            if field == "_iso_week":
+        for field, _ in columns:
+            if field == "_start_week":
                 values.append(f"{week.iso_year}-{week.label}" if week else "")
+            elif field == "_end_week":
+                values.append(week_label(active[-1]) if active else "")
+            elif field == "_active_weeks":
+                values.append(active_weeks_cell(active))
             elif field == "_quarter_label":
                 values.append(f"Q{quarter[1]} {quarter[0]}" if quarter else "")
             elif field == "_executives":
@@ -1963,6 +2317,15 @@ def write_pack(scope, config, out_dir, generated=None, report_config=None):
     # was missing, and its absence cost the agent minutes per question.
     _write_csv(pack_dir / PERIODS_CSV_NAME, PERIODS_HEADER,
                period_rows(scope, config, generated))
+    # Only where the data date and the plan's own weeks actually meet. The
+    # same rule as the pack list above: a file that can only assert an
+    # absence it never measured is not written at all, and an empty roster
+    # asserts the strongest one in the pack -- "nothing is planned".
+    # `summary_text` says so in words wherever this is skipped, so the
+    # absence is a stated fact rather than a missing file.
+    roster = roster_rows(scope, generated)
+    if roster:
+        _write_csv(pack_dir / ROSTER_CSV_NAME, ROSTER_HEADER, roster)
     (pack_dir / SUMMARY_NAME).write_text(
         summary_text(scope, config, generated, report_config), encoding="utf-8")
     (pack_dir / GLOSSARY_NAME).write_text(glossary_text(scope, config), encoding="utf-8")
@@ -2009,14 +2372,22 @@ def _write_skill_zip(pack_dir, zip_path):
     """
     packs_source = pack_dir / PACKS_CSV_NAME
     with_packs = packs_source.exists()
+    # The roster is conditional for its own reason (see `write_pack`), and
+    # carried into the archive on the same `.exists()` that decides what
+    # SKILL.md may point at -- the routing table cannot name a file the
+    # archive does not hold.
+    roster_source = pack_dir / ROSTER_CSV_NAME
+    with_roster = roster_source.exists()
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("SKILL.md", skill_text(with_packs))
+        archive.writestr("SKILL.md", skill_text(with_packs, with_roster))
         for name in (GLOSSARY_NAME, SUMMARY_NAME, QUALITY_NAME,
                      CALENDAR_NAME, BREAKDOWN_NAME, ACTIVITIES_CSV_NAME,
                      PERIODS_CSV_NAME):
             archive.write(pack_dir / name, name)
         if with_packs:
             archive.write(packs_source, PACKS_CSV_NAME)
+        if with_roster:
+            archive.write(roster_source, ROSTER_CSV_NAME)
 
 
 def _write_brand_skill_zip(zip_path):
@@ -2142,6 +2513,37 @@ def checklist_questions(scope, config):
                 ("How many activities involve a GEB member, rather than GEB-1?",
                  geb, ("With GEB involvement", geb),
                  "the split the supplied member list makes"))
+
+        # The question the whole harness was missing. Every probe above is
+        # worded "start in" -- honest about the data as it was, and exactly
+        # why a start-week filter passed this checklist while answering "which
+        # activities are on this week" with half the list. The busiest ACTIVE
+        # week is chosen rather than a fixed one so the question moves with the
+        # data, and a week is only worth asking about when the two logics
+        # disagree in it: where nothing outlives its own start week the counts
+        # are equal and the question grades a filter that is wrong as correct.
+        weekly = {}
+        for _, activity in frame.iterrows():
+            for position in scope.grid.active_week_indices(
+                    _day(activity, "start_day"), _day(activity, "end_day")):
+                week = scope.grid.weeks[position]
+                weekly[week] = weekly.get(week, 0) + 1
+        starts = {}
+        for index in frame["week_index"]:
+            if index is not None and index == index:
+                week = scope.grid.weeks[int(index)]
+                starts[week] = starts.get(week, 0) + 1
+        divergent = [week for week in weekly if weekly[week] > starts.get(week, 0)]
+        if divergent:
+            week = max(sorted(divergent, key=week_label),
+                       key=lambda w: weekly[w] - starts.get(w, 0))
+            candidates.append(
+                (f"How many activities are running in {week_label(week)} "
+                 f"({week.monday.isoformat()} to "
+                 f"{(week.monday + timedelta(days=6)).isoformat()})?",
+                 weekly[week], (week_label(week), weekly[week]),
+                 "an overlap test over every row -- a start-date filter "
+                 f"answers {starts.get(week, 0)} here"))
 
         quarters = {}
         for quarter in frame["_quarter"]:

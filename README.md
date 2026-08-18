@@ -161,7 +161,7 @@ Without that folder they land in `pipeline/output/agent-pack/` instead
 
 | | |
 |---|---|
-| `pack/` | four `.txt` and three `.csv` — four where a pack export was synced: what the skill archive is built from, and the readable copy of what the agent holds. **Not uploaded** — see below |
+| `pack/` | four `.txt` and four `.csv` — up to six `.csv` where a pack export was synced and the data date falls inside the plan: what the skill archive is built from, and the readable copy of what the agent holds. **Not uploaded** — see below |
 | `cplan-skill.zip` | the same content as a skill package, `SKILL.md` at the archive root |
 | `chart-standards-skill.zip` | the visual rules as a second skill. No data files, so it is rebuilt identically every run — upload it once and again only when the rules change |
 | `evaluation.csv` | the same questions as an importable test set. Safe to upload: an evaluation set is never grounded on |
@@ -194,6 +194,66 @@ agent two vintages of the same figure. The fallback it bought was also the
 wrong one: if the skill fails to load, its rules do not load either, so an
 answer grounded on the index alone is an answer without them — which looks
 right and is not.
+
+#### "What is on this week" is read, not filtered
+
+A real run answered "all eScreens activities this week" with two of the four.
+The agent said afterwards exactly what it had done: it had filtered on the
+start date instead of testing the overlap, and it had worked from the rows
+retrieval happened to return rather than from every row of
+`05-activities.csv`. Both halves were the pack's doing, not the agent's.
+
+Every week-shaped thing in the pack used to label an activity by the week it
+STARTS in — one `ISO week` column, and one count per week in `04-calendar.csv`
+— so no file could answer which activities were *running* in a week. The
+glossary meanwhile carried two rules that did not resolve the question between
+them: "scope is an overlap test, not a start-date test" eleven lines above "a
+weekly count places each activity once, in the week it starts". Neither wrote
+the filter down. And a filter over a portfolio far larger than any retrieval
+index returns whole is not a filter at all: it returns a short list that looks
+complete.
+
+Four changes, and the first is the one that matters:
+
+- **`09-week-roster.csv`** — one row per week × activity, for every activity
+  RUNNING in that week, over a window from four weeks before the data date to
+  twelve after. A week is read off it, not calculated. `starts_this_week`
+  separates what is new from what is still running. It is skipped where the
+  data date falls outside the plan's own weeks, because an empty roster asserts
+  "nothing is planned" — the strongest claim in the pack, and one it would not
+  have measured; `01-summary.txt` says so in words wherever it is skipped.
+- **`Start week`, `End week`, `Active weeks`** in `05-activities.csv`, where
+  there used to be `ISO week` alone. The rename is half the fix: a column
+  called `ISO week` on a row that also carries `End` reads as "the week this is
+  on". `Active weeks` spells out every week the run touches, space-separated so
+  each label survives as its own token — while `2026-W34` appeared only on rows
+  starting that week, no rule written in prose could make a chunked read return
+  an activity that started earlier and was still going.
+- **`starting` and `active`** in `04-calendar.csv`, where there used to be one
+  column called `activities`. `starting` partitions the portfolio and adds up;
+  `active` counts every activity whose run touches the week and does not. A
+  week in the middle of a long run now has a row at all — before, "nothing
+  starts here" and "nothing is happening here" were the same absence.
+- **One rule with the filter in it**, replacing the two that did not resolve:
+  `Start <= period end AND End >= period start`, plus where to read the answer
+  instead of deriving it. `01-summary.txt` also resolves the data date to an
+  ISO week with its Monday and Sunday, so "this week" means something before
+  anyone answers it, and states how many activities are running on that date
+  beside the three start-based horizon buckets.
+
+The MCP server had the same asymmetry and got the same treatment: `active_from`
+/ `active_to` on every filtered tool, and `count_mode="starting"|"active"` on
+`calendar_load`. The overlap window was always expressible there — `start_before`
+AND `end_after`, in that crossed pairing — which is exactly why it was got
+wrong: the obvious reading of "activities in this week" is the two arguments
+that share the word `start`, and those answer a different question while
+looking like they answered this one.
+
+Every probe question in `checklist.md` was worded "how many activities *start*
+in …", which is honest about the data as it was and is why the harness never
+caught this: it only ever asked the question the wrong logic answers correctly.
+One now asks how many are *running* in a week, and picks the week where the two
+logics disagree most, so a start-date filter fails it.
 
 This holds at 1,385 rows. If the plan grows to several thousand the file will
 stop fitting in one read, and a knowledge source becomes the only way to find a
@@ -267,12 +327,13 @@ be rebuilt and the other forgotten, and two packs built on two days are two
 vintages of one figure with nothing on either folder saying so.
 
 The surface holds 8,000 characters of Instructions and **no skill packages at
-all**, so the two skills have nowhere to go: `08-reading-guide.txt` and
-`09-chart-standards.txt` ship as knowledge files instead, and `upload/` holds
-those two, the three board files `10`–`12-board-*.txt`, and the data files —
-**eleven** sources on a machine with no pack export, **twelve** where
-`07-packs.csv` was written, against a limit of twenty. Both counts are real:
-the pack export is optional, and the folder is uploaded whole either way.
+all**, so the two skills have nowhere to go: `10-reading-guide.txt` and
+`11-chart-standards.txt` ship as knowledge files instead, and `upload/` holds
+those two, the board files `12`–`14-*.txt`, the drawing code, and the data
+files — **thirteen** sources where neither optional data file was written,
+**fifteen** with both `07-packs.csv` and `09-week-roster.csv`, against a limit
+of twenty. Every count is real: both those files are optional, and the folder
+is uploaded whole whichever were produced.
 `00-README.txt` stays out for the reason the skill archive leaves it out, and
 `checklist.md` stays out because an agent that can read the answer key passes
 without computing anything.
@@ -297,9 +358,10 @@ Only the numbered knowledge files are mirrored — never `checklist.md`, never
 `instructions.md`. Everything in that folder is grounded on, exactly as in
 `upload/`. Numbered files an earlier run left behind are removed, and that half
 cannot be skipped: the numbering shifts whenever a file is added — the boards
-moved from `09`–`11` to `10`–`12` when the chart rules became a knowledge file
-— so copying alone leaves the previous run's board beside this run's, both
-retrievable and both looking current. Anything else in the folder is left
+moved from `09`–`11` to `10`–`12` when the chart rules became a knowledge file,
+and to `12`–`13` when the week roster joined the data files — so copying alone
+leaves the previous run's board beside this run's, both retrievable and both
+looking current. Anything else in the folder is left
 alone. A folder that was named and is not there ends the run with exit code
 `3`: the pack was written, and only the mirror was not.
 

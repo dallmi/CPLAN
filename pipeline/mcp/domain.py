@@ -47,7 +47,7 @@ def domain_model() -> str:
     return f"""\
 # CPLAN domain model
 
-Read this before answering anything quantitative. Five properties of this data
+Read this before answering anything quantitative. Six properties of this data
 produce confidently wrong answers if you do not know them.
 
 ## What CPLAN is
@@ -170,7 +170,33 @@ and never answer "how many activities involve the GEB" from it — the honest
 answer is "GEB or GEB-1". `other_executives` is the source's separate "other
 executives" field; treat it as a third list, not as the complement of `bod_geb`.
 
-## Trap 5 — `audience` is an estimate whose shape you must check, not assume
+## Trap 5 — "in this period" is an overlap test, and the obvious filter is not it
+
+Asked what is on this week, or in the next fortnight, or in August, the filter
+is: **the activity starts on or before the period ends AND ends on or after it
+begins.** Pass it as `active_from` / `active_to`, which every filtered tool
+takes. An activity that started last month and runs until next month is on this
+week, and an answer that leaves it out is short without looking short.
+
+`start_after` / `start_before` answer a DIFFERENT question -- "what STARTS in
+this period" -- and they are the trap, because they are the two arguments whose
+names carry the word a period question is usually phrased with. The overlap
+window was expressible before `active_from` existed, as `start_before` AND
+`end_after` in that crossed pairing, and it was got wrong in practice: asked
+for a week's activities, an agent filtered on the start date, found the two
+that began in the week, and missed the two running through it.
+
+An activity with no end date is a point in time at its start, never an
+open-ended run that matches every later window.
+
+`calendar_load` counts both ways and says which. `count_mode="starting"` (the
+default) places each activity in its start week, so the buckets partition the
+filtered set and can be summed; `count_mode="active"` counts every activity
+whose run touches the week, so a six-week campaign counts in six buckets and
+the buckets do NOT sum. `window_comparison` counts starts only. Name the mode
+in any answer quoting a weekly figure.
+
+## Trap 6 — `audience` is an estimate whose shape you must check, not assume
 
 `audience` carries an estimated audience size, but **its stored shape is not
 guaranteed and differs by deployment**. The source system presents it as a band

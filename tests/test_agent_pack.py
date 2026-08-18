@@ -262,12 +262,17 @@ def test_the_horizon_puts_the_boundary_dates_in_the_right_bucket(tmp_path):
     generated = date(2025, 6, 15)
     boundary_30 = generated + timedelta(days=30)  # 2025-07-15
 
-    # Fixture activities, unmodified: 12 start on or before 2025-06-15, 1
+    # Fixture activities, unmodified: 13 start on or before 2025-06-15, 1
     # (IC-0015, 2025-07-08) falls in the following 30 days, and 7 -- including
     # IC-0016 (2025-10-14) and IC-0013 (2025-12-31) -- start later still.
     # Moving those two onto the cusps shifts one row into each near bucket and
     # leaves the rest of the portfolio (5 rows) where it was, for a
-    # hand-checked partition of 13 / 2 / 5 against 20 activities in scope.
+    # hand-checked partition of 14 / 2 / 5 against 21 activities in scope.
+    #
+    # These buckets cut on the START date, which is why IC-0021 (starts
+    # 2025-03-26, runs to 2025-04-16) counts here as planned to date and not
+    # as running: this tile is a claim about what has been planned by the
+    # data date, not about what is live on it.
     frame = scope.frame.copy()
     on_the_day = frame.index[frame["tracking_id"] == "IC-0016"][0]
     on_day_30 = frame.index[frame["tracking_id"] == "IC-0013"][0]
@@ -283,7 +288,7 @@ def test_the_horizon_puts_the_boundary_dates_in_the_right_bucket(tmp_path):
     pairs = _summary_pairs((pack_dir / agent_pack.SUMMARY_NAME)
                            .read_text(encoding="utf-8"))
 
-    assert pairs["Planned to date"] == "13", (
+    assert pairs["Planned to date"] == "14", (
         "the activity dated exactly on the generation date "
         f"({generated.isoformat()}) does not land in 'Planned to date': {pairs}")
     assert pairs["Next 30 days from the data date"] == "2", (
@@ -309,8 +314,12 @@ def test_calendar_total_row_matches_the_workbook_week_cells(tmp_path):
         if isinstance(sheet.cell(all_row, c).value, int)
     }
 
-    from_pack = {row["iso_week"]: int(row["activities"]) for row in _calendar(pack_dir)
-                 if row["block"] == agent_pack.TOTAL_BLOCK}
+    # `starting`, not `active`: the workbook's Calendar sheet places every
+    # activity in its start week, and this test exists to hold the pack to
+    # the sheet. The two columns are the pack saying out loud what the sheet
+    # can only mean by omission -- which is this module's whole job.
+    from_pack = {row["iso_week"]: int(row["starting"]) for row in _calendar(pack_dir)
+                 if row["block"] == agent_pack.TOTAL_BLOCK and int(row["starting"])}
     assert from_pack == from_sheet
 
 
@@ -319,8 +328,15 @@ def test_calendar_total_row_matches_the_workbook_week_cells(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_total_block_sums_to_the_activities_in_scope(tmp_path):
+    """`starting` is the partition: every activity starts in exactly one week.
+
+    `active` deliberately does not sum to this, and `overlaps` does not warn
+    about it -- that column is about one activity naming two values, and this
+    is one activity spanning two weeks. The file states both, and the reading
+    guide names which is which.
+    """
     pack_dir, _, scope, _ = _pack(tmp_path)
-    total = sum(int(row["activities"]) for row in _calendar(pack_dir)
+    total = sum(int(row["starting"]) for row in _calendar(pack_dir)
                 if row["block"] == agent_pack.TOTAL_BLOCK)
     assert total == len(scope.frame)
 
@@ -331,7 +347,7 @@ def test_audience_block_partitions_the_portfolio(tmp_path):
     rows = [r for r in _calendar(pack_dir) if r["block"] == "audience_band"]
     assert rows, "no audience rows written"
     assert {r["overlaps"] for r in rows} == {"no"}
-    assert sum(int(r["activities"]) for r in rows) == len(scope.frame)
+    assert sum(int(r["starting"]) for r in rows) == len(scope.frame)
     assert {r["value"] for r in rows} <= set(AUDIENCE_BAND_ORDER)
 
 
@@ -353,7 +369,7 @@ def test_breakdown_values_carry_their_own_row_counts(tmp_path):
         actual = {}
         for row in rows:
             if row["block"] == field:
-                actual[row["value"]] = actual.get(row["value"], 0) + int(row["activities"])
+                actual[row["value"]] = actual.get(row["value"], 0) + int(row["starting"])
         assert actual == expected, f"{field}: pack {actual} vs frame {expected}"
 
 
@@ -412,7 +428,7 @@ def test_breakdown_activities_agree_with_the_calendar(tmp_path):
     weekly = {}
     for row in _calendar(pack_dir):
         key = (row["block"], row["value"])
-        weekly[key] = weekly.get(key, 0) + int(row["activities"])
+        weekly[key] = weekly.get(key, 0) + int(row["starting"])
 
     missing = set()
     for row in _breakdowns(pack_dir):
@@ -1059,12 +1075,18 @@ def test_the_glossary_states_the_rules_the_layout_only_implies(tmp_path):
     pack_dir, _, _, _ = _pack(tmp_path)
     text = (pack_dir / agent_pack.GLOSSARY_NAME).read_text(encoding="utf-8")
     for phrase in ("do not sum", "never measured reach", "Archived activities are included",
-                   "once, in the week it starts", "GEB or GEB-1",
+                   "once, in the week it begins", "GEB or GEB-1",
                    # Without this one a reader -- human or agent -- reports the
                    # previous year's quarter on an in-scope activity as a data
                    # error. It is the overlap rule working, and a real run
                    # raised it as an anomaly to be reviewed.
-                   "overlap test, not a start-date test"):
+                   "Every question about a period is an overlap test",
+                   # And the filter itself. The rule above was in the glossary
+                   # all along and did not hold, because nothing said what to
+                   # filter on instead -- the agent applied it to the period
+                   # and a start-date test to the week, in the same answer.
+                   "Start <= ", "End >= ",
+                   "never a period filter"):
         assert phrase in text, f"the glossary does not state: {phrase}"
 
 
@@ -2659,12 +2681,23 @@ def test_the_activity_rows_split_the_leadership_column_only_with_a_list(tmp_path
 
     _, _, scope, _ = _pack_with_members(tmp_path / "b", GEB_PERSON)
     headers, _ = agent_pack.activity_rows(scope)
-    # Appended, not spliced in beside the combined column: the pack's activity
-    # rows are the workbook's Activities sheet in the same order, and a column
-    # set that reshuffles under a reader is worse than one that grows.
+    # Appended, not spliced in beside the combined column: a column set that
+    # reshuffles under a reader is worse than one that grows, so the two
+    # conditional columns arrive at the end.
+    #
+    # The pack's own two unconditional columns are the one deliberate
+    # exception, and they are written out here rather than read back from
+    # `pack_activity_columns()` -- a test that asks the implementation where
+    # it put them agrees with it wherever it put them. `Active weeks` beside
+    # `Start week` is the whole of what those columns say: one names where an
+    # activity begins, the other where it is running, and a reader who sees
+    # only one of the two in a chunk learns the wrong rule from it.
     from pipeline.report.table_sheets import ACTIVITY_COLUMNS as _COLUMNS
-    assert headers[:len(_COLUMNS)] == [header for _, header in _COLUMNS]
-    assert headers[len(_COLUMNS):] == ["GEB members", "GEB-1 members"]
+    expected = [header for _, header in _COLUMNS]
+    after_start = expected.index("Start week") + 1
+    expected[after_start:after_start] = ["End week", "Active weeks"]
+    assert headers[:len(expected)] == expected
+    assert headers[len(expected):] == ["GEB members", "GEB-1 members"]
 
 
 def test_the_two_split_columns_reconstruct_the_combined_one(tmp_path):
@@ -2764,7 +2797,8 @@ _SPELLED_OUT_COUNTS = {
 
 
 @pytest.mark.parametrize("with_packs", [False, True])
-def test_the_skill_texts_file_count_agrees_with_its_routing_table(with_packs):
+@pytest.mark.parametrize("with_roster", [False, True])
+def test_the_skill_texts_file_count_agrees_with_its_routing_table(with_packs, with_roster):
     """The two have drifted apart twice already: four files stated for a
     table that had grown to five, and five files stated once a sixth row --
     07-packs.csv -- existed but was not yet in the table at all. Both times a
@@ -2776,12 +2810,14 @@ def test_the_skill_texts_file_count_agrees_with_its_routing_table(with_packs):
     of holding the invariant, and would itself go stale the next time a file
     is added or removed.
 
-    Run against both renderings, because there are two. The archive drops the
-    pack row on a machine that never synced a pack export, and a rendering
-    whose count sentence was left behind would be exactly the drift this test
-    exists for -- in the state nobody builds while writing the text.
+    Run against every rendering, because there is more than one. The archive
+    drops the pack row on a machine that never synced a pack export, and the
+    roster row on a pack whose data date falls outside its own weeks -- so
+    there are four, and a count sentence left behind in any of them would be
+    exactly the drift this test exists for, in a state nobody builds while
+    writing the text.
     """
-    text = agent_pack.skill_text(with_packs)
+    text = agent_pack.skill_text(with_packs, with_roster)
 
     table = re.search(r"\| Question \| File \|\n\|-+\|-+\|\n(.*?)\n\n", text, re.S)
     assert table, "the routing table was not found in the shape this test expects"
@@ -2800,3 +2836,368 @@ def test_the_skill_texts_file_count_agrees_with_its_routing_table(with_packs):
         f"{row_count} rows -- a question answered by a file with no table row "
         "routes to whichever row happens to look closest instead"
     )
+
+
+# --------------------------------------------------------------------------
+# "What is on this week" -- the overlap question the pack could not answer
+# --------------------------------------------------------------------------
+
+def _activities(pack_dir):
+    with (pack_dir / agent_pack.ACTIVITIES_CSV_NAME).open(encoding="utf-8") as handle:
+        return list(csv.DictReader(handle))
+
+
+def test_the_week_column_says_it_labels_the_start(tmp_path):
+    """A column called `ISO week` on a row that also carries `End` reads as
+    "the week this is on", and every reader took it that way -- including the
+    agent, which answered "what is on this week" by filtering it. The column
+    was always the START week; only its name said otherwise."""
+    pack_dir, _, _, _ = _pack(tmp_path)
+    rows = _activities(pack_dir)
+
+    assert "Start week" in rows[0]
+    assert "ISO week" not in rows[0], (
+        "the old name is still there, and it is the name that taught the "
+        "wrong rule")
+
+
+def test_an_activity_carries_every_week_it_runs_in(tmp_path):
+    """The fix the whole change exists for.
+
+    A retrieval index matches literal tokens. While `2025-W15` appeared only
+    on rows STARTING that week, no amount of prose could make a chunked read
+    return an activity that started in W13 and was still running -- the token
+    was not on the row to match.
+    """
+    pack_dir, _, _, _ = _pack(tmp_path)
+    row = next(r for r in _activities(pack_dir) if r["Tracking ID"] == "IC-0021")
+
+    assert row["Start"] == "2025-03-26"
+    assert row["End"] == "2025-04-16"
+    assert row["Start week"] == "2025-W13"
+    assert row["End week"] == "2025-W16"
+    assert row["Active weeks"] == "2025-W13 2025-W14 2025-W15 2025-W16"
+
+
+def test_a_one_day_activity_is_active_in_the_week_it_starts(tmp_path):
+    pack_dir, _, _, _ = _pack(tmp_path)
+    row = next(r for r in _activities(pack_dir) if r["Tracking ID"] == "IC-0001")
+
+    assert row["Start week"] == row["End week"] == row["Active weeks"]
+
+
+def test_a_very_long_run_states_its_span_instead_of_every_week(tmp_path):
+    """One row may not be allowed to cost a retrieval chunk on its own.
+
+    A multi-year activity would otherwise write a hundred-odd tokens into a
+    single cell and crowd out the rows around it. Past the cap the cell says
+    what it is instead of listing it, and `Start week` / `End week` still
+    carry the span exactly.
+    """
+    import pandas as pd
+
+    scope, config = _scope(tmp_path)
+    frame = scope.frame.copy()
+    index = frame.index[frame["tracking_id"] == "IC-0021"][0]
+    tz = frame["end_date"].dt.tz
+    frame.loc[index, "end_date"] = pd.Timestamp(date(2025, 12, 10), tz=tz)
+    frame.loc[index, "end_day"] = date(2025, 12, 10)
+    scope.frame = frame
+
+    pack_dir = agent_pack.write_pack(scope, agent_pack.pack_config(config),
+                                     tmp_path / "out")
+    row = next(r for r in _activities(pack_dir) if r["Tracking ID"] == "IC-0021")
+
+    assert row["Start week"] == "2025-W13"
+    assert row["End week"] == "2025-W50"
+    assert row["Active weeks"] == "2025-W13 to 2025-W50 (38 weeks)"
+
+
+def _calendar(pack_dir):
+    with (pack_dir / agent_pack.CALENDAR_NAME).open(encoding="utf-8") as handle:
+        return list(csv.DictReader(handle))
+
+
+def _total_week(pack_dir, iso_week):
+    rows = [row for row in _calendar(pack_dir)
+            if row["block"] == agent_pack.TOTAL_BLOCK and row["iso_week"] == iso_week]
+    assert len(rows) <= 1, f"{iso_week} appears twice in the TOTAL block: {rows}"
+    return rows[0] if rows else None
+
+
+def test_the_calendar_counts_what_runs_in_a_week_as_well_as_what_starts(tmp_path):
+    """The count behind the answer, from tested code rather than from the
+    agent adding up rows it can only partly see.
+
+    IC-0021 starts in 2025-W13 and runs to 2025-W16. Every week of that run
+    has to count it; only the first may count it as starting.
+    """
+    pack_dir, _, _, _ = _pack(tmp_path)
+
+    start_week = _total_week(pack_dir, "W13")
+    later = _total_week(pack_dir, "W14")
+
+    assert int(start_week["starting"]) >= 1
+    assert int(start_week["active"]) >= int(start_week["starting"])
+    assert later is not None, "2025-W14 has no row at all"
+    assert int(later["active"]) > int(later["starting"]), (
+        "a week an activity runs through counts it no differently from a week "
+        f"it is absent from: {later}")
+
+
+def test_a_week_nothing_starts_in_still_gets_a_row_when_something_runs(tmp_path):
+    """The row that could not exist before.
+
+    `calendar_rows` leaves out empty week/value pairs, and while "empty" meant
+    "nothing starts here" a week in the middle of a long run was indistinguishable
+    from a quiet one -- so the agent read a gap in the plan where the plan was busy.
+    """
+    import pandas as pd
+
+    scope, config = _scope(tmp_path)
+    frame = scope.frame.copy()
+    index = frame.index[frame["tracking_id"] == "IC-0021"][0]
+    tz = frame["end_date"].dt.tz
+    # Runs to the end of May, straight through weeks nothing else starts in.
+    frame.loc[index, "end_date"] = pd.Timestamp(date(2025, 5, 28), tz=tz)
+    frame.loc[index, "end_day"] = date(2025, 5, 28)
+    scope.frame = frame
+    pack_dir = agent_pack.write_pack(scope, agent_pack.pack_config(config),
+                                     tmp_path / "out")
+
+    week = _total_week(pack_dir, "W20")
+
+    assert week is not None, "the week is missing from the calendar entirely"
+    assert int(week["starting"]) == 0
+    assert int(week["active"]) == 1
+
+
+def test_the_starting_column_still_sums_to_the_portfolio(tmp_path):
+    """The claim the file has always made, kept intact beside the new one.
+
+    `starting` is a partition of the portfolio -- every activity starts in
+    exactly one week -- and boards add it up. `active` is not, and the file
+    has to say which is which or the second quietly breaks the first.
+    """
+    pack_dir, _, scope, _ = _pack(tmp_path)
+    total = [row for row in _calendar(pack_dir)
+             if row["block"] == agent_pack.TOTAL_BLOCK]
+
+    assert sum(int(row["starting"]) for row in total) == len(scope.frame)
+    assert sum(int(row["active"]) for row in total) > len(scope.frame), (
+        "the fixture has no run outliving its own start week, so this test "
+        "cannot tell the two columns apart")
+
+
+# --------------------------------------------------------------------------
+# The roster: "what is on this week" as a lookup rather than a calculation
+# --------------------------------------------------------------------------
+
+ROSTER_ANCHOR = date(2025, 4, 2)  # a Wednesday, in 2025-W14
+
+
+def _roster(pack_dir):
+    with (pack_dir / agent_pack.ROSTER_CSV_NAME).open(encoding="utf-8") as handle:
+        return list(csv.DictReader(handle))
+
+
+def _roster_pack(tmp_path, generated=ROSTER_ANCHOR, **overrides):
+    scope, config = _scope(tmp_path, **overrides)
+    return agent_pack.write_pack(scope, agent_pack.pack_config(config),
+                                 tmp_path / "out", generated=generated)
+
+
+def test_the_roster_lists_an_activity_in_every_week_it_runs_through(tmp_path):
+    """The question the pack could not answer, answered by lookup.
+
+    Nothing here asks the agent to filter 18,000 rows on two date columns it
+    can only partly see. The week is a literal token on the row, and the row
+    is already the answer.
+    """
+    pack_dir = _roster_pack(tmp_path)
+    rows = _roster(pack_dir)
+
+    weeks = [row["iso_week"] for row in rows if row["Tracking ID"] == "IC-0021"]
+
+    assert weeks == ["W13", "W14", "W15", "W16"]
+
+
+def test_the_roster_says_which_activities_are_new_this_week(tmp_path):
+    """"What is on this week" and "what starts this week" are both real
+    questions, and an answer that cannot tell them apart serves neither."""
+    pack_dir = _roster_pack(tmp_path)
+    rows = {row["iso_week"]: row for row in _roster(pack_dir)
+            if row["Tracking ID"] == "IC-0021"}
+
+    assert rows["W13"]["starts_this_week"] == "yes"
+    assert rows["W14"]["starts_this_week"] == "no"
+    assert rows["W16"]["starts_this_week"] == "no"
+
+
+def test_the_roster_window_runs_from_four_weeks_back_to_twelve_ahead(tmp_path):
+    """A roster over every week of a multi-year plan is the activities file
+    again, at several times the size. The window is what makes it small enough
+    for a retrieval index to return a week whole, and it is anchored on the
+    data date -- not on the plan, and never on the wall clock.
+
+    Asserted on the window itself rather than on which weeks have rows: the
+    fixture is sparse, so an empty week at either edge would make a
+    presence-based test pass for a window of any size.
+    """
+    scope, _ = _scope(tmp_path)
+
+    positions = agent_pack.roster_weeks(scope, ROSTER_ANCHOR)
+    labels = [f"{scope.grid.weeks[i].iso_year}-{scope.grid.weeks[i].label}"
+              for i in positions]
+
+    assert labels[0] == "2025-W10", "the window does not reach back far enough"
+    assert labels[-1] == "2025-W26", "the window does not reach far enough ahead"
+    assert len(labels) == 17  # four back, the anchor week, twelve ahead
+
+
+def test_no_roster_row_falls_outside_the_window(tmp_path):
+    pack_dir = _roster_pack(tmp_path)
+    scope, _ = _scope(tmp_path)
+    weeks = {(str(row["iso_year"]), row["iso_week"]) for row in _roster(pack_dir)}
+
+    assert weeks <= {("2025", f"W{n:02d}") for n in range(10, 27)}, (
+        f"the roster reaches outside its own window: {sorted(weeks)}")
+    assert weeks, "the roster is empty"
+
+
+def test_every_activity_appears_once_per_week_it_is_in(tmp_path):
+    pack_dir = _roster_pack(tmp_path)
+    keys = [(row["iso_year"], row["iso_week"], row["Tracking ID"])
+            for row in _roster(pack_dir)]
+
+    assert len(keys) == len(set(keys))
+
+
+def test_a_roster_row_can_be_acted_on_without_another_file(tmp_path):
+    """A week's answer is read straight off these rows and quoted, so
+    everything a reader needs to act -- and the identifier the rules demand
+    beside every name -- has to be on the row itself."""
+    pack_dir = _roster_pack(tmp_path)
+    row = next(r for r in _roster(pack_dir) if r["Tracking ID"] == "IC-0021")
+
+    assert row["Activity"] == "Runs four weeks from March into April"
+    assert row["Start"] == "2025-03-26"
+    assert row["End"] == "2025-04-16"
+    assert row["Channel"] == "Email"
+    assert row["week_start"] and row["week_end"]
+
+
+def test_a_pack_whose_data_date_falls_outside_its_own_weeks_has_no_roster(tmp_path):
+    """An empty roster would read as "nothing is planned", which is the one
+    thing it must never say. The same rule as the pack list: a file that can
+    only assert an absence it did not measure is not written at all."""
+    pack_dir = _roster_pack(tmp_path / "stale", generated=date(2030, 1, 1))
+
+    assert not (pack_dir / agent_pack.ROSTER_CSV_NAME).exists()
+    text = _pack_text(pack_dir)
+    assert "no week roster" in text.lower(), (
+        "the pack drops a file and says nothing about it: " + text[:400])
+
+
+def test_the_summary_resolves_the_data_date_to_a_week(tmp_path):
+    """"This week" has to mean something before it can be answered.
+
+    The pack states its build date and nothing else, so an agent asked "what
+    is on this week" did calendar arithmetic in its head to get from a date to
+    an ISO week -- and then filtered the wrong column with the result. The
+    week the data date falls in is a fact the pack knows and can simply say.
+    """
+    pack_dir = _roster_pack(tmp_path)
+    text = (pack_dir / agent_pack.SUMMARY_NAME).read_text(encoding="utf-8")
+
+    assert "2025-W14" in text
+    assert "2025-04-07" in text, "the week after the data date is not named"
+    assert "2025-03-31" in text and "2025-04-06" in text, (
+        "the data date's own week is not given as dates a reader can match")
+
+
+def test_the_summary_says_how_many_activities_are_running_on_the_data_date(tmp_path):
+    """"Planned to date" counts what has STARTED. Nothing counted what was
+    live, which is the figure a reader of a horizon tile assumes they have."""
+    pack_dir = _roster_pack(tmp_path)
+    pairs = _summary_pairs((pack_dir / agent_pack.SUMMARY_NAME)
+                           .read_text(encoding="utf-8"))
+
+    # IC-0021 runs 2025-03-26 to 2025-04-16, across the 2025-04-02 data date,
+    # and IC-0020 starts on it -- an activity beginning today is on today, the
+    # same inclusive boundary `covers` applies at the other end.
+    assert pairs["Running on the data date"] == "2", pairs
+    # And it is not the same question as the bucket beside it: everything
+    # running is also planned to date, so a figure equal to that one would
+    # mean the overlap test never ran.
+    assert int(pairs["Running on the data date"]) < int(pairs["Planned to date"])
+
+
+def test_the_summary_states_the_roster_window(tmp_path):
+    pack_dir = _roster_pack(tmp_path)
+    text = (pack_dir / agent_pack.SUMMARY_NAME).read_text(encoding="utf-8")
+
+    assert agent_pack.ROSTER_CSV_NAME in text
+    assert "2025-W10" in text and "2025-W26" in text
+
+
+def test_the_pack_spells_out_the_filter_a_period_question_needs(tmp_path):
+    """The rule that was missing, and the reason the rest of it did not hold.
+
+    The glossary said "scope is an overlap test, not a start-date test" and,
+    eleven lines later, "a weekly count places each activity once, in the week
+    it starts". Both true; neither says which one governs "what is on this
+    week", and nowhere in the pack was the filter itself written down. The
+    agent reconstructed it correctly only after being told its answer was
+    wrong -- so the knowledge was reachable, and what was missing was the
+    sentence.
+    """
+    pack_dir, _, _, _ = _pack(tmp_path)
+    text = _pack_text(pack_dir)
+
+    assert "Start <= " in text and "End >= " in text, (
+        "the overlap filter is still not written down anywhere in the pack")
+    assert agent_pack.ROSTER_CSV_NAME in text
+
+
+def test_the_pack_never_tells_the_agent_to_filter_the_activities_file_by_week(tmp_path):
+    """`05-activities.csv` is the largest file in the pack and is read in
+    fragments. A rule that leaves "which activities are on in week X" as
+    something to derive from it is a rule that will be followed, wrongly."""
+    pack_dir, _, _, _ = _pack(tmp_path)
+    text = _pack_text(pack_dir)
+
+    assert "Start week" in text, "the renamed column is not explained anywhere"
+    assert "never a period filter" in text.lower()
+
+
+def test_the_checklist_asks_a_question_start_week_logic_gets_wrong(tmp_path):
+    """Every probe in this file was worded "...start in...", which is honest
+    about the data as it was and is exactly why the failure was never caught:
+    the harness only ever asked the question the wrong logic answers correctly.
+
+    The question added here has two different right-looking answers -- one from
+    the start week, one from the overlap -- so an agent that filters the start
+    column fails it.
+    """
+    scope, config = _scope(tmp_path)
+    questions = agent_pack.checklist_questions(scope, agent_pack.pack_config(config))
+    running = [q for q in questions if "running" in q[0].lower()]
+
+    assert running, "no question asks what is running, only what starts"
+    question, answer, *_ = running[0]
+
+    # Which week it picks follows the data, so the test asserts the property
+    # that makes the question worth asking rather than the week: in the week
+    # it names, the overlap answer and the start-date answer differ. A week
+    # where they agree would be passed by the filter this exists to catch.
+    week = re.search(r"\((\d{4}-\d{2}-\d{2}) to ", question).group(1)
+    rows = agent_pack.calendar_rows(scope, agent_pack.pack_config(config))
+    total = next(row for row in rows
+                 if row[0] == agent_pack.TOTAL_BLOCK and row[5] == week)
+    starting, active = total[6], total[7]
+
+    assert int(answer) == active
+    assert active > starting, (
+        f"the question names a week where both logics answer {active}, so it "
+        "does not separate them")

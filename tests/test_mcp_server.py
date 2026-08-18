@@ -38,7 +38,7 @@ from sqlalchemy.orm import Session
 
 from pipeline.api.app import Activity, ActivityChange, Base, SyncRun
 from pipeline.api.views import ANALYSIS_VIEWS, drop_analysis_views
-from pipeline.mcp import queries
+from pipeline.mcp import domain, queries
 from pipeline.mcp.engine import ReadOnlyViolation, create_read_only_engine
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -4375,3 +4375,107 @@ def test_stdio_server_keeps_stdout_clean(settings_file):
         stripped = line.strip()
         if stripped.startswith("print("):
             assert "file=sys.stderr" in stripped, f"print without stderr redirect: {stripped}"
+
+
+# --------------------------------------------------------------------------
+# The overlap filter: "what is on in this window", not "what starts in it"
+# --------------------------------------------------------------------------
+
+def _running_fixture(writable_session):
+    """One activity starting inside the week, one running through it."""
+    writable_session.add_all([
+        _activity(activity_name="Starts in the week",
+                  start_date=datetime(2026, 3, 18, tzinfo=timezone.utc),
+                  end_date=datetime(2026, 3, 19, tzinfo=timezone.utc)),
+        _activity(activity_name="Runs through the week",
+                  start_date=datetime(2026, 3, 2, tzinfo=timezone.utc),
+                  end_date=datetime(2026, 4, 10, tzinfo=timezone.utc)),
+        _activity(activity_name="Over before the week",
+                  start_date=datetime(2026, 2, 2, tzinfo=timezone.utc),
+                  end_date=datetime(2026, 2, 10, tzinfo=timezone.utc)),
+    ])
+    writable_session.commit()
+
+
+def test_active_between_finds_what_is_running_not_only_what_starts(writable_session):
+    """The filter a period question actually needs, as one pair of arguments.
+
+    It was always expressible -- `start_before` AND `end_after`, in that
+    counter-intuitive crossed pairing -- and that is exactly why it was got
+    wrong: the obvious reading of "activities in this week" is the two
+    arguments that share the word `start`, and those answer a different
+    question while looking like they answered this one.
+    """
+    _running_fixture(writable_session)
+
+    result = queries.search_activities(
+        writable_session, active_from="2026-03-16", active_to="2026-03-22")
+
+    assert {row["activity_name"] for row in result["activities"]} == {
+        "Starts in the week", "Runs through the week"}
+
+
+def test_active_between_is_inclusive_at_both_edges(writable_session):
+    """An activity ending on the Monday is on that Monday."""
+    _running_fixture(writable_session)
+
+    result = queries.search_activities(
+        writable_session, active_from="2026-02-10", active_to="2026-02-10")
+
+    assert {row["activity_name"] for row in result["activities"]} == {
+        "Over before the week"}
+
+
+def test_an_activity_with_no_end_date_is_a_point_in_time(writable_session):
+    """Matching the report's `covers`: no end date means the run is the start
+    day alone, not an open-ended run that matches every later window."""
+    writable_session.add(_activity(
+        activity_name="No end date",
+        start_date=datetime(2026, 3, 2, tzinfo=timezone.utc), end_date=None))
+    writable_session.commit()
+
+    inside = queries.search_activities(
+        writable_session, active_from="2026-03-02", active_to="2026-03-02")
+    later = queries.search_activities(
+        writable_session, active_from="2026-03-09", active_to="2026-03-15")
+
+    assert [row["activity_name"] for row in inside["activities"]] == ["No end date"]
+    assert "No end date" not in {row["activity_name"] for row in later["activities"]}
+
+
+def test_activity_counts_takes_the_same_overlap_window(writable_session):
+    """One filter vocabulary across the tools, or the count and the list
+    disagree about the same week."""
+    _running_fixture(writable_session)
+
+    result = queries.activity_counts(
+        writable_session, dimension="channel",
+        active_from="2026-03-16", active_to="2026-03-22")
+
+    assert result["total"] == 2
+
+
+def test_calendar_load_can_count_what_runs_in_each_week(writable_session):
+    """`weeklyCoverage` counts start dates, which is right for "how many were
+    planned" and wrong for "how busy is that week"."""
+    _running_fixture(writable_session)
+
+    starting = queries.calendar_load(writable_session, weeks=3,
+                                     start_date="2026-03-16")
+    active = queries.calendar_load(writable_session, weeks=3,
+                                   start_date="2026-03-16", count_mode="active")
+
+    assert starting["buckets"][0]["count"] == 1
+    assert active["buckets"][0]["count"] == 2
+    assert active["count_mode"] == "active"
+    assert starting["count_mode"] == "starting"
+
+
+def test_the_domain_model_names_the_filter_a_period_question_needs():
+    """The resource exists so an agent knows the traps before it answers. The
+    crossed pairing of `start_before` and `end_after` was the trap it did not
+    name, and the one that produced a confidently short list."""
+    text = domain.DOMAIN_MODEL
+
+    assert "active_from" in text and "active_to" in text
+    assert "count_mode" in text

@@ -31,9 +31,15 @@ periods side by side and print neither, which is the one failure a management
 page must not have.
 """
 
+from pipeline.report import board_bundle
+
 CONTRACT_NAME = "contract-campaign-activity-overview.md"
 
-CONTRACT_TEXT = """# Data contract — Campaign activity overview
+# `{BUNDLE}` rather than the name itself, substituted below: the contract is
+# full of literal braces -- a JSON object, a format example -- so it cannot be
+# an f-string, and the delivered file's number moves whenever a data file joins
+# the upload folder. One explicit replacement leaves every other brace alone.
+_CONTRACT_TEMPLATE = """# Data contract — Campaign activity overview
 
 **The decision:** where do I intervene, and with whom?
 
@@ -50,9 +56,9 @@ import json, pathlib
 data = { ... the object below ... }
 pathlib.Path("board.json").write_text(json.dumps(data), encoding="utf-8")
 
-src = pathlib.Path("14-board-draw.txt").read_text(encoding="utf-8")
+src = pathlib.Path("{BUNDLE}").read_text(encoding="utf-8")
 ns = {}
-exec(compile(src, "14-board-draw.txt", "exec"), ns)
+exec(compile(src, "{BUNDLE}", "exec"), ns)
 path, face, weights = ns["draw_from_json"]("board.json", "board.png")
 print(path, face, weights)
 ```
@@ -71,7 +77,7 @@ sentence and give the PNG — do not print the board as text, and do not describ
 what the PDF would have shown. The PDF is the same picture in a document
 wrapper, so nothing is lost but the file type.
 
-`14-board-draw.txt` is the renderer the page itself is drawn with. Do not
+`{BUNDLE}` is the renderer the page itself is drawn with. Do not
 rewrite it, do not draw the board yourself, and do not substitute a chart of
 your own if it fails — say what failed. It refuses rather than returning an
 image when two pieces of text would overlap, which is a real answer and a
@@ -222,5 +228,8 @@ Leave a string empty to drop that panel's insight line.
 
 An object failing one of these is corrected, not explained.
 """
+
+CONTRACT_TEXT = _CONTRACT_TEMPLATE.replace(
+    "{BUNDLE}", board_bundle.DELIVERED_BUNDLE_NAME)
 
 CONTRACTS = {CONTRACT_NAME: CONTRACT_TEXT}

@@ -735,6 +735,16 @@ class ActivityFilters:
     start_before: str | None = None
     end_after: str | None = None
     end_before: str | None = None
+    # The overlap window: every activity whose run touches [active_from,
+    # active_to], which is what "what is on this week" asks. Expressible with
+    # the four bounds above all along -- `start_before` AND `end_after`, in
+    # that crossed pairing -- and that is precisely why it kept being got
+    # wrong: the obvious reading of "activities in this week" is the two
+    # arguments sharing the word `start`, and those answer "what STARTS in
+    # this week" while looking like they answered this one. One named pair,
+    # so the right filter is the easy one to reach for.
+    active_from: str | None = None
+    active_to: str | None = None
     include_archived: bool = False
     news_digest: bool | None = None
     has_tracking_id: bool | None = None
@@ -802,6 +812,19 @@ def _apply_filters(statement, filters: ActivityFilters):
                 )
             )
         )
+    # The overlap test, in the SQL the four plain bounds could not express:
+    # an activity is running in the window when it starts on or before the
+    # window ends AND finishes on or after the window begins. A NULL end date
+    # reads as a point in time at the start -- `coalesce(end_date,
+    # start_date)` -- exactly as `ReportConfig.covers` treats it in the
+    # report, so the two surfaces answer one question the same way.
+    active_to = _parse_boundary(filters.active_to, argument="active_to")
+    if active_to is not None:
+        statement = statement.where(Activity.start_date <= active_to)
+    active_from = _parse_boundary(filters.active_from, argument="active_from")
+    if active_from is not None:
+        statement = statement.where(
+            func.coalesce(Activity.end_date, Activity.start_date) >= active_from)
     for column, argument, raw, lower_bound in (
         (Activity.start_date, "start_after", filters.start_after, True),
         (Activity.start_date, "start_before", filters.start_before, False),
@@ -901,6 +924,8 @@ def _build_filters(**kwargs: Any) -> ActivityFilters:
         start_before=kwargs.pop("start_before", None),
         end_after=kwargs.pop("end_after", None),
         end_before=kwargs.pop("end_before", None),
+        active_from=kwargs.pop("active_from", None),
+        active_to=kwargs.pop("active_to", None),
         include_archived=kwargs.pop("include_archived", False),
         archived_only=kwargs.pop("archived_only", False),
         news_digest=kwargs.pop("news_digest", None),
@@ -960,6 +985,8 @@ def search_activities(
     start_before: str | None = None,
     end_after: str | None = None,
     end_before: str | None = None,
+    active_from: str | None = None,
+    active_to: str | None = None,
     news_digest: bool | None = None,
     has_tracking_id: bool | None = None,
     has_executive: bool | None = None,
@@ -996,6 +1023,8 @@ def search_activities(
         start_before=start_before,
         end_after=end_after,
         end_before=end_before,
+        active_from=active_from,
+        active_to=active_to,
         include_archived=include_archived,
         archived_only=archived_only,
         news_digest=news_digest,
@@ -2211,9 +2240,28 @@ def calendar_load(
     *,
     weeks: int = 8,
     start_date: str | date | datetime | None = None,
+    count_mode: str = "starting",
     **filter_kwargs: Any,
 ) -> dict[str, Any]:
     """Weekly activity volume, mirroring `analytics.js::weeklyCoverage`.
+
+    `count_mode` decides what "in a week" means, and the two answers are
+    different questions rather than one being a correction of the other:
+
+    * `"starting"` (the default, and what the studio draws) counts activities
+      whose START falls in the week. Each activity lands in exactly one
+      bucket, so the buckets partition the filtered set and can be summed.
+    * `"active"` counts every activity whose run TOUCHES the week -- the
+      overlap test, and what "how busy is that week" asks. A six-week
+      campaign counts in six buckets, so these buckets do NOT sum to the
+      filtered set, and an activity with no end date counts in its start
+      week alone.
+
+    The mode is echoed back as `count_mode` so an answer can say which of the
+    two it is quoting. Anything other than `"active"` reads as `"starting"`,
+    rather than raising: this argument exists to make the overlap answer
+    reachable, and a typo that silently returned an error where the studio's
+    own figure was expected would be the worse failure.
 
     `weeks` consecutive 7-day spans starting at the anchor date, each a
     half-open window `[from, to)` -- an activity landing exactly on a `to`
@@ -2238,6 +2286,7 @@ def calendar_load(
             "anchor": None,
             "anchor_source": anchor_source,
             "weeks": span_weeks,
+            "count_mode": "active" if count_mode == "active" else "starting",
             "buckets": [],
             "busiest": None,
             "quietest": None,
@@ -2249,14 +2298,28 @@ def calendar_load(
         }
     anchor = _truncate_to_midnight(anchor)
 
-    dated = [
-        as_utc(activity.start_date) for activity in candidates if activity.start_date is not None
+    active = count_mode == "active"
+    # `(start, end)` pairs for the overlap mode, start dates alone otherwise.
+    # A missing end date reads as a point in time at the start, matching the
+    # report's `ReportConfig.covers` -- an open-ended run would otherwise
+    # match every week after it and inflate the far end of the window.
+    runs = [
+        (as_utc(activity.start_date),
+         as_utc(activity.end_date) if activity.end_date is not None
+         else as_utc(activity.start_date))
+        for activity in candidates if activity.start_date is not None
     ]
     buckets: list[dict[str, Any]] = []
     for index in range(span_weeks):
         week_from = anchor + timedelta(days=7 * index)
         week_to = week_from + timedelta(days=7)
-        count = sum(1 for value in dated if week_from <= value < week_to)
+        if active:
+            # Half-open at the top like the starting mode: an activity whose
+            # run begins exactly on `week_to` belongs to the next week.
+            count = sum(1 for start, end in runs
+                        if start < week_to and max(start, end) >= week_from)
+        else:
+            count = sum(1 for start, _ in runs if week_from <= start < week_to)
         buckets.append({"from": _iso(week_from), "to": _iso(week_to), "count": count})
 
     busiest = max(buckets, key=lambda bucket: bucket["count"])
@@ -2267,6 +2330,7 @@ def calendar_load(
         "anchor": _iso(anchor),
         "anchor_source": anchor_source,
         "weeks": span_weeks,
+        "count_mode": "active" if active else "starting",
         "buckets": buckets,
         "busiest": busiest,
         "quietest": quietest,

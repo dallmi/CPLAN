@@ -85,3 +85,61 @@ def test_a_week_whose_thursday_falls_in_the_next_quarter_groups_there():
     assert months == ["Jan 2025", "Feb 2025", "Mar 2025", "Apr 2025"]
     assert columns[-1].kind == "week"
     assert grid.quarter_of(grid.weeks[-1]) == (2025, 2)
+
+
+def test_a_one_day_activity_is_active_in_its_own_week_only():
+    grid = build_grid(date(2025, 1, 1), date(2025, 12, 31))
+
+    indices = grid.active_week_indices(date(2025, 3, 5), date(2025, 3, 5))
+
+    assert indices == (grid.week_index(date(2025, 3, 5)),)
+
+
+def test_a_run_spanning_three_weeks_is_active_in_all_three():
+    grid = build_grid(date(2025, 1, 1), date(2025, 12, 31))
+
+    indices = grid.active_week_indices(date(2025, 3, 5), date(2025, 3, 19))
+
+    assert indices == (grid.week_index(date(2025, 3, 5)),
+                       grid.week_index(date(2025, 3, 12)),
+                       grid.week_index(date(2025, 3, 19)))
+
+
+def test_no_end_date_reads_as_a_point_in_time():
+    grid = build_grid(date(2025, 1, 1), date(2025, 12, 31))
+
+    assert grid.active_week_indices(date(2025, 3, 5), None) == (
+        grid.week_index(date(2025, 3, 5)),)
+
+
+def test_an_end_before_its_start_does_not_drop_the_activity():
+    """Bad data the Data Quality sheet reports separately -- here the later of
+    the two is used, exactly as `ReportConfig.covers` does, so a typo cannot
+    silently empty a week."""
+    grid = build_grid(date(2025, 1, 1), date(2025, 12, 31))
+
+    assert grid.active_week_indices(date(2025, 3, 19), date(2025, 3, 5)) == (
+        grid.week_index(date(2025, 3, 19)),)
+
+
+def test_a_run_reaching_past_the_grid_is_clamped_to_it():
+    """The grid is the report's time axis. A week it does not carry is outside
+    the report, and inventing an index for it would put a row in a calendar
+    column that does not exist."""
+    grid = build_grid(date(2025, 6, 2), date(2025, 6, 15))
+
+    indices = grid.active_week_indices(date(2025, 5, 1), date(2025, 8, 1))
+
+    assert indices == (0, 1)
+
+
+def test_a_run_entirely_outside_the_grid_is_active_nowhere():
+    grid = build_grid(date(2025, 6, 2), date(2025, 6, 15))
+
+    assert grid.active_week_indices(date(2024, 1, 1), date(2024, 3, 1)) == ()
+
+
+def test_an_activity_with_no_start_is_active_nowhere():
+    grid = build_grid(date(2025, 1, 1), date(2025, 12, 31))
+
+    assert grid.active_week_indices(None, date(2025, 3, 5)) == ()

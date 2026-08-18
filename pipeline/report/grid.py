@@ -79,6 +79,38 @@ class Grid:
             object.__setattr__(self, "_by_monday", lookup)
         return lookup.get(day - timedelta(days=day.weekday()))
 
+    def active_week_indices(self, start, end=None):
+        """Every grid position the run `start`..`end` touches, clamped to the grid.
+
+        `week_index` answers where an activity STARTS; this answers where it is
+        RUNNING. The two differ for every activity that outlives its own start
+        week, and the difference is the whole of "what is on this week" -- a
+        question the pack could not express while a single start week was the
+        only week an activity carried.
+
+        Mirrors `ReportConfig.covers` on both edge cases: no end date reads as a
+        point in time, and an end before its start uses the later of the two
+        rather than dropping the row, so a typo cannot silently empty a week.
+
+        Clamped to the grid rather than reaching past it. A week the grid does
+        not carry is a calendar column that does not exist, and a row placed in
+        one would be read as a week of the report that nobody can look up. The
+        arithmetic is positional rather than a scan because `build_grid` steps
+        exactly seven days at a time, so the weeks are contiguous by
+        construction.
+        """
+        if start is None or not self.weeks:
+            return ()
+        last = start if end is None else max(start, end)
+        grid_first = self.weeks[0].monday
+        grid_last = self.weeks[-1].monday
+        first_monday = max(start - timedelta(days=start.weekday()), grid_first)
+        last_monday = min(last - timedelta(days=last.weekday()), grid_last)
+        if first_monday > last_monday:
+            return ()
+        return tuple(range((first_monday - grid_first).days // 7,
+                           (last_monday - grid_first).days // 7 + 1))
+
     def columns(self):
         """Ordered columns: each quarter, then its months, each with its weeks.
 

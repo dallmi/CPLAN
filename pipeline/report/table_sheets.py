@@ -614,8 +614,14 @@ ACTIVITY_COLUMNS = (
     ("channel", "Channel"),
     ("start_date", "Start"),
     ("end_date", "End"),
-    ("_iso_week", "ISO week"),
-    ("_quarter_label", "Quarter"),
+    # `Start week` and `Start quarter`, not `ISO week` and `Quarter`. Both
+    # columns have always held where the activity STARTS, and on a row that
+    # also carries `End` the shorter names read as "the week this is on" --
+    # which is how a reader, and then the agent, came to answer "what is on
+    # this week" by filtering a column that cannot answer it. The value is
+    # unchanged; only the claim the header makes is.
+    ("_start_week", "Start week"),
+    ("_quarter_label", "Start quarter"),
     ("priority", "Priority"),
     ("lead", "Lead"),
     ("lead_team", "Lead team"),
@@ -694,7 +700,7 @@ def build_activities(wb, scope, config):
         quarter = activity["_quarter"]
         values = []
         for field, _ in ACTIVITY_COLUMNS:
-            if field == "_iso_week":
+            if field == "_start_week":
                 values.append(f"{week.iso_year}-{week.label}" if week else "")
             elif field == "_quarter_label":
                 values.append(_quarter_label(quarter) if quarter else "")

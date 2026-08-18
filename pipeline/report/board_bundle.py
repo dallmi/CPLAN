@@ -27,6 +27,17 @@ SOURCES = ("dashboard_render.py", "board_image.py")
 
 BUNDLE_NAME = "board-draw.txt"
 
+# The same file as the delivery numbers it. It lives here rather than in
+# `agent_builder`, which owns the numbering, because `dashboard_contract` also
+# has to name it and cannot import `agent_builder` -- that import runs the
+# other way. Two literals in two files that must agree and never had to prove
+# it is how the contract came to send the agent after `14-board-draw.txt` one
+# change after the delivery started writing `15-`.
+#
+# The number moves whenever a data file joins the upload folder. Everything
+# ahead of the rule documents is data, so this is always last.
+DELIVERED_BUNDLE_NAME = "15-board-draw.txt"
+
 # `esc` is the one thing `build_view` takes from the template engine, and it is
 # six lines. Importing the engine into the bundle would drag the whole HTML
 # substitution machinery along for one function.
