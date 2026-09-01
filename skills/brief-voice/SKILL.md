@@ -15,9 +15,11 @@ the way CPLAN's `chart-standards` is.
 
 ## Language
 
-- The brief's language follows the engagement's language (`TBD` per
-  engagement record; internal German events get German briefs). One brief,
-  one language — no mixed sections.
+- Every brief is written in English, whatever the engagement's language —
+  house rule, not a per-engagement choice. A quote from a source stays
+  verbatim in its original language (the verbatim rule below), followed by
+  a one-line English gloss; everything else, including facts drawn from
+  German-language sources, is written in English.
 - Address the speaker directly as "you" ("You will be introduced by…").
   The brief is for one reader; third-person distance wastes their time.
 - Active voice, present tense for the event's facts, no nominalisation
