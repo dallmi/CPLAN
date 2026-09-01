@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Speaker Brief</title>
+<link rel="stylesheet" href="static/styles.css">
+</head>
+<body>
+<div class="app-shell">
+
+  <header class="topbar">
+    <div class="brand-block">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <div>
+        <h1>Speaker Brief</h1>
+        <p>Briefing packs for speaking engagements</p>
+      </div>
+    </div>
+    <div class="top-actions">
+      <button class="btn primary" type="button">New engagement</button>
+      <div class="user-chip">
+        <span class="avatar" aria-hidden="true">AE</span>
+        <span><strong>A. Example</strong></span>
+      </div>
+    </div>
+  </header>
+
+  <nav class="main-nav" aria-label="Main">
+    <button class="nav-item active" type="button">Engagements</button>
+    <button class="nav-item" type="button">Briefs</button>
+    <button class="nav-item" type="button">Speakers</button>
+    <button class="nav-item" type="button">Settings</button>
+  </nav>
+
+  <main class="content">
+
+    <div class="page-head">
+      <div class="page-head-row">
+        <div>
+          <p class="eyebrow">Portfolio</p>
+          <h2 class="page-title">Engagements</h2>
+          <p class="page-subtitle">Every upcoming appearance and the state of its briefing pack.</p>
+        </div>
+        <p class="footnote">Sample data — synthetic, organisation-neutral.</p>
+      </div>
+    </div>
+
+    <div class="kpi-grid">
+      <div class="kpi highlight">
+        <span class="kpi-label">Upcoming engagements</span>
+        <span class="kpi-value">6</span>
+        <span class="kpi-sub">next 60 days</span>
+      </div>
+      <div class="kpi warning">
+        <span class="kpi-label">Briefs in draft</span>
+        <span class="kpi-value">3</span>
+        <span class="kpi-sub">1 due this week</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-label">Awaiting review</span>
+        <span class="kpi-value">1</span>
+        <span class="kpi-sub">with communications lead</span>
+      </div>
+      <div class="kpi success">
+        <span class="kpi-label">Ready</span>
+        <span class="kpi-value">2</span>
+        <span class="kpi-sub">approved and delivered</span>
+      </div>
+    </div>
+
+    <section class="section">
+      <div class="section-head">
+        <h3 class="section-heading">Upcoming</h3>
+        <p class="footnote">6 engagements</p>
+      </div>
+
+      <div class="toolbar">
+        <div class="search"><input type="search" placeholder="Search event, speaker or venue" aria-label="Search"></div>
+        <select aria-label="Filter by brief status">
+          <option>All statuses</option>
+          <option>Draft</option>
+          <option>In review</option>
+          <option>Ready</option>
+        </select>
+        <span class="spacer"></span>
+        <span class="result-count">Showing 6 of 6</span>
+      </div>
+
+      <div class="table-wrap" style="margin-top: 14px;">
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Event</th>
+              <th>Speaker</th>
+              <th>Format</th>
+              <th>Brief</th>
+              <th class="cell-actions"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>08 Sep 2026</td>
+              <td><span class="cell-primary">Industry Outlook Forum</span><div class="cell-sub">Zurich — keynote hall</div></td>
+              <td>Head of Markets</td>
+              <td>Keynote, 20 min</td>
+              <td><span class="badge warning">In review</span></td>
+              <td class="cell-actions"><button class="btn sm" type="button">Open</button></td>
+            </tr>
+            <tr>
+              <td>15 Sep 2026</td>
+              <td><span class="cell-primary">Regional Client Council</span><div class="cell-sub">Geneva — panel stage</div></td>
+              <td>Regional Head</td>
+              <td>Panel, 45 min</td>
+              <td><span class="badge muted">Draft</span></td>
+              <td class="cell-actions"><button class="btn sm" type="button">Open</button></td>
+            </tr>
+            <tr>
+              <td>22 Sep 2026</td>
+              <td><span class="cell-primary">Graduate Town Hall</span><div class="cell-sub">Internal — auditorium</div></td>
+              <td>Chief Operating Officer</td>
+              <td>Fireside chat, 30 min</td>
+              <td><span class="badge success">Ready</span></td>
+              <td class="cell-actions"><button class="btn sm" type="button">Open</button></td>
+            </tr>
+            <tr>
+              <td>01 Oct 2026</td>
+              <td><span class="cell-primary">Sustainability Summit</span><div class="cell-sub">Frankfurt — main stage</div></td>
+              <td>Head of Sustainability</td>
+              <td>Keynote, 15 min</td>
+              <td><span class="badge muted">Draft</span></td>
+              <td class="cell-actions"><button class="btn sm" type="button">Open</button></td>
+            </tr>
+            <tr>
+              <td>09 Oct 2026</td>
+              <td><span class="cell-primary">Technology Leaders Roundtable</span><div class="cell-sub">London — closed session</div></td>
+              <td>Chief Technology Officer</td>
+              <td>Roundtable, 60 min</td>
+              <td><span class="badge muted">Draft</span></td>
+              <td class="cell-actions"><button class="btn sm" type="button">Open</button></td>
+            </tr>
+            <tr>
+              <td>21 Oct 2026</td>
+              <td><span class="cell-primary">Investor Day</span><div class="cell-sub">Zurich — media briefing</div></td>
+              <td>Chief Financial Officer</td>
+              <td>Presentation, 25 min</td>
+              <td><span class="badge success">Ready</span></td>
+              <td class="cell-actions"><button class="btn sm" type="button">Open</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-head">
+        <h3 class="section-heading">Notes</h3>
+      </div>
+      <div style="margin-top: 16px;">
+        <div class="notice">
+          <strong>Greenfield.</strong> This screen is the visual starting point — static markup on the
+          adopted design system, no backend yet. See <code>docs/DESIGN_SYSTEM.md</code> for the rules
+          this page follows.
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+</body>
+</html>

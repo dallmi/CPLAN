@@ -1,0 +1,8 @@
+# Local environments and caches
+.venv/
+__pycache__/
+node_modules/
+.DS_Store
+
+# Local reference material must never be committed (same policy as CPLAN)
+pictures/
