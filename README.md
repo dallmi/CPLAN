@@ -6,6 +6,7 @@ um und verteilt damit Kosten **centgenau** auf Kostenobjekte (Abteilungen,
 Produkte, Projekte, …).
 
 Reines Python (Standardbibliothek, keine Abhängigkeiten), ab Python 3.10.
+Excel-Unterstützung (.xlsx) ist optional und braucht `openpyxl`.
 
 ## Kernidee
 
@@ -18,12 +19,15 @@ Reines Python (Standardbibliothek, keine Abhängigkeiten), ab Python 3.10.
    (keine 99,99-%-Probleme, kein verlorener Cent).
 3. **Treiber mischen.** Kostenzeilen können einen einzelnen Treiber nutzen
    (`headcount`) oder eine gewichtete Mischung (`headcount:70,revenue:30`).
+4. **CSV oder Excel.** Ein- und Ausgabedateien dürfen `.csv` oder `.xlsx`
+   sein — die CLI erkennt das Format an der Dateiendung.
 
 ## Installation
 
 ```bash
 python -m venv .venv
-.venv/bin/pip install -e ".[dev]"   # -e für Entwicklung, [dev] für pytest
+.venv/bin/pip install -e ".[dev]"    # Entwicklung: pytest + openpyxl
+.venv/bin/pip install -e ".[xlsx]"   # nur Nutzung inkl. Excel-Unterstützung
 ```
 
 ## CLI
@@ -40,6 +44,18 @@ Kosten verteilen:
 ```bash
 profitability allocate --costs examples/costs.csv --drivers examples/drivers.csv
 profitability allocate --costs examples/costs.csv --drivers examples/drivers.csv --out result.csv
+```
+
+Dasselbe mit Excel — beide Tabellen dürfen im selben Workbook liegen,
+das Arbeitsblatt wird über `--drivers-sheet` / `--costs-sheet` gewählt
+(ohne Angabe: das aktive Blatt). Endet `--out` auf `.xlsx`, wird Excel
+geschrieben:
+
+```bash
+profitability allocate \
+    --costs examples/profitability.xlsx --costs-sheet costs \
+    --drivers examples/profitability.xlsx --drivers-sheet drivers \
+    --out result.xlsx
 ```
 
 (Ohne Installation geht auch `python -m profitability ...` aus dem Repo-Root.)
@@ -65,6 +81,11 @@ cost,amount,driver
 Office rent,120000.00,sqm
 Shared platforms,50000.00,"headcount:70,revenue:30"
 ```
+
+Für Excel gilt dasselbe Spaltenlayout (Kopfzeile plus Datenzeilen);
+Groß-/Kleinschreibung der Kopfzeile ist egal, zusätzliche Spalten und
+Leerzeilen werden ignoriert. `examples/profitability.xlsx` zeigt beide
+Tabellen in einem Workbook.
 
 Ergebnis (`allocate --out`): `cost,driver,object,share_percent,amount` —
 die `amount`-Werte je Kostenposition summieren sich exakt auf den
