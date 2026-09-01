@@ -1,0 +1,17 @@
+driver,object,value
+headcount,Wealth Mgmt,9000
+headcount,Investment Bank,6500
+headcount,Retail & Corporates,12000
+headcount,Asset Mgmt,2500
+activities,Wealth Mgmt,120
+activities,Investment Bank,85
+activities,Retail & Corporates,140
+activities,Asset Mgmt,40
+reach,Wealth Mgmt,45000
+reach,Investment Bank,38000
+reach,Retail & Corporates,52000
+reach,Asset Mgmt,9000
+events,Wealth Mgmt,3200
+events,Investment Bank,2100
+events,Retail & Corporates,5400
+events,Asset Mgmt,800

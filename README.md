@@ -8,6 +8,26 @@ Produkte, Projekte, …).
 Reines Python (Standardbibliothek, keine Abhängigkeiten), ab Python 3.10.
 Excel-Unterstützung (.xlsx) ist optional und braucht `openpyxl`.
 
+## Für jeden Bereich
+
+Die Logik ist bewusst domänen-neutral: Kostenobjekte und Treiber sind frei
+benennbare Größen. Derselbe Mechanismus trägt damit jeden
+Unternehmensbereich — interne Kommunikation, Marketing, Client
+Profitability im Banking, Facility, IT-Verrechnung usw. Ein „Bereich“ ist
+einfach ein eigenes Paar aus Treiber- und Kostendatei.
+
+Der Standard-/Referenzbereich ist **Interne Kommunikation im Banking**
+(`examples/internal_comms_*.csv`): Kostenobjekte sind Divisionen
+(Wealth Mgmt, Investment Bank, Retail & Corporates, Asset Mgmt), Treiber
+sind erreichte Mitarbeitende, Comms-Aktivitäten, Intranet-Reichweite und
+Townhall-Teilnahmen.
+
+```bash
+profitability allocate \
+    --costs examples/internal_comms_costs.csv \
+    --drivers examples/internal_comms_drivers.csv
+```
+
 ## Kernidee
 
 1. **Treiberwerte → Verteilung.** Aus beliebigen Rohwerten pro Objekt wird
