@@ -28,6 +28,24 @@ profitability allocate \
     --drivers examples/internal_comms_drivers.csv
 ```
 
+## Nutzen gegenüberstellen
+
+Profitabilität ist Nutzen ÷ Kosten. Nutzenmaße (Reichweite, Engagement,
+Wirkung, Erträge, …) nutzen dasselbe Format wie Treiber und werden gewichtet
+zu einem Nutzwert-Index gemischt; `cost-benefit` stellt ihn den zugerechneten
+Kosten gegenüber (Nutzwert-Punkte, € je Punkt, Effizienz-Index). Das
+Messmodell für interne Kommunikation — die Wirkungstreppe Reichweite →
+Engagement → Wirkung → Geschäftswert — steht in
+[`docs/nutzenmodell.md`](docs/nutzenmodell.md).
+
+```bash
+profitability cost-benefit \
+    --costs examples/internal_comms_costs.csv \
+    --drivers examples/internal_comms_drivers.csv \
+    --benefits examples/internal_comms_benefits.csv \
+    --benefit-mix "reach:30,engagement:40,outcome:30"
+```
+
 ## Kernidee
 
 1. **Treiberwerte → Verteilung.** Aus beliebigen Rohwerten pro Objekt wird

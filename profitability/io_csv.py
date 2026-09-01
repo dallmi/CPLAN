@@ -97,6 +97,35 @@ def write_allocation(path: PathLike, rows: list[AllocationRow], *, precision: in
             )
 
 
+def write_cost_benefit(path: PathLike, rows) -> None:
+    """Write :class:`CostBenefitRow` items as CSV."""
+    with open(path, "w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(
+            [
+                "object",
+                "cost",
+                "cost_share_percent",
+                "benefit_share_percent",
+                "benefit_points",
+                "cost_per_point",
+                "index",
+            ]
+        )
+        for row in rows:
+            writer.writerow(
+                [
+                    row.object,
+                    f"{row.cost}",
+                    f"{float(row.cost_share * 100):.4f}",
+                    f"{float(row.benefit_share * 100):.4f}",
+                    f"{row.benefit_points}",
+                    "" if row.cost_per_point is None else f"{row.cost_per_point}",
+                    "" if row.index is None else f"{row.index}",
+                ]
+            )
+
+
 def write_percentages(
     path: PathLike, percentages: Mapping[str, Mapping[str, Decimal]]
 ) -> None:

@@ -12,9 +12,16 @@ import argparse
 import sys
 from pathlib import Path
 
-from .allocation import allocate_costs
-from .distribution import NEGATIVE_MODES
-from .io_csv import read_costs, read_drivers, write_allocation, write_percentages
+from .allocation import allocate_costs, resolve_driver
+from .benefit import cost_benefit, summed_costs
+from .distribution import NEGATIVE_MODES, Distribution
+from .io_csv import (
+    read_costs,
+    read_drivers,
+    write_allocation,
+    write_cost_benefit,
+    write_percentages,
+)
 
 XLSX_SUFFIXES = {".xlsx", ".xlsm", ".xltx"}
 
@@ -90,6 +97,39 @@ def build_parser() -> argparse.ArgumentParser:
     alloc.add_argument(
         "--out", help="write result here (.csv or .xlsx) instead of printing"
     )
+
+    cb = sub.add_parser(
+        "cost-benefit",
+        help=(
+            "compare allocated costs per object against a benefit "
+            "distribution built from benefit metrics (metric = driver format)"
+        ),
+    )
+    cb.add_argument("--costs", required=True, help="costs file (.csv or .xlsx)")
+    cb.add_argument("--costs-sheet", help="worksheet name for an .xlsx costs file")
+    cb.add_argument("--drivers", required=True, help="drivers file (.csv or .xlsx)")
+    cb.add_argument("--drivers-sheet", help="worksheet name for an .xlsx drivers file")
+    cb.add_argument(
+        "--benefits",
+        required=True,
+        help="benefit metrics file, same columns as drivers (.csv or .xlsx)",
+    )
+    cb.add_argument("--benefits-sheet", help="worksheet name for an .xlsx benefits file")
+    cb.add_argument(
+        "--benefit-mix",
+        help=(
+            "weighted metric mix, e.g. 'reach:30,engagement:40,outcome:30' "
+            "(default: all metrics equally weighted)"
+        ),
+    )
+    cb.add_argument("--points", type=int, default=1000, help="benefit points scale (default 1000)")
+    cb.add_argument(
+        "--negatives",
+        choices=NEGATIVE_MODES,
+        default="error",
+        help="how to treat negative driver/metric values (default: error)",
+    )
+    cb.add_argument("--out", help="write result CSV here instead of printing")
     return parser
 
 
@@ -159,11 +199,50 @@ def run_allocate(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_cost_benefit(args: argparse.Namespace) -> int:
+    drivers = load_drivers(
+        args.drivers, sheet=args.drivers_sheet, negatives=args.negatives
+    )
+    costs = load_costs(args.costs, sheet=args.costs_sheet)
+    metrics = load_drivers(
+        args.benefits, sheet=args.benefits_sheet, negatives=args.negatives
+    )
+    if args.benefit_mix:
+        benefit = resolve_driver(args.benefit_mix, metrics)
+    else:
+        benefit = Distribution.combine([(dist, 1) for dist in metrics.values()])
+    allocated = allocate_costs(costs, drivers)
+    rows = cost_benefit(summed_costs(allocated), benefit, points=args.points)
+    if args.out:
+        write_cost_benefit(args.out, rows)
+        print(f"wrote {args.out}")
+        return 0
+    table = [
+        [
+            row.object,
+            f"{row.cost}",
+            f"{float(row.cost_share * 100):.1f} %",
+            f"{float(row.benefit_share * 100):.1f} %",
+            f"{row.benefit_points}",
+            "—" if row.cost_per_point is None else f"{row.cost_per_point}",
+            "—" if row.index is None else f"{row.index}",
+        ]
+        for row in rows
+    ]
+    _print_table(
+        ["object", "cost", "cost share", "benefit share", "points", "cost/point", "index"],
+        table,
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         if args.command == "distribute":
             return run_distribute(args)
+        if args.command == "cost-benefit":
+            return run_cost_benefit(args)
         return run_allocate(args)
     except (ValueError, KeyError, OSError, ImportError) as error:
         message = error.args[0] if error.args else error
