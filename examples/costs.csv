@@ -1,0 +1,5 @@
+cost,amount,driver
+Office rent,120000.00,sqm
+IT helpdesk,80000.00,tickets
+HR services,45000.00,headcount
+Shared platforms,50000.00,"headcount:70,revenue:30"

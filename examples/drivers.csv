@@ -1,0 +1,13 @@
+driver,object,value
+headcount,IT,50
+headcount,HR,10
+headcount,Sales,40
+revenue,IT,0
+revenue,HR,0
+revenue,Sales,1250000
+tickets,IT,820
+tickets,HR,95
+tickets,Sales,310
+sqm,IT,400
+sqm,HR,120
+sqm,Sales,600
