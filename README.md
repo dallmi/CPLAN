@@ -19,6 +19,10 @@ No CPLAN code, data model, or history is included.
   (shell, navigation, type scale, buttons, KPI tiles, tables, badges, forms,
   notices).
 - `docs/DESIGN_SYSTEM.md` — the rules new screens must follow.
+- `skills/` — draft skill packages for the AI that assembles briefs
+  (brief anatomy, key messages, Q&A anticipation, context-pack reading,
+  voice), following the CPLAN agent-skill pattern. Pre-Phase-0 drafts; see
+  [`skills/README.md`](skills/README.md).
 
 ## Next steps (open)
 
